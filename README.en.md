@@ -18,6 +18,23 @@ it came into being because this exact tool did not exist. protonup-qt only manag
 
 ![cleanup view: tabs for shader caches, wine prefixes and trash](docs/screenshots/cleanup_view.png)
 
+## installing
+
+grab the ready-made AppImage from the [releases page](https://github.com/Tzyber/Protium/releases), make it executable, run it:
+
+```sh
+chmod +x protium_0.2.5_amd64.AppImage
+./protium_0.2.5_amd64.AppImage
+```
+
+the AppImage is not signed. if you don't like that, build it yourself (see dev setup) or wait for the AUR package.
+
+if nothing starts and no error message appears, fuse2 is usually missing. then either `sudo pacman -S fuse2` or run it once without fuse:
+
+```sh
+./protium_0.2.5_amd64.AppImage --appimage-extract-and-run
+```
+
 ## what it does
 
 **library overview.** every game across every library, external drives included, with cover art, size, assigned proton version and protondb tier right on the card. covers come from steam's local librarycache, so the app works fully offline.
