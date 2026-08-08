@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { discoverSteamRoot } from "../../src/core/paths.js";
@@ -119,5 +119,25 @@ describe("scanLibrary (integration — dominiks reales setup)", () => {
     expect(result.libraries).toEqual([root, lib2, scopeFailLib]);
     const scopeFailed = result.skippedLibraries.find((s) => s.path === scopeFailLib);
     expect(scopeFailed?.reason).toBe("scope-failed");
+  });
+
+  // der bericht (113:7): kein account durfte den scan nicht crashen, sondern
+  // eine warnung zeigen, die erklärt, warum startoptionen fehlen.
+  it("kein steam-account → warnung mit erklärung, scan läuft durch", async () => {
+    const { home, root } = await buildFakeSteam();
+    const fs = nodeFs();
+    await rm(join(root, "userdata"), { recursive: true, force: true });
+
+    const result = await scanLibrary(
+      { fs, http: fakeHttp(), system: fakeSystem(), cache: memCache() },
+      { steamRoot: root, protonDbDelayMs: 0 },
+    );
+
+    expect(result.warnings).toContain(
+      "kein steam-account mit localconfig.vdf gefunden → startoptionen unbekannt",
+    );
+    expect(result.steamUserId).toBeNull();
+    expect(result.games.length).toBeGreaterThan(0);
+    expect(result.games.every((g) => g.launchOptions === undefined)).toBe(true);
   });
 });

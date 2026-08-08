@@ -183,6 +183,18 @@ describe("setVdfValue — schutz vor strukturbruch", () => {
       VdfPatchError,
     );
   });
+
+  // der bericht (78:14/87:11): ein unterminierter string musste mit
+  // verständlicher meldung werfen statt zu hängen oder roh zu crashen.
+  // timeout: eine endlos-schleife in der tokenisierung soll als fehlschlag
+  // sichtbar werden, nicht die suite hängen lassen.
+  it("unterminierter string → wirft mit verständlicher meldung statt zu hängen", () => {
+    const truncated =
+      '"InstallConfigStore"\n{\n\t"Software"\n\t{\n\t\t"name"\t\t"wert ohne schlussquote';
+    expect(() => setVdfValue(truncated, ["InstallConfigStore", "Software", "name"], "x")).toThrow(
+      new VdfPatchError("unterminierter string"),
+    );
+  }, 2000);
 });
 
 describe("removeVdfEntry", () => {
