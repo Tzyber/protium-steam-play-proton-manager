@@ -50,3 +50,7 @@ tagesbericht-2026-07-31.md
 .vscode
 .zprofile
 .zshrc
+
+# stryker-mutationstesting: artefakte (html-report, temp-verzeichnis)
+reports/
+.stryker-tmp/

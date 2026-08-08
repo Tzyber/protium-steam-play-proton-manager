@@ -8,6 +8,7 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
+    "mutation": "stryker run",
     "check": "biome check && vue-tsc --noEmit",
     "vite:dev": "vite",
     "vite:build": "vue-tsc --noEmit && vite build",
@@ -19,6 +20,8 @@
   "type": "module",
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",
+    "@stryker-mutator/core": "9.6.1",
+    "@stryker-mutator/vitest-runner": "9.6.1",
     "@tauri-apps/cli": "^2.11.4",
     "@types/node": "^26.1.2",
     "@vitejs/plugin-vue": "^6.0.8",
