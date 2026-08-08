@@ -97,17 +97,21 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: "Protium ${{ github.ref_name }}"
           body: |
-            ## 0.2.5 — abhängigkeit gehärtet (nanoid)
-
-            dependabot-findung: nanoid < 3.3.17 (GHSA-2v37-7h3g-55p8, high)
-            lässt custom generators bei size 0 endlos loopen. betrifft nur die
-            build-toolchain (vite → postcss), läuft nicht im appimage mit —
-            trotzdem angehoben, dann steht die alertliste auf null.
+            ## 0.2.6 — papierkorb-status, testlücken geschlossen
 
             **fix:**
-            - nanoid 3.3.16 → 3.3.18 (lockfile), `npm audit`: 0 vulnerabilities
+            - papierkorb-status zeigt verwaiste duplikate (gleicher
+              realpath, symlink-library) jetzt als eigene zeile statt sie
+              zu verschweigen
 
-            **verifikation:** vitest 263/263 · `npm run check` clean ·
+            **test:**
+            - zwei abdeckungslücken geschlossen: unterminierter string im
+              vdf-string-patch und scan ohne steam-account. kein
+              verhaltenschange, nur abgesichert.
+            - stryker-mutationstesting eingerichtet (`npm run mutation`),
+              blocklist-datentabelle als nicht-tötbare daten-pins ausgenommen
+
+            **verifikation:** vitest 265/265 · `npm run check` clean ·
             cargo test 104/104.
           draft: true
           prerelease: false
