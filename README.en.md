@@ -77,7 +77,7 @@ important: the target `compatdata/<appId>` must not already exist. if it does, y
 
 tauri v2 as the shell, vue 3 and typescript for UI and domain logic, rust only for what the webview is not allowed to do. no electron; the binary stays small and uses the system webview (webkit2gtk).
 
-concretely, rust only handles: under 1000 productive lines for path validation, streaming downloads with hashing, tarball extraction, the two delete commands, process check and fs scope grants. domain logic and UI decisions do not live in this layer. plus nearly twice as many lines of tests as production code, because these paths modify and delete files.
+concretely, rust only handles: just over 1000 productive lines for path validation, streaming downloads with hashing, tarball extraction, the two delete commands, process check and fs scope grants. domain logic and UI decisions do not live in this layer. plus nearly 1800 lines of tests, almost twice as many as production code, because these paths modify and delete files.
 
 the domain logic in `src/core/` is entirely UI-free and talks to the system only through ports and adapters. that lets the whole core test suite run headless against fixtures, no tauri, no steam, no network.
 
@@ -146,7 +146,6 @@ version history lives in the [releases](https://github.com/Tzyber/Protium/releas
 
 no security issues, rather maintenance. worked through when convenient, order is not a priority.
 
-- trash status does not always output one line per library (`trash.ts`): with two libraries sharing the same realpath, the second gets none
 - split up `scanLibrary` (`scan.ts`, 164 lines, 7 concerns), as its own cycle and not in passing
 
 ## status

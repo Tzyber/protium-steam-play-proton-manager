@@ -119,11 +119,12 @@ tauri v2 als shell, vue 3 und typescript für UI und domänenlogik, rust nur fü
 das, was die webview nicht darf. kein electron, das binary bleibt klein und
 nutzt die system-webview (webkit2gtk).
 
-konkret übernimmt rust nur: unter 1000 produktive zeilen für pfad-validierung,
-streaming-downloads mit hash, tarball-extraktion, die beiden löschbefehle,
-prozess-check und fs-scope-freigabe. geschäftslogik und UI-entscheidungen liegen
-nicht in dieser schicht. dazu kommen fast doppelt so viele testzeilen wie
-produktivcode, denn diese pfade verändern und löschen dateien.
+konkret übernimmt rust nur: etwas über 1000 produktive zeilen für
+pfad-validierung, streaming-downloads mit hash, tarball-extraktion, die beiden
+löschbefehle, prozess-check und fs-scope-freigabe. geschäftslogik und
+UI-entscheidungen liegen nicht in dieser schicht. dazu kommen knapp 1800
+testzeilen, fast doppelt so viele wie produktivcode, denn diese pfade verändern
+und löschen dateien.
 
 die domänenlogik in `src/core/` ist komplett UI-frei und redet mit dem system
 nur über ports und adapter. dadurch läuft die gesamte core-testsuite headless
@@ -205,8 +206,6 @@ versionshistorie steht in den [releases](https://github.com/Tzyber/Protium/relea
 keine sicherheitsprobleme, eher wartung. abarbeitung bei gelegenheit,
 reihenfolge ist keine priorität.
 
-- papierkorb-status gibt nicht immer eine zeile pro library aus (`trash.ts`):
-  bei zwei libraries mit gleichem realpath bekommt die zweite keine
 - `scanLibrary` aufteilen (`scan.ts`, 164 zeilen, 7 concerns), als eigener
   zyklus und nicht im vorbeigehen
 
