@@ -469,11 +469,13 @@ const tabLabel = (id: Tab) =>
 
         <div v-if="cleanup.trashLibraries.length" class="libstatus">
           <div v-for="l in cleanup.trashLibraries" :key="l.library" class="mono">
-            {{ l.error
-              ? t("cleanup.trashLibError", { dir: l.dir || l.library, msg: l.error })
-              : !l.present
-                ? t("cleanup.trashLibNone", { dir: l.dir || l.library })
-                : t("cleanup.trashLibCount", { dir: l.dir, n: l.count }) }}
+            {{ l.duplicateOf
+              ? t("cleanup.trashLibDuplicate", { dir: l.dir || l.library, lib: l.duplicateOf })
+              : l.error
+                ? t("cleanup.trashLibError", { dir: l.dir || l.library, msg: l.error })
+                : !l.present
+                  ? t("cleanup.trashLibNone", { dir: l.dir || l.library })
+                  : t("cleanup.trashLibCount", { dir: l.dir, n: l.count }) }}
           </div>
         </div>
 

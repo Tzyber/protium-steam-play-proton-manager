@@ -94,6 +94,7 @@ export const de = {
     trashLibNone: "{dir} — kein papierkorb",
     trashLibCount: "{dir} — {n} einträge",
     trashLibError: "{dir} — nicht lesbar: {msg}",
+    trashLibDuplicate: "{dir} — gleicher ordner wie {lib}",
     tabsLabel: "bereiche der bereinigung",
     ignoredMissingNote: "{n} nicht existierende library-pfade werden ignoriert",
     ignoredMissingUndo: "wieder berücksichtigen",

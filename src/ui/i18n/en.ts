@@ -98,6 +98,7 @@ export const en = {
     trashLibNone: "{dir} — no trash",
     trashLibCount: "{dir} — {n} entries",
     trashLibError: "{dir} — unreadable: {msg}",
+    trashLibDuplicate: "{dir} — same directory as {lib}",
     tabsLabel: "cleanup sections",
     ignoredMissingNote: "{n} non-existent library paths are being ignored",
     ignoredMissingUndo: "consider again",

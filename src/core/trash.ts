@@ -30,6 +30,9 @@ export interface TrashLibraryStatus {
   count: number;
   /** gesetzt, wenn das lesen fehlgeschlagen ist (rechte, io) */
   error?: string;
+  /** gesetzt, wenn diese library denselben papierkorb-pfad hat wie eine
+   *  frühere (symlink-library): eigene einträge zählt sie keine. */
+  duplicateOf?: string;
 }
 
 export interface TrashScanResult {
@@ -55,7 +58,7 @@ export async function findTrashEntries(
   const unknown: string[] = [];
   const unreadable: string[] = [];
   const status: TrashLibraryStatus[] = [];
-  const seenDirs = new Set<string>();
+  const seenDirs = new Map<string, string>();
 
   for (const lib of libraries) {
     let listing: TrashListing;
@@ -73,8 +76,20 @@ export async function findTrashEntries(
       continue;
     }
 
-    if (seenDirs.has(listing.dir)) continue; // zwei libraries, ein realpath
-    seenDirs.add(listing.dir);
+    const firstLib = seenDirs.get(listing.dir); // zwei libraries, ein realpath
+    if (firstLib !== undefined) {
+      // auch für das duplikat eine statuszeile: der nutzer sieht sonst eine
+      // zeile weniger als libraries vorhanden sind, ohne erklärung.
+      status.push({
+        library: lib,
+        dir: listing.dir,
+        present: listing.present,
+        count: 0,
+        duplicateOf: firstLib,
+      });
+      continue;
+    }
+    seenDirs.set(listing.dir, lib);
 
     if (!listing.present) {
       status.push({ library: lib, dir: listing.dir, present: false, count: 0 });

@@ -146,7 +146,7 @@ describe("findTrashEntries", () => {
     expect(r.unknown).toHaveLength(1);
   });
 
-  it("zwei libraries mit identischem papierkorb-pfad zählen nur einmal", async () => {
+  it("zwei libraries mit identischem papierkorb-pfad: statuszeile für beide, einträge nur einmal", async () => {
     const sys = fakeSystem(async () =>
       listing("/real/steamapps/.protium-trash", ["compatdata_4_1000"]),
     );
@@ -154,6 +154,11 @@ describe("findTrashEntries", () => {
     const r = await findTrashEntries(["/link", "/real"], sys);
 
     expect(r.entries).toHaveLength(1);
-    expect(r.libraries).toHaveLength(1);
+    expect(r.libraries).toHaveLength(2);
+    expect(r.libraries[0]).toMatchObject({ library: "/link" });
+    expect(r.libraries[0]?.duplicateOf).toBeUndefined();
+    expect(r.libraries[1]).toMatchObject({ library: "/real", duplicateOf: "/link" });
+    expect(r.libraries[0]?.count).toBe(1);
+    expect(r.libraries[1]?.count).toBe(0);
   });
 });
