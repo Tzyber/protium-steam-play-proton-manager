@@ -213,7 +213,3 @@ reihenfolge ist keine priorität.
 
 in aktiver entwicklung. api und UI ändern sich ohne vorwarnung. die roadmap
 beschreibt den aktuellen stand, sie ist keine zusage für kommende versionen.
-
-geschrieben mit KI-unterstützung, entworfen und verantwortet von mir. wer in der
-contributors-liste einen claude sieht: das kommt aus `Co-Authored-By`-trailern.
-im commit-graph taucht er nicht auf, weil er dort nichts gedrückt hat.
