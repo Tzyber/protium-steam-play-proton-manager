@@ -23,8 +23,8 @@ it came into being because this exact tool did not exist. protonup-qt only manag
 grab the ready-made AppImage from the [releases page](https://github.com/Tzyber/protium-steam-play-proton-manager/releases), make it executable, run it:
 
 ```sh
-chmod +x protium_0.2.6_amd64.AppImage
-./protium_0.2.6_amd64.AppImage
+chmod +x protium_0.2.7_amd64.AppImage
+./protium_0.2.7_amd64.AppImage
 ```
 
 the AppImage is not signed. if you don't like that, build it yourself (see dev setup) or wait for the AUR package.
@@ -32,7 +32,7 @@ the AppImage is not signed. if you don't like that, build it yourself (see dev s
 if nothing starts and no error message appears, fuse2 is usually missing. then either `sudo pacman -S fuse2` or run it once without fuse:
 
 ```sh
-./protium_0.2.6_amd64.AppImage --appimage-extract-and-run
+./protium_0.2.7_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## what it does
@@ -110,7 +110,7 @@ the cache lives in `~/.cache/com.protium.desktop/`.
 (cd src-tauri && cargo audit)
 ```
 
-`src-tauri/audit.toml` lists advisories that are knowingly accepted, each by ID with a reason, so that a **new** advisory still trips the check. these mostly concern tauri's GTK3 stack (the gtk-rs bindings are unmaintained; gtk-rs moved on to GTK4) and build-time-only crates. to be revisited once tauri moves to gtk-rs 0.20.
+`.cargo/audit.toml` lists advisories that are knowingly accepted, each by ID with a reason, so that a **new** advisory still trips the check. these mostly concern tauri's GTK3 stack (the gtk-rs bindings are unmaintained; gtk-rs moved on to GTK4) and build-time-only crates. to be revisited once tauri moves to gtk-rs 0.20.
 
 ## layout
 

@@ -241,7 +241,12 @@ pub async fn remove_orphan_dir(app: AppHandle, path: String) -> Result<String, S
             return Err("library outside allowed scope".into());
         }
         allow_library_scope_inner(app, &library)?;
-        remove_orphan_dir_inner(&canonical, &library, &|p| app2.fs_scope().is_allowed(p))
+        let result = remove_orphan_dir_inner(&canonical, &library, &|p| app2.fs_scope().is_allowed(p));
+        match &result {
+            Ok(msg) => eprintln!("protium: remove_orphan_dir: {path} → {msg}"),
+            Err(e) => eprintln!("protium: remove_orphan_dir: {path} → FAIL: {e}"),
+        }
+        result
     })
     .await
 }
@@ -255,7 +260,12 @@ pub async fn remove_orphan_dir(app: AppHandle, path: String) -> Result<String, S
 pub async fn remove_trash_entry(app: tauri::AppHandle, path: String) -> Result<String, String> {
     let app2 = app.clone();
     spawn_blocking_io(move || {
-        remove_trash_entry_inner(&path, &|p| app2.fs_scope().is_allowed(p))
+        let result = remove_trash_entry_inner(&path, &|p| app2.fs_scope().is_allowed(p));
+        match &result {
+            Ok(msg) => eprintln!("protium: remove_trash_entry: {path} → {msg}"),
+            Err(e) => eprintln!("protium: remove_trash_entry: {path} → FAIL: {e}"),
+        }
+        result
     })
     .await
 }

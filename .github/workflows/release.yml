@@ -97,22 +97,40 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: "Protium ${{ github.ref_name }}"
           body: |
-            ## 0.2.6 — papierkorb-status, testlücken geschlossen
+            ## 0.2.7 — rust-code aufgeräumt, zwei sicherheitslücken geschlossen
 
-            **fix:**
-            - papierkorb-status zeigt verwaiste duplikate (gleicher
-              realpath, symlink-library) jetzt als eigene zeile statt sie
-              zu verschweigen
+            **sicherheit:**
+            - externe links öffnen nur noch ihr eigentliches ziel.
+              protondb-links sind auf spiel-seiten beschränkt, github-links
+              auf das protium-repo. vorher genügte der richtige hostname —
+              eine manipulierte app-oberfläche hätte jede beliebige
+              unterseite öffnen können.
+            - das löschen eines GE-proton-tools prüft den steam-pfad jetzt
+              aufgelöst (symlinks werden verfolgt) und weigert sich, wenn
+              `compatibilitytools.d` selbst ein symlink ist — vorher hätte
+              das löschen durch einen versteckten link in ein fremdes
+              verzeichnis treffen können.
+            - cargo-audit in der CI wirkt jetzt wie dokumentiert: die
+              bekannten, begründeten warnungen werden ignoriert, neue
+              advisories schlagen an. die config lag an einer stelle, die
+              cargo-audit nie sucht — die ignores griffen gar nicht.
 
-            **test:**
-            - zwei abdeckungslücken geschlossen: unterminierter string im
-              vdf-string-patch und scan ohne steam-account. kein
-              verhaltenschange, nur abgesichert.
-            - stryker-mutationstesting eingerichtet (`npm run mutation`),
-              blocklist-datentabelle als nicht-tötbare daten-pins ausgenommen
+            **wartung:**
+            - die riesige rust-command-datei (3600 zeilen, davon 2200
+              tests) ist in acht module aufgeteilt — reine verschiebung,
+              kein verhaltenswechsel.
+            - scope-freigaben und lösch-aktionen schreiben eine kurze
+              zeile auf stderr (was + ergebnis) — hilft beim debuggen,
+              ohne neue abhängigkeit.
+            - kleinkram: package.json-metadaten (description, author),
+              repo-verweise auf den neuen namen, letzter .idea-rest aus
+              dem git-tracking, korrigierter doku-eintrag zum
+              redirect-handling.
 
-            **verifikation:** vitest 265/265 · `npm run check` clean ·
-            cargo test 104/104.
+            **tests:** +4 rust-tests für die neuen sicherheitsfälle.
+
+            **verifikation:** vitest 265/265 · cargo 108/108 · check
+            clean (1 bekannte warnung).
           draft: true
           prerelease: false
           files: |

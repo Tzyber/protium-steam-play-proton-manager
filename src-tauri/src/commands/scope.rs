@@ -96,6 +96,7 @@ pub(super) fn validate_library_scope(path_str: &str) -> Result<std::path::PathBu
 #[tauri::command]
 pub fn allow_library_scope(app: tauri::AppHandle, path: String) -> Result<(), String> {
     let real = validate_library_scope(&path)?;
+    eprintln!("protium: scope grant: {}", real.display());
     let _ = app.fs_scope().allow_directory(real.to_string_lossy().as_ref(), true);
     Ok(())
 }

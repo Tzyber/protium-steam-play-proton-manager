@@ -111,11 +111,25 @@ pub(super) fn remove_compat_tool_inner(
     {
         return Err("invalid tool name".into());
     }
-    let root = Path::new(steam_root);
-    if !scope_ok(root) {
+    // canonicalize VOR dem scope-check: ein roh-pfad mit symlink-
+    // zwischenkomponenten würde den scope auf den symlink-pfad prüfen,
+    // das löschen liefe aber durch den symlink hindurch (umzugs-befund
+    // 2026-08-11, same muster wie validate_and_prepare/remove_trash_entry).
+    let root = fs::canonicalize(steam_root).map_err(|e| format!("steam root canonicalize: {e}"))?;
+    if !scope_ok(&root) {
         return Err("steam root outside allowed scope".into());
     }
-    let target = root.join("compatibilitytools.d").join(tool_name);
+    let tools_dir = root.join("compatibilitytools.d");
+    // zwischenkomponenten-guard: compatibilitytools.d selbst darf kein
+    // symlink sein, sonst zeigte target durch ihn hindurch woanders hin
+    let tools_meta = fs::symlink_metadata(&tools_dir).map_err(|e| e.to_string())?;
+    if tools_meta.file_type().is_symlink() {
+        return Err("compatibilitytools.d is a symlink — rejected".into());
+    }
+    if !tools_meta.is_dir() {
+        return Err("compatibilitytools.d is not a directory".into());
+    }
+    let target = tools_dir.join(tool_name);
     // symlink-guard: ein tool, das ein symlink ist, wird nie gelöscht
     let meta = fs::symlink_metadata(&target).map_err(|e| e.to_string())?;
     if meta.file_type().is_symlink() {
@@ -381,6 +395,51 @@ mod tests {
         let res = remove_compat_tool_inner(steam.to_str().unwrap(), "evil", &|_| true);
         assert!(res.is_err(), "symlink-tool muss abgelehnt werden: {res:?}");
         assert!(real.is_dir(), "ziel des symlinks bleibt");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn remove_tool_symlink_root_scope_check_auf_canonical() {
+        // ein steam_root, der selbst ein symlink ist, zeigt nach canonicalize
+        // woanders hin — der scope-check läuft jetzt auf dem canonical-pfad.
+        // erlaubt der scope nur den roh-symlink (nicht das canonical-ziel),
+        // muss der remove abgelehnt werden.
+        let root = wsg_fixture("rmtool-symlink-root");
+        let real_root = root.join("echt-root");
+        std::fs::create_dir_all(real_root.join("compatibilitytools.d/GE-Proton9-27")).unwrap();
+        let link = root.join("link-root");
+        std::os::unix::fs::symlink(&real_root, &link).unwrap();
+
+        let res = remove_compat_tool_inner(link.to_str().unwrap(), "GE-Proton9-27", &|p| {
+            p == link
+        });
+        assert!(res.is_err(), "scope nur auf roh-symlink muss abgelehnt werden: {res:?}");
+        assert!(real_root.join("compatibilitytools.d/GE-Proton9-27").is_dir(), "nichts gelöscht");
+
+        // umgekehrter fall: scope auf canonical → geht
+        let res = remove_compat_tool_inner(link.to_str().unwrap(), "GE-Proton9-27", &|p| {
+            p == real_root
+        });
+        assert!(res.is_ok(), "canonical root im scope muss gehen: {res:?}");
+        assert!(!real_root.join("compatibilitytools.d/GE-Proton9-27").exists(), "tool gelöscht");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn remove_tool_symlink_toolsdir_abgelehnt() {
+        // compatibilitytools.d selbst als symlink → löschen würde durch den
+        // link hindurch woanders treffen (umzugs-befund 2026-08-11)
+        let root = wsg_fixture("rmtool-symlink-toolsdir");
+        let steam = root.join("steam");
+        std::fs::create_dir_all(&steam).unwrap();
+        let real = root.join("echt");
+        std::fs::create_dir_all(real.join("GE-Proton9-27")).unwrap();
+        std::os::unix::fs::symlink(&real, steam.join("compatibilitytools.d")).unwrap();
+
+        let res = remove_compat_tool_inner(steam.to_str().unwrap(), "GE-Proton9-27", &|_| true);
+        assert!(res.is_err(), "symlink-toolsdir muss abgelehnt werden: {res:?}");
+        assert!(real.join("GE-Proton9-27").is_dir(), "ziel des links bleibt");
         let _ = std::fs::remove_dir_all(&root);
     }
 

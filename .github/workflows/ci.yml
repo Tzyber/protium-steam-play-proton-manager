@@ -49,8 +49,8 @@ jobs:
       - uses: taiki-e/install-action@7f4eb899022d8fe70b20c4f3de697aa85c309026 # v2.85.11
         with:
           tool: cargo-audit
-      # cargo-audit hat keine --config-flag; audit.toml wird automatisch an
-      # .cargo/audit.toml (cwd) oder ~/.cargo/audit.toml gesucht. src-tauri/audit.toml
-      # bleibt die kanonische referenz für menschen. vulnerabilities sind fatal,
-      # warnings nicht — neue advisories schlagen an.
+      # cargo-audit hat keine --config-flag; die config wird an
+      # .cargo/audit.toml (repo-root, cwd) oder ~/.cargo/audit.toml gesucht —
+      # deshalb liegt audit.toml in .cargo/, nicht neben der Cargo.lock.
+      # vulnerabilities sind fatal, warnings nicht — neue advisories schlagen an.
       - run: cargo audit --file src-tauri/Cargo.lock

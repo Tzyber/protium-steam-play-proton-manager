@@ -850,6 +850,8 @@ mod tests {
         extract_cleanup(&tarball, &dest);
     }
 
+    // ---- extract-dest-scope (S2: allowlist statt blocklist) ----
+
     #[test]
     fn extract_dest_ausserhalb_scope_abgelehnt_ohne_mkdir() {
         let mut dest = std::env::temp_dir();

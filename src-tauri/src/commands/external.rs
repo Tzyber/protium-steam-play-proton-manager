@@ -3,9 +3,13 @@ use std::process::{Command, Stdio};
 // ---- R-7: externe urls (browser / steam-handler) ----
 
 /// erlaubte externe ziele — so eng wie die frühere opener-capability (INV-7):
-/// protondb-seiten, das protium-repo, und steam://rungameid/<appid>.
+/// protondb-spielseiten, das protium-repo, und steam://rungameid/<appid>.
 /// die allowlist verhindert nebenbei argument-injection: eine url, die mit
 /// "-" beginnt, kommt hier nie durch (xdg-open läse sie als option).
+///
+/// pfad-pinning (security-befund 2026-08-11): nur der host zu prüfen ließe
+/// jede unterseite des hosts durch (open-redirect/phishing). erlaubt sind
+/// nur die exakten pfadmuster, die die app selbst baut.
 pub(super) fn validate_external_url(url: &str) -> Result<(), String> {
     if let Some(app_id) = url.strip_prefix("steam://rungameid/") {
         return if !app_id.is_empty() && app_id.bytes().all(|b| b.is_ascii_digit()) {
@@ -22,7 +26,30 @@ pub(super) fn validate_external_url(url: &str) -> Result<(), String> {
         return Err("URL must not contain credentials".into());
     }
     match parsed.host_str().map(|h| h.to_ascii_lowercase()).as_deref() {
-        Some("www.protondb.com" | "github.com") => Ok(()),
+        // protondb: nur spielseiten /app/<appId> (das frontend baut genau diese)
+        Some("www.protondb.com") => {
+            let rest = parsed
+                .path()
+                .strip_prefix("/app/")
+                .ok_or_else(|| "invalid protondb path".to_string())?;
+            if !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()) {
+                Ok(())
+            } else {
+                Err("invalid protondb app id".into())
+            }
+        }
+        // protium-repo: exakt der repo-pfad oder ein nachfahre (präfix-tricks
+        // wie "-evil" hinter dem namen schlagen am komponenten-check fehl)
+        Some("github.com") => {
+            let path = parsed.path();
+            let repo = "/Tzyber/protium-steam-play-proton-manager";
+            let ok = path == repo || path.strip_prefix(repo).is_some_and(|rest| rest.starts_with('/'));
+            if ok {
+                Ok(())
+            } else {
+                Err("github URL outside protium repo".into())
+            }
+        }
         Some(host) => Err(format!("external URL host not allowed: {host}")),
         None => Err("external URL has no host".into()),
     }
@@ -129,7 +156,7 @@ mod tests {
     #[test]
     fn external_url_accepts_protondb_and_steam() {
         assert!(validate_external_url("https://www.protondb.com/app/620").is_ok());
-        assert!(validate_external_url("https://github.com/Tzyber/Protium").is_ok());
+        assert!(validate_external_url("https://github.com/Tzyber/protium-steam-play-proton-manager").is_ok());
         assert!(validate_external_url("steam://rungameid/570").is_ok());
     }
 
@@ -145,6 +172,33 @@ mod tests {
         assert!(validate_external_url("steam://rungameid/").is_err());
         // führendes "-" käme als option beim handler an
         assert!(validate_external_url("--version").is_err());
+    }
+
+    #[test]
+    fn external_url_pfad_pinning_protondb() {
+        // host-only wäre ein open-redirect-fenster: nur spielseiten sind
+        // erlaubt, keine unterseiten (phishing-lookalikes auf echtem host)
+        assert!(validate_external_url("https://www.protondb.com/app/620").is_ok());
+        assert!(validate_external_url("https://www.protondb.com/app/0").is_ok());
+        assert!(validate_external_url("https://www.protondb.com/app/").is_err());
+        assert!(validate_external_url("https://www.protondb.com/").is_err());
+        assert!(validate_external_url("https://www.protondb.com/app/620/whatever").is_err());
+        assert!(validate_external_url("https://www.protondb.com/app/abc").is_err());
+        assert!(validate_external_url("https://www.protondb.com/login").is_err());
+    }
+
+    #[test]
+    fn external_url_pfad_pinning_github() {
+        // repo-pfad oder nachfahre; präfix-trick (-evil) und fremde repos
+        // schlagen am komponenten-check fehl
+        let repo = "https://github.com/Tzyber/protium-steam-play-proton-manager";
+        assert!(validate_external_url(repo).is_ok());
+        assert!(validate_external_url(&format!("{repo}/releases")).is_ok());
+        assert!(validate_external_url(&format!("{repo}/issues")).is_ok());
+        assert!(validate_external_url("https://github.com/Tzyber/protium-steam-play-proton-manager-evil").is_err());
+        assert!(validate_external_url("https://github.com/Tzyber/Protium").is_err());
+        assert!(validate_external_url("https://github.com/other/repo").is_err());
+        assert!(validate_external_url("https://github.com/").is_err());
     }
 
     #[test]
