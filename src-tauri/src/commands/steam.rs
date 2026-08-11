@@ -1,12 +1,16 @@
 // ---- M3.1/M3.4: steam-write-gate (write_steam_file, remove_compat_tool) ----
-// inner-fns + tests; die command-fns bleiben in mod.rs (generate_handler-makro-pfad).
 
 use std::fs;
 use std::path::Path;
 
+use tauri::Manager;
+use tauri_plugin_fs::FsExt;
+
+use crate::commands::fs_ops::is_process_running;
 use crate::commands::path::{
     ensure_dest_within_canon_dir, is_safe_path, random_suffix, sanitize_path,
 };
+use crate::commands::spawn_blocking_io;
 
 /// M3.1: INV-1-write-gate in rust. prüft, ob ein canonicalisierter pfad eine
 /// der legitimen steam-config-dateien ist: drei canonicalisierte root-
@@ -122,6 +126,42 @@ pub(super) fn remove_compat_tool_inner(
     }
     fs::remove_dir_all(&target).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn write_steam_file(
+    app: tauri::AppHandle,
+    file: String,
+    original: String,
+    content: String,
+    backup: String,
+) -> Result<(), String> {
+    let home = app
+        .path()
+        .home_dir()
+        .map_err(|e| format!("cannot resolve home dir: {e}"))?;
+    let backup_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("cannot resolve app cache dir: {e}"))?;
+    let running = is_process_running("steam".to_string()).await?;
+    spawn_blocking_io(move || {
+        write_steam_file_inner(&file, &original, &content, &backup, &backup_dir, &home, running)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn remove_compat_tool(
+    app: tauri::AppHandle,
+    steam_root: String,
+    tool_name: String,
+) -> Result<(), String> {
+    let app2 = app.clone();
+    spawn_blocking_io(move || {
+        remove_compat_tool_inner(&steam_root, &tool_name, &|p| app2.fs_scope().is_allowed(p))
+    })
+    .await
 }
 
 #[cfg(test)]

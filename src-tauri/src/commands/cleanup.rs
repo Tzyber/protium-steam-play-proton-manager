@@ -1,16 +1,20 @@
 // ---- papierkorb-logik (remove_orphan_dir, remove_trash_entry, list_trash_entries) ----
-// inner-fns + tests; die command-fns bleiben in mod.rs (generate_handler-makro-pfad).
 
 use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
+use tauri::AppHandle;
+use tauri_plugin_fs::FsExt;
 
 use crate::commands::path::{
     canonicalize_no_symlink, canonicalize_safe, is_safe_path, sanitize_path,
 };
-use crate::commands::scope::{library_of, parse_compat_id, suffix_after_steamapps};
+use crate::commands::scope::{
+    allow_library_scope_inner, library_of, parse_compat_id, suffix_after_steamapps,
+};
+use crate::commands::spawn_blocking_io;
 
 /// name des papierkorb-verzeichnisses — existiert genau einmal hier, weil der
 /// papierkorb in rust konstruiert wird (der webview-fs-scope erfasst
@@ -217,6 +221,57 @@ pub(super) fn list_trash_entries_inner(library: &str) -> Result<TrashListing, St
     }
 
     Ok(TrashListing { dir, present: true, entries })
+}
+
+/// löscht ein verwaistes compatdata- oder shadercache-verzeichnis.
+/// leitet library + typ selbst ab (defense-in-depth: backend traut frontend nicht).
+/// compatdata → trash (rename), shadercache → hard delete.
+/// async + spawn_blocking: remove_dir_all/rename auf GB-großen prefixes
+/// darf den main-thread nicht blockieren.
+#[tauri::command]
+pub async fn remove_orphan_dir(app: AppHandle, path: String) -> Result<String, String> {
+    let app2 = app.clone();
+    spawn_blocking_io(move || {
+        let (library, canonical) = validate_and_prepare(&path)?;
+        // scope-gate VOR dem grant (S5): ohne diesen check würde der grant
+        // unten das library-root selbst in den scope heben und der is_allowed-
+        // check in inner wäre trivial true — löschung außerhalb bestätigter
+        // libraries wäre möglich.
+        if !app.fs_scope().is_allowed(&library) {
+            return Err("library outside allowed scope".into());
+        }
+        allow_library_scope_inner(app, &library)?;
+        remove_orphan_dir_inner(&canonical, &library, &|p| app2.fs_scope().is_allowed(p))
+    })
+    .await
+}
+
+/// löscht einen eintrag aus .protium-trash endgültig (kein zweiter papierkorb).
+/// muster: `.protium-trash/(compatdata|shadercache)_<appId>_<ms>`.
+/// keinerlei gates (kein steam-läuft, kein scope-check): der papierkorb ist
+/// keine steam-datei, löschen kann nichts korrumpieren.
+/// async + spawn_blocking (remove_dir_all auf GB-bäumen).
+#[tauri::command]
+pub async fn remove_trash_entry(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    let app2 = app.clone();
+    spawn_blocking_io(move || {
+        remove_trash_entry_inner(&path, &|p| app2.fs_scope().is_allowed(p))
+    })
+    .await
+}
+
+/// listet `<library>/steamapps/.protium-trash`.
+///
+/// WARUM in rust und nicht per plugin-fs readDir im frontend: der fs-scope des
+/// webviews wird über globs vergeben (`<library>/**`). ein verzeichnis mit
+/// führendem punkt wird davon nicht zuverlässig erfasst, und das lesen des
+/// papierkorbs schlug in externen libraries still fehl — die app zeigte einen
+/// leeren papierkorb, obwohl vier prefixes darin lagen. rust hat keinen
+/// webview-scope; dieselbe begründung wie bei dir_size und remove_trash_entry.
+/// async + spawn_blocking (verzeichnis-read auf dem main-thread vermeiden).
+#[tauri::command]
+pub async fn list_trash_entries(library: String) -> Result<TrashListing, String> {
+    spawn_blocking_io(move || list_trash_entries_inner(&library)).await
 }
 
 #[cfg(test)]

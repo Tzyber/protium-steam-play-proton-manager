@@ -4,8 +4,12 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use futures_util::StreamExt;
+use serde::Serialize;
 use sha2::{Digest, Sha512};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::AsyncWriteExt;
+
+use crate::commands::path::{sanitize_path, validate_download_dest};
 
 /// initiale download-URL: https + github.com + pfad-pinning auf das GE-repo.
 /// ohne das pinning wäre jede github.com-url ein download-ziel (cache-poisoning
@@ -154,6 +158,86 @@ pub(super) async fn download_stream(
     // partielle datei bei fehler weg (vor return)
     if result.is_err() {
         let _ = tokio::fs::remove_file(dest).await;
+    }
+    result
+}
+
+/// markiert einen download zum abbruch; setzt das flag im aktuell registrierten Arc.
+#[tauri::command]
+pub fn cancel_download(state: tauri::State<'_, CancelRegistry>, download_id: String) {
+    if let Ok(map) = state.0.lock() {
+        if let Some(flag) = map.get(&download_id) {
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+}
+
+#[derive(Serialize, Clone)]
+struct DownloadProgress {
+    id: String,
+    downloaded: u64,
+    total: Option<u64>,
+}
+
+/// R-4: tauri-wrapper um download_stream — cancel-registry + fortschritt (throttled ~1 MB).
+/// validiert URL (domain + https) und dest-pfad vor dem start.
+/// dest-validierung per allowlist: nur ziele innerhalb des app-cache-verzeichnisses.
+#[tauri::command]
+pub async fn download_file(
+    app: AppHandle,
+    state: tauri::State<'_, CancelRegistry>,
+    url: String,
+    dest: String,
+    download_id: String,
+) -> Result<String, String> {
+    validate_download_url(&url)?;
+    sanitize_path(&dest, "download dest")?;
+
+    // allowlist: cache-dir selbst über den tauri path-resolver ermitteln
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("cannot resolve app cache dir: {e}"))?;
+    validate_download_dest(&dest, &cache_dir)?;
+
+    // frisches cancel-flag; ersetzt ein etwaiges altes in der registry
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    {
+        let mut map = state.0.lock().map_err(|e| e.to_string())?;
+        map.insert(download_id.clone(), Arc::clone(&cancel_flag));
+    }
+    let cancel_flag_clone = Arc::clone(&cancel_flag);
+
+    let mut last_emit: u64 = 0;
+
+    let result = download_stream(
+        &url,
+        &dest,
+        |u| validate_redirect_url(u).is_ok(),
+        move || cancel_flag_clone.load(std::sync::atomic::Ordering::Relaxed),
+        |downloaded, total| {
+            let done = total.map(|t| downloaded >= t).unwrap_or(false);
+            if downloaded - last_emit >= 1_000_000 || done {
+                last_emit = downloaded;
+                let _ = app.emit(
+                    "download-progress",
+                    DownloadProgress { id: download_id.clone(), downloaded, total },
+                );
+            }
+        },
+        MAX_DOWNLOAD_BYTES,
+    )
+    .await;
+
+    // nur aufräumen, wenn noch genau unser eigenes Arc registriert ist
+    if let Ok(mut map) = state.0.lock() {
+        let keep = map
+            .get(&download_id)
+            .map(|registered| Arc::ptr_eq(registered, &cancel_flag))
+            .unwrap_or(false);
+        if keep {
+            map.remove(&download_id);
+        }
     }
     result
 }

@@ -101,6 +101,25 @@ pub(super) fn spawn_detached(program: &str, args: &[&str], url: &str) -> std::io
     Ok(())
 }
 
+/// R-7: url im system-browser bzw. im steam-handler öffnen.
+///
+/// eigener command statt tauri-plugin-opener, weil dessen spawn die env des
+/// app-prozesses ungefiltert vererbt — im AppImage genau der grund, warum
+/// play-button und protondb-link dort nichts taten (siehe env_overrides).
+#[tauri::command]
+pub fn open_external(url: String) -> Result<(), String> {
+    validate_external_url(&url)?;
+
+    let mut last_err = String::new();
+    for (program, args) in [("xdg-open", &[][..]), ("gio", &["open"][..])] {
+        match spawn_detached(program, args, &url) {
+            Ok(()) => return Ok(()),
+            Err(e) => last_err = format!("{program}: {e}"),
+        }
+    }
+    Err(format!("no URL handler available ({last_err})"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{env_overrides, validate_external_url};

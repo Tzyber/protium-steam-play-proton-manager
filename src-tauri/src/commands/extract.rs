@@ -1,8 +1,11 @@
 use std::fs;
 use std::path::Path;
+use tauri_plugin_fs::FsExt;
 use crate::commands::path::{
     canonicalize_nearest_ancestor, is_safe_path, link_target_stays_inside, random_suffix,
+    sanitize_path,
 };
+use crate::commands::spawn_blocking_io;
 
 // ---- R-1: .tar.gz entpacken (extract_blocking) ----
 
@@ -184,10 +187,33 @@ pub(super) fn extract_blocking(
     result
 }
 
+/// R-1: .tar.gz entpacken. temp im ziel-fs (EXDEV-safe), dann rename ins ziel.
+/// dest-allowlist (M1.3): der scope-check läuft VOR create_dir_all und prüft
+/// den nächsten existierenden vorfahren — der einzige legitime dest ist
+/// `compatibilitytools.d` unter einem session-bestätigten steam-root.
+#[tauri::command]
+pub async fn extract_tarball(
+    app: tauri::AppHandle,
+    src: String,
+    dest: String,
+) -> Result<(), String> {
+    sanitize_path(&src, "extract source")?;
+    sanitize_path(&dest, "extract destination")?;
+    let app2 = app.clone();
+    spawn_blocking_io(move || {
+        extract_blocking(&src, &dest, MAX_EXTRACT_BYTES, &|p: &Path| {
+            app2.fs_scope().is_allowed(p)
+        })
+    })
+    .await
+}
+
+const MAX_EXTRACT_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+
 #[cfg(test)]
 mod tests {
     use super::extract_blocking;
-    use crate::commands::MAX_DOWNLOAD_BYTES;
+    use crate::commands::download::MAX_DOWNLOAD_BYTES;
 
     // ---- extract_tarball (T-H-02) ----
     // die produktion entpackt github-release-tarballs (fremde, nicht-vertrauenswürdige

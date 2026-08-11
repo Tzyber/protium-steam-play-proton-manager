@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use serde::Serialize;
+use sysinfo::{ProcessRefreshKind, RefreshKind, System};
 use crate::commands::path::{canonicalize_safe, is_safe_path, sanitize_path};
+use crate::commands::spawn_blocking_io;
 
 // ---- R-3/R-3b/R-6: verzeichnisgrößen (dir_size, batch_dir_sizes) + path-identity (dev,ino) ----
 
@@ -58,6 +60,70 @@ pub(crate) struct PathIdentity {
     pub realpath: String,
     pub dev: String,
     pub ino: String,
+}
+
+/// R-2: steam-läuft-check (INV-1a). nur "steam" als name erlaubt —
+/// bewusst kein generisches process-enumeration-werkzeug für die webview.
+/// async + spawn_blocking: sync commands laufen bei tauri v2 auf dem main-thread,
+/// und dieser check steht vor JEDEM write-gate.
+#[tauri::command]
+pub async fn is_process_running(name: String) -> Result<bool, String> {
+    if name.to_lowercase() != "steam" {
+        return Err("process check only allowed for steam".into());
+    }
+    spawn_blocking_io(move || {
+        // Substring-Match schließt absichtlich Steam-Helper wie steamwebhelper ein;
+        // false-positive Blockade ist sicherer als false-negative während Writes.
+        // nur die prozessliste refreshen — new_all() baute eine komplette
+        // system-inventur (CPU/RAM/disks/netzwerk) für einen namens-check.
+        // name() kommt aus /proc/<pid>/stat und ist auch mit
+        // ProcessRefreshKind::nothing() befüllt.
+        let sys = System::new_with_specifics(
+            RefreshKind::nothing().with_processes(ProcessRefreshKind::nothing()),
+        );
+        let target = name.to_lowercase();
+        Ok(sys
+            .processes()
+            .values()
+            .any(|p| p.name().to_string_lossy().to_lowercase().contains(&target)))
+    })
+    .await
+}
+
+/// R-3 (S-01: validierung nach batch_dir_sizes-vorlage).
+/// async + spawn_blocking: der rekursive walk darf nicht auf dem main-thread laufen.
+#[tauri::command]
+pub async fn dir_size(path: String) -> Result<u64, String> {
+    spawn_blocking_io(move || dir_size_inner(&path)).await
+}
+
+/// R-3b: batch-version — sequentiell (IO-bound, kein rayon).
+/// async + spawn_blocking: walkt GB-große bäume, gehört nicht auf den main-thread.
+#[tauri::command]
+pub async fn batch_dir_sizes(paths: Vec<String>) -> Result<HashMap<String, u64>, String> {
+    spawn_blocking_io(move || batch_dir_sizes_inner(paths)).await
+}
+
+/// symlink-auflösung (steam-root-discovery). `..` im input abgelehnt,
+/// auflösungen in blockierte dateisysteme verweigert (info-disclosure).
+/// S-07: nutzt is_safe_path() statt eigener blocklist (konsistenz).
+#[tauri::command]
+pub fn canonicalize_path(path: String) -> Result<String, String> {
+    let canonical = canonicalize_safe(&path, "canonicalize")?;
+    Ok(canonical.to_string_lossy().into_owned())
+}
+
+/// R-6: realpath + (dev,ino) zur library-dedup (S-02: validierung).
+#[tauri::command]
+pub fn path_identity(path: String) -> Result<PathIdentity, String> {
+    use std::os::unix::fs::MetadataExt;
+    let real = canonicalize_safe(&path, "path_identity")?;
+    let md = fs::metadata(&real).map_err(|e| e.to_string())?;
+    Ok(PathIdentity {
+        realpath: real.to_string_lossy().into_owned(),
+        dev: md.dev().to_string(),
+        ino: md.ino().to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -181,5 +247,45 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    use super::{canonicalize_path, path_identity};
+
+    // S-02: path_identity lehnt blockierte pfade ab
+    #[test]
+    fn path_identity_rejects_blocked_paths() {
+        assert!(path_identity("/etc/passwd".into()).is_err());
+        assert!(path_identity("/proc/cpuinfo".into()).is_err());
+    }
+
+    #[test]
+    fn path_identity_rejects_dotdot() {
+        assert!(path_identity("/home/../etc/passwd".into()).is_err());
+    }
+
+    #[test]
+    fn path_identity_accepts_normal_paths() {
+        let tmp = std::env::temp_dir();
+        let s = tmp.to_string_lossy().into_owned();
+        assert!(path_identity(s).is_ok());
+    }
+
+    // S-03+S-07: canonicalize_path lehnt /etc ab (nutzt jetzt is_safe_path)
+    #[test]
+    fn canonicalize_rejects_etc() {
+        assert!(canonicalize_path("/etc".into()).is_err());
+        assert!(canonicalize_path("/etc/cron.d".into()).is_err());
+    }
+
+    // S-07: cross-check — derselbe pfad-satz den is_safe_path blockt wird abgelehnt
+    #[test]
+    fn canonicalize_rejects_all_blocked() {
+        for blocked in &["/", "/etc", "/etc/cron.d", "/proc", "/proc/cpuinfo",
+                          "/sys", "/sys/class", "/dev", "/dev/null"] {
+            assert!(
+                canonicalize_path(blocked.to_string()).is_err(),
+                "canonicalize_path should reject {blocked}"
+            );
+        }
     }
 }

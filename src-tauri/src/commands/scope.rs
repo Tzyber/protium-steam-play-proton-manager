@@ -91,6 +91,15 @@ pub(super) fn validate_library_scope(path_str: &str) -> Result<std::path::PathBu
     Ok(real)
 }
 
+/// R-5: verzeichnis zur laufzeit in den fs-scope aufnehmen.
+/// zwingend: canonicalize + sicherheitscheck + library-kandidat-zwang.
+#[tauri::command]
+pub fn allow_library_scope(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let real = validate_library_scope(&path)?;
+    let _ = app.fs_scope().allow_directory(real.to_string_lossy().as_ref(), true);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::validate_library_scope;

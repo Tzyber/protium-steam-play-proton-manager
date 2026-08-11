@@ -32,23 +32,23 @@ pub fn run() {
         })
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
-        .manage(commands::CancelRegistry::default())
+        .manage(commands::download::CancelRegistry::default())
         .invoke_handler(tauri::generate_handler![
-            commands::is_process_running,
-            commands::open_external,
-            commands::dir_size,
-            commands::batch_dir_sizes,
-            commands::allow_library_scope,
-            commands::canonicalize_path,
-            commands::path_identity,
-            commands::extract_tarball,
-            commands::download_file,
-            commands::cancel_download,
-            commands::remove_orphan_dir,
-            commands::remove_trash_entry,
-            commands::list_trash_entries,
-            commands::write_steam_file,
-            commands::remove_compat_tool,
+            commands::fs_ops::is_process_running,
+            commands::external::open_external,
+            commands::fs_ops::dir_size,
+            commands::fs_ops::batch_dir_sizes,
+            commands::scope::allow_library_scope,
+            commands::fs_ops::canonicalize_path,
+            commands::fs_ops::path_identity,
+            commands::extract::extract_tarball,
+            commands::download::download_file,
+            commands::download::cancel_download,
+            commands::cleanup::remove_orphan_dir,
+            commands::cleanup::remove_trash_entry,
+            commands::cleanup::list_trash_entries,
+            commands::steam::write_steam_file,
+            commands::steam::remove_compat_tool,
         ])
         .run(tauri::generate_context!())
         .expect("error while running protium");
