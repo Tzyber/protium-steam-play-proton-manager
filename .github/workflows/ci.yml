@@ -35,3 +35,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
       - run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - uses: taiki-e/install-action@7f4eb899022d8fe70b20c4f3de697aa85c309026 # v2.85.11
+        with:
+          tool: cargo-audit
+      # cargo-audit hat keine --config-flag; audit.toml wird automatisch an
+      # .cargo/audit.toml (cwd) oder ~/.cargo/audit.toml gesucht. src-tauri/audit.toml
+      # bleibt die kanonische referenz für menschen. vulnerabilities sind fatal,
+      # warnings nicht — neue advisories schlagen an.
+      - run: cargo audit --file src-tauri/Cargo.lock

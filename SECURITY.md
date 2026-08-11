@@ -16,7 +16,7 @@ Protium ist eine lokale desktop-app — kein server, keine api-keys, keine
 nutzerdaten. das threat-model ist der IPC-übergang zwischen webview und
 rust-backend.
 
-Fund bitte per [github-issue](https://github.com/Tzyber/Protium/issues/new)
+Fund bitte per [github-issue](https://github.com/Tzyber/protium-steam-play-proton-manager/issues/new)
 melden, nicht per mail. beschreibung mit schritten zum reproduzieren, betroffener
 datei/command und vorgeschlagener abhilfe.
 

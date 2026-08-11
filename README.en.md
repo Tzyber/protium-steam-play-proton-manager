@@ -2,7 +2,7 @@
 
 [deutsch](README.md) · **english**
 
-[![CI](https://github.com/Tzyber/Protium/actions/workflows/ci.yml/badge.svg)](https://github.com/Tzyber/Protium/actions/workflows/ci.yml)
+[![CI](https://github.com/Tzyber/protium-steam-play-proton-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/Tzyber/protium-steam-play-proton-manager/actions/workflows/ci.yml)
 
 > one proton. one electron. the simplest atom in the universe, and roughly the amount of overhead this tool is meant to have.
 
@@ -20,7 +20,7 @@ it came into being because this exact tool did not exist. protonup-qt only manag
 
 ## installing
 
-grab the ready-made AppImage from the [releases page](https://github.com/Tzyber/Protium/releases), make it executable, run it:
+grab the ready-made AppImage from the [releases page](https://github.com/Tzyber/protium-steam-play-proton-manager/releases), make it executable, run it:
 
 ```sh
 chmod +x protium_0.2.6_amd64.AppImage
@@ -140,7 +140,7 @@ rules for the implementation: writes to steam files go through the write gate wi
 - [x] phase 6 (part 1): AppImage build in CI
 - [ ] phase 6 (part 2): AUR package
 
-version history lives in the [releases](https://github.com/Tzyber/Protium/releases).
+version history lives in the [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 
 ## open points
 

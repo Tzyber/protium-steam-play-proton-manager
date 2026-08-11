@@ -2,7 +2,7 @@
 
 **deutsch** · [english](README.en.md)
 
-[![CI](https://github.com/Tzyber/Protium/actions/workflows/ci.yml/badge.svg)](https://github.com/Tzyber/Protium/actions/workflows/ci.yml)
+[![CI](https://github.com/Tzyber/protium-steam-play-proton-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/Tzyber/protium-steam-play-proton-manager/actions/workflows/ci.yml)
 
 > ein proton. ein elektron. das simpelste atom im universum, und ungefähr so viel overhead soll auch dieses tool haben.
 
@@ -28,7 +28,7 @@ glaubte, und der, die tatsächlich lief.
 
 ## installieren
 
-fertige AppImage von der [releases-seite](https://github.com/Tzyber/Protium/releases)
+fertige AppImage von der [releases-seite](https://github.com/Tzyber/protium-steam-play-proton-manager/releases)
 laden, ausführbar machen, starten:
 
 ```sh
@@ -199,7 +199,7 @@ die app blockieren. was sich nicht zuverlässig bestimmen lässt, heißt in der 
 - [x] phase 6 (teil 1): AppImage-build in der CI
 - [ ] phase 6 (teil 2): AUR-paket
 
-versionshistorie steht in den [releases](https://github.com/Tzyber/Protium/releases).
+versionshistorie steht in den [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 
 ## offene punkte
 
