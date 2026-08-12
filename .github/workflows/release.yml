@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # M4.5: action-tags auf commit-SHAs gepinnt (2026-07-31) — mutable
+      # M4.5: action-tags auf commit-SHAs gepinnt (2026-07-31), mutable
       # tags sind supply-chain-risiko, SHAs sind immutabel.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -57,7 +57,7 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml
 
       # appimagetool aus dem continuous-kanal: upstream bietet KEIN
-      # versioniertes AppImage-asset (verifiziert 2026-07-31) — sha-pinning
+      # versioniertes AppImage-asset (verifiziert 2026-07-31), sha-pinning
       # des artefacts ist damit unmöglich. bekanntes residuum, dokumentiert
       # in PROTIUM_STATUS (security-härtung 2026-07-31, M4.5).
       - name: Install appimagetool
@@ -97,23 +97,35 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: "Protium ${{ github.ref_name }}"
           body: |
-            ## 0.2.8 — genutzte proton-versionen zählen richtig
+            ## 0.2.9, sha512-abruf über das backend + navigation-whitelist
+
+            **sicherheit:**
+            - S-09: die prüfsumme wird jetzt über einen rust-command geladen
+              (gleiche redirect-policy wie der download, 64-KiB-cap,
+              retry + user-agent). vorher folgte tauri-plugin-http
+              redirects ohne scope-recheck, nur die initiale url war
+              gepinnt. github.com-http-scope dadurch ungenutzt → entfernt
+              (INV-7). +2 cargo-tests.
+            - S-08: navigation-whitelist in der webview. nur noch die app
+              selbst (bzw. der dev-server) darf navigieren, unbekannte
+              schemes wie file:/data:/mailto: landen im system-browser
+              statt in der webview.
 
             **fix:**
-            - der proton-manager zeigte nach einem compat-tool-wechsel im
-              spiele-drawer noch die alten nutzungs-zahlen („n spiel(e)"),
-              bis ein neuer library-scan lief. jetzt werden die zähler
-              sofort aus dem aktuellen stand neu berechnet — auch wenn ein
-              spiel auf „standard" zurückgestellt wird. +4 tests.
+            - fokus-klau im spiele-drawer: `restoreFocus(null)` griff nach
+              dem mount über die fallback-kette den sidebar-nav-button an.
+              restore springt nur noch zurück, wenn beim öffnen ein
+              element gespeichert wurde.
 
-            **abhängigkeiten (dependabot):**
-            - vue 3.5.40 → 3.5.41
-            - vite 8.1.5 → 8.2.0
-            - vue-tsc 3.3.8 → 3.3.9
-            - @biomejs/biome 2.5.6 → 2.5.7
+            **proton-manager:**
+            - download-rate (bytes/s, EMA-geglättet) in der progress-zeile
+            - „✓ prüfsumme ok" beim entpacken, wenn das hash-asset
+              verifiziert wurde
+            - die warnung „ohne Verifikation installiert" ist jetzt
+              wegklickbar (×)
 
-            **verifikation:** vitest 269/269 · cargo 108/108 · check
-            clean (1 bekannte warnung).
+            **verifikation:** vitest 271/271 · cargo 110/110 · check
+            clean.
           draft: true
           prerelease: false
           files: |
