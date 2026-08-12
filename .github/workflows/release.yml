@@ -68,8 +68,16 @@ jobs:
           mv squashfs-root /tmp/appimagetool-extracted
           ln -s /tmp/appimagetool-extracted/AppRun /usr/local/bin/appimagetool
 
+      # NO_STRIP: linuxdeploy bündelt einen alten binutils-strip (build
+      # 2024-07-26), der .relr.dyn-sektionen moderner system-libs nicht
+      # kennt → "unknown type [0x13] section .relr.dyn" lässt den
+      # AppImage-bundling-Schritt abbrechen (reproduziert lokal, fix
+      # verifiziert). system-libs sind bereits gestrippt, strip-überspringen
+      # ist sicher.
       - name: Build AppImage
         run: npm run tauri build -- --bundles appimage deb
+        env:
+          NO_STRIP: "true"
 
       - name: Patch AppImage with Wayland/EGL fix
         run: |
