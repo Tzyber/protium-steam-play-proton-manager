@@ -45,7 +45,8 @@ jobs:
             librsvg2-dev \
             libssl-dev \
             patchelf \
-            squashfs-tools
+            squashfs-tools \
+            file
 
       - name: Install frontend dependencies
         run: npm ci
@@ -56,13 +57,20 @@ jobs:
           npm test
           cargo test --manifest-path src-tauri/Cargo.toml
 
-      # appimagetool aus dem continuous-kanal: upstream bietet KEIN
-      # versioniertes AppImage-asset (verifiziert 2026-07-31), sha-pinning
-      # des artefacts ist damit unmöglich. bekanntes residuum, dokumentiert
-      # in PROTIUM_STATUS (security-härtung 2026-07-31, M4.5).
+      # appimagetool 1.9.1 gepinnt (identisch zu continuous, gleiche
+      # build-id 3431b179) → sha-verifizierbar, M4.5-konform. continuous
+      # gelangte teils als leerer/abgebrochener download auf den runner
+      # (wget-exit 4 = network failure) → retries + größen- und
+      # sha-check. `--appimage-extract` braucht kein /dev/fuse
+      # (container-verifiziert, non-root), repack braucht `file` (in
+      # Linux dependencies installiert).
       - name: Install appimagetool
         run: |
-          wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" -O /tmp/appimagetool
+          wget -q --timeout=30 --tries=5 --retry-connrefused --wait=2 \
+            "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage" \
+            -O /tmp/appimagetool
+          [ -s /tmp/appimagetool ] || { echo "FEHLER: appimagetool-download leer/fehlgeschlagen"; exit 1; }
+          printf 'ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  /tmp/appimagetool\n' | sha256sum -c -
           chmod +x /tmp/appimagetool
           /tmp/appimagetool --appimage-extract
           mv squashfs-root /tmp/appimagetool-extracted
