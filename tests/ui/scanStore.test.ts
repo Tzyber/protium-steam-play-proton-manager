@@ -125,6 +125,54 @@ describe("scanStore.applyGameConfig", () => {
     expect(g.compatTool).toBe("GE-Proton10-1");
   });
 
+  it("compatTool-wechsel rechnet usedBy der tools neu", () => {
+    const store = useScanStore();
+    store.result = fakeResult();
+    store.result.compatToolsInstalled = [
+      {
+        name: "GE-Proton9-27",
+        internalName: "GE-Proton9-27",
+        displayName: "GE-Proton9-27",
+        sizeBytes: 0,
+        usedBy: [42],
+        source: "user",
+      },
+      {
+        name: "GE-Proton10-1",
+        internalName: "GE-Proton10-1",
+        displayName: "GE-Proton10-1",
+        sizeBytes: 0,
+        usedBy: [],
+        source: "user",
+      },
+    ];
+
+    store.applyGameConfig(42, { compatTool: "GE-Proton10-1" });
+
+    expect(store.result.games[0]?.compatTool).toBe("GE-Proton10-1");
+    expect(store.result.compatToolsInstalled[0]?.usedBy).toEqual([]);
+    expect(store.result.compatToolsInstalled[1]?.usedBy).toEqual([42]);
+  });
+
+  it("mapping-entfernen (default) nimmt das spiel aus usedBy", () => {
+    const store = useScanStore();
+    store.result = fakeResult();
+    store.result.compatToolsInstalled = [
+      {
+        name: "GE-Proton9-27",
+        internalName: "GE-Proton9-27",
+        displayName: "GE-Proton9-27",
+        sizeBytes: 0,
+        usedBy: [42],
+        source: "user",
+      },
+    ];
+
+    store.applyGameConfig(42, { compatTool: "default" });
+
+    expect(store.result.compatToolsInstalled[0]?.usedBy).toEqual([]);
+  });
+
   it("unbekannte appId: kein throw, kein write", () => {
     const store = useScanStore();
     store.result = fakeResult();

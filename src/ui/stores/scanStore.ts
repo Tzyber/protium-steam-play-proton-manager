@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { getHome, tauriPorts } from "../../core/adapters/tauri";
+import { recomputeToolUsedBy } from "../../core/compat";
 import { discoverSteamRoot } from "../../core/paths";
 import { scanLibrary } from "../../core/scan";
 import { type ScanResult, SteamNotFoundError } from "../../core/types";
@@ -63,10 +64,17 @@ export const useScanStore = defineStore("scan", {
      *  kein throw: der write in die steam-datei war erfolgreich, das update
      *  im speicher ist nur ein cache. */
     applyGameConfig(appId: number, patch: { launchOptions?: string; compatTool?: string }) {
-      const game = this.result?.games.find((g) => g.appId === appId);
+      const result = this.result;
+      if (!result) return;
+      const game = result.games.find((g) => g.appId === appId);
       if (!game) return;
       if (patch.launchOptions !== undefined) game.launchOptions = patch.launchOptions;
-      if (patch.compatTool !== undefined) game.compatTool = patch.compatTool;
+      if (patch.compatTool !== undefined) {
+        game.compatTool = patch.compatTool;
+        // usedBy der tools folgt dem mapping — nach dem wechsel neu aus den
+        // spielen rechnen, sonst zeigt der proton-manager stale zähler.
+        recomputeToolUsedBy(result.compatToolsInstalled, result.games);
+      }
     },
   },
 });

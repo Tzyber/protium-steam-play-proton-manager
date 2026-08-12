@@ -47,6 +47,21 @@ function readToolVdf(
 // tools aus steam-root + systemweiten dirs (/usr/share/steam/…, z. B. proton-cachyos).
 // dedup dirs via realpath gegen symlinks, dedup tools via internem namen (erste quelle gewinnt).
 // usedBy matcht den INTERNEN namen (so steht er im mapping), nicht den verzeichnisnamen.
+
+/** gleiche usedBy-regel wie in listCompatTools, aber gegen den in-memory-spielstand:
+ *  nach einem compat-tool-wechsel im drawer ist config.vdf auf disk schon aktuell,
+ *  die scan-ergebnisse aber nicht neu gerechnet — sonst zeigt der proton-manager
+ *  bis zum nächsten rescan stale spiele-zähler. */
+export function recomputeToolUsedBy(
+  tools: { name: string; internalName: string; usedBy: number[] }[],
+  games: readonly { appId: number; compatTool: string }[],
+): void {
+  for (const tool of tools) {
+    tool.usedBy = games
+      .filter((g) => g.compatTool === tool.internalName || g.compatTool === tool.name)
+      .map((g) => g.appId);
+  }
+}
 export async function listCompatTools(
   fs: FileSystem,
   system: System,

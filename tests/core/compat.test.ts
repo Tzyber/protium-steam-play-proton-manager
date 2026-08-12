@@ -1,6 +1,37 @@
 import { describe, expect, it, vi } from "vitest";
-import { listCompatTools } from "../../src/core/compat.js";
+import { listCompatTools, recomputeToolUsedBy } from "../../src/core/compat.js";
 import type { DirEntry, FileSystem, PathIdentity, System } from "../../src/core/ports.js";
+
+describe("recomputeToolUsedBy", () => {
+  it("rechnet usedBy aus dem spielstand neu (wechsel + entfernen)", () => {
+    const tools = [
+      { name: "GE-Proton9-27", internalName: "GE-Proton9-27", usedBy: [42] },
+      { name: "GE-Proton10-1", internalName: "GE-Proton10-1", usedBy: [] },
+    ];
+    const games = [
+      { appId: 42, compatTool: "GE-Proton10-1" },
+      { appId: 73, compatTool: "GE-Proton10-1" },
+      { appId: 99, compatTool: "default" },
+    ];
+
+    recomputeToolUsedBy(tools, games);
+
+    expect(tools[0]?.usedBy).toEqual([]);
+    expect(tools[1]?.usedBy).toEqual([42, 73]);
+  });
+
+  it("weichender verzeichnisname zählt wie in listCompatTools (alt-mappings)", () => {
+    const tools = [{ name: "dir-name", internalName: "real-internal", usedBy: [] }];
+    const games = [
+      { appId: 5, compatTool: "dir-name" },
+      { appId: 6, compatTool: "real-internal" },
+    ];
+
+    recomputeToolUsedBy(tools, games);
+
+    expect(tools[0]?.usedBy).toEqual([5, 6]);
+  });
+});
 
 describe("listCompatTools", () => {
   it("filtert symlink-einträge aus (F-E-03)", async () => {
