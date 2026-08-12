@@ -97,39 +97,22 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: "Protium ${{ github.ref_name }}"
           body: |
-            ## 0.2.7 — rust-code aufgeräumt, zwei sicherheitslücken geschlossen
+            ## 0.2.8 — genutzte proton-versionen zählen richtig
 
-            **sicherheit:**
-            - externe links öffnen nur noch ihr eigentliches ziel.
-              protondb-links sind auf spiel-seiten beschränkt, github-links
-              auf das protium-repo. vorher genügte der richtige hostname —
-              eine manipulierte app-oberfläche hätte jede beliebige
-              unterseite öffnen können.
-            - das löschen eines GE-proton-tools prüft den steam-pfad jetzt
-              aufgelöst (symlinks werden verfolgt) und weigert sich, wenn
-              `compatibilitytools.d` selbst ein symlink ist — vorher hätte
-              das löschen durch einen versteckten link in ein fremdes
-              verzeichnis treffen können.
-            - cargo-audit in der CI wirkt jetzt wie dokumentiert: die
-              bekannten, begründeten warnungen werden ignoriert, neue
-              advisories schlagen an. die config lag an einer stelle, die
-              cargo-audit nie sucht — die ignores griffen gar nicht.
+            **fix:**
+            - der proton-manager zeigte nach einem compat-tool-wechsel im
+              spiele-drawer noch die alten nutzungs-zahlen („n spiel(e)"),
+              bis ein neuer library-scan lief. jetzt werden die zähler
+              sofort aus dem aktuellen stand neu berechnet — auch wenn ein
+              spiel auf „standard" zurückgestellt wird. +4 tests.
 
-            **wartung:**
-            - die riesige rust-command-datei (3600 zeilen, davon 2200
-              tests) ist in acht module aufgeteilt — reine verschiebung,
-              kein verhaltenswechsel.
-            - scope-freigaben und lösch-aktionen schreiben eine kurze
-              zeile auf stderr (was + ergebnis) — hilft beim debuggen,
-              ohne neue abhängigkeit.
-            - kleinkram: package.json-metadaten (description, author),
-              repo-verweise auf den neuen namen, letzter .idea-rest aus
-              dem git-tracking, korrigierter doku-eintrag zum
-              redirect-handling.
+            **abhängigkeiten (dependabot):**
+            - vue 3.5.40 → 3.5.41
+            - vite 8.1.5 → 8.2.0
+            - vue-tsc 3.3.8 → 3.3.9
+            - @biomejs/biome 2.5.6 → 2.5.7
 
-            **tests:** +4 rust-tests für die neuen sicherheitsfälle.
-
-            **verifikation:** vitest 265/265 · cargo 108/108 · check
+            **verifikation:** vitest 269/269 · cargo 108/108 · check
             clean (1 bekannte warnung).
           draft: true
           prerelease: false
