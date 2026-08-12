@@ -71,7 +71,7 @@ export const useScanStore = defineStore("scan", {
       if (patch.launchOptions !== undefined) game.launchOptions = patch.launchOptions;
       if (patch.compatTool !== undefined) {
         game.compatTool = patch.compatTool;
-        // usedBy der tools folgt dem mapping — nach dem wechsel neu aus den
+        // usedBy der tools folgt dem mapping, nach dem wechsel neu aus den
         // spielen rechnen, sonst zeigt der proton-manager stale zähler.
         recomputeToolUsedBy(result.compatToolsInstalled, result.games);
       }

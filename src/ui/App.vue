@@ -39,7 +39,7 @@ const nav: { id: ViewId; label: string }[] = [
 
 const rootShort = computed(() => {
   const r = scan.result?.steamRoot;
-  return r ? r.replace(/^\/home\/[^/]+/, "~") : "—";
+  return r ? r.replace(/^\/home\/[^/]+/, "~") : "-";
 });
 
 const copied = ref(false);
@@ -55,7 +55,7 @@ async function copyError() {
       copied.value = false;
     }, 2000);
   } catch {
-    // clipboard nicht verfügbar (unsicherer kontext, keine berechtigung) — ignorieren
+    // clipboard nicht verfügbar (unsicherer kontext, keine berechtigung), ignorieren
   }
 }
 </script>
@@ -88,8 +88,8 @@ async function copyError() {
 
       <div class="readout">
         <div class="row"><span class="label">{{ t("app.root") }}</span><span class="mono val">{{ rootShort }}</span></div>
-        <div class="row"><span class="label">{{ t("app.libs") }}</span><span class="mono val">{{ scan.result?.libraries.length ?? "—" }}</span></div>
-        <div class="row"><span class="label">{{ t("app.tools") }}</span><span class="mono val">{{ scan.compatTools.length || "—" }}</span></div>
+        <div class="row"><span class="label">{{ t("app.libs") }}</span><span class="mono val">{{ scan.result?.libraries.length ?? "-" }}</span></div>
+        <div class="row"><span class="label">{{ t("app.tools") }}</span><span class="mono val">{{ scan.compatTools.length || "-" }}</span></div>
         <div class="row" v-if="scan.elapsedMs"><span class="label">{{ t("app.scan") }}</span><span class="mono val">{{ scan.elapsedMs }} ms</span></div>
       </div>
     </aside>

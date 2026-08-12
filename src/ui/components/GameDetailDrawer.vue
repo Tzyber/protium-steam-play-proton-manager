@@ -79,7 +79,11 @@ watch(
     }
 
     await nextTick();
-    restoreFocus(lastFocusedElement);
+    // nur zurückspringen, wenn beim öffnen ein element gespeichert wurde
+    // sonst greift restoreFocus(null) über die fallback-kette auf den
+    // sidebar-nav-button und klaut den fokus direkt nach dem mount
+    // (watch läuft mit immediate: true einmal mit null durch).
+    if (lastFocusedElement) restoreFocus(lastFocusedElement);
     lastFocusedElement = null;
   },
   { immediate: true },
@@ -123,7 +127,7 @@ watch(launchInput, () => {
 async function saveLaunch() {
   const g = game.value;
   if (!g || launchState.value === "saving") return;
-  // dirty-vergleich und gespeicherter wert laufen beide getrimmt — sonst bliebe
+  // dirty-vergleich und gespeicherter wert laufen beide getrimmt, sonst bliebe
   // der save-button nach dem speichern von " foo " fälschlich aktiv.
   launchInput.value = launchInput.value.trim();
   if (!launchDirty.value) return;

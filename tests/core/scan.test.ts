@@ -5,7 +5,7 @@ import { discoverSteamRoot } from "../../src/core/paths.js";
 import { scanLibrary } from "../../src/core/scan.js";
 import { buildFakeSteam, fakeHttp, fakeSystem, memCache, nodeFs } from "../support/fakeSteam";
 
-describe("scanLibrary (integration — dominiks reales setup)", () => {
+describe("scanLibrary (integration, dominiks reales setup)", () => {
   it("dedupliziert libraries, findet system-compat-tools, erfüllt phase-1-akzeptanz", async () => {
     const { home, root, lib2, lib2Dup, staleLib, systemCompat, userId } = await buildFakeSteam();
     const fs = nodeFs();
@@ -63,7 +63,7 @@ describe("scanLibrary (integration — dominiks reales setup)", () => {
     // lokales "Proton-CachyOS Latest" (interner name == dir) wird von keinem spiel genutzt
     expect(cachyLocal?.internalName).toBe("Proton-CachyOS Latest");
     expect(cachyLocal?.usedBy).toEqual([]);
-    // systemweites proton-cachyos-slr: usedBy NUR installierte echte spiele —
+    // systemweites proton-cachyos-slr: usedBy NUR installierte echte spiele
     // appId 0 (default), 999999 (deinstalliert), 2207218128 (shortcut) fallen raus.
     expect(cachySystem?.internalName).toBe("proton-cachyos-slr");
     expect(cachySystem?.displayName).toContain("steam linux runtime");
@@ -124,7 +124,7 @@ describe("scanLibrary (integration — dominiks reales setup)", () => {
   // der bericht (113:7): kein account durfte den scan nicht crashen, sondern
   // eine warnung zeigen, die erklärt, warum startoptionen fehlen.
   it("kein steam-account → warnung mit erklärung, scan läuft durch", async () => {
-    const { home, root } = await buildFakeSteam();
+    const { root } = await buildFakeSteam();
     const fs = nodeFs();
     await rm(join(root, "userdata"), { recursive: true, force: true });
 

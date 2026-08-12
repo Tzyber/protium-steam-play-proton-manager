@@ -1,4 +1,4 @@
-// minimal-eigenlösung: keine vue-i18n o. ä. — nur eine t()-funktion mit
+// minimal-eigenlösung: keine vue-i18n o. ä., nur eine t()-funktion mit
 // dot-notation-keys, interpolation und fallback. locale wird einmal beim
 // start aus navigator.language abgeleitet, kein UI-toggle, keine persistenz.
 //
@@ -14,7 +14,7 @@ export type Locale = "de" | "en";
 // struktur-sync: `de` ist die wahrheit, `en` muss die gleiche form haben
 // (gleiche keys, gleiche nesting-tiefe). `Dict` ist absichtlich generisch
 // über string-values, damit de und en im `tables`-record koexistieren
-// können — sonst verlangt TS exakt gleiche string-literale.
+// können, sonst verlangt TS exakt gleiche string-literale.
 type DeepStringify<T> = T extends string
   ? string
   : T extends object
@@ -31,7 +31,7 @@ function detectLocale(): Locale {
 
 let activeLocale: Locale = detectLocale();
 
-/** nur für tests — produktion ruft das nie auf. */
+/** nur für tests, produktion ruft das nie auf. */
 export function setLocale(l: Locale): void {
   activeLocale = l;
 }

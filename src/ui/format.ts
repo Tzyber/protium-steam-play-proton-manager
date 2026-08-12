@@ -1,5 +1,7 @@
+import { errText } from "../core/errtext";
+
 export function formatBytes(bytes: number): string {
-  if (!bytes || bytes < 0) return "—";
+  if (!bytes || bytes < 0) return "-";
   const units = ["B", "KB", "MB", "GB", "TB"];
   let v = bytes;
   let i = 0;
@@ -10,7 +12,8 @@ export function formatBytes(bytes: number): string {
   return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-/** rust-commands rejecten mit einem rohen string (kein Error-objekt) → sicher auslesen. */
+/** rust-commands rejecten mit einem rohen string (kein Error-objekt) → sicher auslesen.
+ *  delegiert an errText (core), eine quelle für error→string statt zwei kopien. */
 export function errMsg(e: unknown): string {
-  return typeof e === "string" ? e : ((e as Error)?.message ?? String(e));
+  return errText(e);
 }

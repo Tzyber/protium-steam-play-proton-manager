@@ -1,6 +1,6 @@
 // INV-4: NUR diese datei konstruiert steam-pfade.
 // ACHTUNG: ROOT_CANDIDATES muss mit assetProtocol.scope in tauri.conf.json
-// synchron bleiben — beide listen müssen dieselben installationsarten abdecken.
+// synchron bleiben, beide listen müssen dieselben installationsarten abdecken.
 // bei änderungen hier IMMER tauri.conf.json → assetProtocol.scope mitpflegen.
 import type { FileSystem } from "./ports.js";
 import { SteamNotFoundError } from "./types.js";
@@ -10,7 +10,7 @@ const ROOT_CANDIDATES = [
   ".steam/steam", // symlink → meist .local/share/Steam
   ".steam/root",
   ".var/app/com.valvesoftware.Steam/.local/share/Steam", // flatpak
-  "snap/steam/common/.local/share/Steam", // snap (canonical) — ungetestet auf echtem snap-system
+  "snap/steam/common/.local/share/Steam", // snap (canonical), ungetestet auf echtem snap-system
 ] as const;
 
 function join(...parts: string[]): string {
@@ -70,6 +70,8 @@ export const LOCAL_HEADER_FILENAME = "library_header.jpg";
 export { join as joinPath };
 
 // distro-/paket-tools (z. B. proton-cachyos); steam durchsucht diese zusätzlich.
+// spiegel zu SYSTEM_COMPAT_DIRS in src-tauri/src/commands/scope.rs
+// beide zusammen pflegen (drift = distro-protonen verschwinden aus der UI).
 export const SYSTEM_COMPAT_DIRS = [
   "/usr/share/steam/compatibilitytools.d",
   "/usr/local/share/steam/compatibilitytools.d",

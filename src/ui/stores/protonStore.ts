@@ -20,6 +20,11 @@ interface Job {
   phase: Phase;
   downloaded: number;
   total: number | null;
+  /** gleitende durchschnitts-rate (bytes/s) aus den progress-events, nur anzeige. */
+  speed?: number;
+  speedLastTs?: number;
+  /** sha512-vergleich bestanden (nur gesetzt, wenn es ein hash-asset gab). */
+  verified?: boolean;
   /** vom nutzer angefordert, solange der job noch existiert. lebt bewusst hier
    *  und nicht in der rust-registry: der store kennt den job-lebenszyklus, das
    *  backend nur laufende downloads. eine vorgemerkte id im backend würde als
@@ -38,7 +43,7 @@ interface State {
   activeTag: string | null;
   busyRemove: string | null;
   listenerReady: boolean;
-  /** warnung an den installierten release gebunden, nicht an den job — der job
+  /** warnung an den installierten release gebunden, nicht an den job, der job
    *  wird nach erfolgreichem install gelöscht. überschreiben statt reset. */
   warning: { tag: string; msg: string } | null;
 }
@@ -71,6 +76,15 @@ export const useProtonStore = defineStore("proton", {
           (e) => {
             const job = this.jobs[e.payload.id];
             if (job) {
+              const now = Date.now();
+              if (job.speedLastTs) {
+                // instantan-rate aus dem event-abstand, weich geglättet
+                // events sind ~1-MB-throttled, rohwerte würden flackern
+                const inst =
+                  ((e.payload.downloaded - job.downloaded) * 1000) / (now - job.speedLastTs);
+                job.speed = job.speed ? 0.6 * job.speed + 0.4 * inst : inst;
+              }
+              job.speedLastTs = now;
               job.downloaded = e.payload.downloaded;
               job.total = e.payload.total;
             }
@@ -78,7 +92,7 @@ export const useProtonStore = defineStore("proton", {
         );
         this.listenerReady = true;
       } catch (e) {
-        // ohne listener fehlt nur die fortschritts-anzeige — die view darf
+        // ohne listener fehlt nur die fortschritts-anzeige, die view darf
         // deshalb nicht leer bleiben, und der nächste mount darf es erneut
         // versuchen (flag bleibt false).
         useUiStore().showNotification(t("proton.listenerUnavailable", { error: errMsg(e) }));
@@ -104,6 +118,10 @@ export const useProtonStore = defineStore("proton", {
       }
     },
 
+    clearWarning() {
+      this.warning = null;
+    },
+
     queueInstall(release: GeRelease) {
       if (this.jobs[release.tag]) return; // schon in arbeit / queued
       this.jobs[release.tag] = { tag: release.tag, phase: "queued", downloaded: 0, total: null };
@@ -111,7 +129,7 @@ export const useProtonStore = defineStore("proton", {
       void this.pump();
     },
 
-    /** bricht einen download ab — queued: sofort raus; aktiv: rust-abbruch + cleanup. */
+    /** bricht einen download ab, queued: sofort raus; aktiv: rust-abbruch + cleanup. */
     async cancel(tag: string) {
       const queuedIdx = this.queue.indexOf(tag);
       if (queuedIdx >= 0) {
@@ -151,7 +169,7 @@ export const useProtonStore = defineStore("proton", {
       this.activeTag = tag;
       const scan = useScanStore();
       const steamRoot = scan.result?.steamRoot;
-      // warnung erst nach erfolgreichem install publizieren — eine abgebrochene
+      // warnung erst nach erfolgreichem install publizieren, eine abgebrochene
       // oder fehlgeschlagene installation hat nichts installiert und dürfte
       // sonst „ohne verifikation installiert" neben der fehlermeldung zeigen.
       let warned = false;
@@ -165,6 +183,9 @@ export const useProtonStore = defineStore("proton", {
           downloadId: tag,
           onPhase: (p) => {
             job.phase = p;
+            // „entpacke" ohne vorherige warnung und mit hash-asset = geprüft.
+            // ohne asset ist der download bewusst unverifiziert (kein flag).
+            if (p === "extracting" && release.sha512Url && !warned) job.verified = true;
           },
           onWarning: () => {
             warned = true;

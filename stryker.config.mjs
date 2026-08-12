@@ -1,7 +1,7 @@
 // stryker-mutationstesting: nur src/core (UI-frei, headless gegen fixtures).
 // kein rust (stryker kann kein rust), keine UI-dateien. lauf: npm run mutation
 // (manuell oder in CI, artefakte sind nicht committet).
-// blocklist.ts: die datentabelle (zeile 18-51) wird ausgenommen — ihre
+// blocklist.ts: die datentabelle (zeile 18-51) wird ausgenommen, ihre
 // string-mutanten sind prinzipiell nicht tötbar (ein test, der ein label
 // pinnt, dupliziert nur die daten) und verzerrten den score; isBlocked und
 // availableBuiltinProtons bleiben drin. siehe docs/mutation-report.

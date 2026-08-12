@@ -202,6 +202,7 @@ function installMocks(downloadHash: string, sha512Body: string) {
   };
   const system = {
     downloadFile: vi.fn(async () => downloadHash),
+    fetchSha512: vi.fn(async () => sha512Body),
     extractTarball: vi.fn(async (s: string, d: string) => {
       extracted.push([s, d]);
     }),
@@ -274,17 +275,18 @@ describe("installRelease", () => {
   it("abbruch während des hash-abrufs verhindert den download noch", async () => {
     const m = installMocks(goodHash, `${goodHash}  GE-Proton9-27.tar.gz`);
     let cancelled = false;
-    // flag kippt erst, während http.get läuft — genau das fenster, in dem die
-    // rust-cancel-registry die id noch nicht kennt
-    const http: Http = {
-      async get() {
+    // flag kippt erst, während fetch_sha512 läuft, genau das fenster, in dem
+    // die rust-cancel-registry die id noch nicht kennt
+    const system = {
+      ...m.system,
+      fetchSha512: async () => {
         cancelled = true;
-        return { status: 200, ok: true, text: `${goodHash}  x.tar.gz`, headers: {} };
+        return `${goodHash}  x.tar.gz`;
       },
     };
     await expect(
       installRelease(
-        { ...m, http },
+        { ...m, system },
         {
           steamRoot: "/root",
           cacheDir: "/cache",
@@ -299,15 +301,16 @@ describe("installRelease", () => {
 
   it("hash-fetch wirft → onWarning 1×, install ohne prüfung, kein verifying", async () => {
     const m = installMocks(goodHash, `${goodHash}  GE-Proton9-27.tar.gz`);
-    const http: Http = {
-      async get() {
+    const system = {
+      ...m.system,
+      fetchSha512: vi.fn(async () => {
         throw new Error("netz weg");
-      },
+      }),
     };
     const warnings: string[] = [];
     const phases: InstallPhase[] = [];
     await installRelease(
-      { ...m, http },
+      { ...m, system },
       {
         steamRoot: "/root",
         cacheDir: "/cache",
@@ -324,14 +327,15 @@ describe("installRelease", () => {
 
   it("hash-fetch !ok → onWarning, install läuft", async () => {
     const m = installMocks(goodHash, `${goodHash}  GE-Proton9-27.tar.gz`);
-    const http: Http = {
-      async get() {
-        return { status: 500, ok: false, text: "", headers: {} };
-      },
+    const system = {
+      ...m.system,
+      fetchSha512: vi.fn(async () => {
+        throw new Error("HTTP 500"); // rust wirft bei non-success, core fängt
+      }),
     };
     const warnings: string[] = [];
     await installRelease(
-      { ...m, http },
+      { ...m, system },
       {
         steamRoot: "/root",
         cacheDir: "/cache",
@@ -346,14 +350,13 @@ describe("installRelease", () => {
 
   it("hash-fetch ok, aber text ohne validen hash → onWarning, install läuft", async () => {
     const m = installMocks(goodHash, `${goodHash}  GE-Proton9-27.tar.gz`);
-    const http: Http = {
-      async get() {
-        return { status: 200, ok: true, text: "kein hash hier", headers: {} };
-      },
+    const system = {
+      ...m.system,
+      fetchSha512: vi.fn(async () => "kein hash hier"),
     };
     const warnings: string[] = [];
     await installRelease(
-      { ...m, http },
+      { ...m, system },
       {
         steamRoot: "/root",
         cacheDir: "/cache",

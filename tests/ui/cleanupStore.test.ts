@@ -44,7 +44,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: mockInvoke,
 }));
 vi.mock("../../src/core/adapters/tauri", async () => {
-  // in-memory cache statt {} — der store persistiert die ignorier-entscheidung
+  // in-memory cache statt {}, der store persistiert die ignorier-entscheidung
   const cacheStore = new Map<string, string>();
   const tauriPorts = {
     fs: {},
@@ -153,7 +153,7 @@ describe("cleanupStore gate logic", () => {
     expect(store.pathMissingLibs).toEqual([]);
   });
 
-  it("blockiert NICHT wenn nur path-missing — zeigt stattdessen freigabe-abfrage", async () => {
+  it("blockiert NICHT wenn nur path-missing, zeigt stattdessen freigabe-abfrage", async () => {
     const scanStore = useScanStore();
     scanStore.result = fakeScan([{ path: "/gone/lib", reason: "path-missing" }]);
     const store = useCleanupStore();
@@ -258,7 +258,7 @@ describe("cleanupStore gate logic", () => {
   });
 });
 
-describe("cleanupStore — S-05 + shortcuts", () => {
+describe("cleanupStore, S-05 + shortcuts", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     setLocale("de");
@@ -374,10 +374,10 @@ describe("cleanupStore — S-05 + shortcuts", () => {
 });
 
 // batch_dir_sizes-skip-semantik: ein von rust übersprungener pfad (NotFound-race)
-// darf im store NICHT als sizeBytes=0 landen — sonst ist er im UI nicht von einem
+// darf im store NICHT als sizeBytes=0 landen, sonst ist er im UI nicht von einem
 // echten 0-byte-orphan (leeres verzeichnis) unterscheidbar. stattdessen bleibt
-// sizeBytes undefined → CleanupView rendert "…" (≠ "—" für leer, ≠ "0 B").
-describe("cleanupStore — batch_dir_sizes NotFound-Skip", () => {
+// sizeBytes undefined → CleanupView rendert "…" (≠ "-" für leer, ≠ "0 B").
+describe("cleanupStore, batch_dir_sizes NotFound-Skip", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     setLocale("de");
@@ -416,15 +416,15 @@ describe("cleanupStore — batch_dir_sizes NotFound-Skip", () => {
     expect(vanished?.sizeBytes).toBeUndefined();
   });
 
-  it("UI-ternary: undefined-sizeBytes rendert '…' (nicht '—', nicht die größe)", () => {
-    // derselbe ausdruck wie in CleanupView.vue — als regressionstest, damit eine
+  it("UI-ternary: undefined-sizeBytes rendert '…' (nicht '-', nicht die größe)", () => {
+    // derselbe ausdruck wie in CleanupView.vue, als regressionstest, damit eine
     // zukünftige änderung an formatBytes oder dem ternären operator die
-    // unterscheidung "verschwunden (…)" vs "leer (—)" nicht wieder verwischt.
-    // WICHTIG: die echte formatBytes importieren, kein lokales duplikat — ein
+    // unterscheidung "verschwunden (…)" vs "leer (-)" nicht wieder verwischt.
+    // WICHTIG: die echte formatBytes importieren, kein lokales duplikat, ein
     // duplikat bliebe grün, selbst wenn das original bricht.
     const renderSize = (sb?: number) => (sb != null ? formatBytes(sb) : "…");
     expect(renderSize(undefined)).toBe("…");
-    expect(renderSize(0)).toBe("—"); // echtes leeres verzeichnis
+    expect(renderSize(0)).toBe("-"); // echtes leeres verzeichnis
     expect(renderSize(8192)).toBe(formatBytes(8192));
   });
 });
@@ -441,7 +441,7 @@ function fakeTrashEntry(overrides?: Partial<TrashEntry>): TrashEntry {
   };
 }
 
-describe("cleanupStore — trash", () => {
+describe("cleanupStore, trash", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     setLocale("de");
@@ -539,7 +539,7 @@ describe("cleanupStore — trash", () => {
     expect(mockInvoke).toHaveBeenCalledWith("remove_trash_entry", { path: e2.path });
   });
 
-  it("emptyTrash mit fehlschlag in der mitte — rest wird trotzdem gelöscht", async () => {
+  it("emptyTrash mit fehlschlag in der mitte, rest wird trotzdem gelöscht", async () => {
     const e1 = fakeTrashEntry();
     const e2 = fakeTrashEntry({
       path: "/lib/steamapps/.protium-trash/compatdata_570_100",
@@ -598,7 +598,7 @@ describe("cleanupStore — trash", () => {
   });
 });
 
-describe("cleanupStore — papierkorb-refresh nach dem löschen", () => {
+describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     setLocale("de");

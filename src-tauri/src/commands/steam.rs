@@ -14,9 +14,11 @@ use crate::commands::spawn_blocking_io;
 
 /// M3.1: INV-1-write-gate in rust. prüft, ob ein canonicalisierter pfad eine
 /// der legitimen steam-config-dateien ist: drei canonicalisierte root-
-/// varianten (nativ/flatpak/snap — `.steam/steam` und `.steam/root` sind
+/// varianten (nativ/flatpak/snap, `.steam/steam` und `.steam/root` sind
 /// symlinks und kollabieren per canonicalize auf die native variante) ×
 /// `config/config.vdf` und `userdata/<digits>/config/localconfig.vdf`.
+/// spiegel zu ROOT_CANDIDATES in src/core/paths.ts (dort 5 kandidaten inkl.
+/// symlink-varianten), beide zusammen pflegen, wie assetProtocol.scope.
 fn is_steam_config_path(file: &Path, home: &Path) -> bool {
     let roots = [
         home.join(".local/share/Steam"),
@@ -57,7 +59,7 @@ pub(super) fn write_steam_file_inner(
 ) -> Result<(), String> {
     sanitize_path(file, "write target")?;
     if running {
-        return Err("steam is running — write refused".into());
+        return Err("steam is running, write refused".into());
     }
     let canon = fs::canonicalize(file).map_err(|e| format!("write target canonicalize: {e}"))?;
     if !is_safe_path(&canon.to_string_lossy()) {
@@ -67,10 +69,10 @@ pub(super) fn write_steam_file_inner(
         return Err("write target is not a steam config file".into());
     }
 
-    // backup ist ein zweites write-ziel — es muss zwingend innerhalb des
+    // backup ist ein zweites write-ziel, es muss zwingend innerhalb des
     // app-cache liegen (allowlist statt blocklist, muster validate_download_dest).
     // verhaltens-delta (spec 2026-08-03): der helper erstellt das app-cache-dir
-    // VOR der ablehnung — bei abgelehntem backup bleibt ein leerer
+    // VOR der ablehnung, bei abgelehntem backup bleibt ein leerer
     // verzeichnis-stamm (eigenes verzeichnis, harmlos, INV-konform).
     let backup_path = Path::new(backup);
     ensure_dest_within_canon_dir(backup_path, backup_dir, "backup")?;
@@ -124,7 +126,7 @@ pub(super) fn remove_compat_tool_inner(
     // symlink sein, sonst zeigte target durch ihn hindurch woanders hin
     let tools_meta = fs::symlink_metadata(&tools_dir).map_err(|e| e.to_string())?;
     if tools_meta.file_type().is_symlink() {
-        return Err("compatibilitytools.d is a symlink — rejected".into());
+        return Err("compatibilitytools.d is a symlink, rejected".into());
     }
     if !tools_meta.is_dir() {
         return Err("compatibilitytools.d is not a directory".into());
@@ -133,7 +135,7 @@ pub(super) fn remove_compat_tool_inner(
     // symlink-guard: ein tool, das ein symlink ist, wird nie gelöscht
     let meta = fs::symlink_metadata(&target).map_err(|e| e.to_string())?;
     if meta.file_type().is_symlink() {
-        return Err("tool is a symlink — rejected".into());
+        return Err("tool is a symlink, rejected".into());
     }
     if !meta.is_dir() {
         return Err("tool is not a directory".into());
@@ -313,7 +315,7 @@ mod tests {
     #[test]
     fn write_gate_fehlende_zieldatei_abgelehnt() {
         let (home, cache, steam) = wsg_env("fehlt");
-        let target = steam.join("config/config.vdf"); // existiert nicht (fixture schreibt sie — hier: löschen)
+        let target = steam.join("config/config.vdf"); // existiert nicht (fixture schreibt sie, hier: löschen)
         std::fs::remove_file(&target).unwrap();
         let backup = cache.join("b.vdf");
         let res = write_steam_file_inner(
@@ -401,7 +403,7 @@ mod tests {
     #[test]
     fn remove_tool_symlink_root_scope_check_auf_canonical() {
         // ein steam_root, der selbst ein symlink ist, zeigt nach canonicalize
-        // woanders hin — der scope-check läuft jetzt auf dem canonical-pfad.
+        // woanders hin, der scope-check läuft jetzt auf dem canonical-pfad.
         // erlaubt der scope nur den roh-symlink (nicht das canonical-ziel),
         // muss der remove abgelehnt werden.
         let root = wsg_fixture("rmtool-symlink-root");

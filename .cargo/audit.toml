@@ -1,9 +1,9 @@
-# advisories, die wir bewusst tragen. per ID ignoriert, nicht pauschal —
+# advisories, die wir bewusst tragen. per ID ignoriert, nicht pauschal 
 # ein NEUER advisory schlägt weiterhin an.
 [advisories]
 ignore = [
   # gtk-rs GTK3-bindings unmaintained (gtk-rs ist auf GTK4 umgezogen).
-  # tauri v2 nutzt unter linux GTK3 + webkit2gtk — nicht von uns lösbar.
+  # tauri v2 nutzt unter linux GTK3 + webkit2gtk, nicht von uns lösbar.
   "RUSTSEC-2024-0411", "RUSTSEC-2024-0412", "RUSTSEC-2024-0413",
   "RUSTSEC-2024-0414", "RUSTSEC-2024-0415", "RUSTSEC-2024-0416",
   "RUSTSEC-2024-0417", "RUSTSEC-2024-0418", "RUSTSEC-2024-0419",

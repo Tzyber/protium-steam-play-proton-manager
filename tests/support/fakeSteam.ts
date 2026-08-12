@@ -231,7 +231,7 @@ export async function buildFakeSteam(): Promise<{
     acf(730, "Counter-Strike 2", 6, 98765432),
   );
 
-  // compatdata/shadercache — für cleanup-tests (phase 5)
+  // compatdata/shadercache, für cleanup-tests (phase 5)
   await mkdir(join(root, "steamapps/compatdata/570"), { recursive: true });
   await mkdir(join(root, "steamapps/compatdata/999999"), { recursive: true });
   await mkdir(join(root, "steamapps/compatdata/3641016077"), { recursive: true });
@@ -312,6 +312,10 @@ export function fakeSystem(opts?: { failScope?: Set<string> }): System & { scope
     async isProcessRunning() {
       return false;
     },
+    async fetchSha512() {
+      // wer den pfad testet, mockt ihn explizit, nie still durchlassen
+      throw new Error("fetchSha512 not mocked");
+    },
     async dirSize() {
       return 4096;
     },
@@ -342,7 +346,7 @@ export function fakeSystem(opts?: { failScope?: Set<string> }): System & { scope
     // die integrations-tests gegen disk-zustand weiter funktionieren.
     async writeSteamConfigFile(file, original, content, backup) {
       if (await this.isProcessRunning("steam")) {
-        throw new Error("steam is running — write refused");
+        throw new Error("steam is running, write refused");
       }
       try {
         await lstat(file);

@@ -17,7 +17,7 @@ export interface TrashEntry {
   sizeBytes?: number;
 }
 
-/** stand pro library — auch dann, wenn dort nichts liegt. der nutzer soll sehen,
+/** stand pro library, auch dann, wenn dort nichts liegt. der nutzer soll sehen,
  *  dass BEIDE libraries geprüft wurden, statt aus einer leeren liste schließen zu
  *  müssen, ob überhaupt geprüft wurde. */
 export interface TrashLibraryStatus {
@@ -38,7 +38,7 @@ export interface TrashLibraryStatus {
 export interface TrashScanResult {
   entries: TrashEntry[];
   /** verzeichnisse im papierkorb, die dem muster NICHT entsprechen.
-   *  werden nicht angeboten, aber gemeldet — INV-2, nichts lautlos verstecken. */
+   *  werden nicht angeboten, aber gemeldet, INV-2, nichts lautlos verstecken. */
   unknown: string[];
   /** libraries, deren papierkorb existiert, aber nicht gelesen werden konnte.
    *  MUSS getrennt von "kein papierkorb vorhanden" behandelt werden: sonst sieht
@@ -66,7 +66,7 @@ export async function findTrashEntries(
       // WARUM über rust und nicht per fs.readDir: der fs-scope des webviews wird
       // per glob (`<library>/**`) vergeben und erfasst ein verzeichnis mit
       // führendem punkt nicht zuverlässig. `.protium-trash` war in externen
-      // libraries deshalb unlesbar — die app zeigte einen leeren papierkorb,
+      // libraries deshalb unlesbar, die app zeigte einen leeren papierkorb,
       // obwohl prefixes darin lagen. rust hat keinen webview-scope.
       listing = await system.listTrashEntries(lib);
     } catch (e) {
@@ -98,7 +98,7 @@ export async function findTrashEntries(
 
     let count = 0;
     for (const entry of listing.entries) {
-      // pfad aus dem verzeichnis des backends bauen, nicht selbst joinen — sonst
+      // pfad aus dem verzeichnis des backends bauen, nicht selbst joinen, sonst
       // zeigt die UI einen anderen ort als den, der gelesen wurde
       const fullPath = joinPath(listing.dir, entry.name);
       const match = TRASH_NAME_RE.exec(entry.name);

@@ -35,8 +35,8 @@ describe("blocklist", () => {
 
 // one source of truth: BLOCKLIST ist die kanonische tabelle. der dropdown-flow
 // (GameDetailDrawer.compatOptions) liest via availableBuiltinProtons aus
-// derselben liste. ein zukünftiger split — z. b. eine separate appId→toolName-map
-// für das dropdown — würde diese invariant brechen und der test schlägt fehl.
+// derselben liste. ein zukünftiger split, z. b. eine separate appId→toolName-map
+// für das dropdown, würde diese invariant brechen und der test schlägt fehl.
 describe("kanonische tabelle (blocklist ↔ dropdown-flow)", () => {
   it("jeder proton-builtin-eintrag erscheint mit identischem toolnamen im dropdown", () => {
     for (const entry of BLOCKLIST) {

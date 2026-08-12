@@ -80,6 +80,9 @@ describe("listCompatTools", () => {
       allowLibraryScope: vi.fn(async () => {}),
       pathIdentity: vi.fn(async () => pi),
       downloadFile: vi.fn(async () => "hash"),
+      fetchSha512: vi.fn(async () => {
+        throw new Error("fetchSha512 not mocked");
+      }),
       cancelDownload: vi.fn(async () => {}),
       extractTarball: vi.fn(async () => {}),
       writeSteamConfigFile: vi.fn(async () => {}),

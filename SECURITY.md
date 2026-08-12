@@ -12,7 +12,7 @@ stable release nur auf `main`.
 
 ## Reporting a Vulnerability
 
-Protium ist eine lokale desktop-app — kein server, keine api-keys, keine
+Protium ist eine lokale desktop-app, kein server, keine api-keys, keine
 nutzerdaten. das threat-model ist der IPC-übergang zwischen webview und
 rust-backend.
 

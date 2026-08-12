@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { errMsg, formatBytes } from "../../src/ui/format";
 
 describe("formatBytes", () => {
-  it("0 und negativ → gedankenstrich (leer/ungültig ≠ fehlend)", () => {
-    expect(formatBytes(0)).toBe("—");
-    expect(formatBytes(-5)).toBe("—");
+  it("0 und negativ → bindestrich (leer/ungültig ≠ fehlend)", () => {
+    expect(formatBytes(0)).toBe("-");
+    expect(formatBytes(-5)).toBe("-");
   });
   it("bytes ohne dezimalstelle", () => {
     expect(formatBytes(512)).toBe("512 B");

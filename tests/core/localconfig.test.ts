@@ -27,7 +27,7 @@ describe("findActiveUser", () => {
 
   it("bei mehreren accounts entscheidet loginusers.vdf (MostRecent)", async () => {
     const { root, userId } = await buildFakeSteam();
-    // zweiter account MIT localconfig — loginusers zeigt weiter auf userId
+    // zweiter account MIT localconfig, loginusers zeigt weiter auf userId
     await mkdir(join(root, "userdata", "222222222", "config"), { recursive: true });
     await writeFile(
       join(root, "userdata", "222222222", "config", "localconfig.vdf"),
@@ -39,7 +39,7 @@ describe("findActiveUser", () => {
   });
 
   it("fallback ohne loginusers.vdf: numerisch kleinster account, nicht lexikographisch", async () => {
-    // lexikographisch läge "10" vor "2" — das wäre der falsche account.
+    // lexikographisch läge "10" vor "2", das wäre der falsche account.
     const root = await mkdtemp(join(tmpdir(), "protium-multiuser-"));
     for (const id of ["10", "2"]) {
       await mkdir(join(root, "userdata", id, "config"), { recursive: true });

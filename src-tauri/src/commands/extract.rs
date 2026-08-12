@@ -20,7 +20,7 @@ pub(super) fn extract_blocking(
     use tar::Archive;
 
     let dest = Path::new(dest_dir);
-    // scope-check VOR create_dir_all — kein mkdir vor der ablehnung. für
+    // scope-check VOR create_dir_all, kein mkdir vor der ablehnung. für
     // nicht-existierende dests prüft der nächste existierende vorfahre.
     let dest_ancestor_canon = canonicalize_nearest_ancestor(dest, "extract dest")?;
     if !scope_ok(&dest_ancestor_canon) {
@@ -51,7 +51,7 @@ pub(super) fn extract_blocking(
         .unwrap_or(true)
     {
         let _ = fs::remove_dir_all(&tmp);
-        return Err("temp dir is symlink — extraction aborted".into());
+        return Err("temp dir is symlink, extraction aborted".into());
     }
 
     let result = (|| -> Result<(), String> {
@@ -62,9 +62,9 @@ pub(super) fn extract_blocking(
         // tar-entry-type ist also die einzige zuverlässige quelle für die
         // entscheidung "ist das ein device?".
         //
-        // erlaubt: Regular, Directory, Link (hardlinks — link-target muss
+        // erlaubt: Regular, Directory, Link (hardlinks, link-target muss
         // innerhalb des archives zeigen, sonst pfad-traversal-leck) und
-        // Symlink (legitime lib-versionslinks in GE-tarballs — ausbruch wird
+        // Symlink (legitime lib-versionslinks in GE-tarballs, ausbruch wird
         // lexikalisch via link_target_stays_inside geprüft statt pauschal
         // verboten). alles andere (Block, Char, Fifo, Continuous) wird
         // abgelehnt.
@@ -72,7 +72,7 @@ pub(super) fn extract_blocking(
         // post-unpack-filter bleibt als defense-in-depth, ist aber nicht
         // mehr die primäre schutzlinie (filter iteriert nur top-level, ein
         // subdir mit bad entry würde ungeprüft durchkommen).
-        // datei EINMAL auf dem kanonischen pfad öffnen — kein TOCTOU
+        // datei EINMAL auf dem kanonischen pfad öffnen, kein TOCTOU
         let f = fs::File::open(&src_canon).map_err(|e| e.to_string())?;
         let mut f2 = f.try_clone().map_err(|e| e.to_string())?;
         {
@@ -85,7 +85,7 @@ pub(super) fn extract_blocking(
                     tar::EntryType::Link => {
                         // hardlink-target muss innerhalb des archives sein.
                         // ein absoluter target oder .. würde aus dem unpack-root
-                        // ausbrechen — und da der post-unpack-filter nur top-level
+                        // ausbrechen, und da der post-unpack-filter nur top-level
                         // iteriert, würde so ein hardlink in einem subdir ungeprüft
                         // durchkommen. pre-check ist die einzige zuverlässige
                         // schutzlinie für hardlinks.
@@ -146,7 +146,7 @@ pub(super) fn extract_blocking(
                 }
             }
         }
-        // try_clone teilt den file-offset mit dem original — vor dem zweiten
+        // try_clone teilt den file-offset mit dem original, vor dem zweiten
         // durchlauf explizit zurücksetzen. unpack läuft manuell statt
         // ar.unpack: nur so lässt sich ein größenlimit über die deklarierten
         // entry-größen summiert durchsetzen (gzip-bomb-schutz, M1.4).
@@ -189,7 +189,7 @@ pub(super) fn extract_blocking(
 
 /// R-1: .tar.gz entpacken. temp im ziel-fs (EXDEV-safe), dann rename ins ziel.
 /// dest-allowlist (M1.3): der scope-check läuft VOR create_dir_all und prüft
-/// den nächsten existierenden vorfahren — der einzige legitime dest ist
+/// den nächsten existierenden vorfahren, der einzige legitime dest ist
 /// `compatibilitytools.d` unter einem session-bestätigten steam-root.
 #[tauri::command]
 pub async fn extract_tarball(
@@ -225,7 +225,7 @@ mod tests {
     // befund-basis (vor tests, durch code-lesen):
     // - post-unpack-filter iteriert nur top-level-eintraege (read_dir nicht rekursiv).
     //   subdirs werden als ganzes nach dest verschoben, ohne inhalt zu prüfen.
-    //   *die hier geschriebenen tests zielen auf top-level-eintraege* — der subdir-befund
+    //   *die hier geschriebenen tests zielen auf top-level-eintraege*, der subdir-befund
     //   ist ein separater punkt (siehe report).
 
     fn extract_dest(tag: &str) -> std::path::PathBuf {
@@ -258,7 +258,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(dest);
     }
 
-    // helper: append_data setzt die size NICHT automatisch — der header
+    // helper: append_data setzt die size NICHT automatisch, der header
     // braucht sie vorher. ohne size kann das tar-archiv nicht gelesen werden
     // ("numeric field was not a number").
     fn make_data_header(path: &str, data: &[u8]) -> tar::Header {
@@ -305,7 +305,7 @@ mod tests {
     #[test]
     fn symlink_mit_absolutem_target_wird_abgelehnt() {
         // symlink auf absoluten pfad (/etc/passwd) muss via
-        // link_target_stays_inside abgelehnt werden — target.is_absolute()
+        // link_target_stays_inside abgelehnt werden, target.is_absolute()
         // liefert false. der ganze extract wird abgebrochen, nichts im ziel.
         let tarball = extract_tarball("symlink", |b| {
             let mut header = tar::Header::new_gnu();
@@ -583,7 +583,7 @@ mod tests {
         // darf NIE existieren.
         //
         // der pre-check lehnt den tar ab, sobald er einen eintrag mit bad
-        // path findet — also nichts wird geschrieben.
+        // path findet, also nichts wird geschrieben.
         let escaped_filename = format!("protium-escape-{}.txt", std::process::id());
         let escaped_path = std::path::PathBuf::from("/tmp").join(&escaped_filename);
         let _ = std::fs::remove_file(&escaped_path);
@@ -626,7 +626,7 @@ mod tests {
         // dokumentation: hardlinks (EntryType::Link) sind im pre-check
         // erlaubt. ar.unpack erstellt sie als reguläre datei (oder hardlink,
         // je nach fs) im tmp-dir, und der post-unpack-filter lässt sie durch
-        // (is_file() == true). sie landen im ziel — das ist das definierte
+        // (is_file() == true). sie landen im ziel, das ist das definierte
         // verhalten. tar-crate prüft, dass der link-target innerhalb des
         // archives existiert und nicht aus dem unpack-root ausbricht.
         let tarball = extract_tarball("hardlink", |b| {
@@ -674,7 +674,7 @@ mod tests {
     // pfad ausserhalb des archives würde vom post-unpack-filter nicht
     // erfasst (der filter iteriert nur top-level und folgt subdirs ungeprüft).
     // der pre-check fängt das ab, weil er link-target-pfade gegen absolute
-    // pfade und `..` prüft — unabhängig von der entry-position.
+    // pfade und `..` prüft, unabhängig von der entry-position.
     #[test]
     fn hardlink_in_subdir_auf_aussenhardlink_wird_abgelehnt() {
         // konkrete lage: tar mit subdir + hardlink `subdir/inner-hardlink`
@@ -865,7 +865,7 @@ mod tests {
         );
         assert!(
             !dest.exists(),
-            "kein mkdir vor der ablehnung — dest darf nicht entstehen"
+            "kein mkdir vor der ablehnung, dest darf nicht entstehen"
         );
     }
 
@@ -873,7 +873,7 @@ mod tests {
     fn extract_dest_ancestor_im_scope_ok() {
         // dest existiert nicht, der parent ist im scope → der check greift auf
         // den nächsten existierenden vorfahren. der src-check (/etc, blockiert)
-        // muss danach greifen — beweist, dass der dest-check bestanden wurde.
+        // muss danach greifen, beweist, dass der dest-check bestanden wurde.
         let mut dest = std::env::temp_dir();
         dest.push(format!("protium-extract-ancestor-{}", std::process::id()));
         let canon = std::fs::canonicalize(std::env::temp_dir()).unwrap();

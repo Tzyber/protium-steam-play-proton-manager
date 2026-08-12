@@ -10,7 +10,7 @@ const lib = useLibraryStore();
 
 const TIER_ORDER: Tier[] = ["platinum", "gold", "silver", "bronze", "borked", "unknown"];
 
-// labels via t() — bei locale-wechsel bleibt die sort-auswahl dieselbe
+// labels via t(), bei locale-wechsel bleibt die sort-auswahl dieselbe
 // (key-basiert), nur das label ändert sich.
 const SORTS = computed(() => [
   { key: "name" as const, label: t("filter.sortName") },
@@ -192,7 +192,7 @@ function libShort(path: string): string {
 .t-borked { --c: var(--tier-borked); }
 .t-unknown { --c: var(--tier-unknown); }
 
-/* filter-gruppen-labels (SORT / PROTON / DISK) werden gelesen, nicht gescannt —
+/* filter-gruppen-labels (SORT / PROTON / DISK) werden gelesen, nicht gescannt 
    vom globalen .label (mono) auf body umstellen. gleiche schrift wie die chips
    daneben, damit das gruppen-label nicht aus dem raster fällt. */
 .label { font-family: var(--font-body); }

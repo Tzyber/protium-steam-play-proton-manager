@@ -16,7 +16,7 @@ use crate::commands::scope::{
 };
 use crate::commands::spawn_blocking_io;
 
-/// name des papierkorb-verzeichnisses — existiert genau einmal hier, weil der
+/// name des papierkorb-verzeichnisses, existiert genau einmal hier, weil der
 /// papierkorb in rust konstruiert wird (der webview-fs-scope erfasst
 /// verzeichnisse mit führendem punkt nicht zuverlässig, s. list_trash_entries).
 const TRASH_DIR_NAME: &str = ".protium-trash";
@@ -31,7 +31,7 @@ const TRASH_DIR_NAME: &str = ".protium-trash";
 pub(super) fn validate_and_prepare(path_str: &str) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
     sanitize_path(path_str, "remove_orphan_dir")?;
     // symlink-guard auf roh-input: ein orphan-eintrag, der selbst ein symlink
-    // ist, ist nie ein legitimer löschkandidat (findOrphans skippt symlinks) —
+    // ist, ist nie ein legitimer löschkandidat (findOrphans skippt symlinks) 
     // siehe canonicalize_no_symlink für die begründung der reihenfolge.
     let canonical = canonicalize_no_symlink(path_str)?;
     let binding = canonical.to_string_lossy();
@@ -41,14 +41,14 @@ pub(super) fn validate_and_prepare(path_str: &str) -> Result<(std::path::PathBuf
 
 /// reine lösch-logik: validierung (blocklist, symlink-defense-in-depth, is_dir,
 /// muster, appid) + tatsächliches löschen/trash. `library` wird vom
-/// command-wrapper durchgereicht (nicht erneut abgeleitet) — guard-reihenfolge
+/// command-wrapper durchgereicht (nicht erneut abgeleitet), guard-reihenfolge
 /// bleibt unverändert: erst sicherheit, dann parsing, dann delete.
 pub(super) fn remove_orphan_dir_inner(
     canonical: &Path,
     library: &Path,
     scope_ok: &dyn Fn(&Path) -> bool,
 ) -> Result<String, String> {
-    // scope-gate auf das library-root (nicht den zielpfad — der trash-pfad
+    // scope-gate auf das library-root (nicht den zielpfad, der trash-pfad
     // liegt in einem punkt-verzeichnis, das der glob nicht erfasst). der
     // command prüft zusätzlich VOR dem scope-grant.
     if !scope_ok(library) {
@@ -65,7 +65,7 @@ pub(super) fn remove_orphan_dir_inner(
     // inner-aufrufer (tests, zukünftige code-pfade) und kostet nichts.
     let meta = fs::symlink_metadata(canonical).map_err(|e| e.to_string())?;
     if meta.file_type().is_symlink() {
-        return Err("symlink rejected — will not recurse".into());
+        return Err("symlink rejected, will not recurse".into());
     }
     if !meta.is_dir() {
         return Err("not a directory".into());
@@ -105,13 +105,13 @@ pub(super) fn remove_trash_entry_inner(path: &str, scope_ok: &dyn Fn(&Path) -> b
     sanitize_path(&path, "remove_trash_entry")?;
 
     // canonicalize VOR allen weiteren prüfungen (sonst umgeht .. die
-    // musterprüfung) — symlink-guard auf roh-input in canonicalize_no_symlink
+    // musterprüfung), symlink-guard auf roh-input in canonicalize_no_symlink
     let canonical = canonicalize_no_symlink(&path)?;
 
     let meta = fs::symlink_metadata(&canonical).map_err(|e| e.to_string())?;
     // defense-in-depth: der roh-input-check oben hat symlinks bereits abgewiesen
     if meta.file_type().is_symlink() {
-        return Err("symlink rejected — will not recurse".into());
+        return Err("symlink rejected, will not recurse".into());
     }
     if !meta.is_dir() {
         return Err("not a directory".into());
@@ -122,7 +122,7 @@ pub(super) fn remove_trash_entry_inner(path: &str, scope_ok: &dyn Fn(&Path) -> b
         return Err("blocked path".into());
     }
 
-    // scope-gate auf das library-root (nicht den trash-pfad — punkt-verzeichnis,
+    // scope-gate auf das library-root (nicht den trash-pfad, punkt-verzeichnis,
     // nicht vom glob erfasst). der papierkorb bleibt damit nur innerhalb
     // session-bestätigter libraries leerbar.
     let lib_str = library_of(&canon_str)?;
@@ -181,7 +181,7 @@ pub(crate) struct TrashDirEntry {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TrashListing {
     /// kanonischer pfad des papierkorbs, den wir wirklich gelesen haben.
-    /// das frontend baut eintragspfade daraus, statt selbst zu joinen —
+    /// das frontend baut eintragspfade daraus, statt selbst zu joinen 
     /// sonst driftet die anzeige bei symlinks vom echten ort ab.
     pub dir: String,
     pub present: bool,
@@ -203,7 +203,7 @@ pub(super) fn list_trash_entries_inner(library: &str) -> Result<TrashListing, St
         Err(e) => return Err(e.to_string()),
     };
     if md.file_type().is_symlink() {
-        return Err("trash dir is a symlink — refusing to read".into());
+        return Err("trash dir is a symlink, refusing to read".into());
     }
     if !md.is_dir() {
         return Err("trash path is not a directory".into());
@@ -235,7 +235,7 @@ pub async fn remove_orphan_dir(app: AppHandle, path: String) -> Result<String, S
         let (library, canonical) = validate_and_prepare(&path)?;
         // scope-gate VOR dem grant (S5): ohne diesen check würde der grant
         // unten das library-root selbst in den scope heben und der is_allowed-
-        // check in inner wäre trivial true — löschung außerhalb bestätigter
+        // check in inner wäre trivial true, löschung außerhalb bestätigter
         // libraries wäre möglich.
         if !app.fs_scope().is_allowed(&library) {
             return Err("library outside allowed scope".into());
@@ -275,7 +275,7 @@ pub async fn remove_trash_entry(app: tauri::AppHandle, path: String) -> Result<S
 /// WARUM in rust und nicht per plugin-fs readDir im frontend: der fs-scope des
 /// webviews wird über globs vergeben (`<library>/**`). ein verzeichnis mit
 /// führendem punkt wird davon nicht zuverlässig erfasst, und das lesen des
-/// papierkorbs schlug in externen libraries still fehl — die app zeigte einen
+/// papierkorbs schlug in externen libraries still fehl, die app zeigte einen
 /// leeren papierkorb, obwohl vier prefixes darin lagen. rust hat keinen
 /// webview-scope; dieselbe begründung wie bei dir_size und remove_trash_entry.
 /// async + spawn_blocking (verzeichnis-read auf dem main-thread vermeiden).
@@ -530,7 +530,7 @@ mod tests {
 
     // ---- remove_trash_entry ----
     // selbes tempdir-muster wie remove_orphan_dir.
-    // tests prüfen remove_trash_entry_inner — die komplette validierungs- und
+    // tests prüfen remove_trash_entry_inner, die komplette validierungs- und
     // löschkette (der async-command darüber ist nur spawn_blocking).
 
     use super::remove_trash_entry_inner;

@@ -12,6 +12,9 @@ function fakeSystem(impl: (library: string) => Promise<TrashListing>): System {
     allowLibraryScope: async () => {},
     pathIdentity: async () => null,
     downloadFile: async () => "",
+    fetchSha512: async () => {
+      throw new Error("fetchSha512 not mocked");
+    },
     cancelDownload: async () => {},
     extractTarball: async () => {},
     writeSteamConfigFile: async () => {},

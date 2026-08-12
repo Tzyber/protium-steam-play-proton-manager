@@ -14,7 +14,7 @@ export type ShortcutResult =
 // format: TYPE-KEY-VALUE (typ-byte VOR dem key-string)
 // typen nach kanonischer Valve-binary-VDF-tabelle (ValveKeyValue/SteamKit2,
 // wstring-layout nach VDC-wiki); 0x09 ist ein wiki-only-compiled-typ,
-// 0x0A/0x0B nur mit VBKV-magic-header — shortcuts.vdf hat keinen → alle
+// 0x0A/0x0B nur mit VBKV-magic-header, shortcuts.vdf hat keinen → alle
 // drei default-throw. echte dateien nutzen nur 0x00/0x01/0x02/0x08, aber
 // die tabelle muss stimmen: werte nicht raten.
 
@@ -27,7 +27,7 @@ class BinVdfError extends Error {
   }
 }
 
-/** liest ein byte an `pos`. wirft, statt `undefined` weiterzugeben —
+/** liest ein byte an `pos`. wirft, statt `undefined` weiterzugeben
  *  der parser bricht bei strukturbruch ab, er rät nicht. */
 function byteAt(buf: Uint8Array, pos: number): number {
   const b = buf[pos];
@@ -54,7 +54,7 @@ function readU32(buf: Uint8Array, pos: number): { value: number; next: number } 
 function skipBinaryValue(buf: Uint8Array, pos: number, type: number): number {
   switch (type) {
     case 0x00:
-      // map-body ohne regeln: alles überspringen — dieselbe iteration wie
+      // map-body ohne regeln: alles überspringen, dieselbe iteration wie
       // walkMapBody, damit die zwei map-body-schleifen nicht driften können
       return walkMapBody(
         buf,
@@ -94,13 +94,13 @@ type WalkKindFn = (type: number, key: string) => WalkKind;
 const rootKind: WalkKindFn = (type, key) =>
   type === 0x00 && NUMERIC_RE.test(key) ? "extract" : "skip";
 
-/** eintrags-ebene: nur "appid" mit int32 zählt — case-insensitive, wie Valve schreibt. */
+/** eintrags-ebene: nur "appid" mit int32 zählt, case-insensitive, wie Valve schreibt. */
 const entryKind: WalkKindFn = (type, key) =>
   key.toLowerCase() === "appid" && type === 0x02 ? "appid" : "skip";
 
 /**
  * walkt einen MAP-body (TYPE-KEY-VALUE). `pos` zeigt auf das erste
- * child-typ-byte. "extract" steigt in einen MAP-wert ab — dort gilt das
+ * child-typ-byte. "extract" steigt in einen MAP-wert ab, dort gilt das
  * eintrags-regelwerk. "appid" liest einen u32 und meldet ihn über onEntry.
  */
 function walkMapBody(
@@ -122,7 +122,7 @@ function walkMapBody(
         break;
       case "appid": {
         const { value, next } = readU32(buf, pos);
-        if (value > 0) onEntry(value); // appid 0 gibt es nicht — nie melden
+        if (value > 0) onEntry(value); // appid 0 gibt es nicht, nie melden
         pos = next;
         break;
       }
@@ -135,8 +135,8 @@ function walkMapBody(
 
 /**
  * extrahiert appIds aus binärem shortcuts.vdf.
- * wirft BinVdfError bei strukturbruch — caller entscheidet "unreadable".
- * @internal — nur intern + für tests exportiert; produktion ruft readAllShortcutAppIds.
+ * wirft BinVdfError bei strukturbruch, caller entscheidet "unreadable".
+ * @internal, nur intern + für tests exportiert; produktion ruft readAllShortcutAppIds.
  */
 function parseBinaryShortcutIds(buf: Uint8Array): Set<number> {
   const ids = new Set<number>();

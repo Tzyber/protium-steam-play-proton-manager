@@ -26,7 +26,7 @@ pub(super) fn suffix_after_steamapps(canon_str: &str) -> Result<&str, String> {
 /// gemeinsame typ/appId-validierung der beiden lösch-pfade (orphan + trash):
 /// typ ∈ {compatdata, shadercache}, ascii-digits, appId ≠ 0. das split
 /// selbst bleibt an den stellen (orphan: '/', trash: '_' nach
-/// marker/timestamp-parse — unterschiedliche fehlermeldungen).
+/// marker/timestamp-parse, unterschiedliche fehlermeldungen).
 pub(super) fn parse_compat_id<'a>(pair: (&'a str, &'a str)) -> Result<(&'a str, &'a str), String> {
     let (typ, app_id_str) = pair;
     if typ != "compatdata" && typ != "shadercache" {
@@ -60,6 +60,7 @@ pub(super) fn allow_library_scope_inner(app: AppHandle, path: &Path) -> Result<(
 
 /// bekannte system-compat-dirs (distro-protonen, z. b. proton-cachyos).
 /// ausnahme im library-kandidat-zwang, sonst verschwänden sie aus der UI.
+/// spiegel zu SYSTEM_COMPAT_DIRS in src/core/paths.ts, beide zusammen pflegen.
 const SYSTEM_COMPAT_DIRS: [&str; 2] = [
     "/usr/share/steam/compatibilitytools.d",
     "/usr/local/share/steam/compatibilitytools.d",
@@ -67,7 +68,7 @@ const SYSTEM_COMPAT_DIRS: [&str; 2] = [
 
 fn is_system_compat_dir(real: &Path) -> bool {
     SYSTEM_COMPAT_DIRS.iter().any(|d| {
-        // input ist canonicalisiert — die konstante selbst kann ein symlink
+        // input ist canonicalisiert, die konstante selbst kann ein symlink
         // sein (distros linken /usr/local/share/steam → /usr/share/steam)
         real == Path::new(d)
             || fs::canonicalize(d).map(|c| real == c.as_path()).unwrap_or(false)
@@ -76,9 +77,9 @@ fn is_system_compat_dir(real: &Path) -> bool {
 
 /// validierung + canonicalize für scope-erteilung (testbar, AppHandle-frei).
 /// verlangt einen steam-library-kandidaten (`steamapps` existiert) oder ein
-/// system-compat-dir — sonst scopt die webview beliebige verzeichnisse (/home).
+/// system-compat-dir, sonst scopt die webview beliebige verzeichnisse (/home).
 pub(super) fn validate_library_scope(path_str: &str) -> Result<std::path::PathBuf, String> {
-    // spec-review 2026-08-03: der helper verschiebt die fehler-präzedenz —
+    // spec-review 2026-08-03: der helper verschiebt die fehler-präzedenz 
     // blockierte nicht-dirs melden jetzt zuerst den blocklist-grund, dann
     // „not a directory" (akzeptanz-menge bleibt gleich).
     let real = canonicalize_safe(path_str, "library path")?;

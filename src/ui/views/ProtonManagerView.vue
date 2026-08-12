@@ -65,6 +65,11 @@ function phaseLabel(tag: string): string {
   return phase ? t(PHASE_KEYS[phase]) : "";
 }
 
+function speedLabel(tag: string): string {
+  const speed = proton.jobs[tag]?.speed ?? 0;
+  return speed > 0 ? `${formatBytes(Math.round(speed))}/s` : "";
+}
+
 function relTime(ts: number): string {
   const s = Math.round((Date.now() - ts) / 1000);
   if (s < 60) return t("time.justNow");
@@ -165,7 +170,10 @@ const statusLine = computed(() => {
     <!-- verfügbar -->
     <h3 class="section">{{ t("proton.geReleases") }}</h3>
     <div v-if="proton.loadError" class="hint" role="alert">{{ proton.loadError }}</div>
-    <div v-if="proton.warning" class="hint hint--warning" role="status">{{ proton.warning.msg }}</div>
+    <div v-if="proton.warning" class="hint hint--warning" role="status">
+      {{ proton.warning.msg }}
+      <button type="button" class="hint-close" :aria-label="t('drawer.close')" @click="proton.clearWarning()">×</button>
+    </div>
     <ul class="list" :aria-busy="proton.loading">
       <li v-for="r in proton.releases" :key="r.tag">
         <div class="row">
@@ -178,9 +186,9 @@ const statusLine = computed(() => {
             <div v-if="proton.jobs[r.tag]" class="progress" role="progressbar" :aria-valuemin="0" :aria-valuemax="100" :aria-valuenow="pct(r.tag) ?? undefined" :aria-label="phaseLabel(r.tag)">
               <template v-if="proton.jobs[r.tag]?.phase === 'downloading'">
                 <div class="track"><div class="fill" :style="{ transform: `scaleX(${(pct(r.tag) ?? 30) / 100})` }" /></div>
-                <span class="phase" aria-live="polite">{{ phaseLabel(r.tag) }}<span v-if="pct(r.tag) !== null"> · {{ pct(r.tag) }}%</span></span>
+                <span class="phase" aria-live="polite">{{ phaseLabel(r.tag) }}<span v-if="pct(r.tag) !== null"> · {{ pct(r.tag) }}%</span><span v-if="speedLabel(r.tag)"> · {{ speedLabel(r.tag) }}</span></span>
               </template>
-              <span v-else class="phase act" aria-live="polite">{{ phaseLabel(r.tag) }}</span>
+              <span v-else class="phase act" aria-live="polite">{{ phaseLabel(r.tag) }}<span v-if="proton.jobs[r.tag]?.phase === 'extracting' && proton.jobs[r.tag]?.verified"> ✓ {{ t("proton.checksumOk") }}</span></span>
             </div>
           </div>
           <button
@@ -303,11 +311,12 @@ const statusLine = computed(() => {
 .fill { width: 100%; height: 100%; background: var(--signal); transform-origin: left; transition: transform 0.2s; }
 .phase { color: var(--fg-2); font-size: 0.75rem; }
 .phase.act::before {
-  content: "·";
+  content: "●";
   display: inline-block;
-  font-size: 1.125rem;
+  font-size: 0.9rem;
   line-height: 1;
   vertical-align: middle;
+  margin-right: 0.35em;
   animation: phase-pulse 1s ease-in-out infinite;
 }
 .phase.act { color: var(--signal-bright); }
@@ -320,7 +329,9 @@ const statusLine = computed(() => {
 }
 
 .hint { color: var(--tier-gold); font-family: var(--font-body); font-size: 0.75rem; margin-bottom: 10px; }
-.hint--warning { color: var(--tier-bronze); } /* bronze statt gold — von fehlermeldung unterscheidbar */
+.hint--warning { color: var(--tier-bronze); display: flex; align-items: center; gap: 8px; } /* bronze statt gold, von fehlermeldung unterscheidbar */
+.hint-close { background: none; border: none; color: inherit; cursor: pointer; font-size: 1rem; line-height: 1; padding: 2px 4px; }
+.hint-close:hover { opacity: 0.6; }
 .games { margin: 8px 0 0; padding-left: 18px; color: var(--fg-1); }
 .games li { margin: 2px 0; }
 </style>

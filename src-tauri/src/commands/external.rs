@@ -2,7 +2,7 @@ use std::process::{Command, Stdio};
 
 // ---- R-7: externe urls (browser / steam-handler) ----
 
-/// erlaubte externe ziele — so eng wie die frühere opener-capability (INV-7):
+/// erlaubte externe ziele, so eng wie die frühere opener-capability (INV-7):
 /// protondb-spielseiten, das protium-repo, und steam://rungameid/<appid>.
 /// die allowlist verhindert nebenbei argument-injection: eine url, die mit
 /// "-" beginnt, kommt hier nie durch (xdg-open läse sie als option).
@@ -55,7 +55,7 @@ pub(super) fn validate_external_url(url: &str) -> Result<(), String> {
     }
 }
 
-/// vars, die ein kind NIE erben darf — auch ohne AppImage. LD_PRELOAD zeigt
+/// vars, die ein kind NIE erben darf, auch ohne AppImage. LD_PRELOAD zeigt
 /// im AppImage auf eine SYSTEM-lib (wayland-hook), fällt also durch den
 /// appdir-filter unten durch und braucht den expliziten eintrag.
 const ENV_ALWAYS_DROP: [&str; 2] = ["LD_PRELOAD", "LD_LIBRARY_PATH"];
@@ -66,7 +66,7 @@ const ENV_ALWAYS_DROP: [&str; 2] = ["LD_PRELOAD", "LD_LIBRARY_PATH"];
 /// WARUM: die AppRun-hooks setzen LD_LIBRARY_PATH, GTK_*, GDK_PIXBUF_*,
 /// GIO_MODULE_DIR, GSETTINGS_SCHEMA_DIR, GI_TYPELIB_PATH und PATH auf das
 /// mount-verzeichnis. ein browser oder steam, der das erbt, lädt die
-/// gebündelten libs/module statt der systemeigenen und stirbt lautlos — der
+/// gebündelten libs/module statt der systemeigenen und stirbt lautlos, der
 /// klick tut dann scheinbar "nichts". gleiche fehlerklasse wie der
 /// LD_PRELOAD-fix in lib.rs, nur für alle übrigen vars.
 ///
@@ -95,7 +95,7 @@ pub(super) fn env_overrides(vars: &[(String, String)], appdir: &str) -> Vec<(Str
 }
 
 /// handler starten und loslassen: kein warten (xdg-open blockiert je nach
-/// handler bis zum ende des browsers), aber ein reaper-thread — sonst bliebe
+/// handler bis zum ende des browsers), aber ein reaper-thread, sonst bliebe
 /// je klick ein zombie stehen. endet protium zuerst, läuft das kind als
 /// waise weiter.
 pub(super) fn spawn_detached(program: &str, args: &[&str], url: &str) -> std::io::Result<()> {
@@ -131,7 +131,7 @@ pub(super) fn spawn_detached(program: &str, args: &[&str], url: &str) -> std::io
 /// R-7: url im system-browser bzw. im steam-handler öffnen.
 ///
 /// eigener command statt tauri-plugin-opener, weil dessen spawn die env des
-/// app-prozesses ungefiltert vererbt — im AppImage genau der grund, warum
+/// app-prozesses ungefiltert vererbt, im AppImage genau der grund, warum
 /// play-button und protondb-link dort nichts taten (siehe env_overrides).
 #[tauri::command]
 pub fn open_external(url: String) -> Result<(), String> {

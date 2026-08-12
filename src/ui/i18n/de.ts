@@ -1,4 +1,4 @@
-// referenz-locale (de ist die wahrheit — die bestehenden hartkodierten deutschen
+// referenz-locale (de ist die wahrheit, die bestehenden hartkodierten deutschen
 // strings aus den komponenten/stores wurden 1:1 hierher extrahiert). lowercase-stil
 // bleibt erhalten (teil der tool-ästhetik). eigene namen wie Proton, Wine-Prefix,
 // Shadercache, AppID, shortcuts.vdf bleiben unübersetzt.
@@ -41,7 +41,7 @@ export const de = {
     errorPrefix: "fehler: {error}",
     scanningState: "scanne…",
     warningsToggle: "{n} scan-warnungen anzeigen",
-    nothingFound: "nichts gefunden — ",
+    nothingFound: "nichts gefunden, ",
     resetFilter: "filter zurücksetzen",
   },
   filter: {
@@ -69,14 +69,14 @@ export const de = {
       "Sind das alte/entfernte Platten? Dann ist die Bereinigung sicher. Falls es abgehängte Platten mit Spielen sind: erst einhängen, sonst droht Datenverlust.",
     pathMissingDismiss: "alte Platten ignorieren und fortfahren",
     shortcutUnreadableMessage:
-      "shortcuts.vdf nicht lesbar — Non-Steam-Spiele können nicht identifiziert werden. Wine-Prefix-Bereinigung ist daher blockiert. Betroffene Dateien:",
+      "shortcuts.vdf nicht lesbar, Non-Steam-Spiele können nicht identifiziert werden. Wine-Prefix-Bereinigung ist daher blockiert. Betroffene Dateien:",
     shaderCaches: "Shader-Caches",
     winePrefixes: "Wine-Prefixes",
-    winePrefixWarn: "Vorsicht — kann lokale Spielstände enthalten!",
+    winePrefixWarn: "Vorsicht, kann lokale Spielstände enthalten!",
     total: "Insgesamt {size}",
     selectAll: "alle auswählen",
     potentialShortcutTooltip:
-      "möglicher Non-Steam-Shortcut — nicht via App-Manifest identifizierbar",
+      "möglicher Non-Steam-Shortcut, nicht via App-Manifest identifizierbar",
     empty: "keine verwaisten daten gefunden",
     selectedInfo: "{n} ausgewählt · {size}",
     cleanAllShaders: "Alle Shader-Caches bereinigen",
@@ -84,17 +84,17 @@ export const de = {
     deleteConfirmTitle: "{n} verwaiste Einträge löschen?",
     deleteAction: "löschen",
     savegameWarning:
-      "Wine-Prefixes können lokale Spielstände enthalten, die NICHT in der Steam-Cloud liegen! Prefixes werden nicht gelöscht, sondern in den papierkorb verschoben — protium holt sie nicht selbst zurück, das geht nur von hand im dateimanager (anleitung im README).",
+      "Wine-Prefixes können lokale Spielstände enthalten, die NICHT in der Steam-Cloud liegen! Prefixes werden nicht gelöscht, sondern in den papierkorb verschoben, protium holt sie nicht selbst zurück, das geht nur von hand im dateimanager (anleitung im README).",
     totalSize: "Gesamtgröße: {size}",
     winePrefixMovedNote:
-      "Wine-Prefixes werden in den papierkorb verschoben — speicherplatz wird erst beim leeren des papierkorbs frei.",
+      "Wine-Prefixes werden in den papierkorb verschoben, speicherplatz wird erst beim leeren des papierkorbs frei.",
     trash: "papierkorb",
     trashUnreadable:
-      "papierkorb konnte nicht gelesen werden (rechte oder fs-scope): {paths} — die anzeige ist deshalb unvollständig.",
-    trashLibNone: "{dir} — kein papierkorb",
-    trashLibCount: "{dir} — {n} einträge",
-    trashLibError: "{dir} — nicht lesbar: {msg}",
-    trashLibDuplicate: "{dir} — gleicher ordner wie {lib}",
+      "papierkorb konnte nicht gelesen werden (rechte oder fs-scope): {paths}, die anzeige ist deshalb unvollständig.",
+    trashLibNone: "{dir}, kein papierkorb",
+    trashLibCount: "{dir}, {n} einträge",
+    trashLibError: "{dir}, nicht lesbar: {msg}",
+    trashLibDuplicate: "{dir}, gleicher ordner wie {lib}",
     tabsLabel: "bereiche der bereinigung",
     ignoredMissingNote: "{n} nicht existierende library-pfade werden ignoriert",
     ignoredMissingUndo: "wieder berücksichtigen",
@@ -131,15 +131,16 @@ export const de = {
     cancel: "abbrechen",
     deleteTitle: "{name} löschen?",
     usedByConfirm:
-      "diese version wird von {n} spiel(en) genutzt — steam fällt danach auf „default“ zurück:",
+      "diese version wird von {n} spiel(en) genutzt, steam fällt danach auf „default“ zurück:",
     unusedConfirm: "das verzeichnis wird entfernt. keine spiele nutzen diese version.",
     appId: "app {id}",
     noReleases: "keine releases (offline oder rate-limit?)",
     installFailed: "install {tag} fehlgeschlagen: {msg}",
     checksumUnavailable: "{tag} ohne Verifikation installiert (Prüfsumme nicht abrufbar)",
+    checksumOk: "prüfsumme ok",
     listenerUnavailable: "Download-Fortschritt nicht verfügbar: {error}",
     removeFailed: "löschen fehlgeschlagen: {msg}",
-    noScanResult: "kein scan-ergebnis — erst library scannen",
+    noScanResult: "kein scan-ergebnis, erst library scannen",
     statusUpdated: "aktualisiert · {n} releases · gerade eben",
     statusCurrent: "aktuell · zuletzt geprüft {when}",
     statusOffline: "offline · letzter stand {when}",
@@ -186,14 +187,16 @@ export const de = {
   },
   errors: {
     steamRunning:
-      "steam läuft gerade — die änderung würde beim beenden überschrieben. bitte steam erst beenden.",
+      "steam läuft gerade, die änderung würde beim beenden überschrieben. bitte steam erst beenden.",
+    steamRunningCleanup:
+      "steam läuft gerade, bitte steam schließen und danach erneut nach verwaisten daten suchen.",
     userdataUnreadableWithDetail:
-      "userdata nicht lesbar — Wine-Prefix-Bereinigung deaktiviert: {detail}",
-    shortcutsUnreadable: "shortcuts.vdf nicht lesbar — Wine-Prefix-Bereinigung deaktiviert.",
-    scanIncomplete: "Scan unvollständig — Libraries übersprungen: {paths}",
-    errorShortcutUnreadable: "{type}/{appId}: shortcuts.vdf nicht lesbar — übersprungen",
-    errorNowInstalled: "{type}/{appId}: inzwischen installiert — übersprungen",
-    noScanResult: "kein scan-ergebnis vorhanden — bitte erst die library scannen",
+      "userdata nicht lesbar, Wine-Prefix-Bereinigung deaktiviert: {detail}",
+    shortcutsUnreadable: "shortcuts.vdf nicht lesbar, Wine-Prefix-Bereinigung deaktiviert.",
+    scanIncomplete: "Scan unvollständig, Libraries übersprungen: {paths}",
+    errorShortcutUnreadable: "{type}/{appId}: shortcuts.vdf nicht lesbar, übersprungen",
+    errorNowInstalled: "{type}/{appId}: inzwischen installiert, übersprungen",
+    noScanResult: "kein scan-ergebnis vorhanden, bitte erst die library scannen",
   },
   time: {
     justNow: "gerade eben",

@@ -50,7 +50,7 @@ function readToolVdf(
 
 /** gleiche usedBy-regel wie in listCompatTools, aber gegen den in-memory-spielstand:
  *  nach einem compat-tool-wechsel im drawer ist config.vdf auf disk schon aktuell,
- *  die scan-ergebnisse aber nicht neu gerechnet — sonst zeigt der proton-manager
+ *  die scan-ergebnisse aber nicht neu gerechnet, sonst zeigt der proton-manager
  *  bis zum nächsten rescan stale spiele-zähler. */
 export function recomputeToolUsedBy(
   tools: { name: string; internalName: string; usedBy: number[] }[],

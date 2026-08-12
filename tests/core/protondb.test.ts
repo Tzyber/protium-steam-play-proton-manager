@@ -68,7 +68,7 @@ describe("ProtonDbClient", () => {
     const res = await c.getSummary(620);
 
     expect(res?.tier).toBe("unknown");
-    expect(calls).toBe(0); // cache-hit — aber validiert
+    expect(calls).toBe(0); // cache-hit, aber validiert
   });
 
   it("abgelaufener cache-eintrag → refetch", async () => {

@@ -54,7 +54,7 @@ describe("getVdfValue", () => {
   });
 });
 
-describe("setVdfValue — ersetzen", () => {
+describe("setVdfValue, ersetzen", () => {
   it("ändert nur die value-span, rest byte-identisch", () => {
     const patched = setVdfValue(
       LOCALCONFIG,
@@ -94,7 +94,7 @@ describe("setVdfValue — ersetzen", () => {
   });
 });
 
-describe("setVdfValue — anlegen", () => {
+describe("setVdfValue, anlegen", () => {
   it("fügt einen key in einen bestehenden leeren block ein", () => {
     const patched = setVdfValue(LOCALCONFIG, [...LAUNCH_228980, "LaunchOptions"], "-novid");
     const expected = LOCALCONFIG.replace(
@@ -161,7 +161,7 @@ describe("setVdfValue — anlegen", () => {
   });
 });
 
-describe("setVdfValue — schutz vor strukturbruch", () => {
+describe("setVdfValue, schutz vor strukturbruch", () => {
   it("unbalancierte klammern → wirft", () => {
     expect(() => setVdfValue('"A"\n{\n\t"B" "1"\n', ["A", "B"], "2")).toThrow(VdfPatchError);
   });
@@ -299,7 +299,7 @@ describe("removeVdfEntry", () => {
   });
 
   it("minifizierte datei → wirft statt präfix zu fressen", () => {
-    // einzeilige vdf, kein \n vor dem key — der alte code fräße ab offset 0
+    // einzeilige vdf, kein \n vor dem key, der alte code fräße ab offset 0
     // den gesamten InstallConfigStore-präfix inkl. globalem default-mapping
     const minified =
       `"InstallConfigStore"{"Software"{"Valve"{"Steam"{` +
@@ -318,13 +318,13 @@ describe("removeVdfEntry", () => {
 
   it("key bei offset 0 → bleibt legitim (kein false-positives werfen)", () => {
     const single = `"620"\n{\n\t"name"\t\t"x"\n}\n`;
-    // datei beginnt mit dem zu entfernenden key — lineStart == key.start, kein fehler
+    // datei beginnt mit dem zu entfernenden key, lineStart == key.start, kein fehler
     expect(removeVdfEntry(single, ["620"])).toBe("");
   });
 });
 
 // drift-wächter (PROTIUM_STATUS phase 4): dokumentiert, dass die lib semantisch
-// rundreist — ersetzt NICHT den string-patch (byte-identität/escaping kann sie nicht).
+// rundreist, ersetzt NICHT den string-patch (byte-identität/escaping kann sie nicht).
 describe("round-trip-wächter für @node-steam/vdf", () => {
   const canonical = (v: unknown): unknown =>
     v !== null && typeof v === "object"

@@ -54,7 +54,7 @@ describe("findOrphans", () => {
 
   it("basis-ordner fehlt → kein throw, leeres teilergebnis", async () => {
     const { fs, libraries, installedAppIds } = await setup();
-    // lib2 hat keine compatdata/shadercache dirs — sollte nicht crashen
+    // lib2 hat keine compatdata/shadercache dirs, sollte nicht crashen
     const orphans = await findOrphans([libraries[1] as string], installedAppIds, fs);
     expect(orphans).toEqual([]);
   });

@@ -39,7 +39,7 @@ export class ProtonDbClient {
       if (cached) {
         const entry = JSON.parse(cached) as CacheEntry;
         // M4.2: cache-pfad validiert wie der fresh-pfad (tier normalisiert,
-        // confidence-typ geprüft) — ein vergifteter cache darf keine fremden
+        // confidence-typ geprüft), ein vergifteter cache darf keine fremden
         // tier-werte durchreichen
         if (this.now() - entry.fetchedAt < TTL_MS) {
           return {

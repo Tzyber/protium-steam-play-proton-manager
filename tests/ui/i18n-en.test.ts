@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { setLocale, t } from "../../src/ui/i18n";
 
-describe("i18n — locale-wechsel per setLocale (regression: englische UI rendert)", () => {
+describe("i18n, locale-wechsel per setLocale (regression: englische UI rendert)", () => {
   it("nach setLocale('en') liefert t() englische strings", () => {
     setLocale("en");
     expect(t("common.cancel")).toBe("cancel");

@@ -14,7 +14,7 @@ use crate::commands::path::{sanitize_path, validate_download_dest};
 /// initiale download-URL: https + github.com + pfad-pinning auf das GE-repo.
 /// ohne das pinning wäre jede github.com-url ein download-ziel (cache-poisoning
 /// → beliebiger payload → extraktion → code-execution). redirect-ziele prüft
-/// `validate_redirect_url` — ein github.com-redirect wäre ein offener umweg.
+/// `validate_redirect_url`, ein github.com-redirect wäre ein offener umweg.
 pub(super) fn validate_download_url(url: &str) -> Result<(), String> {
     let parsed = reqwest::Url::parse(url).map_err(|e| format!("invalid download URL: {e}"))?;
     if parsed.scheme() != "https" {
@@ -47,7 +47,7 @@ pub(super) fn validate_download_url(url: &str) -> Result<(), String> {
 }
 
 /// redirect-ziele: nur die zwei asset-CDN-hosts, host-only (redirect-pfade sind
-/// nicht steuerbar). github.com als redirect-ziel ausgeschlossen — sonst wäre
+/// nicht steuerbar). github.com als redirect-ziel ausgeschlossen, sonst wäre
 /// das pfad-pinning über einen redirect umgehbar.
 pub(super) fn validate_redirect_url(url: &str) -> Result<(), String> {
     let parsed = reqwest::Url::parse(url).map_err(|e| format!("invalid redirect URL: {e}"))?;
@@ -63,13 +63,43 @@ pub(super) fn validate_redirect_url(url: &str) -> Result<(), String> {
 /// je download-id ein Arc<AtomicBool>. download_file legt ein frisches Arc an
 /// und ersetzt ein etwaiges altes. cancel_download setzt das flag im aktuell
 /// registrierten Arc. am ende wird der eintrag nur entfernt, wenn noch genau
-/// das eigene Arc dort liegt (ptr_eq) — so läuft ein zu spät eintreffender
+/// das eigene Arc dort liegt (ptr_eq), so läuft ein zu spät eintreffender
 /// cancel ins leere, statt eine leiche zu erzeugen.
 #[derive(Default)]
 pub struct CancelRegistry(pub Mutex<HashMap<String, Arc<AtomicBool>>>);
 
 /// maximale download-grösse (GE-tarballs ~1 GB, 8 GiB ist reichlich luft).
 pub const MAX_DOWNLOAD_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+
+/// einheitlicher client-bau: redirect-policy über callback, download_stream
+/// injiziert seine testbare closure, fetch_sha512 die produktiv-allowlist.
+/// redirect-ziel-prüfung liegt in validate_redirect_url (nur CDN-hosts,
+/// github.com als redirect-ziel ausgeschlossen).
+fn build_client(
+    redirect_ok: impl Fn(&str) -> bool + Send + Sync + 'static,
+) -> Result<reqwest::Client, String> {
+    const MAX_REDIRECTS: usize = 5;
+
+    let policy = reqwest::redirect::Policy::custom(move |attempt| {
+        if attempt.previous().len() >= MAX_REDIRECTS {
+            return attempt.error("too many redirects");
+        }
+        if redirect_ok(attempt.url().as_str()) {
+            attempt.follow()
+        } else {
+            attempt.error("redirect target not allowed")
+        }
+    });
+    reqwest::Client::builder()
+        .redirect(policy)
+        .connect_timeout(std::time::Duration::from_secs(30))
+        // ohne user-agent verweigert githubs edge (fastly) h2-streams
+        // ("refused stream before processing any application logic") 
+        // intermittierend, daher die send-fehler nach retries/cancels
+        .user_agent(concat!("protium/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|e| e.to_string())
+}
 
 /// download-kern ohne tauri-typen (cargo-testbar). crash-fest: jeder fehlerausgang
 /// (cancel, netzabbruch, schreibfehler) löscht die partielle datei vor return.
@@ -83,23 +113,7 @@ pub(super) async fn download_stream(
     max_bytes: u64,
 ) -> Result<String, String> {
     let result: Result<String, String> = async {
-        const MAX_REDIRECTS: usize = 5;
-
-        let policy = reqwest::redirect::Policy::custom(move |attempt| {
-            if attempt.previous().len() >= MAX_REDIRECTS {
-                return attempt.error("too many redirects");
-            }
-            if redirect_ok(attempt.url().as_str()) {
-                attempt.follow()
-            } else {
-                attempt.error("redirect target not allowed")
-            }
-        });
-        let client = reqwest::Client::builder()
-            .redirect(policy)
-            .connect_timeout(std::time::Duration::from_secs(30))
-            .build()
-            .map_err(|e| e.to_string())?;
+        let client = build_client(redirect_ok)?;
         let resp = client.get(url).send().await.map_err(|e| e.to_string())?;
         if !resp.status().is_success() {
             return Err(format!("HTTP {}", resp.status()));
@@ -179,7 +193,7 @@ struct DownloadProgress {
     total: Option<u64>,
 }
 
-/// R-4: tauri-wrapper um download_stream — cancel-registry + fortschritt (throttled ~1 MB).
+/// R-4: tauri-wrapper um download_stream, cancel-registry + fortschritt (throttled ~1 MB).
 /// validiert URL (domain + https) und dest-pfad vor dem start.
 /// dest-validierung per allowlist: nur ziele innerhalb des app-cache-verzeichnisses.
 #[tauri::command]
@@ -242,9 +256,51 @@ pub async fn download_file(
     result
 }
 
+/// S-09: sha512-asset über das backend laden, gleiche redirect-policy wie
+/// download_file. der plugin-http-scope prüft nur die initiale URL, redirects
+/// wären ungeprüft gefolgt worden; hier gilt validate_redirect_url.
+/// timeout + 64-KiB-cap: hash-dateien sind winzig, ein hänger darf den
+/// install-flow nicht blockieren.
+#[tauri::command]
+pub async fn fetch_sha512(url: String) -> Result<String, String> {
+    validate_download_url(&url)?;
+    const MAX_HASH_BYTES: u64 = 64 * 1024;
+
+    let fut = async {
+        let client = build_client(|u| validate_redirect_url(u).is_ok())?;
+        // githubs edge verweigert nach abbruch-serien kurzfristig h2-streams
+        // ("refused stream before processing any application logic"), ein
+        // einzelner retry mit abstand fängt die kühlphase ab. ohne ihn läuft
+        // die installation still unverifiziert weiter (INV-2-warnung).
+        let mut resp = client.get(&url).send().await.map_err(|e| e.to_string());
+        if resp.is_err() {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            resp = client.get(&url).send().await.map_err(|e| e.to_string());
+        }
+        let resp = resp?;
+        if !resp.status().is_success() {
+            return Err(format!("HTTP {}", resp.status()));
+        }
+        if resp.content_length().is_some_and(|len| len > MAX_HASH_BYTES) {
+            return Err("hash asset exceeds size limit".into());
+        }
+        let body = resp.bytes().await.map_err(|e| e.to_string())?;
+        if body.len() as u64 > MAX_HASH_BYTES {
+            return Err("hash asset exceeds size limit".into());
+        }
+        String::from_utf8(body.to_vec()).map_err(|e| format!("hash asset is not UTF-8: {e}"))
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(60), fut)
+        .await
+        .map_err(|_| "hash fetch timed out".to_string())?
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{download_stream, validate_download_url, validate_redirect_url, MAX_DOWNLOAD_BYTES};
+    use super::{
+        download_stream, fetch_sha512, validate_download_url, validate_redirect_url,
+        MAX_DOWNLOAD_BYTES,
+    };
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -473,7 +529,7 @@ mod tests {
             .unwrap_or(false);
         assert!(mismatch, "altes Arc darf nicht auf neuen eintrag matchen");
 
-        // neues flag muss frisch (false) sein — kein stale cancel
+        // neues flag muss frisch (false) sein, kein stale cancel
         assert!(!flag2.load(Ordering::Relaxed), "neues flag darf nicht vorbelastet sein");
     }
 
@@ -495,7 +551,7 @@ mod tests {
         assert!(res.is_ok(), "erster download muss ok sein: {res:?}");
         let _ = std::fs::remove_dir_all(dest1.parent().unwrap());
 
-        // simulate late cancel (nach abschluss) — cancel-flag bleibt false
+        // simulate late cancel (nach abschluss), cancel-flag bleibt false
         // (die registry hätte den eintrag bereits entfernt)
 
         // zweiter download mit anderer url startet normal
@@ -543,7 +599,7 @@ mod tests {
     #[tokio::test]
     async fn bytes_ueber_limit_raeumt_partielle_datei_auf() {
         let dest = tmp("sizecap-bytes");
-        // stub kündigt 16 bytes an, sendet 32 — ohne content-length-check
+        // stub kündigt 16 bytes an, sendet 32, ohne content-length-check
         // greift der byte-counter im streaming-loop (limit = 8)
         let url = serve_once(16, 32);
         let cancel = AtomicBool::new(false);
@@ -645,5 +701,26 @@ mod tests {
         );
         assert!(!dest.exists());
         let _ = std::fs::remove_dir_all(dest.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn fetch_sha512_rejects_unpinned_github_path() {
+        let err = fetch_sha512(
+            "https://github.com/someone/else/releases/download/x.sha512sum".into(),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("outside GloriousEggroll"), "err was: {err}");
+    }
+
+    #[tokio::test]
+    async fn fetch_sha512_rejects_non_https() {
+        let err = fetch_sha512(
+            "http://github.com/GloriousEggroll/proton-ge-custom/releases/download/x.sha512sum"
+                .into(),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("only HTTPS"), "err was: {err}");
     }
 }

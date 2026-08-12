@@ -5,9 +5,9 @@ import { en } from "../../src/ui/i18n/en";
 
 afterEach(() => setLocale("en"));
 
-describe("i18n — locale-erkennung", () => {
+describe("i18n, locale-erkennung", () => {
   it("getLocale liefert initialen wert (de wenn navigator 'de*', sonst en)", () => {
-    // der initiale wert hängt von navigator ab — der test prüft nur, dass
+    // der initiale wert hängt von navigator ab, der test prüft nur, dass
     // es einer der beiden gültigen werte ist.
     expect(["de", "en"]).toContain(getLocale());
   });
@@ -20,7 +20,7 @@ describe("i18n — locale-erkennung", () => {
   });
 });
 
-describe("i18n — key-lookup", () => {
+describe("i18n, key-lookup", () => {
   it("t('common.cancel') liefert den de-string", () => {
     setLocale("de");
     expect(t("common.cancel")).toBe(de.common.cancel);
@@ -37,13 +37,13 @@ describe("i18n — key-lookup", () => {
   });
 
   it("tief verschachtelte keys (3 ebenen) funktionieren", () => {
-    // phase ist unter proton — test über dot-pfad
+    // phase ist unter proton, test über dot-pfad
     setLocale("de");
     expect(t("phase.downloading")).toBe(de.phase.downloading);
   });
 
   it("unbekannter key fällt auf den key-namen selbst zurück (sichtbar im UI)", () => {
-    // wir können keinen echten unbekannten key über die typsicherheit testen —
+    // wir können keinen echten unbekannten key über die typsicherheit testen
     // also übergeben wir einen string, der zwar gültig aussieht, aber nicht
     // existiert (cast zu Key umgeht den TS-check). der vertrag ist:
     // "letzter ausweg ist der key als literal".
@@ -52,7 +52,7 @@ describe("i18n — key-lookup", () => {
   });
 });
 
-describe("i18n — interpolation", () => {
+describe("i18n, interpolation", () => {
   it("einzelner platzhalter {n}", () => {
     setLocale("de");
     expect(t("library.gamesCount", { n: 5 })).toBe("/ 5 spiele");
@@ -80,7 +80,7 @@ describe("i18n — interpolation", () => {
   });
 });
 
-describe("i18n — fallback (vertrag)", () => {
+describe("i18n, fallback (vertrag)", () => {
   it("de und en haben das gleiche key-set (review-pflicht: volle abdeckung)", () => {
     // struktur-sync: jede locale muss jeden key haben, sonst läuft der
     // lookup ins leere. hier wird die form (keys) verglichen, nicht die werte.

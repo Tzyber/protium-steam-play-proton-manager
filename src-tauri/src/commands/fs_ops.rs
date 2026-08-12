@@ -62,7 +62,7 @@ pub(crate) struct PathIdentity {
     pub ino: String,
 }
 
-/// R-2: steam-läuft-check (INV-1a). nur "steam" als name erlaubt —
+/// R-2: steam-läuft-check (INV-1a). nur "steam" als name erlaubt 
 /// bewusst kein generisches process-enumeration-werkzeug für die webview.
 /// async + spawn_blocking: sync commands laufen bei tauri v2 auf dem main-thread,
 /// und dieser check steht vor JEDEM write-gate.
@@ -74,7 +74,7 @@ pub async fn is_process_running(name: String) -> Result<bool, String> {
     spawn_blocking_io(move || {
         // Substring-Match schließt absichtlich Steam-Helper wie steamwebhelper ein;
         // false-positive Blockade ist sicherer als false-negative während Writes.
-        // nur die prozessliste refreshen — new_all() baute eine komplette
+        // nur die prozessliste refreshen, new_all() baute eine komplette
         // system-inventur (CPU/RAM/disks/netzwerk) für einen namens-check.
         // name() kommt aus /proc/<pid>/stat und ist auch mit
         // ProcessRefreshKind::nothing() befüllt.
@@ -97,7 +97,7 @@ pub async fn dir_size(path: String) -> Result<u64, String> {
     spawn_blocking_io(move || dir_size_inner(&path)).await
 }
 
-/// R-3b: batch-version — sequentiell (IO-bound, kein rayon).
+/// R-3b: batch-version, sequentiell (IO-bound, kein rayon).
 /// async + spawn_blocking: walkt GB-große bäume, gehört nicht auf den main-thread.
 #[tauri::command]
 pub async fn batch_dir_sizes(paths: Vec<String>) -> Result<HashMap<String, u64>, String> {
@@ -218,7 +218,7 @@ mod tests {
         );
     }
 
-    // T-M-01: dir_size darf symlinks nicht folgen — sonst zählt ein symlink
+    // T-M-01: dir_size darf symlinks nicht folgen, sonst zählt ein symlink
     // auf ein riesiges verzeichnis dessen gesamten inhalt mit (DoS / falsche anzeige).
     // fixture liegt komplett unter /tmp, kein bezug auf /mnt oder systempfade.
     #[test]
@@ -243,7 +243,7 @@ mod tests {
         // MIT symlink-follow: mindestens 5 MB.
         assert!(
             res < 1000,
-            "symlink wurde gefolgt — dir_size={res} (sollte < 1000 sein)"
+            "symlink wurde gefolgt, dir_size={res} (sollte < 1000 sein)"
         );
 
         let _ = std::fs::remove_dir_all(&root);
@@ -277,7 +277,7 @@ mod tests {
         assert!(canonicalize_path("/etc/cron.d".into()).is_err());
     }
 
-    // S-07: cross-check — derselbe pfad-satz den is_safe_path blockt wird abgelehnt
+    // S-07: cross-check, derselbe pfad-satz den is_safe_path blockt wird abgelehnt
     #[test]
     fn canonicalize_rejects_all_blocked() {
         for blocked in &["/", "/etc", "/etc/cron.d", "/proc", "/proc/cpuinfo",

@@ -12,7 +12,7 @@ import type { Game, ScanResult, SkippedLibrary } from "./types.js";
 interface ScanOptions {
   steamRoot: string;
   protonDbDelayMs?: number;
-  /** compat-dirs überschreiben — für tests. */
+  /** compat-dirs überschreiben, für tests. */
   extraCompatDirs?: readonly string[];
 }
 
@@ -22,7 +22,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// cover liegt unter librarycache/{appId}/{hash}/ — hash-unterordner muss durchsucht werden.
+// cover liegt unter librarycache/{appId}/{hash}/, hash-unterordner muss durchsucht werden.
 async function resolveLocalHeader(
   fs: Ports["fs"],
   steamRoot: string,

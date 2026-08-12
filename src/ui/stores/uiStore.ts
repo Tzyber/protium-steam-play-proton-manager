@@ -7,7 +7,7 @@ export const useUiStore = defineStore("ui", {
   state: () => ({
     activeView: "library" as ViewId,
     /** appId des spiels im offenen detail-drawer. bewusst KEINE Game-referenz:
-     *  ein rescan ersetzt scan.result komplett — eine gehaltene referenz würde
+     *  ein rescan ersetzt scan.result komplett, eine gehaltene referenz würde
      *  veralten, und applyGameConfig (schreibt ins neue array) käme im drawer
      *  nie an. die appId bleibt über rescans stabil, der drawer löst sie live
      *  gegen scan.result.games auf. */

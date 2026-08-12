@@ -82,7 +82,7 @@ describe("libraryStore", () => {
     expect(lib.compatTools).toEqual([]);
     expect(lib.libraries).toEqual([]);
     expect(lib.activeFilterCount).toBe(0);
-    // sortierung ist ansichts-präferenz, kein filter — reset rührt sie nicht an
+    // sortierung ist ansichts-präferenz, kein filter, reset rührt sie nicht an
     expect(lib.sortKey).toBe("size");
     expect(lib.sortDir).toBe("desc");
   });

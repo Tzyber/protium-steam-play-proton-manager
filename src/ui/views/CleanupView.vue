@@ -42,7 +42,7 @@ function onTabKeydown(e: KeyboardEvent, i: number) {
 
 onMounted(async () => {
   await cleanup.scanOrphans();
-  // papierkorb gleich mitladen — nur lesend, und ohne das sieht der nutzer eine
+  // papierkorb gleich mitladen, nur lesend, und ohne das sieht der nutzer eine
   // leere sektion und hält sie für den echten stand
   await cleanup.scanTrash();
   // nicht auf einem leeren tab landen
@@ -115,7 +115,7 @@ const selectedCompat = computed(() =>
   compatdataOrphans.value.filter((o) => selected.has(cleanup.key(o))),
 );
 
-/** auswahl des SICHTBAREN tabs — sonst stünde "0 ausgewählt", während in einer
+/** auswahl des SICHTBAREN tabs, sonst stünde "0 ausgewählt", während in einer
  *  anderen liste 19 einträge markiert sind. */
 const selectedHere = computed(() =>
   tab.value === "shaders" ? selectedShader.value : selectedCompat.value,
@@ -131,7 +131,7 @@ function startDelete(candidates: OrphanEntry[]) {
 }
 
 async function confirmDelete() {
-  // der rescan läuft IM store (deleteOrphans) — ein zweiter hier würde die
+  // der rescan läuft IM store (deleteOrphans), ein zweiter hier würde die
   // dort gesammelten löschfehler wieder zurücksetzen.
   await cleanup.deleteOrphans(deleteCandidates.value);
   deleteCandidates.value = [];
@@ -215,7 +215,7 @@ const trashConfirmBytes = computed(() =>
 );
 const trashConfirmPaths = computed(() => trashDeleteCandidates.value.map((e) => e.path));
 
-/** kurzform für die spalte — der volle satz steht im title-attribut. eine
+/** kurzform für die spalte, der volle satz steht im title-attribut. eine
  *  datumsspalte in flexibler breite hat die zeile über den viewport geschoben. */
 function trashDate(ms: number): string {
   return new Date(ms).toLocaleDateString(getLocale() === "de" ? "de-DE" : "en-GB", {
@@ -606,7 +606,7 @@ const tabLabel = (id: Tab) =>
 <style scoped>
 /* die view füllt die höhe von .content (grid-item mit definierter höhe) und
    scrollt INTERN. dadurch ist die aktionsleiste ein echter footer statt
-   position:sticky — sie sitzt immer am unteren rand, unabhängig davon wie kurz
+   position:sticky, sie sitzt immer am unteren rand, unabhängig davon wie kurz
    oder lang die liste ist, und kann keine zeile verdecken. */
 .cv {
   display: flex; flex-direction: column;
@@ -747,7 +747,7 @@ const tabLabel = (id: Tab) =>
 position: relative;
   display: grid;
   /* rem statt px: skaliert mit root-schriftgröße (text-only-zoom). ch wäre hier
-     falsch — .row erbt Inter vom body, nicht Space Mono. ch in Inter (14px) ≈ 7px,
+     falsch, .row erbt Inter vom body, nicht Space Mono. ch in Inter (14px) ≈ 7px,
      damit wäre 9ch ≈ 63px statt 90px. 5.6rem / 4.6rem bei root 16px = 90px / 74px. */
   grid-template-columns: 20px 5.6rem minmax(0, 1fr) 5.6rem;
   align-items: center; gap: 14px;
@@ -799,7 +799,7 @@ position: relative;
 
 /* footer der view: liegt außerhalb der scroll-fläche, also immer unten und
    niemals über einer listenzeile. vorher war das position:sticky mit negativem
-   margin — dadurch verdeckte die leiste die letzte zeile, die dann nicht mehr
+   margin, dadurch verdeckte die leiste die letzte zeile, die dann nicht mehr
    abwählbar war. */
 .actionbar {
   flex: 0 0 auto;

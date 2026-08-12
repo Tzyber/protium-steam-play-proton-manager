@@ -1,5 +1,5 @@
 // englische übersetzung. lowercase-stil durchgängig: string-anfang klein,
-// mitten im string auch nach satzzeichen klein — Ausnahme nur die
+// mitten im string auch nach satzzeichen klein, Ausnahme nur die
 // eigennamen (Steam, Proton, Wine-Prefix, Shadercache, GE-Proton, AppID,
 // shortcuts.vdf, Steam Cloud, ProtonDB). de bleibt unverändert
 // (deutsche substantiv-großschreibung ist pflicht).
@@ -46,7 +46,7 @@ export const en = {
     errorPrefix: "error: {error}",
     scanningState: "scanning…",
     warningsToggle: "show {n} scan warnings",
-    nothingFound: "nothing found — ",
+    nothingFound: "nothing found, ",
     resetFilter: "reset filters",
   },
   filter: {
@@ -74,13 +74,13 @@ export const en = {
       "are these old/removed drives? then cleanup is safe. if they are disconnected drives with games on them: mount them first, or you risk data loss.",
     pathMissingDismiss: "ignore old drives and continue",
     shortcutUnreadableMessage:
-      "shortcuts.vdf unreadable — non-Steam games cannot be identified. Wine-prefix cleanup is blocked. affected files:",
+      "shortcuts.vdf unreadable, non-Steam games cannot be identified. Wine-prefix cleanup is blocked. affected files:",
     shaderCaches: "shader-caches",
     winePrefixes: "Wine-Prefixes",
-    winePrefixWarn: "warning — may contain local savegames!",
+    winePrefixWarn: "warning, may contain local savegames!",
     total: "total {size}",
     selectAll: "select all",
-    potentialShortcutTooltip: "possible non-Steam shortcut — not identifiable via app manifest",
+    potentialShortcutTooltip: "possible non-Steam shortcut, not identifiable via app manifest",
     empty: "no orphaned data found",
     selectedInfo: "{n} selected · {size}",
     cleanAllShaders: "clean all shader caches",
@@ -88,17 +88,17 @@ export const en = {
     deleteConfirmTitle: "delete {n} orphaned entries?",
     deleteAction: "delete",
     savegameWarning:
-      "Wine-Prefixes may contain local savegames that are NOT synced to Steam Cloud! prefixes are not deleted but moved to the trash — protium does not restore them itself, only manual recovery via file manager (see README).",
+      "Wine-Prefixes may contain local savegames that are NOT synced to Steam Cloud! prefixes are not deleted but moved to the trash, protium does not restore them itself, only manual recovery via file manager (see README).",
     totalSize: "total size: {size}",
     winePrefixMovedNote:
-      "Wine-Prefixes are moved to trash — disk space is only freed when the trash is emptied.",
+      "Wine-Prefixes are moved to trash, disk space is only freed when the trash is emptied.",
     trash: "trash",
     trashUnreadable:
-      "trash could not be read (permissions or fs scope): {paths} — the listing is therefore incomplete.",
-    trashLibNone: "{dir} — no trash",
-    trashLibCount: "{dir} — {n} entries",
-    trashLibError: "{dir} — unreadable: {msg}",
-    trashLibDuplicate: "{dir} — same directory as {lib}",
+      "trash could not be read (permissions or fs scope): {paths}, the listing is therefore incomplete.",
+    trashLibNone: "{dir}, no trash",
+    trashLibCount: "{dir}, {n} entries",
+    trashLibError: "{dir}, unreadable: {msg}",
+    trashLibDuplicate: "{dir}, same directory as {lib}",
     tabsLabel: "cleanup sections",
     ignoredMissingNote: "{n} non-existent library paths are being ignored",
     ignoredMissingUndo: "consider again",
@@ -134,15 +134,16 @@ export const en = {
     cancel: "cancel",
     deleteTitle: "delete {name}?",
     usedByConfirm:
-      'this version is used by {n} game(s) — Steam will fall back to "default" afterwards:',
+      'this version is used by {n} game(s), Steam will fall back to "default" afterwards:',
     unusedConfirm: "the directory will be removed. no games use this version.",
     appId: "app {id}",
     noReleases: "no releases (offline or rate-limit?)",
     installFailed: "install {tag} failed: {msg}",
     checksumUnavailable: "{tag} installed without verification (checksum unavailable)",
+    checksumOk: "checksum ok",
     listenerUnavailable: "download progress unavailable: {error}",
     removeFailed: "delete failed: {msg}",
-    noScanResult: "no scan result — scan the library first",
+    noScanResult: "no scan result, scan the library first",
     statusUpdated: "updated · {n} releases · just now",
     statusCurrent: "current · last checked {when}",
     statusOffline: "offline · as of {when}",
@@ -189,13 +190,15 @@ export const en = {
   },
   errors: {
     steamRunning:
-      "steam is running — the change would be overwritten on exit. please close steam first.",
-    userdataUnreadableWithDetail: "userdata unreadable — Wine-prefix cleanup disabled: {detail}",
-    shortcutsUnreadable: "shortcuts.vdf unreadable — Wine-prefix cleanup disabled.",
-    scanIncomplete: "scan incomplete — libraries skipped: {paths}",
-    errorShortcutUnreadable: "{type}/{appId}: shortcuts.vdf unreadable — skipped",
-    errorNowInstalled: "{type}/{appId}: now installed — skipped",
-    noScanResult: "no scan result — please scan the library first",
+      "steam is running, the change would be overwritten on exit. please close steam first.",
+    steamRunningCleanup:
+      "steam is running, please close steam, then search for orphaned data again.",
+    userdataUnreadableWithDetail: "userdata unreadable, Wine-prefix cleanup disabled: {detail}",
+    shortcutsUnreadable: "shortcuts.vdf unreadable, Wine-prefix cleanup disabled.",
+    scanIncomplete: "scan incomplete, libraries skipped: {paths}",
+    errorShortcutUnreadable: "{type}/{appId}: shortcuts.vdf unreadable, skipped",
+    errorNowInstalled: "{type}/{appId}: now installed, skipped",
+    noScanResult: "no scan result, please scan the library first",
   },
   time: {
     justNow: "just now",

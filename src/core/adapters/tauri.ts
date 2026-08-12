@@ -18,7 +18,7 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type { Cache, DirEntry, FileSystem, Http, HttpResponse, Ports, System } from "../ports.js";
 import { ensureSizeLimit } from "../ports.js";
 
-// M4.3: größen-precheck vor jedem read — ein stat-fehler (nicht existent)
+// M4.3: größen-precheck vor jedem read, ein stat-fehler (nicht existent)
 // lässt den read wie bisher laufen (die aufrufer behandeln das); über-limit
 // wirft und der fehler wird wie ein unlesbarer pfad behandelt (INV-2).
 async function withSizeLimit<T>(path: string, read: () => Promise<T>): Promise<T> {
@@ -73,6 +73,7 @@ const system: System = {
     ),
   downloadFile: (url, dest, downloadId) =>
     invoke<string>("download_file", { url, dest, downloadId }),
+  fetchSha512: (url) => invoke<string>("fetch_sha512", { url }),
   cancelDownload: (downloadId) => invoke<void>("cancel_download", { downloadId }),
   extractTarball: (src, dest) => invoke<void>("extract_tarball", { src, dest }),
   writeSteamConfigFile: (file, original, content, backup) =>
@@ -130,7 +131,7 @@ export function assetUrl(path: string): string {
 export { appCacheDir };
 
 /** url im system-browser öffnen (eigener command: host-xdg-open, nicht
- * plugin-opener — dessen PATH-lookup nimmt im appimage das gebündelte
+ * plugin-opener, dessen PATH-lookup nimmt im appimage das gebündelte
  * xdg-open, das auf kde-systemen lautlos scheitert). */
 export function openExternal(url: string): Promise<void> {
   return invoke("open_external", { url });

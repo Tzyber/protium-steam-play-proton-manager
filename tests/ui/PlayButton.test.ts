@@ -13,7 +13,7 @@ vi.mock("../../src/ui/stores/uiStore", () => ({
   useUiStore: vi.fn(() => ({ showNotification: mockShowNotification })),
 }));
 
-// i18n: minimale nachbildung — t() bildet key auf label ab.
+// i18n: minimale nachbildung, t() bildet key auf label ab.
 // params werden angehängt, damit interpolation-argumente (z. b. {error})
 // im assert sichtbar bleiben statt zu verschwinden.
 vi.mock("../../src/ui/i18n", () => ({

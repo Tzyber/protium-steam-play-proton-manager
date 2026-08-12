@@ -97,14 +97,14 @@ export async function fetchReleases(
   try {
     const raw = await cache.get(CACHE_KEY);
     if (raw) cached = JSON.parse(raw) as CacheEntry;
-    // M4.2: cache-schema-validierung — ein vergifteter/fehlerhafter cache
+    // M4.2: cache-schema-validierung, ein vergifteter/fehlerhafter cache
     // (releases: null/objekt) wird wie ein miss behandelt statt durchgereicht
     if (cached && !Array.isArray(cached.releases)) cached = null;
   } catch {
     cached = null;
   }
 
-  // force (expliziter klick) umgeht den cache und fragt github — per etag meist billiges 304.
+  // force (expliziter klick) umgeht den cache und fragt github, per etag meist billiges 304.
   if (!force && cached && now() - cached.fetchedAt < TTL_MS) {
     return { releases: cached.releases, fetchedAt: cached.fetchedAt, source: "cache" };
   }
@@ -177,13 +177,13 @@ interface InstallOpts {
   release: GeRelease;
   downloadId: string; // korreliert die progress-events
   onPhase?: (phase: InstallPhase) => void;
-  /** hash-asset vorhanden, aber nicht lesbar — installation läuft ohne verifikation.
+  /** hash-asset vorhanden, aber nicht lesbar, installation läuft ohne verifikation.
    *  kein text-parameter: core hat kein i18n (INV-5), es gibt genau einen meldegrund. */
   onWarning?: () => void;
   /** abbruch-abfrage für das fenster VOR dem rust-download. cancel_download kann
    *  nur einen laufenden download treffen (die cancel-registry im backend kennt
-   *  eine id erst, wenn download_file sie registriert hat). alles davor — das
-   *  holen des hash-assets über netz — wäre sonst nicht abbrechbar und der
+   *  eine id erst, wenn download_file sie registriert hat). alles davor, das
+   *  holen des hash-assets über netz, wäre sonst nicht abbrechbar und der
    *  abbruch-klick des nutzers würde still verpuffen. */
   isCancelled?: () => boolean;
 }
@@ -193,7 +193,7 @@ export async function installRelease(
   ports: { fs: FileSystem; http: Http; system: System },
   opts: InstallOpts,
 ): Promise<void> {
-  const { fs, http, system } = ports;
+  const { fs, system } = ports;
   const dest = joinPath(opts.cacheDir, opts.release.tarball.name);
 
   // "cancelled" im text ist teil des kontrakts: der aufrufer unterscheidet
@@ -208,8 +208,7 @@ export async function installRelease(
   let expected: string | null = null;
   if (opts.release.sha512Url) {
     try {
-      const res = await http.get(opts.release.sha512Url);
-      if (res.ok) expected = parseSha512Sum(res.text);
+      expected = parseSha512Sum(await system.fetchSha512(opts.release.sha512Url));
     } catch {
       expected = null;
     }
@@ -233,7 +232,7 @@ export async function installRelease(
     // residuum (bewusst offen): der hash oben wird auf dem download-STREAM
     // berechnet, entpackt wird danach die DATEI auf der platte. wer zwischen
     // prüfung und extraktion schreibzugriff auf den app-cache hat, kann den
-    // tarball tauschen — die prüfung deckt das nicht ab. gleiches threat-model
+    // tarball tauschen, die prüfung deckt das nicht ab. gleiches threat-model
     // wie der rest der app (lokaler prozess mit unseren rechten); schliessbar
     // nur durch hashen des geöffneten fd im backend.
     await system.extractTarball(dest, paths.compatToolsDir(opts.steamRoot));

@@ -31,13 +31,13 @@ pub(super) fn canonicalize_safe(path: &str, label: &str) -> Result<PathBuf, Stri
 }
 
 /// canonicalize eines pfads, dessen roh-input kein symlink sein darf.
-/// der symlink_metadata-guard läuft auf dem roh-input VOR canonicalize —
+/// der symlink_metadata-guard läuft auf dem roh-input VOR canonicalize 
 /// canonicalize folgt symlinks, ein guard auf dem gefolgten pfad wäre tot.
 /// nutzer: validate_and_prepare + remove_trash_entry_inner.
 pub(super) fn canonicalize_no_symlink(path: &str) -> Result<PathBuf, String> {
     let raw_meta = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
     if raw_meta.file_type().is_symlink() {
-        return Err("symlink rejected — will not recurse".into());
+        return Err("symlink rejected, will not recurse".into());
     }
     fs::canonicalize(path).map_err(|e| e.to_string())
 }
@@ -68,7 +68,7 @@ pub(super) fn next_existing_ancestor(path: &Path) -> Option<PathBuf> {
     }
 }
 
-/// nächsten existierenden vorfahren kanonisieren — für ziele, die
+/// nächsten existierenden vorfahren kanonisieren, für ziele, die
 /// (zwangsläufig) noch nicht existieren (download-dest, backup, extract-dest).
 pub(super) fn canonicalize_nearest_ancestor(path: &Path, label: &str) -> Result<PathBuf, String> {
     let ancestor = next_existing_ancestor(path)
@@ -77,11 +77,11 @@ pub(super) fn canonicalize_nearest_ancestor(path: &Path, label: &str) -> Result<
 }
 
 /// validiert, dass `dest` innerhalb von `dir` liegt (allowlist statt
-/// blocklist) — der gemeinsame kern von validate_download_dest und der
+/// blocklist), der gemeinsame kern von validate_download_dest und der
 /// backup-prüfung in write_steam_file_inner. create_dir_all-zuerst
 /// (test-erzwungen): ohne den create degradiert der ancestor-walk auf
 /// einen gemeinsamen vorfahren (fremde apps im selben überbau kämen
-/// durch). label für den fehler-prefix — die zwei stellen haben
+/// durch). label für den fehler-prefix, die zwei stellen haben
 /// unterschiedliche meldungen („backup outside app cache" /
 /// download-fehlermeldung).
 pub(super) fn ensure_dest_within_canon_dir(dest: &Path, dir: &Path, label: &str) -> Result<(), String> {
@@ -112,7 +112,7 @@ pub(super) fn validate_download_dest(dest: &str, cache_dir: &Path) -> Result<(),
     ensure_dest_within_canon_dir(dest_path, cache_dir, "download dest")?;
 
     // symlink-check auf dem ziel selbst, falls es bereits existiert
-    // (plan-review 2026-08-03: bleibt inline — der backup-pfad in
+    // (plan-review 2026-08-03: bleibt inline, der backup-pfad in
     // write_steam_file_inner darf diesen check nicht erben)
     if dest_path.exists() {
         let meta = fs::symlink_metadata(dest_path).map_err(|e| e.to_string())?;
@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn validate_dest_prefix_trick_abgelehnt() {
-        // dest = "<cache-dir>-evil/x" — komponenten-vergleich fängt das ab.
+        // dest = "<cache-dir>-evil/x", komponenten-vergleich fängt das ab.
         // eigener verzeichnisname pro test: `validate_dest_im_cache_dir_ok`
         // nutzt `protium-desttest-cache-{pid}`, und das remove_dir_all hier
         // löschte dessen verzeichnis mitten im lauf (race, CI-rot).
@@ -333,7 +333,7 @@ mod tests {
         // seiten denselben vorfahren finden und die prüfung degradieren.
         let tmp = std::env::temp_dir();
         let cache = tmp.join(format!("protium-desttest-meineapp-{}", std::process::id()));
-        // cache_dir wird NICHT vorab angelegt — validate_download_dest
+        // cache_dir wird NICHT vorab angelegt, validate_download_dest
         // muss create_dir_all selbst aufrufen
 
         let fremd = tmp.join(format!("protium-desttest-fremdeapp-{}", std::process::id()));

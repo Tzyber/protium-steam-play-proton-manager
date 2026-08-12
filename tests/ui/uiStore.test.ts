@@ -28,11 +28,11 @@ describe("uiStore notification", () => {
 
     // ohne clearTimeout hätte der timer des ersten calls bei t=30s gefeuert
     // (20s nach dem zweiten call) und die zweite notification gekillt.
-    vi.advanceTimersByTime(19_000); // t=29s — timer1 wäre noch nicht gefeuert
+    vi.advanceTimersByTime(19_000); // t=29s, timer1 wäre noch nicht gefeuert
     expect(ui.notification?.message).toBe("zweiter fehler");
-    vi.advanceTimersByTime(10_000); // t=39s — timer1 hätte längst gefeuert
+    vi.advanceTimersByTime(10_000); // t=39s, timer1 hätte längst gefeuert
     expect(ui.notification?.message).toBe("zweiter fehler");
-    vi.advanceTimersByTime(1_000); // t=40s — timer2 feuert
+    vi.advanceTimersByTime(1_000); // t=40s, timer2 feuert
     expect(ui.notification).toBeNull();
   });
 

@@ -3,19 +3,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GeRelease } from "../../src/core/geproton";
 import { setLocale } from "../../src/ui/i18n";
 
-const { mockAppCacheDir, mockDownloadFile, mockExtractTarball, mockHttpGet, mockListen } =
-  vi.hoisted(() => ({
-    mockAppCacheDir: vi.fn(async () => "/tmp/cache"),
-    mockDownloadFile: vi.fn(async () => "a".repeat(128)),
-    mockExtractTarball: vi.fn<() => Promise<void>>(),
-    mockHttpGet: vi.fn(async () => ({
-      status: 200,
-      ok: true,
-      text: `${"a".repeat(128)}  x.tar.gz`,
-      headers: {},
-    })),
-    mockListen: vi.fn(async () => () => {}),
-  }));
+const {
+  mockAppCacheDir,
+  mockDownloadFile,
+  mockExtractTarball,
+  mockFetchSha512,
+  mockHttpGet,
+  mockListen,
+} = vi.hoisted(() => ({
+  mockAppCacheDir: vi.fn(async () => "/tmp/cache"),
+  mockDownloadFile: vi.fn(async () => "a".repeat(128)),
+  mockExtractTarball: vi.fn<() => Promise<void>>(),
+  mockFetchSha512: vi.fn(async () => `${"a".repeat(128)}  x.tar.gz`),
+  mockHttpGet: vi.fn(async () => ({
+    status: 200,
+    ok: true,
+    text: `${"a".repeat(128)}  x.tar.gz`,
+    headers: {},
+  })),
+  mockListen: vi.fn(async () => () => {}),
+}));
 
 vi.mock("../../src/core/adapters/tauri", async () => {
   return {
@@ -27,6 +34,7 @@ vi.mock("../../src/core/adapters/tauri", async () => {
       },
       system: {
         downloadFile: mockDownloadFile,
+        fetchSha512: mockFetchSha512,
         extractTarball: mockExtractTarball,
         removeCompatTool: vi.fn(async () => {}),
         cancelDownload: vi.fn(async () => {}),
@@ -74,6 +82,7 @@ describe("protonStore init + pump-robustheit", () => {
     mockListen.mockResolvedValue(() => {});
     mockDownloadFile.mockClear();
     mockExtractTarball.mockClear();
+    mockFetchSha512.mockClear();
     mockHttpGet.mockClear();
     mockAppCacheDir.mockClear();
     mockAppCacheDir.mockResolvedValue("/tmp/cache");
@@ -128,10 +137,11 @@ describe("protonStore pump-phasen", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     setLocale("de");
-    // aufruf-historie zurücksetzen — der vorherige test lässt einen laufenden
+    // aufruf-historie zurücksetzen, der vorherige test lässt einen laufenden
     // job stehen, sonst zählen dessen aufrufe hier mit
     mockDownloadFile.mockClear();
     mockExtractTarball.mockClear();
+    mockFetchSha512.mockClear();
     mockHttpGet.mockClear();
     mockAppCacheDir.mockClear();
     mockDownloadFile.mockResolvedValue("a".repeat(128));
@@ -219,6 +229,8 @@ describe("protonStore warnung (sha512-fetch-fehler)", () => {
     mockExtractTarball.mockClear();
     mockAppCacheDir.mockClear();
     mockHttpGet.mockReset(); // once-queue aus abgebrochenen tests leeren
+    mockFetchSha512.mockReset(); // once-queue aus abgebrochenen tests leeren
+    mockFetchSha512.mockResolvedValue(`${"a".repeat(128)}  x.tar.gz`);
     mockHttpGet.mockResolvedValue({
       status: 200,
       ok: true,
@@ -241,8 +253,37 @@ describe("protonStore warnung (sha512-fetch-fehler)", () => {
     return store;
   }
 
+  it("clearWarning entfernt die warnung (wegklickbar über das ×)", () => {
+    const store = installWithSha();
+    store.warning = { tag: withSha.tag, msg: "alte warnung" };
+    store.clearWarning();
+    expect(store.warning).toBeNull();
+  });
+
+  it("verified-flag beim entpacken, wenn sha512-asset vorhanden und geprüft", async () => {
+    // kontrollierbares entpacken: installRelease hält das promise vom AUFRUF
+    // impl später tauschen würde den laufenden await nicht auflösen
+    let finish: (() => void) | undefined;
+    mockExtractTarball.mockImplementation(
+      () =>
+        new Promise<void>((res) => {
+          finish = res;
+        }),
+    );
+    const store = installWithSha();
+    store.queueInstall(withSha);
+    await vi.waitFor(() => {
+      expect(store.jobs[withSha.tag]?.phase).toBe("extracting");
+    });
+    expect(store.jobs[withSha.tag]?.verified).toBe(true);
+    finish?.(); // entpacken freigeben → job räumt auf
+    await vi.waitFor(() => {
+      expect(store.jobs[withSha.tag]).toBeUndefined();
+    });
+  });
+
   it("fetch-fail + install erfolgreich → warning mit tag gesetzt", async () => {
-    mockHttpGet.mockRejectedValueOnce(new Error("netz weg"));
+    mockFetchSha512.mockRejectedValueOnce(new Error("netz weg"));
     mockExtractTarball.mockResolvedValue(undefined); // install läuft durch
     const store = installWithSha();
 
@@ -275,7 +316,7 @@ describe("protonStore warnung (sha512-fetch-fehler)", () => {
   });
 
   it("fetch-fail + download-fail → keine warning neben loadError", async () => {
-    mockHttpGet.mockRejectedValueOnce(new Error("netz weg"));
+    mockFetchSha512.mockRejectedValueOnce(new Error("netz weg"));
     mockDownloadFile.mockRejectedValueOnce(new Error("download kaputt"));
     const store = installWithSha();
 

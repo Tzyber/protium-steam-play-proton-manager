@@ -17,7 +17,7 @@ import { useScanStore } from "./scanStore";
 const IGNORED_MISSING_KEY = "cleanup:ignored-missing-libs";
 
 // S-05: frischen installed-status bauen (games + shortcuts), statt auf einen
-// veralteten scan-stand zu vertrauen — der cleanup-race-schutz lebt hier.
+// veralteten scan-stand zu vertrauen, der cleanup-race-schutz lebt hier.
 function collectInstalledAppIds(result: ScanResult, shortcutResult: ShortcutResult): Set<number> {
   const installedAppIds = new Set(result.games.map((g) => g.appId));
   if (shortcutResult.status === "ok") {
@@ -92,7 +92,7 @@ export const useCleanupStore = defineStore("cleanup", {
         this.pathMissingLibs = [];
 
         if (await tauriPorts.system.isProcessRunning("steam")) {
-          this.error = t("errors.steamRunning");
+          this.error = t("errors.steamRunningCleanup");
           return;
         }
 
@@ -133,7 +133,7 @@ export const useCleanupStore = defineStore("cleanup", {
           // KEIN default auf 0: ein fehlender map-eintrag bedeutet, dass
           // batchDirSizes den pfad übersprungen hat (NotFound-race). das
           // sizeBytes bleibt dann undefined → UI rendert "…", ein leeres
-          // verzeichnis (real 0 byte) rendert "—" via formatBytes. die 0
+          // verzeichnis (real 0 byte) rendert "-" via formatBytes. die 0
           // für summen/sort gehört in die rechner (?? 0 dort), nicht in
           // die anzeige.
           o.sizeBytes = sizes[o.path];
@@ -148,7 +148,7 @@ export const useCleanupStore = defineStore("cleanup", {
     async deleteOrphans(entries: OrphanEntry[]) {
       if (this.blockedBySkipped) return;
       if (await tauriPorts.system.isProcessRunning("steam")) {
-        this.error = t("errors.steamRunning");
+        this.error = t("errors.steamRunningCleanup");
         return;
       }
 
@@ -165,7 +165,7 @@ export const useCleanupStore = defineStore("cleanup", {
       const errors: string[] = [];
       // compatdata wird nicht gelöscht, sondern in den papierkorb VERSCHOBEN.
       // ohne refresh danach bliebe die papierkorb-sektion auf dem stand vom
-      // öffnen der ansicht — der nutzer sieht "leer" und glaubt, die daten seien
+      // öffnen der ansicht, der nutzer sieht "leer" und glaubt, die daten seien
       // weg, obwohl sie noch platz belegen.
       let trashedCompatdata = false;
       for (const entry of entries) {
@@ -195,7 +195,7 @@ export const useCleanupStore = defineStore("cleanup", {
       }
       // reihenfolge: erst refreshes, dann fehler setzen. scanTrash() und
       // scanOrphans() setzen this.error zurück und würden die löschfehler
-      // sonst verschlucken — der nutzer sähe die einträge noch in der liste,
+      // sonst verschlucken, der nutzer sähe die einträge noch in der liste,
       // aber nicht warum. der orphan-rescan gehört deshalb HIERHER (nicht in
       // die view): nur so ist die reihenfolge garantiert.
       if (trashedCompatdata) await this.scanTrash();
@@ -236,7 +236,7 @@ export const useCleanupStore = defineStore("cleanup", {
       await this.scanOrphans();
     },
 
-    /** ignorierte pfade wieder berücksichtigen — die rückfrage kommt dann erneut. */
+    /** ignorierte pfade wieder berücksichtigen, die rückfrage kommt dann erneut. */
     async unignoreMissingLibs() {
       this.ignoredMissingLibs = [];
       await this.persistIgnoredMissing();

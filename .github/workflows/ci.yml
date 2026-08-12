@@ -50,7 +50,7 @@ jobs:
         with:
           tool: cargo-audit
       # cargo-audit hat keine --config-flag; die config wird an
-      # .cargo/audit.toml (repo-root, cwd) oder ~/.cargo/audit.toml gesucht —
+      # .cargo/audit.toml (repo-root, cwd) oder ~/.cargo/audit.toml gesucht 
       # deshalb liegt audit.toml in .cargo/, nicht neben der Cargo.lock.
-      # vulnerabilities sind fatal, warnings nicht — neue advisories schlagen an.
+      # vulnerabilities sind fatal, warnings nicht, neue advisories schlagen an.
       - run: cargo audit --file src-tauri/Cargo.lock

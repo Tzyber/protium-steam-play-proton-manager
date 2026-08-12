@@ -1,4 +1,4 @@
-// domänentypen — UI-frei (INV-5). keine vue-/tauri-imports hier.
+// domänentypen, UI-frei (INV-5). keine vue-/tauri-imports hier.
 
 export type Tier = "platinum" | "gold" | "silver" | "bronze" | "borked" | "unknown";
 

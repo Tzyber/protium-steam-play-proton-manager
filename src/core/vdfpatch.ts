@@ -1,6 +1,6 @@
 // chirurgischer VDF-string-patch: ändert nur den ziel-wert, der rest der datei bleibt
 // byte-für-byte erhalten. grund: voll-serialize mit @node-steam/vdf escaped nicht
-// (`"`/`\` zerstören die datei still) und sortiert numerische keys (appIds) um —
+// (`"`/`\` zerstören die datei still) und sortiert numerische keys (appIds) um
 // empirisch an echten config.vdf/localconfig.vdf gezeigt (phase 4, s. PROTIUM_STATUS).
 
 export class VdfPatchError extends Error {
@@ -104,7 +104,7 @@ function tokenAt(tokens: Token[], idx: number): Token {
 }
 
 // direkte einträge eines token-range (ein block-inhalt bzw. top-level).
-// wirft bei strukturbruch — lieber vor dem schreiben sterben als halb patchen.
+// wirft bei strukturbruch, lieber vor dem schreiben sterben als halb patchen.
 function scanEntries(tokens: Token[], from: number, to: number): Entry[] {
   const entries: Entry[] = [];
   let i = from;
@@ -174,7 +174,7 @@ function insertionPoint(
   const closingIndent = text.slice(lineStart, close.start);
   if (!/^[ \t]*$/.test(closingIndent)) {
     // steam schreibt `}` immer auf eine eigene zeile; alles andere ist verdächtig
-    throw new VdfPatchError("schließende klammer nicht auf eigener zeile — abbruch");
+    throw new VdfPatchError("schließende klammer nicht auf eigener zeile, abbruch");
   }
   return { pos: lineStart, prefix: "", indent: `${closingIndent}\t` };
 }
@@ -224,7 +224,7 @@ export function getVdfValue(text: string, path: readonly string[]): string | und
 /**
  * setzt den skalaren wert am pfad: ersetzt nur die value-span, legt fehlende
  * keys/blöcke an, no-op liefert den originaltext. wirft VdfPatchError bei
- * strukturbruch — die datei wird dabei nie angerührt (reine string-funktion).
+ * strukturbruch, die datei wird dabei nie angerührt (reine string-funktion).
  */
 export function setVdfValue(text: string, path: readonly string[], value: string): string {
   if (path.length === 0) throw new VdfPatchError("leerer pfad");
@@ -264,7 +264,7 @@ function removeInScope(
   const rawLineStart = text.lastIndexOf("\n", entry.key.start - 1) + 1;
   const between = text.slice(rawLineStart, entry.key.start);
   if (/[^ \t]/.test(between)) {
-    throw new VdfPatchError(`"${key}" beginnt nicht auf eigener zeile — strukturbruch`);
+    throw new VdfPatchError(`"${key}" beginnt nicht auf eigener zeile, strukturbruch`);
   }
   const lineStart = Math.max(rawLineStart, entry.key.start);
   let trailEnd = end;

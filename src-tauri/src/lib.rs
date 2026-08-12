@@ -12,7 +12,7 @@ pub fn run() {
                 };
                 // fenster wird hier statt in tauri.conf gebaut, weil nur der
                 // builder einen navigation-handler setzen kann: eigener origin
-                // durchlassen, alles externe blocken — externe links gehören
+                // durchlassen, alles externe blocken, externe links gehören
                 // in den system-browser (openExternal), nicht in die webview
                 // (rechtsklick-open-link liess die app sonst auf protondb.com
                 // hängen, kein zurück).
@@ -22,9 +22,13 @@ pub fn run() {
                     .min_inner_size(960.0, 600.0)
                     .background_color(Color(10, 11, 17, 255))
                     .on_navigation(|url| {
-                        let app_origin = url.scheme() == "tauri"
-                            || (cfg!(dev) && url.scheme() == "http" && url.host_str() == Some("localhost"));
-                        app_origin || !matches!(url.scheme(), "http" | "https" | "steam")
+                        // whitelist statt blacklist: nur die eigene app (bzw. der
+                        // vite-dev-server) darf in die webview navigieren. alles
+                        // andere, auch file:/data:/mailto:, gehört in den
+                        // system-browser (openExternal). die alte blacklist liess
+                        // alle unbekannten schemes durch (S-08).
+                        url.scheme() == "tauri"
+                            || (cfg!(dev) && url.scheme() == "http" && url.host_str() == Some("localhost"))
                     })
                     .build()?;
             }
@@ -44,6 +48,7 @@ pub fn run() {
             commands::extract::extract_tarball,
             commands::download::download_file,
             commands::download::cancel_download,
+            commands::download::fetch_sha512,
             commands::cleanup::remove_orphan_dir,
             commands::cleanup::remove_trash_entry,
             commands::cleanup::list_trash_entries,

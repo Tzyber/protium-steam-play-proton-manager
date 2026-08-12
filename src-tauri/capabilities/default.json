@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "protium default capability — enge scopes, kein wildcard (INV-7). sekundär-libraries werden zur laufzeit via allow_library_scope (R-5) ergänzt. externe urls laufen über R-7 (open_external) statt über den opener-plugin — die allowlist steht dort im rust-code.",
+  "description": "protium default capability, enge scopes, kein wildcard (INV-7). sekundär-libraries werden zur laufzeit via allow_library_scope (R-5) ergänzt. externe urls laufen über R-7 (open_external) statt über den opener-plugin, die allowlist steht dort im rust-code.",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -46,8 +46,7 @@
       "identifier": "http:default",
       "allow": [
         { "url": "https://www.protondb.com/*" },
-        { "url": "https://api.github.com/*" },
-        { "url": "https://github.com/*" }
+        { "url": "https://api.github.com/*" }
       ]
     }
   ]

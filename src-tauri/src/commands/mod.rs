@@ -10,7 +10,7 @@ pub(crate) mod scope;
 pub(crate) mod steam;
 
 /// spawn_blocking + join-handle-fehler → String. die sync-commands laufen
-/// bei tauri v2 auf dem main-thread — blockierende IO gehört in den
+/// bei tauri v2 auf dem main-thread, blockierende IO gehört in den
 /// blocking-pool (batch C1).
 pub(crate) async fn spawn_blocking_io<T: Send + 'static>(
     f: impl FnOnce() -> Result<T, String> + Send + 'static,

@@ -115,7 +115,7 @@ describe("parseBinaryShortcutIds", () => {
   });
 
   it("truncation mitten im entry wirft BinVdfError, reicht kein undefined durch", () => {
-    // schneidet mitten im int32-wert ab — byteAt/readU32 müssen werfen, nicht undefined liefern
+    // schneidet mitten im int32-wert ab, byteAt/readU32 müssen werfen, nicht undefined liefern
     const buf = makeBinVdf([{ appId: 42 }]);
     // kürze so, dass der appid-key noch komplett ist, der 4-byte-wert aber fehlt
     const truncated = buf.slice(0, buf.length - 2);
@@ -311,7 +311,7 @@ describe("parseBinaryShortcutIds", () => {
   });
 
   it("truncated wstring → BinVdfError mit wstring-message", () => {
-    // count 5, aber nur 4 units daten — WICHTIG: kein 0x08-terminator
+    // count 5, aber nur 4 units daten, WICHTIG: kein 0x08-terminator
     // danach, sonst füllen die terminator-bytes die fehlenden 2 units auf
     // und der truncation-check greift nicht (gefunden im plan-review)
     const parts = new Uint8Array([
@@ -332,9 +332,9 @@ describe("parseBinaryShortcutIds", () => {
   });
 
   it("truncated color/uint64 → BinVdfError 'unterminated map body'", () => {
-    // datei endet mitten im 4-byte-color-wert — message gepinnt:
+    // datei endet mitten im 4-byte-color-wert, message gepinnt:
     // der alte code wirft hier "truncated uint32" (readU32), der neue
-    // "unterminated map body" (walkMapBody-EOF) — mutations-verifizierend.
+    // "unterminated map body" (walkMapBody-EOF), mutations-verifizierend.
     const parts = new Uint8Array([
       0x00,
       ...new TextEncoder().encode("shortcuts"),
@@ -353,9 +353,9 @@ describe("parseBinaryShortcutIds", () => {
   });
 
   it("0x09/0x0A/0x0B als werttyp → BinVdfError (kein VBKV-magic-handling)", () => {
-    // pinnt: default-throw bleibt — diese typen kommen in shortcuts.vdf
+    // pinnt: default-throw bleibt, diese typen kommen in shortcuts.vdf
     // (raw, ohne magic-header) nie vor, der parser rät nicht.
-    // dieser test ist im ALTEN code bereits grün (default-throw existiert) —
+    // dieser test ist im ALTEN code bereits grün (default-throw existiert)
     // er ist ein pin, kein rot-test.
     for (const badType of [0x09, 0x0a, 0x0b]) {
       const parts = new Uint8Array([
@@ -422,7 +422,7 @@ describe("readAllShortcutAppIds", () => {
 
   it("über-limit große shortcuts.vdf → status unreadable statt oom (M4.3)", async () => {
     // 16-MiB-cap: eine 17-MB-shortcuts.vdf darf nicht in den speicher geladen
-    // werden — der größen-precheck wirft, die stelle degradiert auf unreadable
+    // werden, der größen-precheck wirft, die stelle degradiert auf unreadable
     // (INV-2, gleicher pfad wie korrupte dateien).
     const { root, userId } = await buildFakeSteam();
     const scPath = join(root, "userdata", userId, "config", "shortcuts.vdf");
