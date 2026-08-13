@@ -56,6 +56,9 @@ export interface OrphanEntry {
   potentialShortcut?: boolean;
 }
 
+/** appId-validierungs-heim (M4.1): rein-ziffern-check vor parseSafeAppId. */
+export const NUMERIC_RE = /^\d+$/;
+
 /** M4.1 (audit-befund): riesige ziffernfolgen parsen jenseits der
  *  JS-präzision (NAME_MAX erlaubt 254 ziffern → 1.8e254). solche appIds
  *  sind nie legitim (steam: ≤ 10 stellen) und würden das rust-backend

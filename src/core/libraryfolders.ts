@@ -1,4 +1,4 @@
-import { NUMERIC_RE } from "./cleanup.js";
+import { NUMERIC_RE } from "./types.js";
 import { asNode, asString, getKeyInsensitive, getPath, parseVdf } from "./vdf.js";
 
 // libraryfolders.vdf: "libraryfolders" → "<index>" → { path }. index-0 ist die root selbst.

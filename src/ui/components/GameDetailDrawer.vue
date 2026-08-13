@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
-import { assetUrl, openExternal } from "../../core/adapters/tauri";
+import { openExternal } from "../../core/adapters/tauri";
 import { SteamRunningError } from "../../core/configwrite";
 import { protonDbAppUrl } from "../../core/protondb";
 import type { Tier } from "../../core/types";
@@ -10,6 +10,7 @@ import { t } from "../i18n";
 import { useConfigStore } from "../stores/configStore";
 import { useScanStore } from "../stores/scanStore";
 import { useUiStore } from "../stores/uiStore";
+import { useCover } from "../useCover";
 import PlayButton from "./PlayButton.vue";
 import SelectBox from "./SelectBox.vue";
 import TierBadge from "./TierBadge.vue";
@@ -41,15 +42,7 @@ function errorText(e: unknown): string {
 }
 
 // cover-kandidaten wie in der karte
-const idx = ref(0);
-const cover = computed<string | null>(() => {
-  const g = game.value;
-  if (!g) return null;
-  const list: string[] = [];
-  if (g.localHeader) list.push(assetUrl(g.localHeader));
-  if (g.headerImage) list.push(g.headerImage);
-  return list[idx.value] ?? null;
-});
+const { src: cover, onError } = useCover(() => game.value);
 
 const drawerRef = ref<HTMLElement | null>(null);
 const titleId = "game-detail-title";
@@ -112,9 +105,6 @@ const launchDirty = computed(() => launchInput.value !== (game.value?.launchOpti
 watch(
   game,
   (g) => {
-    // cover-fehler-index zurücksetzen: ohne das erbt das nächste spiel den
-    // fallback-stand des vorherigen und zeigt trotz vorhandenem cover nur text.
-    idx.value = 0;
     launchInput.value = g?.launchOptions ?? "";
     launchState.value = "idle";
   },
@@ -240,7 +230,7 @@ watch(errorMessage, (msg) => {
         </p>
 
         <div class="cover">
-          <img v-if="cover" :src="cover" :alt="game.name" @error="idx++" />
+          <img v-if="cover" :src="cover" :alt="game.name" @error="onError" />
           <div v-else class="cover-fb"><span>{{ game.name }}</span></div>
         </div>
 
@@ -302,7 +292,7 @@ watch(errorMessage, (msg) => {
         <div class="divider" />
 
         <a class="pdb-link mono" :href="game ? protonDbAppUrl(game.appId) : '#'" @click.prevent="openProtonDb">
-          {{ t("drawer.protondbLink") }}
+          {{ game?.protonDb?.tier === "unknown" ? t("drawer.protondbLookup") : t("drawer.protondbLink") }}
         </a>
         <p class="hint">{{ t("drawer.protondbHint") }}</p>
 
@@ -311,7 +301,7 @@ watch(errorMessage, (msg) => {
           <div v-if="errorMessage" class="toast" role="alert">
             <span class="toast-icon" aria-hidden="true">⚠</span>
             <span class="toast-msg">{{ errorMessage }}</span>
-            <button class="toast-close" type="button" :aria-label="t('drawer.dismissError')" @click="dismissError">✕</button>
+            <button class="toast-close" type="button" :aria-label="t('app.dismissNotification')" @click="dismissError">✕</button>
           </div>
         </transition>
       </aside>

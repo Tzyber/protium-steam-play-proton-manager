@@ -1,8 +1,8 @@
 // localconfig.vdf (pro steam-account): startoptionen lesen/schreiben + aktiven user finden.
-import { NUMERIC_RE } from "./cleanup.js";
 import { writeSteamFile } from "./configwrite.js";
 import { paths } from "./paths.js";
 import type { FileSystem, System } from "./ports.js";
+import { NUMERIC_RE } from "./types.js";
 import { asInt, asNode, getPath, parseVdf } from "./vdf.js";
 import { getVdfValue, setVdfValue } from "./vdfpatch.js";
 

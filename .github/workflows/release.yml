@@ -113,35 +113,22 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: "Protium ${{ github.ref_name }}"
           body: |
-            ## 0.2.9, sha512-abruf über das backend + navigation-whitelist
+            ## 0.3.0, aufgeräumter und robuster
 
-            **sicherheit:**
-            - S-09: die prüfsumme wird jetzt über einen rust-command geladen
-              (gleiche redirect-policy wie der download, 64-KiB-cap,
-              retry + user-agent). vorher folgte tauri-plugin-http
-              redirects ohne scope-recheck, nur die initiale url war
-              gepinnt. github.com-http-scope dadurch ungenutzt → entfernt
-              (INV-7). +2 cargo-tests.
-            - S-08: navigation-whitelist in der webview. nur noch die app
-              selbst (bzw. der dev-server) darf navigieren, unbekannte
-              schemes wie file:/data:/mailto: landen im system-browser
-              statt in der webview.
+            Diese Version räumt im Inneren auf, ohne die Anwendung größer
+            oder komplizierter zu machen. Der Bibliotheks-Scan ist nun besser
+            gegliedert. Wiederholte Logik für Cover, Auswahl und Größen wurde
+            zusammengeführt, und einige Texte und Details der Oberfläche
+            wurden vereinheitlicht.
 
-            **fix:**
-            - fokus-klau im spiele-drawer: `restoreFocus(null)` griff nach
-              dem mount über die fallback-kette den sidebar-nav-button an.
-              restore springt nur noch zurück, wenn beim öffnen ein
-              element gespeichert wurde.
+            Bei Spielen ohne ProtonDB-Ergebnis lädt der Link jetzt passend zum
+            Nachsehen auf ProtonDB ein. Außerdem wurde das Backend weiter
+            abgesichert: Der Papierkorb wird nur für bestätigte Steam-Libraries
+            gelesen, es kann nur ein Download gleichzeitig laufen und sehr
+            große Größenabfragen werden begrenzt.
 
-            **proton-manager:**
-            - download-rate (bytes/s, EMA-geglättet) in der progress-zeile
-            - „✓ prüfsumme ok" beim entpacken, wenn das hash-asset
-              verifiziert wurde
-            - die warnung „ohne Verifikation installiert" ist jetzt
-              wegklickbar (×)
-
-            **verifikation:** vitest 271/271 · cargo 110/110 · check
-            clean.
+            Geprüft mit 271 Vitest-Tests, 114 Rust-Tests, Typecheck, Linter
+            und Produktions-Build.
           draft: true
           prerelease: false
           files: |

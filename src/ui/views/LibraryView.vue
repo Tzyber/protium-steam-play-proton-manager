@@ -93,11 +93,7 @@ const showWarnings = ref(false);
 .library { padding: 20px 24px; scrollbar-gutter: stable; }
 
 .bar {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
   gap: 16px;
-  margin-bottom: 18px;
 }
 .title h1 {
   margin: 2px 0 0;

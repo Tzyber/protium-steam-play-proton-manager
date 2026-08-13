@@ -26,6 +26,20 @@ function collectInstalledAppIds(result: ScanResult, shortcutResult: ShortcutResu
   return installedAppIds;
 }
 
+/** größen an einträge hängen. ein fehlender map-eintrag bedeutet, dass
+ *  batchDirSizes den pfad übersprungen hat (NotFound-race). sizeBytes bleibt
+ *  dann undefined → UI rendert "…", ein leeres verzeichnis (real 0 byte)
+ *  rendert "-" via formatBytes. KEIN default auf 0: die 0 für summen/sort
+ *  gehört in die rechner (?? 0 dort), nicht in die anzeige. */
+function attachSizes(
+  entries: { path: string; sizeBytes?: number }[],
+  sizes: Record<string, number>,
+): void {
+  for (const e of entries) {
+    e.sizeBytes = sizes[e.path];
+  }
+}
+
 export const useCleanupStore = defineStore("cleanup", {
   state: () => ({
     orphans: [] as OrphanEntry[],
@@ -129,15 +143,7 @@ export const useCleanupStore = defineStore("cleanup", {
 
         const paths = this.orphans.map((o) => o.path);
         const sizes = await tauriPorts.system.batchDirSizes(paths);
-        for (const o of this.orphans) {
-          // KEIN default auf 0: ein fehlender map-eintrag bedeutet, dass
-          // batchDirSizes den pfad übersprungen hat (NotFound-race). das
-          // sizeBytes bleibt dann undefined → UI rendert "…", ein leeres
-          // verzeichnis (real 0 byte) rendert "-" via formatBytes. die 0
-          // für summen/sort gehört in die rechner (?? 0 dort), nicht in
-          // die anzeige.
-          o.sizeBytes = sizes[o.path];
-        }
+        attachSizes(this.orphans, sizes);
       } catch (e) {
         this.error = errMsg(e);
       } finally {
@@ -272,9 +278,7 @@ export const useCleanupStore = defineStore("cleanup", {
 
         const paths = entries.map((e) => e.path);
         const sizes = await tauriPorts.system.batchDirSizes(paths);
-        for (const e of this.trash) {
-          e.sizeBytes = sizes[e.path];
-        }
+        attachSizes(this.trash, sizes);
       } catch (e) {
         this.error = errMsg(e);
       } finally {

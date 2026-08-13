@@ -86,7 +86,6 @@ export const en = {
     cleanAllShaders: "clean all shader caches",
     deleteSelected: "delete {n} selected",
     deleteConfirmTitle: "delete {n} orphaned entries?",
-    deleteAction: "delete",
     savegameWarning:
       "Wine-Prefixes may contain local savegames that are NOT synced to Steam Cloud! prefixes are not deleted but moved to the trash, protium does not restore them itself, only manual recovery via file manager (see README).",
     totalSize: "total size: {size}",
@@ -102,11 +101,9 @@ export const en = {
     tabsLabel: "cleanup sections",
     ignoredMissingNote: "{n} non-existent library paths are being ignored",
     ignoredMissingUndo: "consider again",
-    trashSearching: "searching…",
     trashSearchButton: "scan trash",
     trashEmptyState: "trash is empty",
     trashUnknownHint: "{n} directories in trash were not recognized and are not offered (INV-2):",
-    trashSelectedInfo: "{n} selected · {size}",
     trashEmpty: "empty trash",
     trashDeleteEntry: "delete entry",
     trashDeleteAction: "permanently delete",
@@ -117,7 +114,6 @@ export const en = {
     trashTrashedAt: "trashed {date}",
   },
   proton: {
-    label: "proton",
     versions: "versions",
     loading: "loading…",
     refreshReleases: "refresh releases",
@@ -127,11 +123,9 @@ export const en = {
     unused: "unused",
     notManageable: "not manageable via protium",
     geReleases: "GE-Proton releases",
-    tagInstalled: "installed",
     install: "install",
     cancelDownload: "cancel download",
     cancelQueue: "remove from queue",
-    cancel: "cancel",
     deleteTitle: "delete {name}?",
     usedByConfirm:
       'this version is used by {n} game(s), Steam will fall back to "default" afterwards:',
@@ -167,10 +161,10 @@ export const en = {
     launchOptionsHint:
       "%command% = the actual start command; omit %command% to only append the options.",
     protondbLink: "view on protondb ↗",
+    protondbLookup: "check on protondb ↗",
     protondbOpenFailed: "could not open protondb: {error}",
     protondbHint:
       "reports with operating system, proton version and notes from other players. data from protondb (ODbL).",
-    dismissError: "dismiss message",
     play: "start game",
     launch: "start {name}",
     notInstalled: "{name} (not installed)",

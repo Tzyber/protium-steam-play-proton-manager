@@ -1,29 +1,16 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { assetUrl } from "../../core/adapters/tauri";
 import type { Game } from "../../core/types";
 import { formatBytes } from "../format";
 import { t } from "../i18n";
 import { useUiStore } from "../stores/uiStore";
+import { useCover } from "../useCover";
 import PlayButton from "./PlayButton.vue";
 import TierBadge from "./TierBadge.vue";
 
 const props = defineProps<{ game: Game }>();
 const ui = useUiStore();
 
-// kandidaten in reihenfolge: lokaler cache (CDN-unabhängig) → steam-cdn → text.
-const candidates = computed<string[]>(() => {
-  const list: string[] = [];
-  if (props.game.localHeader) list.push(assetUrl(props.game.localHeader));
-  if (props.game.headerImage) list.push(props.game.headerImage);
-  return list;
-});
-
-const idx = ref(0);
-const src = computed<string | null>(() => candidates.value[idx.value] ?? null);
-function onError() {
-  idx.value++; // nächster kandidat; ist keiner mehr da → text-fallback (INV-3)
-}
+const { src, onError } = useCover(() => props.game);
 </script>
 
 <template>

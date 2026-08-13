@@ -228,3 +228,14 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .toast-enter-active, .toast-leave-active { transition: opacity 0.2s, transform 0.2s; }
 .toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(-6px); }
 </style>
+
+<!-- globale .bar-basis aller views (header-zeile oben). gap bleibt view-lokal:
+     nur die library braucht ihn, die anderen .bar verteilen via space-between. -->
+<style>
+.bar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+</style>

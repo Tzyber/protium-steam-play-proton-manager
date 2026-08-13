@@ -19,18 +19,12 @@ export interface DirEntry {
   isSymlink: boolean;
 }
 
-export interface TrashDirEntry {
-  name: string;
-  isDir: boolean;
-  isSymlink: boolean;
-}
-
 export interface TrashListing {
   /** kanonischer papierkorb-pfad, den das backend gelesen hat */
   dir: string;
   /** false = kein papierkorb vorhanden (normalfall, kein fehler) */
   present: boolean;
-  entries: TrashDirEntry[];
+  entries: DirEntry[];
 }
 
 export interface FileSystem {

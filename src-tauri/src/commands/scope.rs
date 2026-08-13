@@ -1,8 +1,7 @@
 use std::fs;
 use std::path::Path;
-use tauri::AppHandle;
 use tauri_plugin_fs::FsExt;
-use crate::commands::path::{canonicalize_safe, is_safe_path};
+use crate::commands::path::canonicalize_safe;
 
 /// extrahiert das library-verzeichnis (alles vor dem letzten "/steamapps/").
 /// `rfind` ist sicher, weil das folgende muster-check die echte anwendung garantiert.
@@ -44,18 +43,6 @@ pub(super) fn parse_compat_id<'a>(pair: (&'a str, &'a str)) -> Result<(&'a str, 
         return Err("appId 0 rejected".into());
     }
     Ok((typ, app_id_str))
-}
-
-pub(super) fn allow_library_scope_inner(app: AppHandle, path: &Path) -> Result<(), String> {
-    if !path.is_dir() {
-        return Err("library path is not a directory".into());
-    }
-    let real = fs::canonicalize(path).map_err(|e| format!("cannot resolve: {e}"))?;
-    if !is_safe_path(&real.to_string_lossy()) {
-        return Err("library path blocked".into());
-    }
-    let _ = app.fs_scope().allow_directory(real.to_string_lossy().as_ref(), true);
-    Ok(())
 }
 
 /// bekannte system-compat-dirs (distro-protonen, z. b. proton-cachyos).

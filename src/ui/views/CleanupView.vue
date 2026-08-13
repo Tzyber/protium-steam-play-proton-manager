@@ -91,21 +91,26 @@ const compatAllSelected = computed(() => {
   return candidates.length > 0 && candidates.every((o) => selected.has(cleanup.key(o)));
 });
 
-function selectAllShader() {
-  const all = shaderAllSelected.value;
-  for (const o of shadercacheOrphans.value) {
-    if (all) selected.delete(cleanup.key(o));
-    else selected.add(cleanup.key(o));
+/** auswahl-umschalter: alle an- oder alle abwählen, je nach ist-zustand. */
+function toggleAll<T>(
+  entries: readonly T[],
+  set: Set<string>,
+  allSelected: boolean,
+  keyOf: (e: T) => string,
+) {
+  for (const e of entries) {
+    if (allSelected) set.delete(keyOf(e));
+    else set.add(keyOf(e));
   }
+}
+
+function selectAllShader() {
+  toggleAll(shadercacheOrphans.value, selected, shaderAllSelected.value, (o) => cleanup.key(o));
 }
 
 function selectAllCompat() {
   const candidates = compatdataOrphans.value.filter((o) => !o.potentialShortcut);
-  const all = compatAllSelected.value;
-  for (const o of candidates) {
-    if (all) selected.delete(cleanup.key(o));
-    else selected.add(cleanup.key(o));
-  }
+  toggleAll(candidates, selected, compatAllSelected.value, (o) => cleanup.key(o));
 }
 
 const selectedShader = computed(() =>
@@ -230,11 +235,7 @@ const trashAllSelected = computed(
 );
 
 function selectAllTrash() {
-  const all = trashAllSelected.value;
-  for (const e of trashBySize.value) {
-    if (all) trashSelected.delete(e.path);
-    else trashSelected.add(e.path);
-  }
+  toggleAll(trashBySize.value, trashSelected, trashAllSelected.value, (e) => e.path);
 }
 
 const tabCount = (id: Tab) =>
@@ -462,7 +463,7 @@ const tabLabel = (id: Tab) =>
               :disabled="cleanup.trashScanning"
               @click="cleanup.scanTrash()"
             >
-              {{ cleanup.trashScanning ? t("cleanup.trashSearching") : t("cleanup.trashSearchButton") }}
+              {{ cleanup.trashScanning ? t("cleanup.searching") : t("cleanup.trashSearchButton") }}
             </button>
           </div>
         </div>
@@ -545,7 +546,7 @@ const tabLabel = (id: Tab) =>
 
     <div v-if="tab === 'trash' && cleanup.trash.length" class="actionbar">
       <span class="sel-info" aria-live="polite">
-        {{ t("cleanup.trashSelectedInfo", { n: trashSelectedAll.length, size: formatBytes(trashSelectedBytes) }) }}
+        {{ t("cleanup.selectedInfo", { n: trashSelectedAll.length, size: formatBytes(trashSelectedBytes) }) }}
       </span>
       <div class="actionbar-btns">
         <button
@@ -570,7 +571,7 @@ const tabLabel = (id: Tab) =>
     <ConfirmDialog
       v-if="deleteCandidates.length"
       :title="t('cleanup.deleteConfirmTitle', { n: deleteCandidates.length })"
-      :confirm-label="t('cleanup.deleteAction')"
+      :confirm-label="t('common.delete')"
       danger
       @cancel="cancelDelete"
       @confirm="confirmDelete"
@@ -618,7 +619,6 @@ const tabLabel = (id: Tab) =>
   overflow-y: auto; overflow-x: hidden;
   padding-bottom: 8px;
 }
-.bar { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 16px; }
 .title h1 { margin: 2px 0 0; font-family: var(--font-display); font-size: 1.625rem; font-weight: 600; letter-spacing: -0.02em; }
 .title .label { font-family: var(--font-body); font-size: 0.8125rem; letter-spacing: 0.14em; color: var(--fg-2); text-transform: uppercase; }
 
@@ -781,7 +781,7 @@ position: relative;
 .rname { font-size: 0.9375rem; color: var(--fg-0); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sc-warn {
   display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center;
-  border-radius: 50%; font-size: 0.8125rem; font-weight: 700; margin-left: 4px;
+  border-radius: 50%; font-size: 0.8125rem; font-weight: 600; margin-left: 4px;
   background: color-mix(in srgb, var(--tier-gold) 20%, transparent);
   color: #f5d678; border: 1px solid color-mix(in srgb, var(--tier-gold) 40%, transparent);
 }

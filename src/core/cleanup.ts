@@ -1,10 +1,8 @@
 import { paths } from "./paths.js";
 import type { DirEntry, FileSystem } from "./ports.js";
-import { type OrphanEntry, type OrphanType, parseSafeAppId } from "./types.js";
+import { NUMERIC_RE, type OrphanEntry, type OrphanType, parseSafeAppId } from "./types.js";
 
 const ORPHAN_TYPES: OrphanType[] = ["compatdata", "shadercache"];
-
-export const NUMERIC_RE = /^\d+$/;
 
 export async function findOrphans(
   libraries: readonly string[],

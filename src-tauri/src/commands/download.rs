@@ -70,6 +70,33 @@ pub struct CancelRegistry(pub Mutex<HashMap<String, Arc<AtomicBool>>>);
 
 /// maximale download-grösse (GE-tarballs ~1 GB, 8 GiB ist reichlich luft).
 pub const MAX_DOWNLOAD_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+const MAX_DOWNLOAD_ID_BYTES: usize = 128;
+
+pub(super) fn validate_download_id(download_id: &str) -> Result<(), String> {
+    if download_id.is_empty()
+        || download_id.len() > MAX_DOWNLOAD_ID_BYTES
+        || !download_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        return Err("invalid download id".into());
+    }
+    Ok(())
+}
+
+fn register_download(
+    registry: &CancelRegistry,
+    download_id: &str,
+) -> Result<Arc<AtomicBool>, String> {
+    validate_download_id(download_id)?;
+    let mut map = registry.0.lock().map_err(|e| e.to_string())?;
+    if !map.is_empty() {
+        return Err("another download is already active".into());
+    }
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    map.insert(download_id.to_owned(), Arc::clone(&cancel_flag));
+    Ok(cancel_flag)
+}
 
 /// einheitlicher client-bau: redirect-policy über callback, download_stream
 /// injiziert seine testbare closure, fetch_sha512 die produktiv-allowlist.
@@ -214,12 +241,10 @@ pub async fn download_file(
         .map_err(|e| format!("cannot resolve app cache dir: {e}"))?;
     validate_download_dest(&dest, &cache_dir)?;
 
-    // frisches cancel-flag; ersetzt ein etwaiges altes in der registry
-    let cancel_flag = Arc::new(AtomicBool::new(false));
-    {
-        let mut map = state.0.lock().map_err(|e| e.to_string())?;
-        map.insert(download_id.clone(), Arc::clone(&cancel_flag));
-    }
+    // Das Backend erzwingt dieselbe Einzeldownload-Grenze wie die UI. Ein
+    // direkter IPC-Aufruf kann damit weder parallele 8-GiB-Downloads noch
+    // unbeschränkte Registry-Einträge erzeugen.
+    let cancel_flag = register_download(&state, &download_id)?;
     let cancel_flag_clone = Arc::clone(&cancel_flag);
 
     let mut last_emit: u64 = 0;
@@ -298,14 +323,32 @@ pub async fn fetch_sha512(url: String) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        download_stream, fetch_sha512, validate_download_url, validate_redirect_url,
-        MAX_DOWNLOAD_BYTES,
+        download_stream, fetch_sha512, register_download, validate_download_id,
+        validate_download_url, validate_redirect_url, CancelRegistry, MAX_DOWNLOAD_BYTES,
     };
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::thread;
+
+    #[test]
+    fn download_id_ist_begrenzt_und_ascii_sicher() {
+        assert!(validate_download_id("GE-Proton10-1").is_ok());
+        assert!(validate_download_id("").is_err());
+        assert!(validate_download_id("../escape").is_err());
+        assert!(validate_download_id(&"x".repeat(129)).is_err());
+    }
+
+    #[test]
+    fn registry_erlaubt_nur_einen_aktiven_download() {
+        let registry = CancelRegistry::default();
+        assert!(register_download(&registry, "GE-Proton10-1").is_ok());
+        assert_eq!(
+            register_download(&registry, "GE-Proton10-2").unwrap_err(),
+            "another download is already active",
+        );
+    }
 
     #[test]
     fn download_url_rejects_http() {
@@ -493,8 +536,6 @@ mod tests {
 
     #[test]
     fn cancel_registry_ptr_eq_entfernt_nur_eigenes_flag() {
-        use super::CancelRegistry;
-
         let registry = CancelRegistry::default();
 
         // erstes Arc registrieren (simuliert download_file-start)

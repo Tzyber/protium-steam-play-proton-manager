@@ -81,7 +81,7 @@ function launch() {
   border-radius: var(--r-sm);
   padding: 13px 14px;
   font-family: var(--font-body);
-  font-weight: 700;
+  font-weight: 600;
   font-size: 0.9375rem;
   display: flex;
   align-items: center;

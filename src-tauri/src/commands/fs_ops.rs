@@ -8,6 +8,8 @@ use crate::commands::spawn_blocking_io;
 
 // ---- R-3/R-3b/R-6: verzeichnisgrößen (dir_size, batch_dir_sizes) + path-identity (dev,ino) ----
 
+const MAX_BATCH_DIR_SIZE_PATHS: usize = 4096;
+
 pub(super) fn dir_size_inner(path: &str) -> Result<u64, String> {
     let real = canonicalize_safe(path, "dir_size")?;
     Ok(dir_size_impl(&real))
@@ -15,10 +17,14 @@ pub(super) fn dir_size_inner(path: &str) -> Result<u64, String> {
 
 fn dir_size_impl(path: &Path) -> u64 {
     let mut total = 0u64;
-    if let Ok(rd) = fs::read_dir(path) {
+    let mut pending = vec![path.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let Ok(rd) = fs::read_dir(dir) else {
+            continue;
+        };
         for entry in rd.flatten() {
             match entry.file_type() {
-                Ok(ft) if ft.is_dir() => total += dir_size_impl(&entry.path()),
+                Ok(ft) if ft.is_dir() => pending.push(entry.path()),
                 Ok(ft) if ft.is_file() => {
                     if let Ok(md) = entry.metadata() {
                         total += md.len();
@@ -32,6 +38,9 @@ fn dir_size_impl(path: &Path) -> u64 {
 }
 
 pub(super) fn batch_dir_sizes_inner(paths: Vec<String>) -> Result<HashMap<String, u64>, String> {
+    if paths.len() > MAX_BATCH_DIR_SIZE_PATHS {
+        return Err("too many paths for batch_dir_sizes".into());
+    }
     let mut map = HashMap::new();
     for p in paths {
         sanitize_path(&p, "batch_dir_sizes")?;
@@ -216,6 +225,14 @@ mod tests {
             "fehlermeldung soll den blocklist-grund nennen: {:?}",
             res
         );
+    }
+
+    #[test]
+    fn batch_dir_sizes_begrenzt_die_eingabemenge() {
+        use super::{batch_dir_sizes_inner, MAX_BATCH_DIR_SIZE_PATHS};
+
+        let res = batch_dir_sizes_inner(vec!["/tmp".to_string(); MAX_BATCH_DIR_SIZE_PATHS + 1]);
+        assert_eq!(res.unwrap_err(), "too many paths for batch_dir_sizes");
     }
 
     // T-M-01: dir_size darf symlinks nicht folgen, sonst zählt ein symlink

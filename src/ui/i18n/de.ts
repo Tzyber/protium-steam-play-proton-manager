@@ -82,7 +82,6 @@ export const de = {
     cleanAllShaders: "Alle Shader-Caches bereinigen",
     deleteSelected: "{n} - Ausgewählte löschen",
     deleteConfirmTitle: "{n} verwaiste Einträge löschen?",
-    deleteAction: "löschen",
     savegameWarning:
       "Wine-Prefixes können lokale Spielstände enthalten, die NICHT in der Steam-Cloud liegen! Prefixes werden nicht gelöscht, sondern in den papierkorb verschoben, protium holt sie nicht selbst zurück, das geht nur von hand im dateimanager (anleitung im README).",
     totalSize: "Gesamtgröße: {size}",
@@ -98,12 +97,10 @@ export const de = {
     tabsLabel: "bereiche der bereinigung",
     ignoredMissingNote: "{n} nicht existierende library-pfade werden ignoriert",
     ignoredMissingUndo: "wieder berücksichtigen",
-    trashSearching: "suche läuft…",
     trashSearchButton: "papierkorb durchsuchen",
     trashEmptyState: "papierkorb ist leer",
     trashUnknownHint:
       "{n} verzeichnisse im papierkorb wurden nicht erkannt und werden nicht angeboten (INV-2):",
-    trashSelectedInfo: "{n} ausgewählt · {size}",
     trashEmpty: "papierkorb leeren",
     trashDeleteEntry: "eintrag löschen",
     trashDeleteAction: "endgültig löschen",
@@ -114,7 +111,6 @@ export const de = {
     trashTrashedAt: "verschoben am {date}",
   },
   proton: {
-    label: "proton",
     versions: "versionen",
     loading: "lädt…",
     refreshReleases: "releases aktualisieren",
@@ -124,11 +120,9 @@ export const de = {
     unused: "ungenutzt",
     notManageable: "nicht über protium verwaltbar",
     geReleases: "GE-Proton releases",
-    tagInstalled: "installiert",
     install: "installieren",
     cancelDownload: "download abbrechen",
     cancelQueue: "aus warteschlange entfernen",
-    cancel: "abbrechen",
     deleteTitle: "{name} löschen?",
     usedByConfirm:
       "diese version wird von {n} spiel(en) genutzt, steam fällt danach auf „default“ zurück:",
@@ -164,10 +158,10 @@ export const de = {
     launchOptionsHint:
       "%command% = der eigentliche startbefehl; weglassen hängt die optionen nur an.",
     protondbLink: "auf protondb ansehen ↗",
+    protondbLookup: "auf protondb nachsehen ↗",
     protondbOpenFailed: "protondb konnte nicht geöffnet werden: {error}",
     protondbHint:
       "reports mit betriebssystem, proton-version und notizen anderer spieler. daten von protondb (ODbL).",
-    dismissError: "meldung schließen",
     play: "spiel starten",
     launch: "{name} starten",
     notInstalled: "{name} (nicht installiert)",

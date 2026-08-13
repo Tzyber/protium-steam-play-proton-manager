@@ -7,7 +7,7 @@ import { parseManifest } from "./manifest.js";
 import { joinPath, LOCAL_HEADER_FILENAME, paths } from "./paths.js";
 import type { DirEntry, Ports } from "./ports.js";
 import { ProtonDbClient } from "./protondb.js";
-import type { Game, ScanResult, SkippedLibrary } from "./types.js";
+import type { CompatTool, Game, ScanResult, SkippedLibrary } from "./types.js";
 
 interface ScanOptions {
   steamRoot: string;
@@ -42,10 +42,15 @@ async function resolveLocalHeader(
   return null;
 }
 
-// defekte dateien → skip+warning (INV-2), netzausfall → tier "unknown" (INV-3).
-export async function scanLibrary(ports: Ports, opts: ScanOptions): Promise<ScanResult> {
-  const { fs, system } = ports;
-  const { steamRoot } = opts;
+async function readLibraryList(
+  fs: Ports["fs"],
+  system: Ports["system"],
+  steamRoot: string,
+): Promise<{
+  libraries: string[];
+  warnings: string[];
+  skippedLibraries: SkippedLibrary[];
+}> {
   const warnings: string[] = [];
   const skippedLibraries: SkippedLibrary[] = [];
 
@@ -89,6 +94,14 @@ export async function scanLibrary(ports: Ports, opts: ScanOptions): Promise<Scan
   }
   libraries = uniqueLibraries;
 
+  return { libraries, warnings, skippedLibraries };
+}
+
+async function readCompatMapping(
+  fs: Ports["fs"],
+  steamRoot: string,
+): Promise<{ mapping: CompatToolMapping; mappingUsable: boolean; warnings: string[] }> {
+  const warnings: string[] = [];
   let mapping: CompatToolMapping = new Map();
   let mappingUsable = true;
   try {
@@ -103,10 +116,15 @@ export async function scanLibrary(ports: Ports, opts: ScanOptions): Promise<Scan
     mappingUsable = false;
     warnings.push(`config.vdf nicht lesbar: ${errText(e)}`);
   }
-  const compatFor = (appId: number): string =>
-    !mappingUsable ? "unknown" : (mapping.get(appId) ?? "default");
+  return { mapping, mappingUsable, warnings };
+}
 
-  // startoptionen: aktiven account finden, localconfig einmal lesen (INV-2: defekt → leer)
+// startoptionen: aktiven account finden, localconfig einmal lesen (INV-2: defekt → leer)
+async function readLaunchConfig(
+  fs: Ports["fs"],
+  steamRoot: string,
+): Promise<{ steamUserId: string | null; localConfigText: string | null; warnings: string[] }> {
+  const warnings: string[] = [];
   let steamUserId: string | null = null;
   let localConfigText: string | null = null;
   const activeUser = await findActiveUser(fs, steamRoot);
@@ -121,7 +139,24 @@ export async function scanLibrary(ports: Ports, opts: ScanOptions): Promise<Scan
       warnings.push(`localconfig.vdf nicht lesbar: ${errText(e)}`);
     }
   }
+  return { steamUserId, localConfigText, warnings };
+}
 
+async function scanGames(
+  fs: Ports["fs"],
+  system: Ports["system"],
+  steamRoot: string,
+  libraries: string[],
+  compatFor: (appId: number) => string,
+  localConfigText: string | null,
+): Promise<{
+  games: Game[];
+  blockedAppIds: Set<number>;
+  warnings: string[];
+  skippedLibraries: SkippedLibrary[];
+}> {
+  const warnings: string[] = [];
+  const skippedLibraries: SkippedLibrary[] = [];
   const games: Game[] = [];
   const blockedAppIds = new Set<number>();
   for (const lib of libraries) {
@@ -172,6 +207,24 @@ export async function scanLibrary(ports: Ports, opts: ScanOptions): Promise<Scan
     }
   }
 
+  return { games, blockedAppIds, warnings, skippedLibraries };
+}
+
+async function readCompatTools(
+  fs: Ports["fs"],
+  system: Ports["system"],
+  steamRoot: string,
+  mapping: CompatToolMapping,
+  blockedAppIds: ReadonlySet<number>,
+  games: Game[],
+  extraCompatDirs: readonly string[] | undefined,
+): Promise<{
+  compatToolsInstalled: CompatTool[];
+  builtinProtonsInstalled: { internalName: string; displayName: string }[];
+  defaultCompatTool: string | null;
+  warnings: string[];
+}> {
+  const warnings: string[] = [];
   const installedAppIds = new Set(games.map((g) => g.appId));
   const builtinProtonsInstalled = availableBuiltinProtons(blockedAppIds);
   const defaultCompatTool = mapping.get(0) ?? null; // mapping[0] = globaler default
@@ -182,18 +235,65 @@ export async function scanLibrary(ports: Ports, opts: ScanOptions): Promise<Scan
     mapping,
     warnings,
     installedAppIds,
-    opts.extraCompatDirs,
+    extraCompatDirs,
   );
+  return { compatToolsInstalled, builtinProtonsInstalled, defaultCompatTool, warnings };
+}
 
+async function enrichProtondb(ports: Ports, games: Game[], delayMs: number): Promise<void> {
   const client = new ProtonDbClient(ports.http, ports.cache);
-  const delay = opts.protonDbDelayMs ?? 150;
   for (const game of games) {
     game.protonDb = (await client.getSummary(game.appId)) ?? {
       tier: "unknown",
       confidence: "unknown",
     };
-    if (delay > 0) await sleep(delay);
+    if (delayMs > 0) await sleep(delayMs);
   }
+}
+
+// defekte dateien → skip+warning (INV-2), netzausfall → tier "unknown" (INV-3).
+export async function scanLibrary(ports: Ports, opts: ScanOptions): Promise<ScanResult> {
+  const { fs, system } = ports;
+  const { steamRoot } = opts;
+
+  const {
+    libraries,
+    warnings: libraryWarnings,
+    skippedLibraries: librarySkips,
+  } = await readLibraryList(fs, system, steamRoot);
+  const {
+    mapping,
+    mappingUsable,
+    warnings: mappingWarnings,
+  } = await readCompatMapping(fs, steamRoot);
+  const {
+    steamUserId,
+    localConfigText,
+    warnings: launchWarnings,
+  } = await readLaunchConfig(fs, steamRoot);
+  const compatFor = (appId: number): string =>
+    !mappingUsable ? "unknown" : (mapping.get(appId) ?? "default");
+  const {
+    games,
+    blockedAppIds,
+    warnings: gamesWarnings,
+    skippedLibraries: gamesSkips,
+  } = await scanGames(fs, system, steamRoot, libraries, compatFor, localConfigText);
+  const {
+    compatToolsInstalled,
+    builtinProtonsInstalled,
+    defaultCompatTool,
+    warnings: toolsWarnings,
+  } = await readCompatTools(
+    fs,
+    system,
+    steamRoot,
+    mapping,
+    blockedAppIds,
+    games,
+    opts.extraCompatDirs,
+  );
+  await enrichProtondb(ports, games, opts.protonDbDelayMs ?? 150);
 
   return {
     steamRoot,
@@ -203,7 +303,13 @@ export async function scanLibrary(ports: Ports, opts: ScanOptions): Promise<Scan
     builtinProtonsInstalled,
     defaultCompatTool,
     steamUserId,
-    warnings,
-    skippedLibraries,
+    warnings: [
+      ...libraryWarnings,
+      ...mappingWarnings,
+      ...launchWarnings,
+      ...gamesWarnings,
+      ...toolsWarnings,
+    ],
+    skippedLibraries: [...librarySkips, ...gamesSkips],
   };
 }

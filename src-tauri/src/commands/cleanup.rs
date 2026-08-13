@@ -9,10 +9,10 @@ use tauri::AppHandle;
 use tauri_plugin_fs::FsExt;
 
 use crate::commands::path::{
-    canonicalize_no_symlink, canonicalize_safe, is_safe_path, sanitize_path,
+    canonicalize_no_symlink, is_safe_path, sanitize_path,
 };
 use crate::commands::scope::{
-    allow_library_scope_inner, library_of, parse_compat_id, suffix_after_steamapps,
+    library_of, parse_compat_id, suffix_after_steamapps, validate_library_scope,
 };
 use crate::commands::spawn_blocking_io;
 
@@ -188,8 +188,14 @@ pub(crate) struct TrashListing {
     pub entries: Vec<TrashDirEntry>,
 }
 
-pub(super) fn list_trash_entries_inner(library: &str) -> Result<TrashListing, String> {
-    let real = canonicalize_safe(library, "list_trash_entries")?;
+pub(super) fn list_trash_entries_inner(
+    library: &str,
+    scope_ok: &dyn Fn(&Path) -> bool,
+) -> Result<TrashListing, String> {
+    let real = validate_library_scope(library)?;
+    if !scope_ok(&real) {
+        return Err("library outside allowed scope".into());
+    }
 
     let trash_dir = real.join("steamapps").join(TRASH_DIR_NAME);
     let dir = trash_dir.to_string_lossy().into_owned();
@@ -240,7 +246,9 @@ pub async fn remove_orphan_dir(app: AppHandle, path: String) -> Result<String, S
         if !app.fs_scope().is_allowed(&library) {
             return Err("library outside allowed scope".into());
         }
-        allow_library_scope_inner(app, &library)?;
+        // gleiche validierung + grant-muster wie allow_library_scope (scope.rs:86-88)
+        let real = validate_library_scope(&library.to_string_lossy())?;
+        let _ = app.fs_scope().allow_directory(real.to_string_lossy().as_ref(), true);
         let result = remove_orphan_dir_inner(&canonical, &library, &|p| app2.fs_scope().is_allowed(p));
         match &result {
             Ok(msg) => eprintln!("protium: remove_orphan_dir: {path} → {msg}"),
@@ -277,19 +285,40 @@ pub async fn remove_trash_entry(app: tauri::AppHandle, path: String) -> Result<S
 /// führendem punkt wird davon nicht zuverlässig erfasst, und das lesen des
 /// papierkorbs schlug in externen libraries still fehl, die app zeigte einen
 /// leeren papierkorb, obwohl vier prefixes darin lagen. rust hat keinen
-/// webview-scope; dieselbe begründung wie bei dir_size und remove_trash_entry.
+/// webview-scope; das library-root muss trotzdem zuvor freigegeben worden sein.
 /// async + spawn_blocking (verzeichnis-read auf dem main-thread vermeiden).
 #[tauri::command]
-pub async fn list_trash_entries(library: String) -> Result<TrashListing, String> {
-    spawn_blocking_io(move || list_trash_entries_inner(&library)).await
+pub async fn list_trash_entries(
+    app: tauri::AppHandle,
+    library: String,
+) -> Result<TrashListing, String> {
+    let app2 = app.clone();
+    spawn_blocking_io(move || {
+        list_trash_entries_inner(&library, &|p| app2.fs_scope().is_allowed(p))
+    })
+    .await
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{remove_orphan_dir_inner, validate_and_prepare};
+    use super::{list_trash_entries_inner, remove_orphan_dir_inner, validate_and_prepare};
     use crate::commands::scope::library_of;
     use crate::commands::test_util::{orphan_fixture, touch, trash_fixture};
     use std::os::unix::fs as unixfs;
+
+    #[test]
+    fn trash_list_unscoped_library_abgelehnt() {
+        let root = trash_fixture("list-unscoped");
+        let library = root.join("library");
+        std::fs::create_dir_all(library.join("steamapps/.protium-trash")).unwrap();
+
+        match list_trash_entries_inner(library.to_str().unwrap(), &|_| false) {
+            Err(error) => assert_eq!(error, "library outside allowed scope"),
+            Ok(_) => panic!("unscoped library must be rejected"),
+        }
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     // ---- remove_orphan_dir (T-H-01) ----
     // gehärtete logik via remove_orphan_dir_inner (extrahiert, AppHandle-frei)

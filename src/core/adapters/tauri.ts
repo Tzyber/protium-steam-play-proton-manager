@@ -66,7 +66,23 @@ const system: System = {
   dirSize: (path) => invoke<number>("dir_size", { path }),
   batchDirSizes: (paths) => invoke<Record<string, number>>("batch_dir_sizes", { paths }),
   allowLibraryScope: (path) => invoke<void>("allow_library_scope", { path }),
-  listTrashEntries: (library) => invoke("list_trash_entries", { library }),
+  listTrashEntries: async (library) => {
+    // rust liefert serde-camelCase (isDir), core kennt nur DirEntry (isDirectory)
+    const r = await invoke<{
+      dir: string;
+      present: boolean;
+      entries: { name: string; isDir: boolean; isSymlink: boolean }[];
+    }>("list_trash_entries", { library });
+    return {
+      dir: r.dir,
+      present: r.present,
+      entries: r.entries.map((e) => ({
+        name: e.name,
+        isDirectory: e.isDir,
+        isSymlink: e.isSymlink,
+      })),
+    };
+  },
   pathIdentity: (path) =>
     invoke<{ realpath: string; dev: string; ino: string }>("path_identity", { path }).catch(
       () => null,

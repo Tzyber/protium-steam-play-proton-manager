@@ -119,7 +119,7 @@ const statusLine = computed(() => {
   <section class="pm">
     <header class="bar">
       <div class="title">
-        <span class="label">{{ t("proton.label") }}</span>
+        <span class="label">{{ t("filter.proton") }}</span>
         <h1>{{ t("proton.versions") }}</h1>
       </div>
       <div class="update">
@@ -180,7 +180,7 @@ const statusLine = computed(() => {
           <div class="rmain">
             <div class="rname">
               {{ r.tag }}
-              <span v-if="installedNames.has(r.tag)" class="tag ok">{{ t("proton.tagInstalled") }}</span>
+              <span v-if="installedNames.has(r.tag)" class="tag ok">{{ t("proton.installed") }}</span>
             </div>
             <div class="rsub mono">{{ formatBytes(r.tarball.size) }}</div>
             <div v-if="proton.jobs[r.tag]" class="progress" role="progressbar" :aria-valuemin="0" :aria-valuemax="100" :aria-valuenow="pct(r.tag) ?? undefined" :aria-label="phaseLabel(r.tag)">
@@ -206,9 +206,9 @@ const statusLine = computed(() => {
             :title="proton.activeTag === r.tag ? t('proton.cancelDownload') : t('proton.cancelQueue')"
             @click="proton.cancel(r.tag)"
           >
-            <span aria-hidden="true">✕</span> {{ t("proton.cancel") }}
+            <span aria-hidden="true">✕</span> {{ t("common.cancel") }}
           </button>
-          <span v-else class="used muted" aria-label="✓">{{ t("proton.tagInstalled") }}</span>
+          <span v-else class="used muted" aria-label="✓">{{ t("proton.installed") }}</span>
         </div>
       </li>
     </ul>
@@ -234,7 +234,6 @@ const statusLine = computed(() => {
 
 <style scoped>
 .pm { padding: 20px 24px; }
-.bar { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 20px; }
 .update { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .statusline {
   font-family: var(--font-body);

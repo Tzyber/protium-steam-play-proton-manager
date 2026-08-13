@@ -1,14 +1,12 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { Tier } from "../../core/types";
+import { TIER_ORDER } from "../filter";
 import { t } from "../i18n";
 import { useLibraryStore } from "../stores/libraryStore";
 import { useScanStore } from "../stores/scanStore";
 
 const scan = useScanStore();
 const lib = useLibraryStore();
-
-const TIER_ORDER: Tier[] = ["platinum", "gold", "silver", "bronze", "borked", "unknown"];
 
 // labels via t(), bei locale-wechsel bleibt die sort-auswahl dieselbe
 // (key-basiert), nur das label ändert sich.

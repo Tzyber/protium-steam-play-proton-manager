@@ -25,7 +25,7 @@ function fakeSystem(impl: (library: string) => Promise<TrashListing>): System {
 const listing = (dir: string, names: string[]): TrashListing => ({
   dir,
   present: true,
-  entries: names.map((name) => ({ name, isDir: true, isSymlink: false })),
+  entries: names.map((name) => ({ name, isDirectory: true, isSymlink: false })),
 });
 
 describe("findTrashEntries", () => {
@@ -124,11 +124,11 @@ describe("findTrashEntries", () => {
       dir: "/lib/steamapps/.protium-trash",
       present: true,
       entries: [
-        { name: "compatdata_9_1000", isDir: true, isSymlink: true },
-        { name: "compatdata_8_1000", isDir: false, isSymlink: false },
-        { name: "irgendwas", isDir: true, isSymlink: false },
-        { name: "compatdata_1091500", isDir: true, isSymlink: false },
-        { name: "compatdata_0_1000", isDir: true, isSymlink: false },
+        { name: "compatdata_9_1000", isDirectory: true, isSymlink: true },
+        { name: "compatdata_8_1000", isDirectory: false, isSymlink: false },
+        { name: "irgendwas", isDirectory: true, isSymlink: false },
+        { name: "compatdata_1091500", isDirectory: true, isSymlink: false },
+        { name: "compatdata_0_1000", isDirectory: true, isSymlink: false },
       ],
     }));
 

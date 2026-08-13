@@ -123,7 +123,7 @@ export async function findTrashEntries(
         continue;
       }
 
-      if (!entry.isDir || entry.isSymlink) {
+      if (!entry.isDirectory || entry.isSymlink) {
         unknown.push(fullPath);
         continue;
       }

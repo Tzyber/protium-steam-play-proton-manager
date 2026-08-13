@@ -12,15 +12,12 @@ export interface LibraryQuery {
   libraries: ReadonlySet<string>; // leer = alle
 }
 
-// best → schlecht; für sortierung nach tier
-const TIER_RANK: Record<Tier, number> = {
-  platinum: 5,
-  gold: 4,
-  silver: 3,
-  bronze: 2,
-  borked: 1,
-  unknown: 0,
-};
+// best → schlecht; kanonische reihenfolge für filter-UI und sortierung
+export const TIER_ORDER: Tier[] = ["platinum", "gold", "silver", "bronze", "borked", "unknown"];
+
+export const TIER_RANK = Object.fromEntries(
+  TIER_ORDER.map((t, i) => [t, TIER_ORDER.length - 1 - i]),
+) as Record<Tier, number>;
 
 /** case-insensitiv: substring ODER subsequence (leichtgewichtiges fuzzy). */
 export function fuzzyMatch(name: string, query: string): boolean {

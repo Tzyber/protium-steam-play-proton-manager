@@ -1,7 +1,7 @@
-import { NUMERIC_RE } from "./cleanup.js";
 import { errText } from "./errtext.js";
 import { paths } from "./paths.js";
 import type { DirEntry, FileSystem } from "./ports.js";
+import { NUMERIC_RE } from "./types.js";
 
 export const SHORTCUT_ID_THRESHOLD = 2_147_483_648; // 2^31
 

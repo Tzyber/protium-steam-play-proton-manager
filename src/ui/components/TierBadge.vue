@@ -30,7 +30,7 @@ const color = computed(() => COLORS[props.tier]);
   gap: 5px;
   font-family: var(--font-body);
   font-size: 0.75rem;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--c);

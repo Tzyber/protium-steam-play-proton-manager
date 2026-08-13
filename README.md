@@ -32,8 +32,8 @@ fertige AppImage von der [releases-seite](https://github.com/Tzyber/protium-stea
 laden, ausführbar machen, starten:
 
 ```sh
-chmod +x protium_0.2.9_amd64.AppImage
-./protium_0.2.9_amd64.AppImage
+chmod +x protium_0.3.0_amd64.AppImage
+./protium_0.3.0_amd64.AppImage
 ```
 
 die AppImage ist nicht signiert. wer das nicht mag, baut selbst (siehe
@@ -43,7 +43,7 @@ startet nichts und es kommt keine fehlermeldung, fehlt meist fuse2. dann
 entweder `sudo pacman -S fuse2` oder einmalig ohne fuse starten:
 
 ```sh
-./protium_0.2.9_amd64.AppImage --appimage-extract-and-run
+./protium_0.3.0_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## was es kann
