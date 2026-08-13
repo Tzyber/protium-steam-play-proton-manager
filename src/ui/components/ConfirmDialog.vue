@@ -42,27 +42,29 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="backdrop" @click.self="emit('cancel')">
-    <div
-      ref="dialogRef"
-      class="dialog"
-      role="dialog"
-      aria-modal="true"
-      :aria-labelledby="titleId"
-      :aria-describedby="contentId"
-      tabindex="-1"
-      @keydown="onKeydown"
-    >
-      <h3 :id="titleId">{{ title }}</h3>
-      <div :id="contentId" class="content"><slot /></div>
-      <div class="actions">
-        <button class="btn ghost" type="button" @click="emit('cancel')">{{ t("common.cancel") }}</button>
-        <button class="btn" :class="{ danger }" type="button" @click="emit('confirm')">
-          {{ confirmLabel ?? t("common.confirm") }}
-        </button>
+  <Teleport to="body">
+    <div class="backdrop" @click.self="emit('cancel')">
+      <div
+        ref="dialogRef"
+        class="dialog"
+        role="dialog"
+        aria-modal="true"
+        :aria-labelledby="titleId"
+        :aria-describedby="contentId"
+        tabindex="-1"
+        @keydown="onKeydown"
+      >
+        <h3 :id="titleId">{{ title }}</h3>
+        <div :id="contentId" class="content"><slot /></div>
+        <div class="actions">
+          <button class="btn ghost" type="button" @click="emit('cancel')">{{ t("common.cancel") }}</button>
+          <button class="btn" :class="{ danger }" type="button" @click="emit('confirm')">
+            {{ confirmLabel ?? t("common.confirm") }}
+          </button>
+        </div>
       </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <style scoped>

@@ -1,3 +1,7 @@
+<script lang="ts">
+let selectBoxCount = 0;
+</script>
+
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 
@@ -15,6 +19,9 @@ const open = ref(false);
 const listRef = ref<HTMLUListElement | null>(null);
 const btnRef = ref<HTMLButtonElement | null>(null);
 const ho = ref(0);
+const instanceId = ++selectBoxCount;
+const triggerId = props.id ?? `select-box-trigger-${instanceId}`;
+const listboxId = `select-box-listbox-${instanceId}`;
 
 const selectedLabel = computed(
   () => props.options.find((o) => o.value === props.modelValue)?.label ?? props.modelValue,
@@ -28,7 +35,9 @@ function select(value: string) {
 }
 
 function onBtnKeydown(e: KeyboardEvent) {
-  if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
+  if (e.key === "Tab") {
+    open.value = false;
+  } else if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
     e.preventDefault();
     open.value = true;
     ho.value = 0;
@@ -48,7 +57,9 @@ function focusItem(i: number) {
 
 function onListKeydown(e: KeyboardEvent) {
   const n = props.options.length;
-  if (e.key === "ArrowDown") {
+  if (e.key === "Tab") {
+    open.value = false;
+  } else if (e.key === "ArrowDown") {
     e.preventDefault();
     ho.value = (ho.value + 1) % n;
     nextTick(() => focusItem(ho.value));
@@ -91,11 +102,12 @@ onBeforeUnmount(() => {
 	<div class="sb">
 		<button
 			ref="btnRef"
-			:id="id"
+			:id="triggerId"
 			type="button"
 			class="sb-btn control mono"
 			:aria-expanded="open"
 			aria-haspopup="listbox"
+			:aria-controls="open ? listboxId : undefined"
 			@click="open = !open"
 			@keydown="onBtnKeydown"
 		>
@@ -105,7 +117,9 @@ onBeforeUnmount(() => {
 		<ul
 			v-if="open"
 			ref="listRef"
+			:id="listboxId"
 			role="listbox"
+			:aria-labelledby="triggerId"
 			class="sb-list mono"
 			@keydown="onListKeydown"
 		>

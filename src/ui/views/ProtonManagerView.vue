@@ -329,7 +329,20 @@ const statusLine = computed(() => {
 
 .hint { color: var(--tier-gold); font-family: var(--font-body); font-size: 0.75rem; margin-bottom: 10px; }
 .hint--warning { color: var(--tier-bronze); display: flex; align-items: center; gap: 8px; } /* bronze statt gold, von fehlermeldung unterscheidbar */
-.hint-close { background: none; border: none; color: inherit; cursor: pointer; font-size: 1rem; line-height: 1; padding: 2px 4px; }
+.hint-close {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0;
+}
 .hint-close:hover { opacity: 0.6; }
 .games { margin: 8px 0 0; padding-left: 18px; color: var(--fg-1); }
 .games li { margin: 2px 0; }

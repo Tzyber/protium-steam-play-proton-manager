@@ -113,22 +113,16 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: "Protium ${{ github.ref_name }}"
           body: |
-            ## 0.3.0, aufgeräumter und robuster
+            ## 0.3.1, besser bedienbar
 
-            Diese Version räumt im Inneren auf, ohne die Anwendung größer
-            oder komplizierter zu machen. Der Bibliotheks-Scan ist nun besser
-            gegliedert. Wiederholte Logik für Cover, Auswahl und Größen wurde
-            zusammengeführt, und einige Texte und Details der Oberfläche
-            wurden vereinheitlicht.
+            Diese Version verbessert die Bedienung mit Tastatur und Screenreader.
 
-            Bei Spielen ohne ProtonDB-Ergebnis lädt der Link jetzt passend zum
-            Nachsehen auf ProtonDB ein. Außerdem wurde das Backend weiter
-            abgesichert: Der Papierkorb wird nur für bestätigte Steam-Libraries
-            gelesen, es kann nur ein Download gleichzeitig laufen und sehr
-            große Größenabfragen werden begrenzt.
+            Dialoge isolieren den Hintergrund jetzt vollständig. Die Proton-Auswahl
+            schließt beim Navigieren mit Tab sauber. Kleine Schließen- und
+            Hinweisaktionen sind besser erreichbar.
 
-            Geprüft mit 271 Vitest-Tests, 114 Rust-Tests, Typecheck, Linter
-            und Produktions-Build.
+            Außerdem bleibt die Statuskarte in der Seitenleiste bei allen
+            Fenstergrößen sichtbar.
           draft: true
           prerelease: false
           files: |

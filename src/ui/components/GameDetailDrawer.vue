@@ -210,8 +210,9 @@ watch(errorMessage, (msg) => {
 </script>
 
 <template>
-  <transition name="drawer">
-    <div v-if="game" class="wrap">
+  <Teleport to="body">
+    <transition name="drawer">
+      <div v-if="game" class="wrap">
       <div class="scrim" @click="ui.closeGame()" />
       <aside
         ref="drawerRef"
@@ -305,8 +306,9 @@ watch(errorMessage, (msg) => {
           </div>
         </transition>
       </aside>
-    </div>
-  </transition>
+      </div>
+    </transition>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -326,10 +328,11 @@ watch(errorMessage, (msg) => {
 }
 
 .close {
-  position: absolute; top: 14px; right: 16px;
+  position: absolute; top: 8px; right: 8px;
+  width: 44px; height: 44px;
   background: none; border: none; color: var(--fg-2);
   font-size: 0.9375rem; cursor: pointer; z-index: 2;
-  min-width: 24px; min-height: 24px; display: grid; place-items: center;
+  padding: 0; display: grid; place-items: center;
 }
 .close:hover { color: var(--fg-0); }
 
@@ -423,9 +426,10 @@ watch(errorMessage, (msg) => {
 .toast-icon { color: var(--tier-borked); font-size: 0.875rem; flex-shrink: 0; margin-top: 1px; }
 .toast-msg { flex: 1; color: var(--fg-0); font-size: 0.84375rem; line-height: 1.5; }
 .toast-close {
-  flex-shrink: 0; background: none; border: none; color: var(--fg-2);
+  flex-shrink: 0; width: 32px; height: 32px;
+  background: none; border: none; color: var(--fg-2);
   font-size: 0.75rem; cursor: pointer; padding: 0; line-height: 1;
-  min-width: 24px; min-height: 24px; display: grid; place-items: center;
+  display: grid; place-items: center;
 }
 .toast-close:hover { color: var(--fg-0); }
 .toast-enter-active, .toast-leave-active { transition: opacity 0.2s, transform 0.2s; }

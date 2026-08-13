@@ -61,9 +61,10 @@ async function copyError() {
 </script>
 
 <template>
-  <a class="skip-link" href="#main-content">{{ t("app.skipToContent") }}</a>
-  <div class="shell">
-    <aside class="sidebar" :inert="ui.inertMain || undefined">
+  <div class="app-background" :inert="ui.inertMain || undefined">
+    <a class="skip-link" href="#main-content">{{ t("app.skipToContent") }}</a>
+    <div class="shell">
+      <aside class="sidebar">
       <div class="brand">
         <div class="logo"><ProtiumLogo :size="28"/></div>
         <div>
@@ -92,9 +93,9 @@ async function copyError() {
         <div class="row"><span class="label">{{ t("app.tools") }}</span><span class="mono val">{{ scan.compatTools.length || "-" }}</span></div>
         <div class="row" v-if="scan.elapsedMs"><span class="label">{{ t("app.scan") }}</span><span class="mono val">{{ scan.elapsedMs }} ms</span></div>
       </div>
-    </aside>
+      </aside>
 
-    <main id="main-content" class="content">
+      <main id="main-content" class="content">
       <transition name="toast" mode="out-in">
         <div v-if="ui.notification" :key="ui.notification.message" class="note toast" role="alert">
           <span class="note-icon" aria-hidden="true">⚠</span>
@@ -106,7 +107,8 @@ async function copyError() {
       <LibraryView v-if="ui.activeView === 'library'" />
       <ProtonManagerView v-else-if="ui.activeView === 'proton'" />
       <CleanupView v-else-if="ui.activeView === 'cleanup'" />
-    </main>
+      </main>
+    </div>
   </div>
 </template>
 
@@ -129,6 +131,7 @@ async function copyError() {
   top: 8px;
 }
 
+.app-background { height: 100%; }
 .shell { display: grid; grid-template-columns: 216px 1fr; grid-template-rows: minmax(0, 1fr); height: 100%; }
 
 .sidebar {
@@ -214,14 +217,19 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .note-msg { flex: 1; color: var(--fg-0); font-size: 0.84375rem; line-height: 1.5; word-break: break-word; }
 .note-copy, .note-close {
   flex-shrink: 0;
+  width: 32px;
+  height: 32px;
   background: none;
   border: none;
   cursor: pointer;
   font-size: 0.875rem;
-  padding: 2px 4px;
+  padding: 0;
   color: var(--fg-2);
   border-radius: 4px;
   font-family: var(--font-body);
+  display: grid;
+  place-items: center;
+  line-height: 1;
 }
 .note-copy:hover, .note-close:hover { color: var(--fg-0); background: color-mix(in srgb, var(--fg-1) 10%, transparent); }
 
