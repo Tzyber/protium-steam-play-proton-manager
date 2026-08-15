@@ -7,7 +7,6 @@ src-tauri/gen/
 .idea/Protium.iml
 .idea/modules.xml
 .opencode/phase4-step5.md
-AGENTS.md
 phase5-plan.md
 befunde
 TODO.md
@@ -25,17 +24,16 @@ SECURITY_FINDINGS_E.json
 SECURITY_FINDINGS_F.json
 SECURITY_PLAN_REVIEW.md
 SECURITY_PLAN.md
-CLAUDE.md
 REFACTORING_BATCH_REPORT.md
 REFACTORING_REPORT.md
 .idea
 docs/SMOKE.md
-.claude/worktrees/politur-1-2/
+.claude/
 docs/superpowers/plans/2026-07-30-politur-1-2-plan.md
 docs/superpowers/specs/2026-07-30-politur-1-2-design.md
 BEFUNDE_2026-07-29.md
 tagesbericht-2026-07-31.md
-*.md
+docs/notizen/
 .cursor/rules/caveman.mdc
 
 # sandbox-artefakte: /dev/null-char-devices, die der bash-sandbox-lauf im
@@ -54,3 +52,25 @@ tagesbericht-2026-07-31.md
 # stryker-mutationstesting: artefakte (html-report, temp-verzeichnis)
 reports/
 .stryker-tmp/
+.obsidian/workspace.json
+.obsidian/graph.json
+.obsidian/core-plugins.json
+.obsidian/appearance.json
+.obsidian/app.json
+.clinerules/caveman.md
+
+# lokale editor-/agent-konfigurationen und arbeitsartefakte
+.clinerules/
+.windsurf/
+.github/copilot-instructions.md
+CLAUDE.md
+0.3.0-plan.md
+0.3.0-spec.md
+PROTIUM_AUDIT_AND_RECOMMENDATIONS.md
+docs/mutation-report-2026-08-08.md
+docs/wiki-entwurf/
+quickfix-plan.md
+s09-sha512fix-plan.md
+umsetzungsbericht-2026-08-11.md
+HANDOFF.md
+AGENTS.md

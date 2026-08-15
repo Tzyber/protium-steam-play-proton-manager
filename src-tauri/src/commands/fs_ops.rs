@@ -1,12 +1,12 @@
+use crate::commands::path::{canonicalize_safe, is_safe_path, sanitize_path};
+use crate::commands::spawn_blocking_io;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use serde::Serialize;
 use sysinfo::{ProcessRefreshKind, RefreshKind, System};
-use crate::commands::path::{canonicalize_safe, is_safe_path, sanitize_path};
-use crate::commands::spawn_blocking_io;
 
-// ---- R-3/R-3b/R-6: verzeichnisgrößen (dir_size, batch_dir_sizes) + path-identity (dev,ino) ----
+// Verzeichnisgrößen und Pfadidentität über `(dev, ino)`.
 
 const MAX_BATCH_DIR_SIZE_PATHS: usize = 4096;
 
@@ -63,7 +63,7 @@ pub(super) fn batch_dir_sizes_inner(paths: Vec<String>) -> Result<HashMap<String
     Ok(map)
 }
 
-/// R-6: realpath + (dev,ino) zur library-dedup.
+/// Kanonischer Pfad und `(dev, ino)` zur Library-Deduplizierung.
 #[derive(Serialize)]
 pub(crate) struct PathIdentity {
     pub realpath: String,
@@ -71,7 +71,7 @@ pub(crate) struct PathIdentity {
     pub ino: String,
 }
 
-/// R-2: steam-läuft-check (INV-1a). nur "steam" als name erlaubt 
+/// Prüft ausschließlich den Prozessnamen `steam`.
 /// bewusst kein generisches process-enumeration-werkzeug für die webview.
 /// async + spawn_blocking: sync commands laufen bei tauri v2 auf dem main-thread,
 /// und dieser check steht vor JEDEM write-gate.
@@ -99,14 +99,14 @@ pub async fn is_process_running(name: String) -> Result<bool, String> {
     .await
 }
 
-/// R-3 (S-01: validierung nach batch_dir_sizes-vorlage).
+/// Berechnet die Größe eines Verzeichnisses.
 /// async + spawn_blocking: der rekursive walk darf nicht auf dem main-thread laufen.
 #[tauri::command]
 pub async fn dir_size(path: String) -> Result<u64, String> {
     spawn_blocking_io(move || dir_size_inner(&path)).await
 }
 
-/// R-3b: batch-version, sequentiell (IO-bound, kein rayon).
+/// Berechnet Verzeichnisgrößen sequenziell; der Vorgang ist I/O-gebunden.
 /// async + spawn_blocking: walkt GB-große bäume, gehört nicht auf den main-thread.
 #[tauri::command]
 pub async fn batch_dir_sizes(paths: Vec<String>) -> Result<HashMap<String, u64>, String> {
@@ -115,14 +115,14 @@ pub async fn batch_dir_sizes(paths: Vec<String>) -> Result<HashMap<String, u64>,
 
 /// symlink-auflösung (steam-root-discovery). `..` im input abgelehnt,
 /// auflösungen in blockierte dateisysteme verweigert (info-disclosure).
-/// S-07: nutzt is_safe_path() statt eigener blocklist (konsistenz).
+/// Nutzt `is_safe_path()` statt einer eigenen Blocklist.
 #[tauri::command]
 pub fn canonicalize_path(path: String) -> Result<String, String> {
     let canonical = canonicalize_safe(&path, "canonicalize")?;
     Ok(canonical.to_string_lossy().into_owned())
 }
 
-/// R-6: realpath + (dev,ino) zur library-dedup (S-02: validierung).
+/// Liefert kanonischen Pfad und `(dev, ino)` zur Library-Deduplizierung.
 #[tauri::command]
 pub fn path_identity(path: String) -> Result<PathIdentity, String> {
     use std::os::unix::fs::MetadataExt;
@@ -140,7 +140,7 @@ mod tests {
     use super::dir_size_inner;
     use std::os::unix::fs as unixfs;
 
-    // S-01: dir_size lehnt blockierte/system-pfade ab
+    // `dir_size` lehnt blockierte Systempfade ab.
     #[test]
     fn dir_size_rejects_blocked_paths() {
         assert!(dir_size_inner("/etc").is_err());
@@ -161,7 +161,7 @@ mod tests {
         assert!(dir_size_inner("/tmp").is_ok());
     }
 
-    // R-3b: batch_dir_sizes mit einem verschwundenen pfad (NotFound-Race)
+    // Ein währenddessen verschwundener Pfad darf den gesamten Batch
     // darf den ganzen batch NICHT fehlschlagen lassen. ein einzelner
     // not-found wird übersprungen, der rest liefert normal. UI bekommt
     // für den fehlenden eintrag schlicht keinen map-eintrag (frontend
@@ -204,7 +204,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    // R-3b regression: andere canonicalize-fehler (nicht NotFound) und
+    // Andere Canonicalize-Fehler als `NotFound` sowie
     // validierungs-/blocklist-fehler müssen weiterhin propagieren.
     // ohne diese absicherung wäre die partial-failure-änderung eine
     // generische "alle fehler verschlucken"-lücke.
@@ -215,10 +215,8 @@ mod tests {
         // /etc ist geblockt (is_safe_path). auch wenn ein gültiger pfad
         // vorne steht, schlägt der batch fehl sobald /etc drankommt.
         let tmp = std::env::temp_dir();
-        let res = batch_dir_sizes_inner(vec![
-            tmp.to_string_lossy().into_owned(),
-            "/etc".to_string(),
-        ]);
+        let res =
+            batch_dir_sizes_inner(vec![tmp.to_string_lossy().into_owned(), "/etc".to_string()]);
         assert!(res.is_err(), "blockierter pfad muss Err liefern");
         assert!(
             res.as_ref().unwrap_err().contains("blocked path"),
@@ -235,7 +233,7 @@ mod tests {
         assert_eq!(res.unwrap_err(), "too many paths for batch_dir_sizes");
     }
 
-    // T-M-01: dir_size darf symlinks nicht folgen, sonst zählt ein symlink
+    // `dir_size` darf Symlinks nicht folgen, sonst zählt ein Symlink
     // auf ein riesiges verzeichnis dessen gesamten inhalt mit (DoS / falsche anzeige).
     // fixture liegt komplett unter /tmp, kein bezug auf /mnt oder systempfade.
     #[test]
@@ -268,7 +266,7 @@ mod tests {
 
     use super::{canonicalize_path, path_identity};
 
-    // S-02: path_identity lehnt blockierte pfade ab
+    // `path_identity` lehnt blockierte Pfade ab.
     #[test]
     fn path_identity_rejects_blocked_paths() {
         assert!(path_identity("/etc/passwd".into()).is_err());
@@ -287,18 +285,27 @@ mod tests {
         assert!(path_identity(s).is_ok());
     }
 
-    // S-03+S-07: canonicalize_path lehnt /etc ab (nutzt jetzt is_safe_path)
+    // `canonicalize_path` lehnt `/etc` über `is_safe_path` ab.
     #[test]
     fn canonicalize_rejects_etc() {
         assert!(canonicalize_path("/etc".into()).is_err());
         assert!(canonicalize_path("/etc/cron.d".into()).is_err());
     }
 
-    // S-07: cross-check, derselbe pfad-satz den is_safe_path blockt wird abgelehnt
+    // Derselbe Pfadsatz wie in `is_safe_path` wird abgelehnt.
     #[test]
     fn canonicalize_rejects_all_blocked() {
-        for blocked in &["/", "/etc", "/etc/cron.d", "/proc", "/proc/cpuinfo",
-                          "/sys", "/sys/class", "/dev", "/dev/null"] {
+        for blocked in &[
+            "/",
+            "/etc",
+            "/etc/cron.d",
+            "/proc",
+            "/proc/cpuinfo",
+            "/sys",
+            "/sys/class",
+            "/dev",
+            "/dev/null",
+        ] {
             assert!(
                 canonicalize_path(blocked.to_string()).is_err(),
                 "canonicalize_path should reject {blocked}"

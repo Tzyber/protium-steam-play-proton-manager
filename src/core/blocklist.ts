@@ -1,4 +1,4 @@
-// tabelle statt liste (FR-1.4): kanonische quelle für FR-4.2 + phase-4-dropdown
+// Tabelle statt Liste: kanonische Quelle für Filter und Dropdown.
 // (availableBuiltinProtons filtert hier nach `installedAppIds`).
 
 export type BlockCategory =

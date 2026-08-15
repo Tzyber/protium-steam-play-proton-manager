@@ -24,7 +24,7 @@ import type {
 } from "../../src/core/ports.js";
 import { ensureSizeLimit } from "../../src/core/ports.js";
 
-// ---- fixtures als inhalt (fake-steam wächst pro phase, §6) ----
+// ---- Fixture-Inhalte ----
 
 const acf = (appId: number, name: string, flags: number, size: number) => `"AppState"
 {
@@ -231,7 +231,7 @@ export async function buildFakeSteam(): Promise<{
     acf(730, "Counter-Strike 2", 6, 98765432),
   );
 
-  // compatdata/shadercache, für cleanup-tests (phase 5)
+  // Compatdata und Shadercache für Cleanup-Tests.
   await mkdir(join(root, "steamapps/compatdata/570"), { recursive: true });
   await mkdir(join(root, "steamapps/compatdata/999999"), { recursive: true });
   await mkdir(join(root, "steamapps/compatdata/3641016077"), { recursive: true });
@@ -267,7 +267,7 @@ export function nodeFs(): FileSystem {
         return false;
       }
     },
-    // M4.3-spiegel: größen-precheck wie im tauri-adapter (stat → limit → read)
+    // Größenprüfung wie im Tauri-Adapter: stat, Limit, Read.
     async readTextFile(p) {
       const st = await stat(p).catch(() => null);
       if (st) ensureSizeLimit(st.size);
@@ -341,7 +341,7 @@ export function fakeSystem(opts?: { failScope?: Set<string> }): System & { scope
     async cancelDownload() {},
     async extractTarball() {},
     async removeCompatTool() {},
-    // M3.1-spiegel: bildet das rust-write-gate nach (steam-läuft → abbruch,
+    // Bildet das Rust-Write-Gate nach: Steam läuft, Abbruch,
     // fail-closed bei fehlender datei, backup + atomarer temp+rename), damit
     // die integrations-tests gegen disk-zustand weiter funktionieren.
     async writeSteamConfigFile(file, original, content, backup) {

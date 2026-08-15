@@ -1,4 +1,4 @@
-// domänentypen, UI-frei (INV-5). keine vue-/tauri-imports hier.
+// UI-freie Domänentypen ohne Vue- oder Tauri-Imports.
 
 export type Tier = "platinum" | "gold" | "silver" | "bronze" | "borked" | "unknown";
 
@@ -11,7 +11,7 @@ export interface Game {
   protonDb: { tier: Tier; confidence: string } | null;
   localHeader: string | null; // bevorzugt (CDN-unabhängig)
   headerImage: string | null; // CDN-fallback
-  launchOptions?: string; // ab phase 4
+  launchOptions?: string;
 }
 
 export interface CompatTool {
@@ -56,10 +56,10 @@ export interface OrphanEntry {
   potentialShortcut?: boolean;
 }
 
-/** appId-validierungs-heim (M4.1): rein-ziffern-check vor parseSafeAppId. */
+/** Prüft vor `parseSafeAppId`, ob eine App-ID nur Ziffern enthält. */
 export const NUMERIC_RE = /^\d+$/;
 
-/** M4.1 (audit-befund): riesige ziffernfolgen parsen jenseits der
+/** Riesige Ziffernfolgen parsen jenseits der
  *  JS-präzision (NAME_MAX erlaubt 254 ziffern → 1.8e254). solche appIds
  *  sind nie legitim (steam: ≤ 10 stellen) und würden das rust-backend
  *  (u64-parse) beim löschen ratlos lassen. null = kein brauchbarer wert. */

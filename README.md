@@ -203,10 +203,10 @@ versionshistorie steht in den [releases](https://github.com/Tzyber/protium-steam
 
 ## offene punkte
 
-keine sicherheitsprobleme, eher wartung. abarbeitung bei gelegenheit,
-reihenfolge ist keine priorität.
+offene wartungspunkte. sicherheitsgrenzen werden separat und vor Refactors
+geprüft. abarbeitung bei gelegenheit, reihenfolge ist keine priorität.
 
-- `scanLibrary` aufteilen (`scan.ts`, 164 zeilen, 7 concerns), als eigener
+- `scanLibrary` aufteilen (`scan.ts`, 315 zeilen, 7 concerns), als eigener
   zyklus und nicht im vorbeigehen
 
 ## status

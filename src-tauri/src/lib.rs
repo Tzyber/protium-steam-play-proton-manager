@@ -26,9 +26,11 @@ pub fn run() {
                         // vite-dev-server) darf in die webview navigieren. alles
                         // andere, auch file:/data:/mailto:, gehört in den
                         // system-browser (openExternal). die alte blacklist liess
-                        // alle unbekannten schemes durch (S-08).
+                        // alle unbekannten Schemes durch.
                         url.scheme() == "tauri"
-                            || (cfg!(dev) && url.scheme() == "http" && url.host_str() == Some("localhost"))
+                            || (cfg!(dev)
+                                && url.scheme() == "http"
+                                && url.host_str() == Some("localhost"))
                     })
                     .build()?;
             }

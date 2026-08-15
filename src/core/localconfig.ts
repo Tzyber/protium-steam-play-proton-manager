@@ -45,7 +45,7 @@ async function mostRecentUser(fs: FileSystem, steamRoot: string): Promise<string
       if (asInt(getPath(users, key, "MostRecent")) === 1) return accountIdOf(key);
     }
   } catch {
-    // INV-2: defekt → caller nutzt fallback
+    // Defekte Daten lassen den Aufrufer auf den Fallback zurückfallen.
   }
   return null;
 }
@@ -68,7 +68,7 @@ export async function findActiveUser(
       if (await fs.exists(paths.localConfigVdf(steamRoot, e.name))) candidates.push(e.name);
     }
   } catch {
-    return null; // INV-2: userdata nicht lesbar → startoptionen bleiben unbekannt
+    return null; // Nicht lesbare Benutzerdaten lassen die Startoptionen unbekannt.
   }
   // numerisch sortieren: lexikographisch läge "10" vor "2".
   const first = candidates.sort((a, b) => Number(a) - Number(b))[0];

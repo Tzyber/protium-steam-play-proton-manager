@@ -270,7 +270,7 @@ describe("parseBinaryShortcutIds", () => {
       0x00, // key
       0x06,
       0x00, // count: 6 code-units
-      ...utf16leBytes("Hälfte"), // 12 bytes UTF-16LE (nicht-ASCII, spec-test integriert)
+      ...utf16leBytes("Hälfte"), // 12 Bytes UTF-16LE mit Nicht-ASCII-Zeichen
       0x01, // type: string
       ...new TextEncoder().encode("s"),
       0x00, // key
@@ -313,7 +313,7 @@ describe("parseBinaryShortcutIds", () => {
   it("truncated wstring → BinVdfError mit wstring-message", () => {
     // count 5, aber nur 4 units daten, WICHTIG: kein 0x08-terminator
     // danach, sonst füllen die terminator-bytes die fehlenden 2 units auf
-    // und der truncation-check greift nicht (gefunden im plan-review)
+    // und der Truncation-Check greift nicht.
     const parts = new Uint8Array([
       0x00,
       ...new TextEncoder().encode("shortcuts"),
@@ -423,7 +423,7 @@ describe("readAllShortcutAppIds", () => {
   it("über-limit große shortcuts.vdf → status unreadable statt oom (M4.3)", async () => {
     // 16-MiB-cap: eine 17-MB-shortcuts.vdf darf nicht in den speicher geladen
     // werden, der größen-precheck wirft, die stelle degradiert auf unreadable
-    // (INV-2, gleicher pfad wie korrupte dateien).
+    // und folgt damit dem Umgang mit korrupten Dateien.
     const { root, userId } = await buildFakeSteam();
     const scPath = join(root, "userdata", userId, "config", "shortcuts.vdf");
     await writeFile(scPath, Buffer.alloc(17 * 1024 * 1024, 0));

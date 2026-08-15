@@ -7,7 +7,7 @@ import { asNode, asString, getPath, parseVdf } from "./vdf.js";
 /** appId → compat-tool-name (interner name, wie in config.vdf). */
 export type CompatToolMapping = Map<number, string>;
 
-// fehlender teilbaum → leere map; ungültiges vdf wirft (scan fängt ab, FR-1.5).
+// Ein fehlender Teilbaum ergibt eine leere Map; ungültiges VDF wirft.
 export function parseCompatToolMapping(configVdfText: string): CompatToolMapping {
   const root = parseVdf(configVdfText);
   const mappingNode = asNode(
@@ -88,7 +88,7 @@ export async function listCompatTools(
     const source: "user" | "system" = dir === userDir ? "user" : "system";
     if (source === "system") {
       try {
-        await system.allowLibraryScope(dir); // R-5; root ist schon im scope
+        await system.allowLibraryScope(dir); // Der Steam-Root ist bereits im Scope.
       } catch {
         continue;
       }
@@ -111,7 +111,7 @@ export async function listCompatTools(
     for (const entry of entries) {
       if (entry.isSymlink) {
         // ein symlink in compatibilitytools.d kann nach ausserhalb zeigen und
-        // wird deshalb nicht als tool geführt. INV-2: nicht lautlos schlucken,
+        // wird deshalb nicht als Tool geführt und als Warnung gemeldet,
         // sonst verschwindet ein sichtbares verzeichnis ohne erklärung.
         warnings.push(`"${entry.name}" in ${dir} ist ein symlink → übersprungen`);
         continue;

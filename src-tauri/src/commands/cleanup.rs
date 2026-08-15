@@ -8,9 +8,7 @@ use serde::Serialize;
 use tauri::AppHandle;
 use tauri_plugin_fs::FsExt;
 
-use crate::commands::path::{
-    canonicalize_no_symlink, is_safe_path, sanitize_path,
-};
+use crate::commands::path::{canonicalize_no_symlink, is_safe_path, sanitize_path};
 use crate::commands::scope::{
     library_of, parse_compat_id, suffix_after_steamapps, validate_library_scope,
 };
@@ -28,10 +26,12 @@ const TRASH_DIR_NAME: &str = ".protium-trash";
 /// inner dann effektiv tot wäre. library wird hier einmal berechnet und
 /// an inner weitergereicht (entfernt das doppelte `rfind` aus inner,
 /// ohne die guard-reihenfolge zu verändern).
-pub(super) fn validate_and_prepare(path_str: &str) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
+pub(super) fn validate_and_prepare(
+    path_str: &str,
+) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
     sanitize_path(path_str, "remove_orphan_dir")?;
     // symlink-guard auf roh-input: ein orphan-eintrag, der selbst ein symlink
-    // ist, ist nie ein legitimer löschkandidat (findOrphans skippt symlinks) 
+    // ist, ist nie ein legitimer löschkandidat (findOrphans skippt symlinks)
     // siehe canonicalize_no_symlink für die begründung der reihenfolge.
     let canonical = canonicalize_no_symlink(path_str)?;
     let binding = canonical.to_string_lossy();
@@ -101,7 +101,10 @@ pub(super) fn remove_orphan_dir_inner(
     }
 }
 
-pub(super) fn remove_trash_entry_inner(path: &str, scope_ok: &dyn Fn(&Path) -> bool) -> Result<String, String> {
+pub(super) fn remove_trash_entry_inner(
+    path: &str,
+    scope_ok: &dyn Fn(&Path) -> bool,
+) -> Result<String, String> {
     sanitize_path(&path, "remove_trash_entry")?;
 
     // canonicalize VOR allen weiteren prüfungen (sonst umgeht .. die
@@ -138,9 +141,7 @@ pub(super) fn remove_trash_entry_inner(path: &str, scope_ok: &dyn Fn(&Path) -> b
         .ok_or_else(|| "invalid suffix structure".to_string())?;
 
     if trash_marker != TRASH_DIR_NAME {
-        return Err(format!(
-            "expected .protium-trash, got: {trash_marker}"
-        ));
+        return Err(format!("expected .protium-trash, got: {trash_marker}"));
     }
 
     if name.contains('/') {
@@ -181,7 +182,7 @@ pub(crate) struct TrashDirEntry {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TrashListing {
     /// kanonischer pfad des papierkorbs, den wir wirklich gelesen haben.
-    /// das frontend baut eintragspfade daraus, statt selbst zu joinen 
+    /// das frontend baut eintragspfade daraus, statt selbst zu joinen
     /// sonst driftet die anzeige bei symlinks vom echten ort ab.
     pub dir: String,
     pub present: bool,
@@ -204,7 +205,11 @@ pub(super) fn list_trash_entries_inner(
     let md = match fs::symlink_metadata(&trash_dir) {
         Ok(md) => md,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(TrashListing { dir, present: false, entries: Vec::new() });
+            return Ok(TrashListing {
+                dir,
+                present: false,
+                entries: Vec::new(),
+            });
         }
         Err(e) => return Err(e.to_string()),
     };
@@ -226,7 +231,11 @@ pub(super) fn list_trash_entries_inner(
         });
     }
 
-    Ok(TrashListing { dir, present: true, entries })
+    Ok(TrashListing {
+        dir,
+        present: true,
+        entries,
+    })
 }
 
 /// löscht ein verwaistes compatdata- oder shadercache-verzeichnis.
@@ -248,8 +257,11 @@ pub async fn remove_orphan_dir(app: AppHandle, path: String) -> Result<String, S
         }
         // gleiche validierung + grant-muster wie allow_library_scope (scope.rs:86-88)
         let real = validate_library_scope(&library.to_string_lossy())?;
-        let _ = app.fs_scope().allow_directory(real.to_string_lossy().as_ref(), true);
-        let result = remove_orphan_dir_inner(&canonical, &library, &|p| app2.fs_scope().is_allowed(p));
+        let _ = app
+            .fs_scope()
+            .allow_directory(real.to_string_lossy().as_ref(), true);
+        let result =
+            remove_orphan_dir_inner(&canonical, &library, &|p| app2.fs_scope().is_allowed(p));
         match &result {
             Ok(msg) => eprintln!("protium: remove_orphan_dir: {path} → {msg}"),
             Err(e) => eprintln!("protium: remove_orphan_dir: {path} → FAIL: {e}"),
@@ -320,7 +332,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    // ---- remove_orphan_dir (T-H-01) ----
+    // ---- `remove_orphan_dir` ----
     // gehärtete logik via remove_orphan_dir_inner (extrahiert, AppHandle-frei)
     // + validate_and_prepare (wrapper-kette, AppHandle-frei).
     // tests nutzen temp-fixtures unter /tmp; keine berührung von /mnt o. ä.
@@ -615,7 +627,10 @@ mod tests {
         assert!(res.is_err(), "symlink muss abgelehnt werden");
         assert!(res.as_ref().unwrap_err().contains("symlink"));
         assert!(link.exists(), "symlink selbst darf nicht angetastet werden");
-        assert!(target.join("42").exists(), "ziel darf nicht angetastet werden");
+        assert!(
+            target.join("42").exists(),
+            "ziel darf nicht angetastet werden"
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -628,7 +643,10 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
 
         let res = remove_trash_entry_inner(&dir.to_string_lossy(), &|_| true);
-        assert!(res.is_err(), "pfad nicht in .protium-trash muss abgelehnt werden");
+        assert!(
+            res.is_err(),
+            "pfad nicht in .protium-trash muss abgelehnt werden"
+        );
         assert!(res.as_ref().unwrap_err().contains(".protium-trash"));
         assert!(dir.exists());
 
@@ -691,7 +709,10 @@ mod tests {
         std::fs::create_dir_all(&entry).unwrap();
 
         let res = remove_trash_entry_inner(&entry.to_string_lossy(), &|_| true);
-        assert!(res.is_ok(), "rfind muss das letzte /steamapps/ nehmen: {res:?}");
+        assert!(
+            res.is_ok(),
+            "rfind muss das letzte /steamapps/ nehmen: {res:?}"
+        );
         assert!(!entry.exists(), "eintrag muss gelöscht sein");
 
         let _ = std::fs::remove_dir_all(&root);
@@ -708,7 +729,10 @@ mod tests {
 
         let canonical = std::fs::canonicalize(&target).unwrap();
         let res = remove_orphan_dir_inner(&canonical, &lib, &|_| false);
-        assert!(res.is_err(), "unscoped library muss abgelehnt werden: {res:?}");
+        assert!(
+            res.is_err(),
+            "unscoped library muss abgelehnt werden: {res:?}"
+        );
         assert!(
             res.unwrap_err().contains("outside allowed scope"),
             "fehlermeldung soll scope nennen"
@@ -729,7 +753,10 @@ mod tests {
         touch(&entry);
 
         let res = remove_trash_entry_inner(&entry.to_string_lossy(), &|_| false);
-        assert!(res.is_err(), "unscoped library muss abgelehnt werden: {res:?}");
+        assert!(
+            res.is_err(),
+            "unscoped library muss abgelehnt werden: {res:?}"
+        );
         assert!(
             res.unwrap_err().contains("outside allowed scope"),
             "fehlermeldung soll scope nennen"

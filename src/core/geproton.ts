@@ -4,7 +4,7 @@ import type { Cache, FileSystem, Http, System } from "./ports.js";
 const RELEASES_URL =
   "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases?per_page=15";
 const CACHE_KEY = "gh:ge-releases";
-const TTL_MS = 60 * 60 * 1000; // 1h (FR-3.1)
+const TTL_MS = 60 * 60 * 1000; // Eine Stunde.
 const MAX_NOTES = 280;
 
 interface GeAsset {
@@ -86,7 +86,7 @@ function parseReleases(json: string): GeRelease[] {
   return out;
 }
 
-// 1h-cache + etag-conditional-request; 403/offline → letzter stand oder [] (INV-3), nie throw.
+// Eine Stunde Cache mit ETag; bei 403 oder Offline bleibt der letzte Stand oder `[]`.
 export async function fetchReleases(
   http: Http,
   cache: Cache,
@@ -97,7 +97,7 @@ export async function fetchReleases(
   try {
     const raw = await cache.get(CACHE_KEY);
     if (raw) cached = JSON.parse(raw) as CacheEntry;
-    // M4.2: cache-schema-validierung, ein vergifteter/fehlerhafter cache
+    // Ein ungültiger oder fehlerhafter Cache
     // (releases: null/objekt) wird wie ein miss behandelt statt durchgereicht
     if (cached && !Array.isArray(cached.releases)) cached = null;
   } catch {
@@ -178,7 +178,7 @@ interface InstallOpts {
   downloadId: string; // korreliert die progress-events
   onPhase?: (phase: InstallPhase) => void;
   /** hash-asset vorhanden, aber nicht lesbar, installation läuft ohne verifikation.
-   *  kein text-parameter: core hat kein i18n (INV-5), es gibt genau einen meldegrund. */
+   *  Kein Text-Parameter: Der Core enthält keine Übersetzungen und es gibt nur einen Grund. */
   onWarning?: () => void;
   /** abbruch-abfrage für das fenster VOR dem rust-download. cancel_download kann
    *  nur einen laufenden download treffen (die cancel-registry im backend kennt

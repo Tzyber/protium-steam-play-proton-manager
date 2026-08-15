@@ -19,7 +19,7 @@ export async function findOrphans(
       try {
         entries = await fs.readDir(dir);
       } catch {
-        continue; // INV-2: verzeichnis existiert nicht / nicht lesbar → skip
+        continue; // Fehlende oder nicht lesbare Verzeichnisse überspringen.
       }
 
       for (const entry of entries) {

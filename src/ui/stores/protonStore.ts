@@ -142,7 +142,7 @@ export const useProtonStore = defineStore("proton", {
         // 1. cancelRequested → greift VOR der registrierung im backend
         //    (appCacheDir + hash-asset-abruf); ohne das verpufft der klick still
         //    und der download läuft trotzdem komplett durch.
-        // 2. cancelDownload → R-4 pollt die registry, bricht den laufenden
+        // 2. `cancelDownload` bricht den laufenden
         //    download ab und räumt die partielle datei auf.
         // beide wege enden im wurf von installRelease() → pump()-catch entfernt
         // den job.

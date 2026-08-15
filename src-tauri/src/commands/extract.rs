@@ -1,13 +1,13 @@
-use std::fs;
-use std::path::Path;
-use tauri_plugin_fs::FsExt;
 use crate::commands::path::{
     canonicalize_nearest_ancestor, is_safe_path, link_target_stays_inside, random_suffix,
     sanitize_path,
 };
 use crate::commands::spawn_blocking_io;
+use std::fs;
+use std::path::Path;
+use tauri_plugin_fs::FsExt;
 
-// ---- R-1: .tar.gz entpacken (extract_blocking) ----
+// Entpacken von `.tar.gz`-Archiven.
 
 pub(super) fn extract_blocking(
     src: &str,
@@ -33,7 +33,8 @@ pub(super) fn extract_blocking(
     }
 
     let src_path = Path::new(src);
-    let src_canon = fs::canonicalize(src_path).map_err(|e| format!("extract source canonicalize: {e}"))?;
+    let src_canon =
+        fs::canonicalize(src_path).map_err(|e| format!("extract source canonicalize: {e}"))?;
     if !is_safe_path(&src_canon.to_string_lossy()) {
         return Err("extract source in blocked location".into());
     }
@@ -42,7 +43,11 @@ pub(super) fn extract_blocking(
     }
 
     // unpredictable temp name (pid + nanos) → kein race auf statischen pfad
-    let tag = format!(".protium-extract-{}-{}", std::process::id(), random_suffix());
+    let tag = format!(
+        ".protium-extract-{}-{}",
+        std::process::id(),
+        random_suffix()
+    );
     let tmp = dest.join(&tag);
     fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
     // symlink-guard: temp-dir darf selbst kein symlink sein (TOCTOU absicherung)
@@ -102,9 +107,10 @@ pub(super) fn extract_blocking(
                                         target.display()
                                     ));
                                 }
-                                if target.components().any(|c| {
-                                    matches!(c, std::path::Component::ParentDir)
-                                }) {
+                                if target
+                                    .components()
+                                    .any(|c| matches!(c, std::path::Component::ParentDir))
+                                {
                                     return Err(format!(
                                         "hardlink-target enthält ..: {}",
                                         target.display()
@@ -116,9 +122,14 @@ pub(super) fn extract_blocking(
                     tar::EntryType::Symlink => {
                         let path = entry.path().map_err(|e| e.to_string())?.into_owned();
                         if path.is_absolute()
-                            || path.components().any(|c| matches!(c, std::path::Component::ParentDir))
+                            || path
+                                .components()
+                                .any(|c| matches!(c, std::path::Component::ParentDir))
                         {
-                            return Err(format!("symlink-eintragspfad ungültig: {}", path.display()));
+                            return Err(format!(
+                                "symlink-eintragspfad ungültig: {}",
+                                path.display()
+                            ));
                         }
                         let target = entry
                             .link_name()
@@ -149,8 +160,9 @@ pub(super) fn extract_blocking(
         // try_clone teilt den file-offset mit dem original, vor dem zweiten
         // durchlauf explizit zurücksetzen. unpack läuft manuell statt
         // ar.unpack: nur so lässt sich ein größenlimit über die deklarierten
-        // entry-größen summiert durchsetzen (gzip-bomb-schutz, M1.4).
-        f2.seek(std::io::SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+        // Die Summe der Eintragsgrößen begrenzt Gzip-Bomben.
+        f2.seek(std::io::SeekFrom::Start(0))
+            .map_err(|e| e.to_string())?;
         let mut ar = Archive::new(GzDecoder::new(f2));
         let mut total: u64 = 0;
         for entry in ar.entries().map_err(|e| e.to_string())? {
@@ -158,9 +170,7 @@ pub(super) fn extract_blocking(
             let entry_size = entry.header().size().map_err(|e| e.to_string())?;
             total += entry_size;
             if total > max_unpack_bytes {
-                return Err(format!(
-                    "extracted size limit exceeded ({total} bytes)"
-                ));
+                return Err(format!("extracted size limit exceeded ({total} bytes)"));
             }
             entry.unpack_in(&tmp).map_err(|e| e.to_string())?;
         }
@@ -187,8 +197,8 @@ pub(super) fn extract_blocking(
     result
 }
 
-/// R-1: .tar.gz entpacken. temp im ziel-fs (EXDEV-safe), dann rename ins ziel.
-/// dest-allowlist (M1.3): der scope-check läuft VOR create_dir_all und prüft
+/// Entpackt ein `.tar.gz` über eine Temp-Datei im Ziel-Dateisystem und benennt sie um.
+/// Der Scope-Check läuft vor `create_dir_all` und prüft
 /// den nächsten existierenden vorfahren, der einzige legitime dest ist
 /// `compatibilitytools.d` unter einem session-bestätigten steam-root.
 #[tauri::command]
@@ -215,7 +225,7 @@ mod tests {
     use super::extract_blocking;
     use crate::commands::download::MAX_DOWNLOAD_BYTES;
 
-    // ---- extract_tarball (T-H-02) ----
+    // ---- `extract_tarball` ----
     // die produktion entpackt github-release-tarballs (fremde, nicht-vertrauenswürdige
     // artefakte). die hier dokumentierten beschreibungen ("symlinks werden gefiltert",
     // "devices werden gefiltert", "kein path-traversal", "kein halbes ziel bei fehler")
@@ -271,8 +281,12 @@ mod tests {
     #[test]
     fn happy_path_extrahiert_dateien_und_verzeichnisse() {
         let tarball = extract_tarball("happy", |b| {
-            b.append_data(&mut make_data_header("file.txt", b"hello"), "file.txt", &b"hello"[..])
-                .unwrap();
+            b.append_data(
+                &mut make_data_header("file.txt", b"hello"),
+                "file.txt",
+                &b"hello"[..],
+            )
+            .unwrap();
             b.append_data(
                 &mut make_data_header("subdir/nested.txt", b"world"),
                 "subdir/nested.txt",
@@ -282,7 +296,12 @@ mod tests {
         });
         let dest = extract_dest("happy");
 
-        let res = extract_blocking(tarball.to_str().unwrap(), dest.to_str().unwrap(), MAX_DOWNLOAD_BYTES, &|_| true);
+        let res = extract_blocking(
+            tarball.to_str().unwrap(),
+            dest.to_str().unwrap(),
+            MAX_DOWNLOAD_BYTES,
+            &|_| true,
+        );
         assert!(res.is_ok(), "extract sollte klappen: {res:?}");
         assert!(dest.join("file.txt").is_file(), "top-level-datei fehlt");
         assert_eq!(
@@ -327,7 +346,12 @@ mod tests {
         });
         let dest = extract_dest("symlink");
 
-        let res = extract_blocking(tarball.to_str().unwrap(), dest.to_str().unwrap(), MAX_DOWNLOAD_BYTES, &|_| true);
+        let res = extract_blocking(
+            tarball.to_str().unwrap(),
+            dest.to_str().unwrap(),
+            MAX_DOWNLOAD_BYTES,
+            &|_| true,
+        );
         assert!(res.is_err(), "tar mit symlink muss abgelehnt werden");
         assert!(
             std::fs::symlink_metadata(dest.join("evil-link")).is_err(),
@@ -377,7 +401,12 @@ mod tests {
         });
         let dest = extract_dest("symlink-legit");
 
-        let res = extract_blocking(tarball.to_str().unwrap(), dest.to_str().unwrap(), MAX_DOWNLOAD_BYTES, &|_| true);
+        let res = extract_blocking(
+            tarball.to_str().unwrap(),
+            dest.to_str().unwrap(),
+            MAX_DOWNLOAD_BYTES,
+            &|_| true,
+        );
         assert!(res.is_ok(), "legitimer symlink muss durchlaufen: {res:?}");
         assert!(
             dest.join("dir/lib/libfoo.so.1.2.3").is_file(),
@@ -425,8 +454,16 @@ mod tests {
         });
         let dest = extract_dest("symlink-traversal");
 
-        let res = extract_blocking(tarball.to_str().unwrap(), dest.to_str().unwrap(), MAX_DOWNLOAD_BYTES, &|_| true);
-        assert!(res.is_err(), "symlink mit traversal-target muss abgelehnt werden: {res:?}");
+        let res = extract_blocking(
+            tarball.to_str().unwrap(),
+            dest.to_str().unwrap(),
+            MAX_DOWNLOAD_BYTES,
+            &|_| true,
+        );
+        assert!(
+            res.is_err(),
+            "symlink mit traversal-target muss abgelehnt werden: {res:?}"
+        );
         assert!(
             !dest.join("dir").exists(),
             "kein inhalt darf ins ziel bei abbruch"
@@ -489,8 +526,16 @@ mod tests {
         });
         let dest = extract_dest("symlink-parent");
 
-        let res = extract_blocking(tarball.to_str().unwrap(), dest.to_str().unwrap(), MAX_DOWNLOAD_BYTES, &|_| true);
-        assert!(res.is_ok(), "symlink mit legitimem parentdir muss durchlaufen: {res:?}");
+        let res = extract_blocking(
+            tarball.to_str().unwrap(),
+            dest.to_str().unwrap(),
+            MAX_DOWNLOAD_BYTES,
+            &|_| true,
+        );
+        assert!(
+            res.is_ok(),
+            "symlink mit legitimem parentdir muss durchlaufen: {res:?}"
+        );
         let md = std::fs::symlink_metadata(dest.join("dir/a/b/x")).unwrap();
         assert!(
             md.file_type().is_symlink(),
@@ -522,7 +567,12 @@ mod tests {
         });
         let dest = extract_dest("blockdev");
 
-        let res = extract_blocking(tarball.to_str().unwrap(), dest.to_str().unwrap(), MAX_DOWNLOAD_BYTES, &|_| true);
+        let res = extract_blocking(
+            tarball.to_str().unwrap(),
+            dest.to_str().unwrap(),
+            MAX_DOWNLOAD_BYTES,
+            &|_| true,
+        );
         assert!(res.is_err(), "tar mit block-device muss abgelehnt werden");
         assert!(
             std::fs::symlink_metadata(dest.join("blockdev")).is_err(),
@@ -534,7 +584,10 @@ mod tests {
             .filter_map(|e| e.ok())
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
-        assert!(entries.is_empty(), "zieldir muss leer sein, ist: {entries:?}");
+        assert!(
+            entries.is_empty(),
+            "zieldir muss leer sein, ist: {entries:?}"
+        );
 
         extract_cleanup(&tarball, &dest);
     }
@@ -558,7 +611,12 @@ mod tests {
         });
         let dest = extract_dest("fifo");
 
-        let res = extract_blocking(tarball.to_str().unwrap(), dest.to_str().unwrap(), MAX_DOWNLOAD_BYTES, &|_| true);
+        let res = extract_blocking(
+            tarball.to_str().unwrap(),
+            dest.to_str().unwrap(),
+            MAX_DOWNLOAD_BYTES,
+            &|_| true,
+        );
         assert!(res.is_err(), "tar mit fifo muss abgelehnt werden");
         assert!(
             std::fs::symlink_metadata(dest.join("fifo")).is_err(),
@@ -569,7 +627,10 @@ mod tests {
             .filter_map(|e| e.ok())
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
-        assert!(entries.is_empty(), "zieldir muss leer sein, ist: {entries:?}");
+        assert!(
+            entries.is_empty(),
+            "zieldir muss leer sein, ist: {entries:?}"
+        );
 
         extract_cleanup(&tarball, &dest);
     }
@@ -609,7 +670,12 @@ mod tests {
         });
         let dest = extract_dest("traversal");
 
-        let _ = extract_blocking(tarball.to_str().unwrap(), dest.to_str().unwrap(), MAX_DOWNLOAD_BYTES, &|_| true);
+        let _ = extract_blocking(
+            tarball.to_str().unwrap(),
+            dest.to_str().unwrap(),
+            MAX_DOWNLOAD_BYTES,
+            &|_| true,
+        );
 
         assert!(
             !escaped_path.exists(),
@@ -655,7 +721,12 @@ mod tests {
         });
         let dest = extract_dest("hardlink");
 
-        let res = extract_blocking(tarball.to_str().unwrap(), dest.to_str().unwrap(), MAX_DOWNLOAD_BYTES, &|_| true);
+        let res = extract_blocking(
+            tarball.to_str().unwrap(),
+            dest.to_str().unwrap(),
+            MAX_DOWNLOAD_BYTES,
+            &|_| true,
+        );
         assert!(res.is_ok(), "hardlink sollte extrahiert werden: {res:?}");
         assert!(dest.join("original.txt").is_file(), "original.txt fehlt");
         // hardlink landet im ziel als reguläre datei mit gleichem inhalt
@@ -718,7 +789,12 @@ mod tests {
         });
         let dest = extract_dest("subdir-hardlink");
 
-        let res = extract_blocking(tarball.to_str().unwrap(), dest.to_str().unwrap(), MAX_DOWNLOAD_BYTES, &|_| true);
+        let res = extract_blocking(
+            tarball.to_str().unwrap(),
+            dest.to_str().unwrap(),
+            MAX_DOWNLOAD_BYTES,
+            &|_| true,
+        );
         assert!(
             res.is_err(),
             "hardlink mit ..-target muss abgelehnt werden: {res:?}"
@@ -738,7 +814,10 @@ mod tests {
             .filter_map(|e| e.ok())
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
-        assert!(entries.is_empty(), "zieldir muss leer sein, ist: {entries:?}");
+        assert!(
+            entries.is_empty(),
+            "zieldir muss leer sein, ist: {entries:?}"
+        );
 
         extract_cleanup(&tarball, &dest);
     }
@@ -773,11 +852,19 @@ mod tests {
         // gzip-stream in der mitte abschneiden → dekompression schlägt fehl
         let truncated = data[..data.len() / 2].to_vec();
         let mut p = std::env::temp_dir();
-        p.push(format!("protium-extract-src-truncated-{}", std::process::id()));
+        p.push(format!(
+            "protium-extract-src-truncated-{}",
+            std::process::id()
+        ));
         std::fs::write(&p, &truncated).unwrap();
         let dest = extract_dest("truncated");
 
-        let res = extract_blocking(p.to_str().unwrap(), dest.to_str().unwrap(), MAX_DOWNLOAD_BYTES, &|_| true);
+        let res = extract_blocking(
+            p.to_str().unwrap(),
+            dest.to_str().unwrap(),
+            MAX_DOWNLOAD_BYTES,
+            &|_| true,
+        );
         assert!(res.is_err(), "korrupter tarball muss Err liefern: {res:?}");
 
         // KRITISCH: kein halbes verzeichnis im ziel. (das ziel-dir selbst
@@ -805,10 +892,18 @@ mod tests {
 
     #[test]
     fn blockierte_pfade_als_src_werden_abgelehnt() {
-        // S-H-02: src muss canonicalize + is_safe_path durchlaufen,
+        // `src` muss `canonicalize` und `is_safe_path` durchlaufen,
         // nicht nur sanitize_path. /etc als tarball-source ist blockiert.
-        let res = extract_blocking("/etc", "/tmp/protium-extract-blocked-src-test", MAX_DOWNLOAD_BYTES, &|_| true);
-        assert!(res.is_err(), "/etc darf nicht als tarball-source akzeptiert werden: {res:?}");
+        let res = extract_blocking(
+            "/etc",
+            "/tmp/protium-extract-blocked-src-test",
+            MAX_DOWNLOAD_BYTES,
+            &|_| true,
+        );
+        assert!(
+            res.is_err(),
+            "/etc darf nicht als tarball-source akzeptiert werden: {res:?}"
+        );
         assert!(
             res.as_ref().unwrap_err().contains("blocked"),
             "fehlermeldung soll blockiert nennen: {:?}",
@@ -829,7 +924,12 @@ mod tests {
         let dest = extract_dest("limit");
 
         // cap kleiner als die deklarierte größe → abbruch vor dem unpack
-        let res = extract_blocking(tarball.to_str().unwrap(), dest.to_str().unwrap(), 100, &|_| true);
+        let res = extract_blocking(
+            tarball.to_str().unwrap(),
+            dest.to_str().unwrap(),
+            100,
+            &|_| true,
+        );
         assert!(res.is_err(), "limit muss abbrechen: {res:?}");
         assert!(
             res.unwrap_err().contains("limit exceeded"),
@@ -857,7 +957,9 @@ mod tests {
         let mut dest = std::env::temp_dir();
         dest.push(format!("protium-extract-noscope-{}", std::process::id()));
 
-        let res = extract_blocking("/etc", dest.to_str().unwrap(), MAX_DOWNLOAD_BYTES, &|_| false);
+        let res = extract_blocking("/etc", dest.to_str().unwrap(), MAX_DOWNLOAD_BYTES, &|_| {
+            false
+        });
         assert!(res.is_err(), "unscoped dest muss abgelehnt werden: {res:?}");
         assert!(
             res.unwrap_err().contains("outside allowed scope"),
@@ -878,7 +980,9 @@ mod tests {
         dest.push(format!("protium-extract-ancestor-{}", std::process::id()));
         let canon = std::fs::canonicalize(std::env::temp_dir()).unwrap();
 
-        let res = extract_blocking("/etc", dest.to_str().unwrap(), MAX_DOWNLOAD_BYTES, &|p| p == canon);
+        let res = extract_blocking("/etc", dest.to_str().unwrap(), MAX_DOWNLOAD_BYTES, &|p| {
+            p == canon
+        });
         assert!(res.is_err());
         assert!(
             res.unwrap_err().contains("blocked"),

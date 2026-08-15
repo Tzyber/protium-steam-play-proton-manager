@@ -323,7 +323,7 @@ describe("removeVdfEntry", () => {
   });
 });
 
-// drift-wächter (PROTIUM_STATUS phase 4): dokumentiert, dass die lib semantisch
+// Wächter gegen Bibliotheksdrift: Die Bibliothek verarbeitet die Daten semantisch,
 // rundreist, ersetzt NICHT den string-patch (byte-identität/escaping kann sie nicht).
 describe("round-trip-wächter für @node-steam/vdf", () => {
   const canonical = (v: unknown): unknown =>

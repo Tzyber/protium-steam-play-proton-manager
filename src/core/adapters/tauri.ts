@@ -1,5 +1,5 @@
 // ports-implementierung gegen tauri-plugins + rust-commands.
-// EINZIGE datei mit tauri-imports auf der core-seite (INV-5).
+// Einzige Datei mit Tauri-Imports auf der Core-Seite.
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { appCacheDir, homeDir } from "@tauri-apps/api/path";
 import {
@@ -18,9 +18,9 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type { Cache, DirEntry, FileSystem, Http, HttpResponse, Ports, System } from "../ports.js";
 import { ensureSizeLimit } from "../ports.js";
 
-// M4.3: größen-precheck vor jedem read, ein stat-fehler (nicht existent)
+// Größenprüfung vor jedem Read. Ein Stat-Fehler für nicht vorhandene Dateien
 // lässt den read wie bisher laufen (die aufrufer behandeln das); über-limit
-// wirft und der fehler wird wie ein unlesbarer pfad behandelt (INV-2).
+// wirft; der Fehler wird wie ein unlesbarer Pfad behandelt.
 async function withSizeLimit<T>(path: string, read: () => Promise<T>): Promise<T> {
   const st = await fsStat(path).catch(() => null);
   if (st) ensureSizeLimit(st.size);
@@ -127,7 +127,7 @@ const cache: Cache = {
       await ensureCacheDir();
       await writeTextFile(cacheFile(key), value, { baseDir: BaseDirectory.AppCache });
     } catch {
-      // schreibfehler nie fatal (INV-3)
+      // Ein Cache-Schreibfehler darf frische Daten nicht verwerfen.
     }
   },
 };

@@ -1,4 +1,4 @@
-// wrapper um @node-steam/vdf (S-1): lib-wahl isoliert, ein tausch trifft nur diese datei.
+// Wrapper um `@node-steam/vdf`: Ein Austausch der Bibliothek betrifft nur diese Datei.
 import { parse } from "@node-steam/vdf";
 
 export type VdfValue = string | number | VdfNode;

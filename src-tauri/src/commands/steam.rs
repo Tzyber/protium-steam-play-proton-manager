@@ -1,18 +1,23 @@
-// ---- M3.1/M3.4: steam-write-gate (write_steam_file, remove_compat_tool) ----
+// Steam-Write-Gate für Konfigurationsdateien und Compat-Tools.
 
+use std::ffi::{CString, OsStr};
 use std::fs;
+use std::io::{self, Write};
 use std::path::Path;
+
+#[cfg(target_os = "linux")]
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+#[cfg(target_os = "linux")]
+use std::os::unix::ffi::OsStrExt;
 
 use tauri::Manager;
 use tauri_plugin_fs::FsExt;
 
 use crate::commands::fs_ops::is_process_running;
-use crate::commands::path::{
-    ensure_dest_within_canon_dir, is_safe_path, random_suffix, sanitize_path,
-};
+use crate::commands::path::{is_safe_path, random_suffix, sanitize_path};
 use crate::commands::spawn_blocking_io;
 
-/// M3.1: INV-1-write-gate in rust. prüft, ob ein canonicalisierter pfad eine
+/// Prüft, ob ein kanonischer Pfad eine
 /// der legitimen steam-config-dateien ist: drei canonicalisierte root-
 /// varianten (nativ/flatpak/snap, `.steam/steam` und `.steam/root` sind
 /// symlinks und kollabieren per canonicalize auf die native variante) ×
@@ -32,7 +37,11 @@ fn is_steam_config_path(file: &Path, home: &Path) -> bool {
         if let Ok(rel) = file.strip_prefix(root.join("userdata")) {
             let comps: Vec<_> = rel.components().collect();
             if comps.len() == 3
-                && comps[0].as_os_str().to_string_lossy().chars().all(|c| c.is_ascii_digit())
+                && comps[0]
+                    .as_os_str()
+                    .to_string_lossy()
+                    .chars()
+                    .all(|c| c.is_ascii_digit())
                 && comps[1].as_os_str() == "config"
                 && comps[2].as_os_str() == "localconfig.vdf"
             {
@@ -41,6 +50,149 @@ fn is_steam_config_path(file: &Path, home: &Path) -> bool {
         }
     }
     false
+}
+
+#[cfg(target_os = "linux")]
+fn component_name(component: &OsStr) -> io::Result<CString> {
+    CString::new(component.as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path component contains NUL"))
+}
+
+#[cfg(target_os = "linux")]
+fn open_dir_at(parent_fd: RawFd, component: &OsStr) -> io::Result<OwnedFd> {
+    const O_RDONLY: i32 = 0;
+    const O_DIRECTORY: i32 = 0o200000;
+    const O_NOFOLLOW: i32 = 0o400000;
+    const O_CLOEXEC: i32 = 0o2000000;
+    let component = component_name(component)?;
+    let fd = unsafe {
+        openat(
+            parent_fd,
+            component.as_ptr(),
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC,
+            0,
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+#[cfg(target_os = "linux")]
+fn open_or_create_dir_at(parent_fd: RawFd, component: &OsStr) -> io::Result<OwnedFd> {
+    match open_dir_at(parent_fd, component) {
+        Ok(dir) => Ok(dir),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            const MODE_700: u32 = 0o700;
+            let component_name = component_name(component)?;
+            let created = unsafe { mkdirat(parent_fd, component_name.as_ptr(), MODE_700) };
+            if created < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() != io::ErrorKind::AlreadyExists {
+                    return Err(error);
+                }
+            }
+            open_dir_at(parent_fd, component)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn open_or_create_absolute_dir(path: &Path) -> io::Result<OwnedFd> {
+    if !path.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "backup directory must be absolute",
+        ));
+    }
+    let mut current = open_dir_at(-100, OsStr::new("/"))?; // AT_FDCWD
+    for component in path.components() {
+        match component {
+            std::path::Component::RootDir => {}
+            std::path::Component::Normal(component) => {
+                current = open_or_create_dir_at(current.as_raw_fd(), component)?;
+            }
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "backup directory has invalid components",
+                ));
+            }
+        }
+    }
+    Ok(current)
+}
+
+#[cfg(target_os = "linux")]
+fn write_backup_no_follow(
+    relative: &Path,
+    backup_dir: &Path,
+    original: &str,
+) -> Result<(), String> {
+    let components: Vec<_> = relative.components().collect();
+    let final_component = match components.last() {
+        Some(std::path::Component::Normal(component)) => component,
+        _ => return Err("backup write: invalid backup path".into()),
+    };
+    if components[..components.len() - 1]
+        .iter()
+        .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err("backup write: invalid backup path".into());
+    }
+
+    // Der Root wird vom Rohpfad aus komponentenweise geöffnet oder erstellt.
+    // So folgt weder der Cache-Root noch eine spätere Zwischenkomponente einem
+    // Symlink; `openat` bindet alle folgenden Zugriffe an dieses Verzeichnis.
+    let mut parent = open_or_create_absolute_dir(backup_dir)
+        .map_err(|e| format!("backup write: open backup dir: {e}"))?;
+    for component in &components[..components.len() - 1] {
+        let std::path::Component::Normal(component) = component else {
+            unreachable!("validated backup path component");
+        };
+        parent = open_or_create_dir_at(parent.as_raw_fd(), component)
+            .map_err(|e| format!("backup write: open parent directory: {e}"))?;
+    }
+
+    const O_WRONLY: i32 = 1;
+    const O_CREAT: i32 = 0o100;
+    const O_TRUNC: i32 = 0o1000;
+    const O_NOFOLLOW: i32 = 0o400000;
+    const O_CLOEXEC: i32 = 0o2000000;
+    const MODE_600: u32 = 0o600;
+    let final_component =
+        component_name(final_component).map_err(|e| format!("backup write: {e}"))?;
+    let fd = unsafe {
+        openat(
+            parent.as_raw_fd(),
+            final_component.as_ptr(),
+            O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC,
+            MODE_600,
+        )
+    };
+    if fd < 0 {
+        return Err(format!("backup write: {}", io::Error::last_os_error()));
+    }
+    let mut file = unsafe { fs::File::from_raw_fd(fd) };
+    file.write_all(original.as_bytes())
+        .map_err(|e| format!("backup write: {e}"))
+}
+
+#[cfg(target_os = "linux")]
+extern "C" {
+    fn openat(dirfd: RawFd, pathname: *const i8, flags: i32, mode: u32) -> RawFd;
+    fn mkdirat(dirfd: RawFd, pathname: *const i8, mode: u32) -> i32;
+}
+
+#[cfg(not(target_os = "linux"))]
+fn write_backup_no_follow(
+    _relative: &Path,
+    _backup_dir: &Path,
+    _original: &str,
+) -> Result<(), String> {
+    Err("backup write: no-follow open unsupported on this platform".into())
 }
 
 /// testbare kette für den write-gate-command (AppHandle-frei): sanitize →
@@ -71,21 +223,26 @@ pub(super) fn write_steam_file_inner(
 
     // backup ist ein zweites write-ziel, es muss zwingend innerhalb des
     // app-cache liegen (allowlist statt blocklist, muster validate_download_dest).
-    // verhaltens-delta (spec 2026-08-03): der helper erstellt das app-cache-dir
+    // Der Helper erstellt das App-Cache-Verzeichnis
     // VOR der ablehnung, bei abgelehntem backup bleibt ein leerer
-    // verzeichnis-stamm (eigenes verzeichnis, harmlos, INV-konform).
+    // Verzeichnis-Stamm zurück; das Verzeichnis ist eigenständig und harmlos.
     let backup_path = Path::new(backup);
-    ensure_dest_within_canon_dir(backup_path, backup_dir, "backup")?;
+    let backup_relative = backup_path
+        .strip_prefix(backup_dir)
+        .map_err(|_| "backup outside app cache".to_string())?;
 
-    if let Some(parent) = backup_path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    fs::write(backup_path, original).map_err(|e| format!("backup write: {e}"))?;
+    write_backup_no_follow(backup_relative, backup_dir, original)?;
 
     // atomar: temp im ziel-verzeichnis + rename; temp-cleanup bei fehler
     let parent = canon.parent().ok_or_else(|| "no parent dir".to_string())?;
-    let name = canon.file_name().ok_or_else(|| "no file name".to_string())?;
-    let tmp = parent.join(format!(".{}.{}.tmp", name.to_string_lossy(), random_suffix()));
+    let name = canon
+        .file_name()
+        .ok_or_else(|| "no file name".to_string())?;
+    let tmp = parent.join(format!(
+        ".{}.{}.tmp",
+        name.to_string_lossy(),
+        random_suffix()
+    ));
     let write_result = fs::write(&tmp, content).and_then(|()| fs::rename(&tmp, &canon));
     if let Err(e) = write_result {
         let _ = fs::remove_file(&tmp);
@@ -94,29 +251,24 @@ pub(super) fn write_steam_file_inner(
     Ok(())
 }
 
-/// M3.1: schreibt eine steam-config-datei mit vollem INV-1-write-gate in
+/// Schreibt eine Steam-Konfigurationsdatei mit Prozesscheck, Backup und
 /// rust: steam-läuft-check → backup → atomarer temp+rename. ersetzt die
 /// plugin-fs-writes des frontends auf steam-bäumen.
-/// M3.4: entfernt ein GE-tool aus `compatibilitytools.d`. ersetzt den
-/// plugin-fs-remove des frontends (M3.3 nimmt die remove-rechte im steam-baum)
-/// mit scope-check auf den steam-root und tool_name-validierung.
+/// Entfernt ein GE-Tool aus `compatibilitytools.d` mit Scope-Check auf den
+/// Steam-Root und Toolnamen-Validierung.
 pub(super) fn remove_compat_tool_inner(
     steam_root: &str,
     tool_name: &str,
     scope_ok: &dyn Fn(&Path) -> bool,
 ) -> Result<(), String> {
     sanitize_path(steam_root, "steam root")?;
-    if tool_name.is_empty()
-        || tool_name.contains('/')
-        || tool_name == "."
-        || tool_name == ".."
-    {
+    if tool_name.is_empty() || tool_name.contains('/') || tool_name == "." || tool_name == ".." {
         return Err("invalid tool name".into());
     }
     // canonicalize VOR dem scope-check: ein roh-pfad mit symlink-
-    // zwischenkomponenten würde den scope auf den symlink-pfad prüfen,
-    // das löschen liefe aber durch den symlink hindurch (umzugs-befund
-    // 2026-08-11, same muster wie validate_and_prepare/remove_trash_entry).
+    // Zwischenkomponenten würde den Scope auf den Symlink-Pfad prüfen,
+    // das Löschen liefe aber durch den Symlink hindurch. Das gleiche Muster
+    // verwenden `validate_and_prepare` und `remove_trash_entry`.
     let root = fs::canonicalize(steam_root).map_err(|e| format!("steam root canonicalize: {e}"))?;
     if !scope_ok(&root) {
         return Err("steam root outside allowed scope".into());
@@ -162,7 +314,15 @@ pub async fn write_steam_file(
         .map_err(|e| format!("cannot resolve app cache dir: {e}"))?;
     let running = is_process_running("steam".to_string()).await?;
     spawn_blocking_io(move || {
-        write_steam_file_inner(&file, &original, &content, &backup, &backup_dir, &home, running)
+        write_steam_file_inner(
+            &file,
+            &original,
+            &content,
+            &backup,
+            &backup_dir,
+            &home,
+            running,
+        )
     })
     .await
 }
@@ -182,9 +342,9 @@ pub async fn remove_compat_tool(
 
 #[cfg(test)]
 mod tests {
-    // ---- write-gate (M3.1: INV-1 in rust) ----
+    // ---- Write-Gate ----
 
-    use super::{is_steam_config_path, write_steam_file_inner};
+    use super::{is_steam_config_path, write_backup_no_follow, write_steam_file_inner};
     use crate::commands::test_util::wsg_fixture;
 
     // baut $TMP/fakehome/.local/share/Steam/... und $TMP/cache (backup-dir)
@@ -195,7 +355,11 @@ mod tests {
         std::fs::create_dir_all(steam.join("config")).unwrap();
         std::fs::create_dir_all(steam.join("userdata/123/config")).unwrap();
         std::fs::write(steam.join("config/config.vdf"), "alt-config").unwrap();
-        std::fs::write(steam.join("userdata/123/config/localconfig.vdf"), "alt-local").unwrap();
+        std::fs::write(
+            steam.join("userdata/123/config/localconfig.vdf"),
+            "alt-local",
+        )
+        .unwrap();
         let cache = root.join("cache");
         std::fs::create_dir_all(&cache).unwrap();
         (home, cache, steam)
@@ -226,6 +390,8 @@ mod tests {
         let (home, cache, steam) = wsg_env("happy");
         let target = steam.join("config/config.vdf");
         let backup = cache.join("backups/1.vdf");
+        std::fs::create_dir_all(backup.parent().unwrap()).unwrap();
+        std::fs::write(&backup, "alte-sicherung").unwrap();
         let res = write_steam_file_inner(
             target.to_str().unwrap(),
             "alt-config",
@@ -264,10 +430,7 @@ mod tests {
             false,
         );
         assert!(res.is_ok(), "{res:?}");
-        assert_eq!(
-            std::fs::read_to_string(&target).unwrap(),
-            "neu-local"
-        );
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "neu-local");
         let _ = std::fs::remove_dir_all(&home.parent().unwrap());
     }
 
@@ -351,7 +514,100 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home.parent().unwrap());
     }
 
-    // ---- remove_compat_tool (M3.4) ----
+    #[test]
+    fn write_gate_backup_symlink_abgelehnt_ohne_zielveraenderung() {
+        let (home, cache, steam) = wsg_env("backup-symlink");
+        let target = steam.join("config/config.vdf");
+        let external = home.parent().unwrap().join("externes-backup.vdf");
+        std::fs::write(&external, "extern-unveraendert").unwrap();
+        let backup = cache.join("backups/1.vdf");
+        std::fs::create_dir_all(backup.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&external, &backup).unwrap();
+
+        let res = write_steam_file_inner(
+            target.to_str().unwrap(),
+            "alt-config",
+            "neu",
+            backup.to_str().unwrap(),
+            &cache,
+            &home,
+            false,
+        );
+
+        assert!(
+            res.is_err(),
+            "symlink-backup muss abgelehnt werden: {res:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&external).unwrap(),
+            "extern-unveraendert"
+        );
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "alt-config");
+        let _ = std::fs::remove_dir_all(&home.parent().unwrap());
+    }
+
+    #[test]
+    fn write_gate_backup_zwischenpfad_symlink_abgelehnt_ohne_zielveraenderung() {
+        let (home, cache, steam) = wsg_env("backup-intermediate-symlink");
+        let target = steam.join("config/config.vdf");
+        let external_dir = home.parent().unwrap().join("externes-backup-dir");
+        let external_file = external_dir.join("1.vdf");
+        std::fs::create_dir_all(&external_dir).unwrap();
+        std::fs::write(&external_file, "extern-unveraendert").unwrap();
+
+        let backup_parent = cache.join("backups");
+        let backup = backup_parent.join("1.vdf");
+        std::fs::create_dir_all(&backup_parent).unwrap();
+        std::fs::remove_dir(&backup_parent).unwrap();
+        std::os::unix::fs::symlink(&external_dir, &backup_parent).unwrap();
+
+        let relative = backup.strip_prefix(&cache).unwrap();
+        let res = write_backup_no_follow(relative, &cache, "neu");
+
+        assert!(
+            res.is_err(),
+            "zwischenpfad-symlink muss abgelehnt werden: {res:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&external_file).unwrap(),
+            "extern-unveraendert"
+        );
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "alt-config");
+        let _ = std::fs::remove_dir_all(&home.parent().unwrap());
+    }
+
+    #[test]
+    fn write_gate_backup_root_swap_auf_symlink_abgelehnt_ohne_zielveraenderung() {
+        let (home, cache, steam) = wsg_env("backup-root-swap");
+        let target = steam.join("config/config.vdf");
+        let external_dir = home.parent().unwrap().join("externes-backup-root");
+        let external_file = external_dir.join("1.vdf");
+        std::fs::create_dir_all(&external_dir).unwrap();
+        std::fs::write(&external_file, "extern-unveraendert").unwrap();
+
+        let backup_parent = cache.join("backups");
+        let backup = backup_parent.join("1.vdf");
+        std::fs::create_dir_all(&backup_parent).unwrap();
+        std::fs::remove_dir_all(&cache).unwrap();
+        std::os::unix::fs::symlink(&external_dir, &cache).unwrap();
+
+        let relative = backup.strip_prefix(&cache).unwrap();
+        let res = write_backup_no_follow(relative, &cache, "neu");
+
+        assert!(
+            res.is_err(),
+            "geswapte backup-root symlink muss abgelehnt werden: {res:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&external_file).unwrap(),
+            "extern-unveraendert"
+        );
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "alt-config");
+        let _ = std::fs::remove_file(&cache);
+        let _ = std::fs::remove_dir_all(&home.parent().unwrap());
+    }
+
+    // ---- Compat-Tool entfernen ----
 
     use super::remove_compat_tool_inner;
 
@@ -412,18 +668,28 @@ mod tests {
         let link = root.join("link-root");
         std::os::unix::fs::symlink(&real_root, &link).unwrap();
 
-        let res = remove_compat_tool_inner(link.to_str().unwrap(), "GE-Proton9-27", &|p| {
-            p == link
-        });
-        assert!(res.is_err(), "scope nur auf roh-symlink muss abgelehnt werden: {res:?}");
-        assert!(real_root.join("compatibilitytools.d/GE-Proton9-27").is_dir(), "nichts gelöscht");
+        let res = remove_compat_tool_inner(link.to_str().unwrap(), "GE-Proton9-27", &|p| p == link);
+        assert!(
+            res.is_err(),
+            "scope nur auf roh-symlink muss abgelehnt werden: {res:?}"
+        );
+        assert!(
+            real_root
+                .join("compatibilitytools.d/GE-Proton9-27")
+                .is_dir(),
+            "nichts gelöscht"
+        );
 
         // umgekehrter fall: scope auf canonical → geht
-        let res = remove_compat_tool_inner(link.to_str().unwrap(), "GE-Proton9-27", &|p| {
-            p == real_root
-        });
+        let res =
+            remove_compat_tool_inner(link.to_str().unwrap(), "GE-Proton9-27", &|p| p == real_root);
         assert!(res.is_ok(), "canonical root im scope muss gehen: {res:?}");
-        assert!(!real_root.join("compatibilitytools.d/GE-Proton9-27").exists(), "tool gelöscht");
+        assert!(
+            !real_root
+                .join("compatibilitytools.d/GE-Proton9-27")
+                .exists(),
+            "tool gelöscht"
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -431,7 +697,7 @@ mod tests {
     #[test]
     fn remove_tool_symlink_toolsdir_abgelehnt() {
         // compatibilitytools.d selbst als symlink → löschen würde durch den
-        // link hindurch woanders treffen (umzugs-befund 2026-08-11)
+        // Link hindurch ein anderes Ziel treffen.
         let root = wsg_fixture("rmtool-symlink-toolsdir");
         let steam = root.join("steam");
         std::fs::create_dir_all(&steam).unwrap();
@@ -440,7 +706,10 @@ mod tests {
         std::os::unix::fs::symlink(&real, steam.join("compatibilitytools.d")).unwrap();
 
         let res = remove_compat_tool_inner(steam.to_str().unwrap(), "GE-Proton9-27", &|_| true);
-        assert!(res.is_err(), "symlink-toolsdir muss abgelehnt werden: {res:?}");
+        assert!(
+            res.is_err(),
+            "symlink-toolsdir muss abgelehnt werden: {res:?}"
+        );
         assert!(real.join("GE-Proton9-27").is_dir(), "ziel des links bleibt");
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -462,7 +731,8 @@ mod tests {
     fn write_gate_muster_erkennung_flatpak_und_snap() {
         let root = wsg_fixture("muster");
         let home = root.join("fakehome");
-        let flatpak = home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam/config/config.vdf");
+        let flatpak =
+            home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam/config/config.vdf");
         let snap = home.join("snap/steam/common/.local/share/Steam/config/config.vdf");
         assert!(is_steam_config_path(&flatpak, &home));
         assert!(is_steam_config_path(&snap, &home));

@@ -6,7 +6,7 @@ interface ManifestData {
   sizeBytes: number;
 }
 
-// wirft bei kaputtem inhalt/fehlender appid; scan fängt ab → skip+warning (INV-2).
+// Wirft bei defektem Inhalt oder fehlender App-ID; der Scan meldet eine Warnung.
 export function parseManifest(text: string): ManifestData {
   const root = parseVdf(text);
   const app = getKeyInsensitive(root, "AppState");

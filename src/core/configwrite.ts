@@ -1,5 +1,4 @@
-// INV-1 write-gate für steam-dateien. M3.1: die sicherung selbst (steam-läuft-
-// check → backup → atomarer temp+rename) liegt im rust-command
+// Das Rust-Command prüft Steam, sichert den vorherigen Inhalt und ersetzt atomar.
 // `write_steam_file`; diese schicht baut nur den backup-pfad und reicht den
 // gelesenen originalstand (TOCTOU-basis) durch. der steam-check hier bleibt
 // als UX-schicht (SteamRunningError mit übersetzbarer meldung), rust prüft
@@ -17,7 +16,7 @@ export class SteamRunningError extends Error {
 }
 
 /**
- * schreibt `content` nach `path` mit write-gate (INV-1).
+ * Schreibt `content` nach `path` mit dem Write-Gate.
  * der steam-check ist doppelt wichtig: steam schreibt vdf-dateien beim beenden zurück
  * → ein write bei laufendem steam würde still revertiert.
  * `backupText`: der vor dem patch gelesene originalstand, so haben backup und patch

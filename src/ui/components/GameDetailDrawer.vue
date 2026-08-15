@@ -97,7 +97,7 @@ async function openProtonDb() {
   }
 }
 
-// startoptionen (phase 4): "idle" | "saving" | "saved" | fehlermeldung
+// Status für das Speichern von Startoptionen.
 const launchInput = ref("");
 const launchState = ref<"idle" | "saving" | "saved" | string>("idle");
 const launchDirty = computed(() => launchInput.value !== (game.value?.launchOptions ?? ""));
@@ -130,7 +130,7 @@ async function saveLaunch() {
   }
 }
 
-// compat-tool-dropdown (phase 4, schritt 5)
+// Auswahl und Status für Compat-Tools.
 const compatSelected = ref("__default__");
 const compatState = ref<"idle" | "saving" | "saved" | string>("idle");
 

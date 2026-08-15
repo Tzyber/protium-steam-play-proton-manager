@@ -1,7 +1,7 @@
 // chirurgischer VDF-string-patch: ändert nur den ziel-wert, der rest der datei bleibt
 // byte-für-byte erhalten. grund: voll-serialize mit @node-steam/vdf escaped nicht
 // (`"`/`\` zerstören die datei still) und sortiert numerische keys (appIds) um
-// empirisch an echten config.vdf/localconfig.vdf gezeigt (phase 4, s. PROTIUM_STATUS).
+// Vollständiges Serialisieren würde Dateien deshalb still beschädigen.
 
 export class VdfPatchError extends Error {
   constructor(message: string) {

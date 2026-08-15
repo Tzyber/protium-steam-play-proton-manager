@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { SteamRunningError, writeSteamFile } from "../../src/core/configwrite.js";
 import { fakeSystem } from "../support/fakeSteam.js";
 
-// M3.1: das INV-1-write-gate selbst (steam-läuft → backup → atomarer write)
+// Das Write-Gate selbst prüft Steam, erstellt ein Backup und schreibt atomar.
 // liegt in rust (`write_steam_file`, cargo-getestet). diese schicht baut den
 // backup-pfad und reicht den originalstand durch, hier wird der kontrakt
 // getestet, nicht die disk-logik.

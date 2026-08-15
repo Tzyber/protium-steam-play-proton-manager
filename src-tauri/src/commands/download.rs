@@ -17,20 +17,22 @@ use crate::commands::path::{sanitize_path, validate_download_dest};
 /// `validate_redirect_url`, ein github.com-redirect wäre ein offener umweg.
 pub(super) fn validate_download_url(url: &str) -> Result<(), String> {
     let parsed = reqwest::Url::parse(url).map_err(|e| format!("invalid download URL: {e}"))?;
-    if parsed.scheme() != "https" {
-        return Err("only HTTPS URLs allowed for downloads".into());
-    }
-    if !parsed.username().is_empty() || parsed.password().is_some() {
-        return Err("URL must not contain credentials".into());
-    }
-    let host = parsed.host_str().ok_or_else(|| "download URL has no host".to_string())?;
+    validate_secure_url(&parsed)?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "download URL has no host".to_string())?;
     if host.to_ascii_lowercase() != "github.com" {
         return Err(format!("download URL host not allowed: {host}"));
     }
 
     // pfad-pinning: GE hostet seine assets selbst; ein anderer github-pfad ist
     // für protium nie legitim (browser_download_url ist immer diese form)
-    const GE_PREFIX: [&str; 4] = ["GloriousEggroll", "proton-ge-custom", "releases", "download"];
+    const GE_PREFIX: [&str; 4] = [
+        "GloriousEggroll",
+        "proton-ge-custom",
+        "releases",
+        "download",
+    ];
     let mut comps = parsed.path().split('/').filter(|c| !c.is_empty());
     for expected in GE_PREFIX {
         match comps.next() {
@@ -46,18 +48,34 @@ pub(super) fn validate_download_url(url: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// redirect-ziele: nur die zwei asset-CDN-hosts, host-only (redirect-pfade sind
+/// redirect-ziele: nur HTTPS auf den zwei asset-CDN-hosts (redirect-pfade sind
 /// nicht steuerbar). github.com als redirect-ziel ausgeschlossen, sonst wäre
 /// das pfad-pinning über einen redirect umgehbar.
 pub(super) fn validate_redirect_url(url: &str) -> Result<(), String> {
     let parsed = reqwest::Url::parse(url).map_err(|e| format!("invalid redirect URL: {e}"))?;
-    let host = parsed.host_str().ok_or_else(|| "redirect URL has no host".to_string())?;
+    validate_secure_url(&parsed)?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "redirect URL has no host".to_string())?;
     let host = host.to_ascii_lowercase();
     if host == "objects.githubusercontent.com" || host == "release-assets.githubusercontent.com" {
         Ok(())
     } else {
         Err(format!("redirect target host not allowed: {host}"))
     }
+}
+
+fn validate_secure_url(parsed: &reqwest::Url) -> Result<(), String> {
+    if parsed.scheme() != "https" {
+        return Err("only HTTPS URLs allowed".into());
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("URL must not contain credentials".into());
+    }
+    if parsed.port_or_known_default() != Some(443) {
+        return Err("HTTPS URL must use the default port".into());
+    }
+    Ok(())
 }
 
 /// je download-id ein Arc<AtomicBool>. download_file legt ein frisches Arc an
@@ -121,7 +139,7 @@ fn build_client(
         .redirect(policy)
         .connect_timeout(std::time::Duration::from_secs(30))
         // ohne user-agent verweigert githubs edge (fastly) h2-streams
-        // ("refused stream before processing any application logic") 
+        // ("refused stream before processing any application logic")
         // intermittierend, daher die send-fehler nach retries/cancels
         .user_agent(concat!("protium/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -192,7 +210,11 @@ pub(super) async fn download_stream(
             }
         }
         file.flush().await.map_err(|e| e.to_string())?;
-        Ok(hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect::<String>())
+        Ok(hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>())
     }
     .await;
 
@@ -220,7 +242,7 @@ struct DownloadProgress {
     total: Option<u64>,
 }
 
-/// R-4: tauri-wrapper um download_stream, cancel-registry + fortschritt (throttled ~1 MB).
+/// Tauri-Wrapper um `download_stream` mit Abbruch-Registry und gedrosseltem Fortschritt.
 /// validiert URL (domain + https) und dest-pfad vor dem start.
 /// dest-validierung per allowlist: nur ziele innerhalb des app-cache-verzeichnisses.
 #[tauri::command]
@@ -260,7 +282,11 @@ pub async fn download_file(
                 last_emit = downloaded;
                 let _ = app.emit(
                     "download-progress",
-                    DownloadProgress { id: download_id.clone(), downloaded, total },
+                    DownloadProgress {
+                        id: download_id.clone(),
+                        downloaded,
+                        total,
+                    },
                 );
             }
         },
@@ -281,7 +307,7 @@ pub async fn download_file(
     result
 }
 
-/// S-09: sha512-asset über das backend laden, gleiche redirect-policy wie
+/// Lädt das SHA512-Asset über das Backend mit derselben Redirect-Policy wie
 /// download_file. der plugin-http-scope prüft nur die initiale URL, redirects
 /// wären ungeprüft gefolgt worden; hier gilt validate_redirect_url.
 /// timeout + 64-KiB-cap: hash-dateien sind winzig, ein hänger darf den
@@ -289,14 +315,13 @@ pub async fn download_file(
 #[tauri::command]
 pub async fn fetch_sha512(url: String) -> Result<String, String> {
     validate_download_url(&url)?;
-    const MAX_HASH_BYTES: u64 = 64 * 1024;
 
     let fut = async {
         let client = build_client(|u| validate_redirect_url(u).is_ok())?;
         // githubs edge verweigert nach abbruch-serien kurzfristig h2-streams
         // ("refused stream before processing any application logic"), ein
         // einzelner retry mit abstand fängt die kühlphase ab. ohne ihn läuft
-        // die installation still unverifiziert weiter (INV-2-warnung).
+        // die Installation still unverifiziert weiter.
         let mut resp = client.get(&url).send().await.map_err(|e| e.to_string());
         if resp.is_err() {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -306,26 +331,53 @@ pub async fn fetch_sha512(url: String) -> Result<String, String> {
         if !resp.status().is_success() {
             return Err(format!("HTTP {}", resp.status()));
         }
-        if resp.content_length().is_some_and(|len| len > MAX_HASH_BYTES) {
+        if resp
+            .content_length()
+            .is_some_and(|len| len > MAX_HASH_BYTES as u64)
+        {
             return Err("hash asset exceeds size limit".into());
         }
-        let body = resp.bytes().await.map_err(|e| e.to_string())?;
-        if body.len() as u64 > MAX_HASH_BYTES {
-            return Err("hash asset exceeds size limit".into());
-        }
-        String::from_utf8(body.to_vec()).map_err(|e| format!("hash asset is not UTF-8: {e}"))
+        let body = collect_limited_body(resp.bytes_stream(), MAX_HASH_BYTES).await?;
+        String::from_utf8(body).map_err(|e| format!("hash asset is not UTF-8: {e}"))
     };
     tokio::time::timeout(std::time::Duration::from_secs(60), fut)
         .await
         .map_err(|_| "hash fetch timed out".to_string())?
 }
 
+const MAX_HASH_BYTES: usize = 64 * 1024;
+
+async fn collect_limited_body<S, B, E>(stream: S, max_bytes: usize) -> Result<Vec<u8>, String>
+where
+    S: futures_util::Stream<Item = Result<B, E>>,
+    B: AsRef<[u8]>,
+    E: std::fmt::Display,
+{
+    futures_util::pin_mut!(stream);
+    let mut body = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        let chunk = chunk.as_ref();
+        let next_len = body
+            .len()
+            .checked_add(chunk.len())
+            .ok_or_else(|| "hash asset exceeds size limit".to_string())?;
+        if next_len > max_bytes {
+            return Err("hash asset exceeds size limit".into());
+        }
+        body.extend_from_slice(chunk);
+    }
+    Ok(body)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        download_stream, fetch_sha512, register_download, validate_download_id,
-        validate_download_url, validate_redirect_url, CancelRegistry, MAX_DOWNLOAD_BYTES,
+        collect_limited_body, download_stream, fetch_sha512, register_download,
+        validate_download_id, validate_download_url, validate_redirect_url, CancelRegistry,
+        MAX_DOWNLOAD_BYTES, MAX_HASH_BYTES,
     };
+    use futures_util::stream;
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -352,13 +404,16 @@ mod tests {
 
     #[test]
     fn download_url_rejects_http() {
-        assert!(validate_download_url("http://objects.githubusercontent.com/file.tar.gz").is_err());
+        assert!(validate_download_url(
+            "http://github.com/GloriousEggroll/proton-ge-custom/releases/download/1/f.tar.gz"
+        )
+        .is_err());
         assert!(validate_download_url("HTTP://example.com/file").is_err());
     }
 
     #[test]
     fn download_url_rejects_credentials() {
-        assert!(validate_download_url("https://user:pass@objects.githubusercontent.com/f").is_err());
+        assert!(validate_download_url("https://user:pass@github.com/GloriousEggroll/proton-ge-custom/releases/download/1/f.tar.gz").is_err());
         assert!(validate_download_url("https://objects.githubusercontent.com@evil.com/f").is_err());
     }
 
@@ -371,34 +426,77 @@ mod tests {
     #[test]
     fn download_url_allows_ge_release_path() {
         assert!(validate_download_url("https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton9-27/GE-Proton9-27.tar.gz").is_ok());
+        assert!(validate_download_url("https://github.com:443/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton9-27/GE-Proton9-27.tar.gz").is_ok());
         assert!(validate_download_url("https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton9-27/GE-Proton9-27.tar.gz?x=1").is_ok());
+    }
+
+    #[test]
+    fn download_url_rejects_non_default_port() {
+        assert!(validate_download_url(
+            "https://github.com:8443/GloriousEggroll/proton-ge-custom/releases/download/1/f.tar.gz"
+        )
+        .is_err());
     }
 
     #[test]
     fn download_url_pins_ge_repo_path() {
         // cache-poisoning-kette: jede github.com-url wäre sonst ein download-ziel
-        assert!(validate_download_url("https://github.com/attacker/evil/releases/download/1/payload.tar.gz").is_err());
-        assert!(validate_download_url("https://github.com/GloriousEggroll/other/releases/download/1/f.tar.gz").is_err());
-        assert!(validate_download_url("https://github.com/GloriousEggroll/proton-ge-custom/archive/refs/tags/v1.tar.gz").is_err());
+        assert!(validate_download_url(
+            "https://github.com/attacker/evil/releases/download/1/payload.tar.gz"
+        )
+        .is_err());
+        assert!(validate_download_url(
+            "https://github.com/GloriousEggroll/other/releases/download/1/f.tar.gz"
+        )
+        .is_err());
+        assert!(validate_download_url(
+            "https://github.com/GloriousEggroll/proton-ge-custom/archive/refs/tags/v1.tar.gz"
+        )
+        .is_err());
     }
 
     #[test]
     fn download_url_rejects_cdn_hosts_as_initial_url() {
         // CDN-hosts sind nur redirect-ziele, nie initiale URLs
-        assert!(validate_download_url("https://objects.githubusercontent.com/github-production-release-asset-2e/f.tar.gz").is_err());
+        assert!(validate_download_url(
+            "https://objects.githubusercontent.com/github-production-release-asset-2e/f.tar.gz"
+        )
+        .is_err());
         assert!(validate_download_url("https://release-assets.githubusercontent.com/github-production-release-asset-2e/f.tar.gz?jwt=abc").is_err());
     }
 
     #[test]
     fn redirect_url_allows_cdn_hosts() {
-        assert!(validate_redirect_url("https://objects.githubusercontent.com/github-production-release-asset-2e/f.tar.gz").is_ok());
-        assert!(validate_redirect_url("https://release-assets.githubusercontent.com/x?jwt=abc@def").is_ok());
+        assert!(validate_redirect_url(
+            "https://objects.githubusercontent.com/github-production-release-asset-2e/f.tar.gz"
+        )
+        .is_ok());
+        assert!(validate_redirect_url(
+            "https://objects.githubusercontent.com:443/github-production-release-asset-2e/f.tar.gz"
+        )
+        .is_ok());
+        assert!(validate_redirect_url(
+            "https://release-assets.githubusercontent.com/x?jwt=abc@def"
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn redirect_url_rejects_http_credentials_and_non_default_port() {
+        assert!(validate_redirect_url("http://objects.githubusercontent.com/f").is_err());
+        assert!(
+            validate_redirect_url("https://user:pass@objects.githubusercontent.com/f").is_err()
+        );
+        assert!(validate_redirect_url("https://objects.githubusercontent.com:8443/f").is_err());
     }
 
     #[test]
     fn redirect_url_rejects_github_and_others() {
         // github.com als redirect-ziel wäre ein umweg um das pfad-pinning
-        assert!(validate_redirect_url("https://github.com/GloriousEggroll/proton-ge-custom/releases/download/1/f.tar.gz").is_err());
+        assert!(validate_redirect_url(
+            "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/1/f.tar.gz"
+        )
+        .is_err());
         assert!(validate_redirect_url("https://evil.com/f").is_err());
     }
 
@@ -418,8 +516,7 @@ mod tests {
             if let Ok((mut stream, _)) = listener.accept() {
                 let mut buf = [0u8; 1024];
                 let _ = stream.read(&mut buf); // request ignorieren
-                let header =
-                    format!("HTTP/1.1 200 OK\r\nContent-Length: {announce}\r\n\r\n");
+                let header = format!("HTTP/1.1 200 OK\r\nContent-Length: {announce}\r\n\r\n");
                 let _ = stream.write_all(header.as_bytes());
                 let _ = stream.write_all(&vec![0xABu8; send]);
                 // bei send < announce: stream wird hier gedroppt → client sieht EOF zu früh
@@ -440,7 +537,9 @@ mod tests {
     /// nacheinander verbindungen und serviert die antworten in der vorgegebenen
     /// reihenfolge. die URL wird erst beim bind ermittelt und per closure
     /// an die response-kette übergeben (chicken-egg-problem).
-    fn serve_redirect_chain(f: impl FnOnce(String) -> Vec<(u16, Option<String>, Option<Vec<u8>>)>) -> String {
+    fn serve_redirect_chain(
+        f: impl FnOnce(String) -> Vec<(u16, Option<String>, Option<Vec<u8>>)>,
+    ) -> String {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let base = format!("http://{addr}/");
@@ -540,11 +639,19 @@ mod tests {
 
         // erstes Arc registrieren (simuliert download_file-start)
         let flag1 = Arc::new(AtomicBool::new(false));
-        registry.0.lock().unwrap().insert("x".into(), Arc::clone(&flag1));
+        registry
+            .0
+            .lock()
+            .unwrap()
+            .insert("x".into(), Arc::clone(&flag1));
 
         // ptr_eq muss für eigenes Arc zutreffen
         assert!(
-            registry.0.lock().unwrap().get("x")
+            registry
+                .0
+                .lock()
+                .unwrap()
+                .get("x")
                 .map(|r| Arc::ptr_eq(r, &flag1))
                 .unwrap_or(false),
             "eigenes Arc muss per ptr_eq matchen"
@@ -553,7 +660,10 @@ mod tests {
         // cleanup: entfernen weil ptr_eq matched
         {
             let mut map = registry.0.lock().unwrap();
-            let keep = map.get("x").map(|r| Arc::ptr_eq(r, &flag1)).unwrap_or(false);
+            let keep = map
+                .get("x")
+                .map(|r| Arc::ptr_eq(r, &flag1))
+                .unwrap_or(false);
             if keep {
                 map.remove("x");
             }
@@ -562,16 +672,27 @@ mod tests {
 
         // zweiter download: neues Arc (simuliert re-download)
         let flag2 = Arc::new(AtomicBool::new(false));
-        registry.0.lock().unwrap().insert("x".into(), Arc::clone(&flag2));
+        registry
+            .0
+            .lock()
+            .unwrap()
+            .insert("x".into(), Arc::clone(&flag2));
 
         // altes flag1 darf NICHT mit dem neuen eintrag ptr_eq matchen
-        let mismatch = registry.0.lock().unwrap().get("x")
+        let mismatch = registry
+            .0
+            .lock()
+            .unwrap()
+            .get("x")
             .map(|r| !Arc::ptr_eq(r, &flag1))
             .unwrap_or(false);
         assert!(mismatch, "altes Arc darf nicht auf neuen eintrag matchen");
 
         // neues flag muss frisch (false) sein, kein stale cancel
-        assert!(!flag2.load(Ordering::Relaxed), "neues flag darf nicht vorbelastet sein");
+        assert!(
+            !flag2.load(Ordering::Relaxed),
+            "neues flag darf nicht vorbelastet sein"
+        );
     }
 
     #[tokio::test]
@@ -607,7 +728,10 @@ mod tests {
             MAX_DOWNLOAD_BYTES,
         )
         .await;
-        assert!(res2.is_ok(), "zweiter download muss normal starten: {res2:?}");
+        assert!(
+            res2.is_ok(),
+            "zweiter download muss normal starten: {res2:?}"
+        );
         let _ = std::fs::remove_dir_all(dest2.parent().unwrap());
     }
 
@@ -628,12 +752,18 @@ mod tests {
             100, // kleines test-limit
         )
         .await;
-        assert!(res.is_err(), "content-length über limit muss Err liefern: {res:?}");
+        assert!(
+            res.is_err(),
+            "content-length über limit muss Err liefern: {res:?}"
+        );
         assert!(
             res.as_ref().unwrap_err().contains("content-length"),
             "fehler soll content-length nennen: {res:?}"
         );
-        assert!(!dest.exists(), "keine datei bei content-length-überschreitung");
+        assert!(
+            !dest.exists(),
+            "keine datei bei content-length-überschreitung"
+        );
         let _ = std::fs::remove_dir_all(dest.parent().unwrap());
     }
 
@@ -682,7 +812,10 @@ mod tests {
             MAX_DOWNLOAD_BYTES,
         )
         .await;
-        assert!(res.is_ok(), "redirect zu eigenem stub muss durchlaufen: {res:?}");
+        assert!(
+            res.is_ok(),
+            "redirect zu eigenem stub muss durchlaufen: {res:?}"
+        );
         assert_eq!(res.unwrap().len(), 128);
         assert!(dest.exists());
         let _ = std::fs::remove_dir_all(dest.parent().unwrap());
@@ -691,11 +824,8 @@ mod tests {
     #[tokio::test]
     async fn redirect_auf_evil_host_wird_abgelehnt_und_raeumt_auf() {
         let dest = tmp("redirect-evil");
-        let url = serve_redirect_chain(|_| {
-            vec![
-                (302, Some("https://evil.example/x".to_string()), None),
-            ]
-        });
+        let url =
+            serve_redirect_chain(|_| vec![(302, Some("https://evil.example/x".to_string()), None)]);
         let cancel = AtomicBool::new(false);
         let res = download_stream(
             &url,
@@ -706,7 +836,10 @@ mod tests {
             MAX_DOWNLOAD_BYTES,
         )
         .await;
-        assert!(res.is_err(), "redirect zu evil-host muss abgelehnt werden: {res:?}");
+        assert!(
+            res.is_err(),
+            "redirect zu evil-host muss abgelehnt werden: {res:?}"
+        );
         assert!(res.as_ref().unwrap_err().contains("redirect"));
         assert!(!dest.exists(), "partielle datei muss nach abbruch weg sein");
         let _ = std::fs::remove_dir_all(dest.parent().unwrap());
@@ -735,7 +868,10 @@ mod tests {
             MAX_DOWNLOAD_BYTES,
         )
         .await;
-        assert!(res.is_err(), "redirect-schleife muss abgebrochen werden: {res:?}");
+        assert!(
+            res.is_err(),
+            "redirect-schleife muss abgebrochen werden: {res:?}"
+        );
         assert!(
             res.as_ref().unwrap_err().contains("redirect"),
             "fehler soll redirect-bezogen sein: {res:?}"
@@ -746,11 +882,10 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_sha512_rejects_unpinned_github_path() {
-        let err = fetch_sha512(
-            "https://github.com/someone/else/releases/download/x.sha512sum".into(),
-        )
-        .await
-        .unwrap_err();
+        let err =
+            fetch_sha512("https://github.com/someone/else/releases/download/x.sha512sum".into())
+                .await
+                .unwrap_err();
         assert!(err.contains("outside GloriousEggroll"), "err was: {err}");
     }
 
@@ -763,5 +898,41 @@ mod tests {
         .await
         .unwrap_err();
         assert!(err.contains("only HTTPS"), "err was: {err}");
+    }
+
+    #[tokio::test]
+    async fn sha512_stream_accepts_body_at_limit_without_content_length() {
+        let stream = stream::iter([
+            Ok::<Vec<u8>, &'static str>(vec![0xAB; MAX_HASH_BYTES / 2]),
+            Ok(vec![0xCD; MAX_HASH_BYTES / 2]),
+        ]);
+        let body = collect_limited_body(stream, MAX_HASH_BYTES).await.unwrap();
+        assert_eq!(body.len(), MAX_HASH_BYTES);
+        assert_eq!(body[0], 0xAB);
+        assert_eq!(body[MAX_HASH_BYTES - 1], 0xCD);
+    }
+
+    #[tokio::test]
+    async fn sha512_stream_rejects_chunked_body_over_limit() {
+        let stream = stream::iter([
+            Ok::<Vec<u8>, &'static str>(vec![0xAB; MAX_HASH_BYTES]),
+            Ok(vec![0xCD]),
+        ]);
+        let err = collect_limited_body(stream, MAX_HASH_BYTES)
+            .await
+            .unwrap_err();
+        assert_eq!(err, "hash asset exceeds size limit");
+    }
+
+    #[tokio::test]
+    async fn sha512_stream_propagates_stream_errors() {
+        let stream = stream::iter([
+            Ok::<Vec<u8>, &'static str>(b"partial".to_vec()),
+            Err("controlled stream failure"),
+        ]);
+        let err = collect_limited_body(stream, MAX_HASH_BYTES)
+            .await
+            .unwrap_err();
+        assert_eq!(err, "controlled stream failure");
     }
 }

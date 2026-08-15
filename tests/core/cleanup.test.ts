@@ -41,7 +41,7 @@ describe("findOrphans", () => {
     expect(paths.every((p) => !p.includes("not_a_dir"))).toBe(true);
   });
 
-  it("parseInt-overflow (254 ziffern, NAME_MAX) → kein orphan (M4.1)", async () => {
+  it("parseInt-overflow (254 ziffern, NAME_MAX) → kein orphan", async () => {
     const { lib2, fs, installedAppIds } = await setup();
     const huge = "9".repeat(254); // max möglicher verzeichnisname
     await fs.mkdir(`${lib2}/compatdata`);
@@ -59,7 +59,7 @@ describe("findOrphans", () => {
     expect(orphans).toEqual([]);
   });
 
-  it("defekte/nicht lesbare library → skip, kein throw (INV-2)", async () => {
+  it("defekte/nicht lesbare library → skip, kein throw", async () => {
     const { fs, installedAppIds } = await setup();
     const orphans = await findOrphans(["/nicht/existenter/pfad"], installedAppIds, fs);
     expect(orphans).toEqual([]);

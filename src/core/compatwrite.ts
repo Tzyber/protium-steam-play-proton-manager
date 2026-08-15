@@ -1,4 +1,4 @@
-// config.vdf, compat-tool-mapping schreiben/entfernen (phase 4, schritt 5).
+// Schreibt und entfernt Compat-Tool-Mappings in `config.vdf`.
 import { writeSteamFile } from "./configwrite.js";
 import { paths } from "./paths.js";
 import type { FileSystem, System } from "./ports.js";

@@ -1,13 +1,13 @@
 use std::process::{Command, Stdio};
 
-// ---- R-7: externe urls (browser / steam-handler) ----
+// Externe URLs für Browser und Steam-Handler.
 
-/// erlaubte externe ziele, so eng wie die frühere opener-capability (INV-7):
+/// Erlaubte externe Ziele sind auf die von der Anwendung erzeugten Muster begrenzt:
 /// protondb-spielseiten, das protium-repo, und steam://rungameid/<appid>.
 /// die allowlist verhindert nebenbei argument-injection: eine url, die mit
 /// "-" beginnt, kommt hier nie durch (xdg-open läse sie als option).
 ///
-/// pfad-pinning (security-befund 2026-08-11): nur der host zu prüfen ließe
+/// Pfad-Pinning: Nur den Host zu prüfen ließe
 /// jede unterseite des hosts durch (open-redirect/phishing). erlaubt sind
 /// nur die exakten pfadmuster, die die app selbst baut.
 pub(super) fn validate_external_url(url: &str) -> Result<(), String> {
@@ -43,7 +43,10 @@ pub(super) fn validate_external_url(url: &str) -> Result<(), String> {
         Some("github.com") => {
             let path = parsed.path();
             let repo = "/Tzyber/protium-steam-play-proton-manager";
-            let ok = path == repo || path.strip_prefix(repo).is_some_and(|rest| rest.starts_with('/'));
+            let ok = path == repo
+                || path
+                    .strip_prefix(repo)
+                    .is_some_and(|rest| rest.starts_with('/'));
             if ok {
                 Ok(())
             } else {
@@ -72,20 +75,31 @@ const ENV_ALWAYS_DROP: [&str; 2] = ["LD_PRELOAD", "LD_LIBRARY_PATH"];
 ///
 /// pfad-LISTEN werden eintragsweise gefiltert (PATH behält /usr/bin),
 /// einzelwerte komplett entfernt. leere liste → var löschen.
-pub(super) fn env_overrides(vars: &[(String, String)], appdir: &str) -> Vec<(String, Option<String>)> {
-    let mut out: Vec<(String, Option<String>)> =
-        ENV_ALWAYS_DROP.iter().map(|k| ((*k).to_string(), None)).collect();
+pub(super) fn env_overrides(
+    vars: &[(String, String)],
+    appdir: &str,
+) -> Vec<(String, Option<String>)> {
+    let mut out: Vec<(String, Option<String>)> = ENV_ALWAYS_DROP
+        .iter()
+        .map(|k| ((*k).to_string(), None))
+        .collect();
 
     for (key, value) in vars {
         if ENV_ALWAYS_DROP.contains(&key.as_str()) || !value.contains(appdir) {
             continue;
         }
         if value.contains(':') {
-            let kept: Vec<&str> =
-                value.split(':').filter(|e| !e.is_empty() && !e.contains(appdir)).collect();
+            let kept: Vec<&str> = value
+                .split(':')
+                .filter(|e| !e.is_empty() && !e.contains(appdir))
+                .collect();
             out.push((
                 key.clone(),
-                if kept.is_empty() { None } else { Some(kept.join(":")) },
+                if kept.is_empty() {
+                    None
+                } else {
+                    Some(kept.join(":"))
+                },
             ));
         } else {
             out.push((key.clone(), None));
@@ -128,7 +142,7 @@ pub(super) fn spawn_detached(program: &str, args: &[&str], url: &str) -> std::io
     Ok(())
 }
 
-/// R-7: url im system-browser bzw. im steam-handler öffnen.
+/// Öffnet eine URL im System-Browser oder Steam-Handler.
 ///
 /// eigener command statt tauri-plugin-opener, weil dessen spawn die env des
 /// app-prozesses ungefiltert vererbt, im AppImage genau der grund, warum
@@ -151,12 +165,15 @@ pub fn open_external(url: String) -> Result<(), String> {
 mod tests {
     use super::{env_overrides, validate_external_url};
 
-    // ---- R-7: externe urls ----
+    // ---- Externe URLs ----
 
     #[test]
     fn external_url_accepts_protondb_and_steam() {
         assert!(validate_external_url("https://www.protondb.com/app/620").is_ok());
-        assert!(validate_external_url("https://github.com/Tzyber/protium-steam-play-proton-manager").is_ok());
+        assert!(validate_external_url(
+            "https://github.com/Tzyber/protium-steam-play-proton-manager"
+        )
+        .is_ok());
         assert!(validate_external_url("steam://rungameid/570").is_ok());
     }
 
@@ -195,7 +212,10 @@ mod tests {
         assert!(validate_external_url(repo).is_ok());
         assert!(validate_external_url(&format!("{repo}/releases")).is_ok());
         assert!(validate_external_url(&format!("{repo}/issues")).is_ok());
-        assert!(validate_external_url("https://github.com/Tzyber/protium-steam-play-proton-manager-evil").is_err());
+        assert!(validate_external_url(
+            "https://github.com/Tzyber/protium-steam-play-proton-manager-evil"
+        )
+        .is_err());
         assert!(validate_external_url("https://github.com/Tzyber/Protium").is_err());
         assert!(validate_external_url("https://github.com/other/repo").is_err());
         assert!(validate_external_url("https://github.com/").is_err());
@@ -205,9 +225,18 @@ mod tests {
     fn env_overrides_filtert_nur_appdir_eintraege() {
         let appdir = "/tmp/.mount_protiumXY";
         let vars = vec![
-            ("PATH".to_string(), format!("{appdir}/usr/bin:/usr/bin:/bin")),
-            ("XDG_DATA_DIRS".to_string(), format!("{appdir}/usr/share:/usr/share")),
-            ("GSETTINGS_SCHEMA_DIR".to_string(), format!("{appdir}/usr/share/glib-2.0/schemas")),
+            (
+                "PATH".to_string(),
+                format!("{appdir}/usr/bin:/usr/bin:/bin"),
+            ),
+            (
+                "XDG_DATA_DIRS".to_string(),
+                format!("{appdir}/usr/share:/usr/share"),
+            ),
+            (
+                "GSETTINGS_SCHEMA_DIR".to_string(),
+                format!("{appdir}/usr/share/glib-2.0/schemas"),
+            ),
             ("HOME".to_string(), "/home/dominik".to_string()),
         ];
         let out = env_overrides(&vars, appdir);
@@ -226,10 +255,19 @@ mod tests {
     fn env_overrides_droppt_loader_vars_immer() {
         // LD_PRELOAD des wayland-hooks zeigt auf eine SYSTEM-lib und würde
         // vom appdir-filter nicht erfasst
-        let vars = vec![("LD_PRELOAD".to_string(), "/usr/lib/libwayland-client.so".to_string())];
+        let vars = vec![(
+            "LD_PRELOAD".to_string(),
+            "/usr/lib/libwayland-client.so".to_string(),
+        )];
         let out = env_overrides(&vars, "/tmp/.mount_protiumXY");
-        assert_eq!(out.iter().filter(|(k, v)| k == "LD_PRELOAD" && v.is_none()).count(), 1);
-        assert!(out.iter().any(|(k, v)| k == "LD_LIBRARY_PATH" && v.is_none()));
+        assert_eq!(
+            out.iter()
+                .filter(|(k, v)| k == "LD_PRELOAD" && v.is_none())
+                .count(),
+            1
+        );
+        assert!(out
+            .iter()
+            .any(|(k, v)| k == "LD_LIBRARY_PATH" && v.is_none()));
     }
-
 }

@@ -1,7 +1,7 @@
+use crate::commands::path::canonicalize_safe;
 use std::fs;
 use std::path::Path;
 use tauri_plugin_fs::FsExt;
-use crate::commands::path::canonicalize_safe;
 
 /// extrahiert das library-verzeichnis (alles vor dem letzten "/steamapps/").
 /// `rfind` ist sicher, weil das folgende muster-check die echte anwendung garantiert.
@@ -58,7 +58,9 @@ fn is_system_compat_dir(real: &Path) -> bool {
         // input ist canonicalisiert, die konstante selbst kann ein symlink
         // sein (distros linken /usr/local/share/steam → /usr/share/steam)
         real == Path::new(d)
-            || fs::canonicalize(d).map(|c| real == c.as_path()).unwrap_or(false)
+            || fs::canonicalize(d)
+                .map(|c| real == c.as_path())
+                .unwrap_or(false)
     })
 }
 
@@ -66,7 +68,7 @@ fn is_system_compat_dir(real: &Path) -> bool {
 /// verlangt einen steam-library-kandidaten (`steamapps` existiert) oder ein
 /// system-compat-dir, sonst scopt die webview beliebige verzeichnisse (/home).
 pub(super) fn validate_library_scope(path_str: &str) -> Result<std::path::PathBuf, String> {
-    // spec-review 2026-08-03: der helper verschiebt die fehler-präzedenz 
+    // Der Helper verschiebt die Fehlerpräzedenz:
     // blockierte nicht-dirs melden jetzt zuerst den blocklist-grund, dann
     // „not a directory" (akzeptanz-menge bleibt gleich).
     let real = canonicalize_safe(path_str, "library path")?;
@@ -79,13 +81,15 @@ pub(super) fn validate_library_scope(path_str: &str) -> Result<std::path::PathBu
     Ok(real)
 }
 
-/// R-5: verzeichnis zur laufzeit in den fs-scope aufnehmen.
+/// Nimmt ein Verzeichnis zur Laufzeit in den Dateisystem-Scope auf.
 /// zwingend: canonicalize + sicherheitscheck + library-kandidat-zwang.
 #[tauri::command]
 pub fn allow_library_scope(app: tauri::AppHandle, path: String) -> Result<(), String> {
     let real = validate_library_scope(&path)?;
     eprintln!("protium: scope grant: {}", real.display());
-    let _ = app.fs_scope().allow_directory(real.to_string_lossy().as_ref(), true);
+    let _ = app
+        .fs_scope()
+        .allow_directory(real.to_string_lossy().as_ref(), true);
     Ok(())
 }
 
@@ -111,7 +115,10 @@ mod tests {
         std::fs::create_dir_all(lib.join("steamapps")).unwrap();
 
         let res = validate_library_scope(lib.to_str().unwrap());
-        assert!(res.is_ok(), "steamapps-kandidat muss akzeptiert werden: {res:?}");
+        assert!(
+            res.is_ok(),
+            "steamapps-kandidat muss akzeptiert werden: {res:?}"
+        );
 
         let _ = std::fs::remove_dir_all(&lib);
     }
@@ -124,7 +131,10 @@ mod tests {
             return;
         }
         let res = validate_library_scope(d.to_str().unwrap());
-        assert!(res.is_ok(), "system-compat-dir muss akzeptiert werden: {res:?}");
+        assert!(
+            res.is_ok(),
+            "system-compat-dir muss akzeptiert werden: {res:?}"
+        );
     }
 
     #[test]
@@ -135,6 +145,9 @@ mod tests {
             return;
         }
         let res = validate_library_scope(d.to_str().unwrap());
-        assert!(res.is_err(), "/usr/share/steam ohne suffix darf nicht gescopt werden: {res:?}");
+        assert!(
+            res.is_err(),
+            "/usr/share/steam ohne suffix darf nicht gescopt werden: {res:?}"
+        );
     }
 }

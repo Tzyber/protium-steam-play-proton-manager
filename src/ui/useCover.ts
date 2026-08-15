@@ -15,7 +15,7 @@ export function useCover(getGame: () => Game | null) {
   const idx = ref(0);
   const src = computed<string | null>(() => candidates.value[idx.value] ?? null);
   function onError() {
-    idx.value++; // nächster kandidat; ist keiner mehr da → text-fallback (INV-3)
+    idx.value++; // Nächster Kandidat; danach folgt der Text-Fallback.
   }
 
   // fehler-fallback-index zurücksetzen: ohne das erbt das nächste spiel den

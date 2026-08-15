@@ -8,6 +8,7 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
+    "bench:scan": "vitest run --config vitest.bench.config.ts --disableConsoleIntercept",
     "mutation": "stryker run",
     "check": "biome check && vue-tsc --noEmit",
     "vite:dev": "vite",

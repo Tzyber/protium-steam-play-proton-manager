@@ -16,7 +16,7 @@ import { useScanStore } from "./scanStore";
 /** cache-key für die dauerhaft ignorierten toten library-pfade */
 const IGNORED_MISSING_KEY = "cleanup:ignored-missing-libs";
 
-// S-05: frischen installed-status bauen (games + shortcuts), statt auf einen
+// Baut den aktuellen Installationsstatus aus Spielen und Shortcuts statt auf einen
 // veralteten scan-stand zu vertrauen, der cleanup-race-schutz lebt hier.
 function collectInstalledAppIds(result: ScanResult, shortcutResult: ShortcutResult): Set<number> {
   const installedAppIds = new Set(result.games.map((g) => g.appId));
@@ -223,7 +223,7 @@ export const useCleanupStore = defineStore("cleanup", {
           this.ignoredMissingLibs = parsed.filter((p): p is string => typeof p === "string");
         }
       } catch {
-        // kein cache, kaputtes json → einfach nichts ignorieren (INV-3)
+        // Fehlender oder defekter Cache darf keine Einträge ausblenden.
       }
     },
 

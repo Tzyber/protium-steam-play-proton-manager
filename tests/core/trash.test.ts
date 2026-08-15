@@ -138,7 +138,7 @@ describe("findTrashEntries", () => {
     expect(r.unknown).toHaveLength(5);
   });
 
-  it("parseInt-overflow im namen → unknown statt riesen-appId (M4.1)", async () => {
+  it("parseInt-overflow im namen → unknown statt riesen-appId", async () => {
     const sys = fakeSystem(async () =>
       listing("/lib/steamapps/.protium-trash", [`compatdata_${"9".repeat(254)}_1700000000000`]),
     );

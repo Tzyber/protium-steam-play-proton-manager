@@ -16,11 +16,13 @@ pub(super) fn sanitize_path(p: &str, label: &str) -> Result<(), String> {
 /// canonicalisierte pfade, die NIE in den scope aufgenommen werden dürfen.
 pub(super) fn is_safe_path(canonical: &str) -> bool {
     let blocked: &[&str] = &["/", "/etc", "/proc", "/sys", "/dev"];
-    !blocked.iter().any(|b| canonical == *b || canonical.starts_with(&format!("{b}/")))
+    !blocked
+        .iter()
+        .any(|b| canonical == *b || canonical.starts_with(&format!("{b}/")))
 }
 
 /// sanitize → canonicalize → is_safe_path (blocklist). der gemeinsame
-/// prolog der read-only-validierungen (S-01/S-02/S-03/S-07-umstellung).
+/// Gemeinsamer Prolog der schreibfreien Validierungen.
 pub(super) fn canonicalize_safe(path: &str, label: &str) -> Result<PathBuf, String> {
     sanitize_path(path, label)?;
     let real = fs::canonicalize(path).map_err(|e| e.to_string())?;
@@ -31,7 +33,7 @@ pub(super) fn canonicalize_safe(path: &str, label: &str) -> Result<PathBuf, Stri
 }
 
 /// canonicalize eines pfads, dessen roh-input kein symlink sein darf.
-/// der symlink_metadata-guard läuft auf dem roh-input VOR canonicalize 
+/// der symlink_metadata-guard läuft auf dem roh-input VOR canonicalize
 /// canonicalize folgt symlinks, ein guard auf dem gefolgten pfad wäre tot.
 /// nutzer: validate_and_prepare + remove_trash_entry_inner.
 pub(super) fn canonicalize_no_symlink(path: &str) -> Result<PathBuf, String> {
@@ -59,7 +61,11 @@ pub(super) fn is_descendant_of(child: &Path, ancestor: &Path) -> bool {
 
 /// nächsten existierenden vorfahren eines pfads ermitteln.
 pub(super) fn next_existing_ancestor(path: &Path) -> Option<PathBuf> {
-    let mut current = if path.is_dir() { path.to_path_buf() } else { path.parent()?.to_path_buf() };
+    let mut current = if path.is_dir() {
+        path.to_path_buf()
+    } else {
+        path.parent()?.to_path_buf()
+    };
     loop {
         if current.exists() {
             return Some(current);
@@ -71,8 +77,8 @@ pub(super) fn next_existing_ancestor(path: &Path) -> Option<PathBuf> {
 /// nächsten existierenden vorfahren kanonisieren, für ziele, die
 /// (zwangsläufig) noch nicht existieren (download-dest, backup, extract-dest).
 pub(super) fn canonicalize_nearest_ancestor(path: &Path, label: &str) -> Result<PathBuf, String> {
-    let ancestor = next_existing_ancestor(path)
-        .ok_or_else(|| format!("no existing ancestor for {label}"))?;
+    let ancestor =
+        next_existing_ancestor(path).ok_or_else(|| format!("no existing ancestor for {label}"))?;
     fs::canonicalize(&ancestor).map_err(|e| format!("{label} ancestor: {e}"))
 }
 
@@ -84,7 +90,11 @@ pub(super) fn canonicalize_nearest_ancestor(path: &Path, label: &str) -> Result<
 /// durch). label für den fehler-prefix, die zwei stellen haben
 /// unterschiedliche meldungen („backup outside app cache" /
 /// download-fehlermeldung).
-pub(super) fn ensure_dest_within_canon_dir(dest: &Path, dir: &Path, label: &str) -> Result<(), String> {
+pub(super) fn ensure_dest_within_canon_dir(
+    dest: &Path,
+    dir: &Path,
+    label: &str,
+) -> Result<(), String> {
     fs::create_dir_all(dir).map_err(|e| format!("cannot create {label}: {e}"))?;
     let dir_canon = fs::canonicalize(dir).map_err(|e| format!("{label} canonicalize: {e}"))?;
 
@@ -112,8 +122,8 @@ pub(super) fn validate_download_dest(dest: &str, cache_dir: &Path) -> Result<(),
     ensure_dest_within_canon_dir(dest_path, cache_dir, "download dest")?;
 
     // symlink-check auf dem ziel selbst, falls es bereits existiert
-    // (plan-review 2026-08-03: bleibt inline, der backup-pfad in
-    // write_steam_file_inner darf diesen check nicht erben)
+    // Dieser Check bleibt lokal: Der Backup-Pfad in `write_steam_file_inner`
+    // darf ihn nicht übernehmen.
     if dest_path.exists() {
         let meta = fs::symlink_metadata(dest_path).map_err(|e| e.to_string())?;
         if meta.file_type().is_symlink() {
@@ -216,18 +226,12 @@ mod tests {
 
     #[test]
     fn is_descendant_of_echter_nachfahre() {
-        assert!(is_descendant_of(
-            Path::new("/a/b/c/d"),
-            Path::new("/a/b")
-        ));
+        assert!(is_descendant_of(Path::new("/a/b/c/d"), Path::new("/a/b")));
     }
 
     #[test]
     fn is_descendant_of_gleicher_pfad() {
-        assert!(is_descendant_of(
-            Path::new("/a/b"),
-            Path::new("/a/b")
-        ));
+        assert!(is_descendant_of(Path::new("/a/b"), Path::new("/a/b")));
     }
 
     #[test]
@@ -241,10 +245,7 @@ mod tests {
 
     #[test]
     fn is_descendant_of_anderer_zweig() {
-        assert!(!is_descendant_of(
-            Path::new("/a/b/c"),
-            Path::new("/a/x")
-        ));
+        assert!(!is_descendant_of(Path::new("/a/b/c"), Path::new("/a/x")));
     }
 
     #[test]
@@ -283,7 +284,10 @@ mod tests {
         let outside = tmp.join(format!("protium-desttest-other-{}", std::process::id()));
         let dest = outside.join("subdir/file.tar.gz"); // parent existiert nicht
         let res = validate_download_dest(dest.to_str().unwrap(), &cache);
-        assert!(res.is_err(), "dest ausserhalb cache muss abgelehnt werden (parent existiert nicht): {res:?}");
+        assert!(
+            res.is_err(),
+            "dest ausserhalb cache muss abgelehnt werden (parent existiert nicht): {res:?}"
+        );
 
         let _ = std::fs::remove_dir_all(&cache);
     }
@@ -317,7 +321,10 @@ mod tests {
         let cache = tmp.join(format!("protium-desttest-prefix-{}", std::process::id()));
         std::fs::create_dir_all(&cache).unwrap();
 
-        let evil = tmp.join(format!("protium-desttest-prefix-{}-evil", std::process::id()));
+        let evil = tmp.join(format!(
+            "protium-desttest-prefix-{}-evil",
+            std::process::id()
+        ));
         let dest = evil.join("x");
         let res = validate_download_dest(dest.to_str().unwrap(), &cache);
         assert!(res.is_err(), "prefix-trick muss abgelehnt werden: {res:?}");
@@ -339,7 +346,10 @@ mod tests {
         let fremd = tmp.join(format!("protium-desttest-fremdeapp-{}", std::process::id()));
         let dest = fremd.join("x");
         let res = validate_download_dest(dest.to_str().unwrap(), &cache);
-        assert!(res.is_err(), "dest in fremder app muss abgelehnt werden: {res:?}");
+        assert!(
+            res.is_err(),
+            "dest in fremder app muss abgelehnt werden: {res:?}"
+        );
 
         // cache_dir selbst wurde durch create_dir_all angelegt
         assert!(cache.exists(), "cache_dir muss jetzt existieren");
@@ -388,5 +398,4 @@ mod tests {
             std::path::Path::new("..")
         ));
     }
-
 }

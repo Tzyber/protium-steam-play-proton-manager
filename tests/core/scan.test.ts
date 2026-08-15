@@ -140,4 +140,21 @@ describe("scanLibrary (integration, dominiks reales setup)", () => {
     expect(result.games.length).toBeGreaterThan(0);
     expect(result.games.every((g) => g.launchOptions === undefined)).toBe(true);
   });
+
+  it("fehlende config.vdf lässt spiele und tools sichtbar, aber compat-tools unbekannt", async () => {
+    const { root } = await buildFakeSteam();
+    const fs = nodeFs();
+    await rm(join(root, "config", "config.vdf"));
+
+    const result = await scanLibrary(
+      { fs, http: fakeHttp(), system: fakeSystem(), cache: memCache() },
+      { steamRoot: root, protonDbDelayMs: 0, extraCompatDirs: [] },
+    );
+
+    expect(result.games).toHaveLength(3);
+    expect(result.games.every((game) => game.compatTool === "unknown")).toBe(true);
+    expect(result.compatToolsInstalled).toHaveLength(2);
+    expect(result.defaultCompatTool).toBeNull();
+    expect(result.warnings).toContain("config.vdf fehlt → compat-tools als 'unknown' markiert");
+  });
 });

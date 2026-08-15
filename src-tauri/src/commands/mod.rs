@@ -1,9 +1,9 @@
-// rust-commands (R-1..R-6): das, was die webview nicht kann.
+// Rust-Commands für Operationen außerhalb des Webviews.
 
 pub(crate) mod cleanup;
 pub(crate) mod download;
-pub(crate) mod extract;
 pub(crate) mod external;
+pub(crate) mod extract;
 pub(crate) mod fs_ops;
 pub(crate) mod path;
 pub(crate) mod scope;

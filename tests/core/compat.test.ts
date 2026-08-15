@@ -34,7 +34,7 @@ describe("recomputeToolUsedBy", () => {
 });
 
 describe("listCompatTools", () => {
-  it("filtert symlink-einträge aus (F-E-03)", async () => {
+  it("filtert symlink-einträge aus", async () => {
     /** fake-DirEntry-array für einen kompat-tools-dir-scan. */
     const entries: DirEntry[] = [
       { name: "GE-Proton9-27", isDirectory: true, isSymlink: false },

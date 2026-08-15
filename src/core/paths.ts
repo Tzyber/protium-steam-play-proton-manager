@@ -1,4 +1,4 @@
-// INV-4: NUR diese datei konstruiert steam-pfade.
+// Diese Datei konstruiert alle Steam-Pfade.
 // ACHTUNG: ROOT_CANDIDATES muss mit assetProtocol.scope in tauri.conf.json
 // synchron bleiben, beide listen müssen dieselben installationsarten abdecken.
 // bei änderungen hier IMMER tauri.conf.json → assetProtocol.scope mitpflegen.
@@ -24,7 +24,7 @@ function join(...parts: string[]): string {
   return joined;
 }
 
-// symlinks aufgelöst, damit scope-checks gegen den echten pfad matchen (S-4).
+// Löst Symlinks auf, damit Scope-Checks gegen den echten Pfad laufen.
 export async function discoverSteamRoot(fs: FileSystem, home: string): Promise<string> {
   const tried: string[] = [];
   for (const rel of ROOT_CANDIDATES) {

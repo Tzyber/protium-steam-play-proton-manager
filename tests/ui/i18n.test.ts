@@ -37,7 +37,7 @@ describe("i18n, key-lookup", () => {
   });
 
   it("tief verschachtelte keys (3 ebenen) funktionieren", () => {
-    // phase ist unter proton, test über dot-pfad
+    // Status-Labels liegen unter `proton`; Test über Dot-Pfad.
     setLocale("de");
     expect(t("phase.downloading")).toBe(de.phase.downloading);
   });

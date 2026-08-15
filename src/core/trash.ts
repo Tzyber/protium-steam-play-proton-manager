@@ -38,11 +38,11 @@ export interface TrashLibraryStatus {
 export interface TrashScanResult {
   entries: TrashEntry[];
   /** verzeichnisse im papierkorb, die dem muster NICHT entsprechen.
-   *  werden nicht angeboten, aber gemeldet, INV-2, nichts lautlos verstecken. */
+   *  werden nicht angeboten, aber gemeldet, damit nichts lautlos verschwindet. */
   unknown: string[];
   /** libraries, deren papierkorb existiert, aber nicht gelesen werden konnte.
    *  MUSS getrennt von "kein papierkorb vorhanden" behandelt werden: sonst sieht
-   *  ein lesefehler aus wie ein leerer papierkorb (INV-2/3). */
+   *  ein Lesefehler aus wie ein leerer Papierkorb. */
   unreadable: string[];
   /** eine zeile pro geprüfter library, unabhängig vom ergebnis */
   libraries: TrashLibraryStatus[];
@@ -114,7 +114,7 @@ export async function findTrashEntries(
         continue;
       }
 
-      // M4.1 für den timestamp-teil: riesige ziffernfolgen und 0 sind
+      // Riesige Ziffernfolgen und 0 sind im Zeitstempelteil
       // nie gültige unix-ms (appId-guard steckt in parseSafeAppId)
       const appId = parseSafeAppId(appIdRaw);
       const trashedAt = Number.parseInt(msRaw, 10);

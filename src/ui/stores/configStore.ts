@@ -4,7 +4,7 @@ import { removeCompatTool, writeCompatTool } from "../../core/compatwrite";
 import { writeLaunchOptions } from "../../core/localconfig";
 import { useScanStore } from "./scanStore";
 
-// phase-4-writes: einziger weg von der UI in die steam-dateien (write-gate lebt im core).
+// Einziger Weg von der UI zu Steam-Dateien; das Write-Gate liegt im Core.
 export const useConfigStore = defineStore("config", {
   actions: {
     /** wirft (z. B. SteamRunningError), der drawer zeigt die meldung an. */
