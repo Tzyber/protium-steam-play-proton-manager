@@ -2,12 +2,12 @@
 
 ## Supported Versions
 
-`v0.4.0` ist der aktuell belegte veröffentlichte release mit AppImage und
+`v0.3.1` ist der aktuell belegte veröffentlichte release mit AppImage und
 Debian-Paket. ältere versionen werden nicht pauschal unterstützt.
 
 | Version | Supported |
 |---------|-----------|
-| `0.4.0` | ✅ |
+| `0.3.1` | ✅ |
 | ältere versionen | ❌ keine pauschale supportzusage |
 
 ## Reporting a Vulnerability

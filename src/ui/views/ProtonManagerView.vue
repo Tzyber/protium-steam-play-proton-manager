@@ -24,9 +24,9 @@ function removable(tt: CompatTool): boolean {
   return tt.source === "user" && isManagedGeName(tt.name);
 }
 
-// abgleich über den VERZEICHNISNAMEN: r.tag ist der GE-release-tag und wird als
-// ordnername in compatibilitytools.d installiert (= tt.name). internalName aus
-// der tool-vdf kann davon abweichen.
+// abgleich über den VERZEICHNISNAMEN: r.installName ist der autorisierte
+// ordnername in compatibilitytools.d (= tt.name). r.tag bleibt der release-
+// und job-schlüssel; internalName aus der tool-vdf kann davon abweichen.
 const installedNames = computed(() => new Set(proton.installedTools.map((tt) => tt.name)));
 
 // remove-confirm-state
@@ -181,7 +181,7 @@ const statusLine = computed(() => {
           <div class="rmain">
             <div class="rname">
               {{ r.tag }}
-              <span v-if="installedNames.has(r.tag)" class="tag ok">{{ t("proton.installed") }}</span>
+              <span v-if="installedNames.has(r.installName)" class="tag ok">{{ t("proton.installed") }}</span>
             </div>
             <div class="rsub mono">{{ formatBytes(r.tarball.size) }}</div>
             <div v-if="proton.jobs[r.tag]" class="progress" role="progressbar" :aria-valuemin="0" :aria-valuemax="100" :aria-valuenow="pct(r.tag) ?? undefined" :aria-label="phaseLabel(r.tag)">
@@ -193,7 +193,7 @@ const statusLine = computed(() => {
             </div>
           </div>
           <button
-            v-if="!installedNames.has(r.tag) && !proton.jobs[r.tag]"
+            v-if="!installedNames.has(r.installName) && !proton.jobs[r.tag]"
             class="install"
             type="button"
             @click="proton.queueInstall(r)"
