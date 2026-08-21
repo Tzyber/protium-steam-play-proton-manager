@@ -1432,6 +1432,12 @@ pub(super) fn find_apps_using_compat_tool(
             for app_entry in mapping_entries {
                 if let vdf_patch::TokenKind::String(app_key) = &app_entry.key.kind {
                     if app_key.chars().all(|c| c.is_ascii_digit()) {
+                        // steam schreibt selbst einen default-eintrag mit appId 0
+                        // (globale standard-zuordnung, kein spiel) — der darf
+                        // den lösch-durchlauf nicht brechen.
+                        if app_key == "0" {
+                            continue;
+                        }
                         let app_id = crate::commands::scope::parse_app_id(app_key)?;
                         if let Some((sub_from, sub_to)) = app_entry.block {
                             let sub_entries = vdf_patch::scan_entries(&tokens, sub_from, sub_to)?;
@@ -2690,6 +2696,10 @@ mod tests {
 			{
 				"CompatToolMapping"
 				{
+				"0"
+				{
+					"name"		"proton-cachyos-slr"
+				}
 					"620"
 					{
 						"name"		"GE-Proton9-27"
