@@ -7,7 +7,25 @@ export interface VdfNode {
 }
 
 export function parseVdf(text: string): VdfNode {
-  return parse(text) as VdfNode;
+  // keys vor parse neutralisieren: die lib weist ungefiltert zu und würde
+  // "__proto__" als prototype-mutation behandeln (globale pollution).
+  const safe = text.replace(DANGEROUS_KEY_RE, '"__x_$1__"');
+  return sanitize(parse(safe));
+}
+
+// keys stehen in der zeilenbasierten lib allein auf einer zeile
+const DANGEROUS_KEY_RE = /^\s*"(__proto__|constructor|prototype)"\s*$/gm;
+
+// die lib baut plain objects; ein key "__proto__" oder "constructor" würde
+// das prototype-objekt mutieren (getKeyInsensitive nutzt `in`). deep-copy auf
+// null-prototype-objects macht alle keys zu eigenen properties.
+function sanitize(v: unknown): VdfNode {
+  if (typeof v !== "object" || v === null) return {};
+  const out: VdfNode = Object.create(null);
+  for (const [k, val] of Object.entries(v)) {
+    out[k] = typeof val === "object" && val !== null ? sanitize(val) : (val as VdfValue);
+  }
+  return out;
 }
 
 function isNode(v: VdfValue | undefined): v is VdfNode {

@@ -1159,9 +1159,18 @@ fn read_u32_le(buf: &[u8], pos: usize) -> Result<(u32, usize), String> {
     Ok((val, pos + 4))
 }
 
-fn skip_binary_value(buf: &[u8], pos: usize, val_type: u8) -> Result<usize, String> {
+/// Tiefenlimit für binäre shortcuts.vdf-maps: echte dateien sind flach
+/// (shortcut → werte). ohne cap liesse eine künstlich tief geschachtelte
+/// datei den rekursiven walker den thread-stack überlaufen (abort).
+const MAX_BINARY_VDF_DEPTH: usize = 64;
+
+/// Grössenlimit für shortcuts.vdf-reads im delete-pipeline (analog zu den
+/// 16-MiB-caps der übrigen environment-reads).
+const MAX_SHORTCUTS_VDF_BYTES: u64 = 16 * 1024 * 1024;
+
+fn skip_binary_value(buf: &[u8], pos: usize, val_type: u8, depth: usize) -> Result<usize, String> {
     match val_type {
-        0x00 => walk_binary_map_body(buf, pos, &mut |_| {}, false),
+        0x00 => walk_binary_map_body(buf, pos, &mut |_| {}, false, depth),
         0x01 => {
             let (_, next) = read_c_string(buf, pos)?;
             Ok(next)
@@ -1198,7 +1207,11 @@ fn walk_binary_map_body(
     mut pos: usize,
     on_app_id: &mut dyn FnMut(u32),
     is_root: bool,
+    depth: usize,
 ) -> Result<usize, String> {
+    if depth > MAX_BINARY_VDF_DEPTH {
+        return Err("binary vdf nesting too deep".into());
+    }
     while pos < buf.len() {
         let type_byte = buf[pos];
         if type_byte == 0x08 {
@@ -1210,9 +1223,9 @@ fn walk_binary_map_body(
 
         if is_root {
             if type_byte == 0x00 && key.chars().all(|c| c.is_ascii_digit()) {
-                pos = walk_binary_map_body(buf, pos, on_app_id, false)?;
+                pos = walk_binary_map_body(buf, pos, on_app_id, false, depth + 1)?;
             } else {
-                pos = skip_binary_value(buf, pos, type_byte)?;
+                pos = skip_binary_value(buf, pos, type_byte, depth + 1)?;
             }
         } else if type_byte == 0x02 && key.eq_ignore_ascii_case("appid") {
             let (val, next) = read_u32_le(buf, pos)?;
@@ -1221,7 +1234,7 @@ fn walk_binary_map_body(
             }
             pos = next;
         } else {
-            pos = skip_binary_value(buf, pos, type_byte)?;
+            pos = skip_binary_value(buf, pos, type_byte, depth + 1)?;
         }
     }
     Err("unterminated binary map body".into())
@@ -1244,6 +1257,7 @@ pub(super) fn parse_binary_shortcut_ids(buf: &[u8]) -> Result<HashSet<u32>, Stri
             ids.insert(app_id);
         },
         true,
+        0,
     )?;
 
     Ok(ids)
@@ -1318,6 +1332,12 @@ pub(super) fn read_all_shortcut_app_ids(steam_root: &Path) -> Result<HashSet<u32
                     Ok(metadata) if !metadata.is_file() => {
                         return Err(format!(
                             "shortcuts.vdf is not a regular file: {}",
+                            shortcuts_vdf.display()
+                        ))
+                    }
+                    Ok(metadata) if metadata.len() > MAX_SHORTCUTS_VDF_BYTES => {
+                        return Err(format!(
+                            "shortcuts.vdf is too large: {}",
                             shortcuts_vdf.display()
                         ))
                     }
@@ -2606,6 +2626,50 @@ mod tests {
         let mut bad_magic = bytes.clone();
         bad_magic[0] = 0x01;
         assert!(parse_binary_shortcut_ids(&bad_magic).is_err());
+    }
+
+    #[test]
+    fn binary_shortcuts_parser_lehnt_tiefe_verschachtelung_ab() {
+        // 100_000 geschachtelte maps: ohne depth-cap stack overflow (abort),
+        // mit cap sauberes Err statt Prozess-Absturz.
+        let mut deep = vec![0x00];
+        deep.extend_from_slice(b"shortcuts\0");
+        for _ in 0..100_000 {
+            deep.extend_from_slice(&[0x00]);
+            deep.push(b'a');
+            deep.push(0x00);
+        }
+        deep.push(0x08);
+        let err = parse_binary_shortcut_ids(&deep).unwrap_err();
+        assert!(err.contains("nesting"), "err: {err}");
+
+        // flache struktur (10 ebenen) bleibt ok: jede map braucht ihren
+        // eigenen 0x08-abschluss (10 nested + root)
+        let mut flat = vec![0x00];
+        flat.extend_from_slice(b"shortcuts\0");
+        for _ in 0..10 {
+            flat.extend_from_slice(&[0x00]);
+            flat.push(b'a');
+            flat.push(0x00);
+        }
+        flat.extend(std::iter::repeat(0x08).take(11));
+        assert!(parse_binary_shortcut_ids(&flat).is_ok());
+    }
+
+    #[test]
+    fn read_all_shortcut_app_ids_lehnt_riesige_datei_ab() {
+        let root = wsg_fixture("shortcuts-huge");
+        let steam = root.join("steam");
+        let config_dir = steam.join("userdata/12345/config");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let shortcuts_vdf = config_dir.join("shortcuts.vdf");
+        // sparse file ueber dem größenlimit: darf nicht gelesen werden
+        let file = std::fs::File::create(&shortcuts_vdf).unwrap();
+        file.set_len(17 * 1024 * 1024).unwrap();
+        drop(file);
+        let err = read_all_shortcut_app_ids(&steam).unwrap_err();
+        assert!(err.contains("too large"), "err: {err}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
