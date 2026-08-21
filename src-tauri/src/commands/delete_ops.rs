@@ -8,6 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+use crate::commands::scope::EnvironmentState;
 use crate::commands::steam::{inspect_deletion_target, DeleteConsequence};
 
 pub const DELETE_TOKEN_TTL_SECS: u64 = 60;
@@ -573,20 +574,19 @@ fn inspect_pending_target(
 
 #[tauri::command]
 pub async fn prepare_delete(
-    app: tauri::AppHandle,
     state: tauri::State<'_, PendingDeleteRegistry>,
+    env: tauri::State<'_, EnvironmentState>,
     request: PrepareDeleteRequest,
 ) -> Result<PendingDeleteInfo, String> {
-    use tauri_plugin_fs::FsExt;
-    let app2 = app.clone();
+    // autorisierung über den backend-snapshot (steam-root + libraries +
+    // system-compat-dirs), nicht über den plugin-fs-scope: der autorisiert
+    // nur $APPCACHE/$APPCONFIG und würde den steam-root nie erreichen.
+    let snapshot = env.current()?;
     let registry = (*state).clone();
     crate::commands::spawn_blocking_io(move || {
-        prepare_delete_inner(
-            &registry,
-            &request,
-            &|p| app2.fs_scope().is_allowed(p),
-            || crate::commands::fs_ops::is_process_running_sync("steam"),
-        )
+        prepare_delete_inner(&registry, &request, &|p| snapshot.authorizes(p), || {
+            crate::commands::fs_ops::is_process_running_sync("steam")
+        })
     })
     .await
 }
@@ -595,16 +595,17 @@ pub async fn prepare_delete(
 pub async fn execute_delete(
     app: tauri::AppHandle,
     state: tauri::State<'_, PendingDeleteRegistry>,
+    env: tauri::State<'_, EnvironmentState>,
     token: String,
 ) -> Result<DeleteResult, String> {
-    use tauri_plugin_fs::FsExt;
-    let app2 = app.clone();
+    let snapshot = env.current()?;
     let registry = (*state).clone();
+    let app2 = app.clone();
     crate::commands::spawn_blocking_io(move || {
         execute_delete_with_confirmation(
             &registry,
             &token,
-            &|p| app2.fs_scope().is_allowed(p),
+            &|p| snapshot.authorizes(p),
             || crate::commands::fs_ops::is_process_running_sync("steam"),
             |pending| show_native_confirmation_dialog(&app2, pending),
         )

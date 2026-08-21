@@ -92,7 +92,7 @@ impl EnvironmentSnapshot {
             .chain(std::iter::once(self.app_config_dir.as_path()))
     }
 
-    fn authorizes(&self, path: &Path) -> bool {
+    pub(crate) fn authorizes(&self, path: &Path) -> bool {
         self.roots().any(|root| is_descendant_of(path, root))
     }
 }

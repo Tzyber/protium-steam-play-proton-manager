@@ -1462,6 +1462,14 @@ pub(super) fn inspect_deletion_target(
         return Err("blocked path".into());
     }
 
+    // das target selbst muss im scope liegen, nicht nur der root: sonst wäre
+    // eine library ausserhalb der erlaubten roots loeschbar (lexikalischer
+    // suffix-anchor reicht nicht). die scope_ok-closure ist backend-seitig
+    // gegen den environment-snapshot gebunden (kein webview-fs-grant).
+    if !scope_ok(&canonical) {
+        return Err("deletion target outside allowed scope".into());
+    }
+
     let meta = fs::symlink_metadata(&canonical).map_err(|e| e.to_string())?;
     if meta.file_type().is_symlink() {
         return Err("symlink rejected, will not delete".into());
@@ -2745,6 +2753,43 @@ mod tests {
             &|_| true,
         )
         .is_err());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn inspect_deletion_target_lehnt_target_ausserhalb_scope_ab() {
+        let root = wsg_fixture("inspect-target-scope");
+        let steam = root.join("steam");
+        let trash_dir = steam.join("steamapps/.protium-trash");
+        let target = trash_dir.join("compatdata_123");
+        std::fs::create_dir_all(&target).unwrap();
+
+        // scope_ok autorisiert nur den steam-root selbst, nicht das target.
+        // der target-check darf nicht am lexikalischen steam-root-suffix hängen.
+        let steam_root_path = steam.clone();
+        let result = inspect_deletion_target(
+            steam.to_str().unwrap(),
+            "trash",
+            target.to_str().unwrap(),
+            &|p| p == steam_root_path,
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("deletion target outside allowed scope"),
+            "err: {err}"
+        );
+
+        // kontrast: scope der das target einschliesst → ok
+        let steam_owned = steam.clone();
+        let ok = inspect_deletion_target(
+            steam.to_str().unwrap(),
+            "trash",
+            target.to_str().unwrap(),
+            &|p| p.starts_with(&steam_owned),
+        )
+        .unwrap();
+        assert_eq!(ok.target_type, "trash");
 
         let _ = std::fs::remove_dir_all(&root);
     }
