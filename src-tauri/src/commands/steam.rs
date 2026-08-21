@@ -2700,6 +2700,10 @@ mod tests {
 				{
 					"name"		"proton-cachyos-slr"
 				}
+				"2207218128"
+				{
+					"name"		"GE-Proton11-4"
+				}
 					"620"
 					{
 						"name"		"GE-Proton9-27"
@@ -2869,11 +2873,11 @@ mod tests {
     }
 
     #[test]
-    fn inspection_lehnt_appid_oberhalb_signed_int32_ab() {
-        let root = wsg_fixture("inspect-appid-too-large");
+    fn inspection_erlaubt_non_steam_shortcut_appid() {
+        let root = wsg_fixture("inspect-appid-non-steam");
         let steam = root.join("steam");
         let config_dir = steam.join("config");
-        let target = steam.join("steamapps/compatdata/2147483648");
+        let target = steam.join("steamapps/compatdata/2207218128");
         std::fs::create_dir_all(config_dir).unwrap();
         std::fs::create_dir_all(&target).unwrap();
         std::fs::write(
@@ -2892,8 +2896,9 @@ mod tests {
             &|_| true,
         );
         assert!(
-            result.is_err(),
-            "inspection darf keine zu große appid autorisieren"
+            result.is_ok(),
+            "inspection muss bit-31-appids autorisieren: {:?}",
+            result.err()
         );
         assert!(target.exists());
 

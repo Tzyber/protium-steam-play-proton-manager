@@ -1221,10 +1221,12 @@ mod tests {
     }
 
     #[test]
-    fn delete_prepare_lehnt_appid_oberhalb_signed_int32_ab() {
-        let root = wsg_fixture("delete-appid-too-large");
+    fn delete_prepare_erlaubt_non_steam_shortcut_appid() {
+        // bit-31-appids (non-steam-shortcuts) sind legitime u32-ids:
+        // compatdata/<id> kann sein, darf der orphan-pfad nicht ablehnen.
+        let root = wsg_fixture("delete-appid-non-steam");
         let steam = root.join("steam");
-        let target = steam.join("steamapps/compatdata/2147483648");
+        let target = steam.join("steamapps/compatdata/2207218128");
         std::fs::create_dir_all(steam.join("config")).unwrap();
         std::fs::create_dir_all(&target).unwrap();
         std::fs::write(
@@ -1247,8 +1249,12 @@ mod tests {
             &|_| true,
             || Ok(false),
         );
-        assert!(result.is_err(), "delete darf keine zu große appid annehmen");
-        assert!(target.exists());
+        assert!(
+            result.is_ok(),
+            "delete darf bit-31-appids nicht ablehnen: {:?}",
+            result.err()
+        );
+        assert!(target.exists()); // prepare löscht noch nicht
 
         let _ = std::fs::remove_dir_all(root);
     }

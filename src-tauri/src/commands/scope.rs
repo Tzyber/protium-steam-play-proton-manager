@@ -662,8 +662,8 @@ pub(super) fn suffix_after_steamapps(canon_str: &str) -> Result<&str, String> {
 }
 
 /// gemeinsame typ/appId-validierung der beiden lösch-pfade (orphan + trash):
-/// typ ∈ {compatdata, shadercache}, ascii-digits, appId ∈ 1..2^31-1. das split
-/// selbst bleibt an den stellen (orphan: '/', trash: '_' nach
+/// typ ∈ {compatdata, shadercache}, ascii-digits, appId ∈ 1..u32::MAX. das
+/// split selbst bleibt an den stellen (orphan: '/', trash: '_' nach
 /// marker/timestamp-parse, unterschiedliche fehlermeldungen).
 pub(super) fn parse_compat_id<'a>(pair: (&'a str, &'a str)) -> Result<(&'a str, &'a str), String> {
     let (typ, app_id_str) = pair;
@@ -689,7 +689,10 @@ pub(super) fn parse_app_id(app_id_str: &str) -> Result<u32, String> {
     let app_id = app_id_str
         .parse::<u64>()
         .map_err(|_| format!("appId out of range: {app_id_str}"))?;
-    if !(1..=i32::MAX as u64).contains(&app_id) {
+    // appIDs sind unsigned 32-bit. non-steam-shortcuts setzen bit 31 (2^31+n)
+    // und bleiben unterhalb u32::MAX — nur 0 (reserviert) und 2^32+ sind
+    // ungültig. ein i32-cap würde legitime shortcut-ids ausschließen.
+    if !(1..=u32::MAX as u64).contains(&app_id) {
         return Err(if app_id == 0 {
             "appId 0 rejected".into()
         } else {
@@ -738,14 +741,20 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     #[test]
-    fn parse_compat_id_begrenzt_appid_exakt_auf_signed_int32() {
+    fn parse_compat_id_begrenzt_appid_exakt_auf_uint32() {
+        // appIDs sind unsigned 32-bit. non-steam-shortcuts setzen bit 31
+        // (2^31 + n) — die müssen compatdata/shadercache-löschpfade und die
+        // config-zuordnung erreichen können.
         assert_eq!(
-            parse_compat_id(("compatdata", "2147483647")),
-            Ok(("compatdata", "2147483647"))
+            parse_compat_id(("compatdata", "2207218128")),
+            Ok(("compatdata", "2207218128"))
+        );
+        assert_eq!(
+            parse_compat_id(("shadercache", "4294967295")),
+            Ok(("shadercache", "4294967295"))
         );
         assert!(parse_compat_id(("compatdata", "0")).is_err());
-        assert!(parse_compat_id(("compatdata", "2147483648")).is_err());
-        assert!(parse_compat_id(("shadercache", "4294967295")).is_err());
+        assert!(parse_compat_id(("compatdata", "4294967296")).is_err());
     }
 
     // ---- legacy library-kandidat-validator (S4) ----
