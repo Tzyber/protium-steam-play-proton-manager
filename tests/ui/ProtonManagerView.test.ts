@@ -42,6 +42,16 @@ vi.mock("../../src/ui/stores/scanStore", () => ({
 vi.mock("../../src/ui/stores/uiStore", () => ({
   useUiStore: () => uiState,
 }));
+vi.mock("../../src/ui/stores/confirmStore", () => ({
+  useConfirmStore: () => ({
+    pending: null,
+    busy: false,
+    error: null,
+    ask: vi.fn(),
+    cancel: vi.fn(),
+    confirm: vi.fn(),
+  }),
+}));
 vi.mock("../../src/ui/i18n", () => ({
   t: (key: string) => key,
 }));

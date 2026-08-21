@@ -4,7 +4,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -13,24 +13,6 @@ use crate::commands::steam::{inspect_deletion_target, DeleteConsequence};
 
 pub const DELETE_TOKEN_TTL_SECS: u64 = 60;
 pub const MAX_PENDING_DELETES: usize = 32;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ConfirmationKind {
-    Warning,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ConfirmationButtons {
-    OkCancel,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ConfirmationRequest {
-    title: String,
-    message: String,
-    kind: ConfirmationKind,
-    buttons: ConfirmationButtons,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -366,29 +348,20 @@ pub(super) fn prepare_delete_inner(
     })
 }
 
-pub(crate) fn execute_delete_with_confirmation(
+pub(crate) fn execute_delete_pipeline(
     registry: &PendingDeleteRegistry,
     token: &str,
     scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
     is_steam_running_fn: impl Fn() -> Result<bool, String>,
-    confirm_fn: impl FnOnce(&PendingDelete) -> Result<bool, String>,
 ) -> Result<DeleteResult, String> {
-    execute_delete_with_confirmation_inner(
-        registry,
-        token,
-        scope_ok,
-        is_steam_running_fn,
-        confirm_fn,
-        || {},
-    )
+    execute_delete_pipeline_inner(registry, token, scope_ok, is_steam_running_fn, || {})
 }
 
-fn execute_delete_with_confirmation_inner(
+fn execute_delete_pipeline_inner(
     registry: &PendingDeleteRegistry,
     token: &str,
     scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
     is_steam_running_fn: impl Fn() -> Result<bool, String>,
-    confirm_fn: impl FnOnce(&PendingDelete) -> Result<bool, String>,
     before_claim_fn: impl FnOnce(),
 ) -> Result<DeleteResult, String> {
     let pending = {
@@ -414,14 +387,6 @@ fn execute_delete_with_confirmation_inner(
     }
 
     inspect_pending_target(&pending, scope_ok)?;
-
-    let confirmed = confirm_fn(&pending)?;
-    if !confirmed {
-        return Ok(DeleteResult {
-            success: false,
-            deleted_path: pending.target_path,
-        });
-    }
 
     let steam_running = is_steam_running_fn()?;
     if pending.target_type != "trash" && steam_running {
@@ -485,56 +450,6 @@ fn execute_delete_with_confirmation_inner(
     })
 }
 
-fn confirmation_request(pending: &PendingDelete) -> ConfirmationRequest {
-    let title = "Protium: Löschung bestätigen";
-    let mut msg = String::new();
-    for c in &pending.consequences {
-        msg.push_str(&format!("• {}\n  Pfad: {}\n", c.description, c.path));
-        if let Some(apps) = &c.affected_app_ids {
-            let apps_str: Vec<String> = apps.iter().map(|a| a.to_string()).collect();
-            msg.push_str(&format!(
-                "  Betroffene Spiele (App-IDs): {}\n",
-                apps_str.join(", ")
-            ));
-        }
-    }
-    msg.push_str("\nMöchten Sie diese Aktion wirklich unwiderruflich ausführen?");
-
-    ConfirmationRequest {
-        title: title.to_string(),
-        message: msg,
-        kind: ConfirmationKind::Warning,
-        buttons: ConfirmationButtons::OkCancel,
-    }
-}
-
-fn confirm_pending_delete(
-    pending: &PendingDelete,
-    show: impl FnOnce(ConfirmationRequest) -> Result<bool, String>,
-) -> Result<bool, String> {
-    show(confirmation_request(pending))
-}
-
-fn show_native_confirmation_dialog(
-    app: &tauri::AppHandle,
-    pending: &PendingDelete,
-) -> Result<bool, String> {
-    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
-
-    confirm_pending_delete(pending, |request| {
-        Ok(app
-            .dialog()
-            .message(&request.message)
-            .title(&request.title)
-            .kind(match request.kind {
-                ConfirmationKind::Warning => MessageDialogKind::Warning,
-            })
-            .buttons(match request.buttons {
-                ConfirmationButtons::OkCancel => MessageDialogButtons::OkCancel,
-            })
-            .blocking_show())
-    })
-}
 
 fn inspect_pending_target(
     pending: &PendingDelete,
@@ -593,21 +508,18 @@ pub async fn prepare_delete(
 
 #[tauri::command]
 pub async fn execute_delete(
-    app: tauri::AppHandle,
     state: tauri::State<'_, PendingDeleteRegistry>,
     env: tauri::State<'_, EnvironmentState>,
     token: String,
 ) -> Result<DeleteResult, String> {
     let snapshot = env.current()?;
     let registry = (*state).clone();
-    let app2 = app.clone();
     crate::commands::spawn_blocking_io(move || {
-        execute_delete_with_confirmation(
+        execute_delete_pipeline(
             &registry,
             &token,
             &|p| snapshot.authorizes(p),
             || crate::commands::fs_ops::is_process_running_sync("steam"),
-            |pending| show_native_confirmation_dialog(&app2, pending),
         )
     })
     .await
@@ -617,7 +529,7 @@ pub async fn execute_delete(
 mod tests {
     use super::*;
     use crate::commands::test_util::wsg_fixture;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     fn orphan_fixture(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
         let root = wsg_fixture(tag);
@@ -653,23 +565,21 @@ mod tests {
         token: &str,
         is_steam_running: impl Fn() -> Result<bool, String>,
     ) -> Result<DeleteResult, String> {
-        execute_delete_with_confirmation(registry, token, &|_| true, is_steam_running, |_| Ok(true))
+        execute_delete_pipeline(registry, token, &|_| true, is_steam_running)
     }
 
-    fn execute_delete_with_confirmation_after_inspection(
+    fn execute_delete_after_inspection(
         registry: &PendingDeleteRegistry,
         token: &str,
         scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
         is_steam_running_fn: impl Fn() -> Result<bool, String>,
-        confirm_fn: impl FnOnce(&PendingDelete) -> Result<bool, String>,
         before_claim_fn: impl FnOnce(),
     ) -> Result<DeleteResult, String> {
-        execute_delete_with_confirmation_inner(
+        execute_delete_pipeline_inner(
             registry,
             token,
             scope_ok,
             is_steam_running_fn,
-            confirm_fn,
             before_claim_fn,
         )
     }
@@ -760,7 +670,6 @@ mod tests {
 
         let rust_plugin = ["tauri", "_plugin_", "dialog"].concat();
         let allowed = [
-            manifest_dir.join("src/commands/delete_ops.rs"),
             manifest_dir.join("src/commands/ge_install.rs"),
             manifest_dir.join("src/lib.rs"),
         ];
@@ -779,19 +688,22 @@ mod tests {
     }
 
     #[test]
-    fn produktionswrapper_bindet_nur_native_confirmation() {
+    fn produktionswrapper_bindet_nur_löschpipeline() {
         let source = include_str!("delete_ops.rs");
         let start = source
             .find("pub async fn execute_delete(")
             .expect("tauri execute wrapper must exist");
         let command = &source[start..source.find("#[cfg(test)]").expect("tests follow wrapper")];
         assert!(command.contains("token: String"));
-        assert!(command.contains("execute_delete_with_confirmation"));
-        assert!(command.contains("show_native_confirmation_dialog"));
+        assert!(command.contains("execute_delete_pipeline"));
+        // die bestätigung kommt aus dem webview-dialog des hauptfensters; der
+        // wrapper selbst darf nie bejahen oder fenster bauen.
         assert!(!command.contains("Ok(true)"));
         assert!(!command.contains("bool"));
         assert!(!command.contains("invoke"));
         assert!(!command.contains("webview"));
+        assert!(!command.contains("confirm"));
+        assert!(!command.contains("WebviewWindow"));
     }
 
     #[test]
@@ -824,25 +736,23 @@ mod tests {
         assert_eq!(info.consequences[0].action, "trash");
 
         // 2. Execute 1st time -> Success
-        let res = execute_delete_with_confirmation(
+        let res = execute_delete_pipeline(
             &registry,
             &info.token,
             &|_| true,
             || Ok(false),
-            |_| Ok(true),
-        )
+            )
         .unwrap();
         assert!(res.success);
         assert!(!compatdata.exists());
 
         // 3. Execute 2nd time (Replay) -> Fails with invalid token
-        let res_replay = execute_delete_with_confirmation(
+        let res_replay = execute_delete_pipeline(
             &registry,
             &info.token,
             &|_| true,
             || Ok(false),
-            |_| Ok(true),
-        );
+            );
         assert!(res_replay.is_err());
         assert!(res_replay.unwrap_err().contains("invalid deletion token"));
 
@@ -870,13 +780,12 @@ mod tests {
         map.insert("expired123".to_string(), expired_pending);
         drop(map);
 
-        let res = execute_delete_with_confirmation(
+        let res = execute_delete_pipeline(
             &registry,
             "expired123",
             &|_| true,
             || Ok(false),
-            |_| Ok(true),
-        );
+            );
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("expired"));
     }
@@ -907,13 +816,7 @@ mod tests {
         let info = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
 
         // Steam läuft beim Execute -> Abbruch
-        let res = execute_delete_with_confirmation(
-            &registry,
-            &info.token,
-            &|_| true,
-            || Ok(true),
-            |_| Ok(true),
-        );
+        let res = execute_delete_pipeline(&registry, &info.token, &|_| true, || Ok(true));
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("steam is running"));
         assert!(compatdata.exists());
@@ -986,45 +889,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    #[test]
-    fn dialog_ablehnung_loescht_nichts() {
-        let root = wsg_fixture("delete-ops-cancel");
-        let steam = root.join("steam");
-        let config_dir = steam.join("config");
-        let steamapps = steam.join("steamapps");
-        let compatdata = steamapps.join("compatdata/999999");
-        std::fs::create_dir_all(&config_dir).unwrap();
-        std::fs::create_dir_all(&compatdata).unwrap();
-
-        let lf_vdf = format!(
-            "\"libraryfolders\"\n{{\n\t\"0\"\n\t{{\n\t\t\"path\"\t\t\"{}\"\n\t}}\n}}",
-            steam.display()
-        );
-        std::fs::write(config_dir.join("libraryfolders.vdf"), &lf_vdf).unwrap();
-
-        let registry = PendingDeleteRegistry::default();
-        let req = PrepareDeleteRequest {
-            target_type: "orphan".to_string(),
-            path: compatdata.to_str().unwrap().to_string(),
-            steam_root: steam.to_str().unwrap().to_string(),
-        };
-
-        let info = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
-
-        // Dialog abgelehnt (false) -> success: false, Ordner existiert weiter
-        let res = execute_delete_with_confirmation(
-            &registry,
-            &info.token,
-            &|_| true,
-            || Ok(false),
-            |_| Ok(false),
-        )
-        .unwrap();
-        assert!(!res.success);
-        assert!(compatdata.exists());
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
 
     #[test]
     fn ino_mismatch_oder_symlink_mutation_zwischen_prepare_und_execute_wird_abgelehnt() {
@@ -1068,13 +932,12 @@ mod tests {
             entry.ino = replacement.ino();
         }
 
-        let res = execute_delete_with_confirmation(
+        let res = execute_delete_pipeline(
             &registry,
             &info.token,
             &|_| true,
             || Ok(false),
-            |_| Ok(true),
-        );
+            );
         let error = res.unwrap_err();
         assert!(
             error.contains("identity changed"),
@@ -1088,13 +951,12 @@ mod tests {
         std::fs::create_dir_all(&target_real).unwrap();
         std::os::unix::fs::symlink(&target_real, &compatdata).unwrap();
 
-        let res2 = execute_delete_with_confirmation(
+        let res2 = execute_delete_pipeline(
             &registry,
             &info2.token,
             &|_| true,
             || Ok(false),
-            |_| Ok(true),
-        );
+            );
         assert!(res2.is_err());
         assert!(res2.unwrap_err().contains("symlink"));
 
@@ -1109,12 +971,11 @@ mod tests {
         let target = steam.join("steamapps/compatdata/999999");
         let info = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
 
-        let result = execute_delete_with_confirmation_after_inspection(
+        let result = execute_delete_after_inspection(
             &registry,
             &info.token,
             &|_| true,
             || Ok(false),
-            |_| Ok(true),
             || {
                 std::fs::remove_dir_all(&target).unwrap();
                 std::fs::create_dir_all(&target).unwrap();
@@ -1355,100 +1216,54 @@ mod tests {
     }
 
     #[test]
-    fn steam_start_waehrend_dialog_blockiert_frisch_nach_dialog() {
+    fn steam_start_zwischen_den_checks_blockiert_mutation() {
         let (root, steam) = orphan_fixture("delete-ops-live-steam-race");
         let registry = PendingDeleteRegistry::default();
         let req = orphan_request(&steam);
         let info = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
-        let running = Arc::new(AtomicBool::new(false));
-        let running_in_dialog = Arc::clone(&running);
-
-        let result = execute_delete_with_confirmation(
-            &registry,
-            &info.token,
-            &|_| true,
-            || Ok(running.load(Ordering::SeqCst)),
-            |_| {
-                running_in_dialog.store(true, Ordering::SeqCst);
-                Ok(true)
-            },
-        );
+        // erster steam-check: läuft nicht; zweiter: läuft — die pipeline
+        // prüft zweimal (vor und nach der inspection), der start zwischen
+        // den checks muss die mutation blockieren.
+        let checks = Arc::new(AtomicUsize::new(0));
+        let check_run = Arc::clone(&checks);
+        let result = execute_delete_pipeline(&registry, &info.token, &|_| true, move || {
+            Ok(check_run.fetch_add(1, Ordering::SeqCst) == 1)
+        });
         assert!(
             result.is_err(),
-            "steam start during dialog must block mutation"
+            "steam start between checks must block mutation"
         );
         assert!(steam.join("steamapps/compatdata/999999").exists());
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
-    fn live_aenderung_waehrend_dialog_wird_unmittelbar_vor_mutation_erkannt() {
+    fn live_aenderung_zwischen_checks_wird_unmittelbar_vor_mutation_erkannt() {
         let (root, steam) = orphan_fixture("delete-ops-live-dialog-change");
         let registry = PendingDeleteRegistry::default();
         let req = orphan_request(&steam);
         let info = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
         let manifest_path = steam.join("steamapps/appmanifest_999999.acf");
-
-        let result = execute_delete_with_confirmation(
-            &registry,
-            &info.token,
-            &|_| true,
-            || Ok(false),
-            |_| {
+        // die änderung passiert im ersten steam-check (zwischen erster und
+        // zweiter inspection): die zweite inspection muss sie sehen.
+        let written = Arc::new(AtomicBool::new(false));
+        let write_done = Arc::clone(&written);
+        let result = execute_delete_pipeline(&registry, &info.token, &|_| true, move || {
+            if !write_done.swap(true, Ordering::SeqCst) {
                 std::fs::write(
                     &manifest_path,
                     "\"AppState\"\n{\n\t\"appid\"\t\t\"999999\"\n}\n",
                 )
                 .unwrap();
-                Ok(true)
-            },
-        );
+            }
+            Ok(false)
+        });
         assert!(
             result.is_err(),
-            "dialog-time live drift must block mutation"
+            "live drift between checks must block mutation"
         );
         assert!(steam.join("steamapps/compatdata/999999").exists());
         let _ = std::fs::remove_dir_all(root);
     }
 
-    #[test]
-    fn bestaetigungsclosure_bindet_warning_okcancel_und_pending_daten() {
-        let pending = PendingDelete {
-            created_at: 1,
-            expires_at: u64::MAX,
-            target_type: "orphan".to_string(),
-            target_path: "/steamapps/compatdata/999999".to_string(),
-            canonical_path: PathBuf::from("/steamapps/compatdata/999999"),
-            steam_root: PathBuf::from("/steam"),
-            dev: 1,
-            ino: 2,
-            target_handle: None,
-            parent_handle: None,
-            target_name: None,
-            consequences: vec![DeleteConsequence {
-                path: "/steamapps/compatdata/999999".to_string(),
-                action: "trash".to_string(),
-                description: "prefix in den Papierkorb verschieben".to_string(),
-                affected_app_ids: Some(vec![999999]),
-            }],
-        };
-        let seen = Arc::new(Mutex::new(None));
-        let seen_in_closure = Arc::clone(&seen);
-        let result = confirm_pending_delete(&pending, |request| {
-            *seen_in_closure.lock().unwrap() = Some(request);
-            Ok(true)
-        })
-        .unwrap();
-
-        assert!(result);
-        let request = seen.lock().unwrap().clone().unwrap();
-        assert_eq!(request.kind, ConfirmationKind::Warning);
-        assert_eq!(request.buttons, ConfirmationButtons::OkCancel);
-        assert_eq!(request.title, "Protium: Löschung bestätigen");
-        assert!(request.message.contains(&pending.target_path));
-        assert!(request
-            .message
-            .contains(&pending.consequences[0].description));
-        assert!(request.message.contains("999999"));
-    }
 }

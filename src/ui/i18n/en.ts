@@ -85,6 +85,7 @@ export const en = {
     selectedInfo: "{n} selected · {size}",
     cleanAllShaders: "clean all shader caches",
     deleteSelected: "delete {n} selected",
+    deleteConfirmTitle: "delete {n} orphaned entries?",
     winePrefixMovedNote:
       "Wine-Prefixes are moved to trash, disk space is only freed when the trash is emptied.",
     trash: "trash",
@@ -102,6 +103,8 @@ export const en = {
     trashUnknownHint: "{n} directories in trash were not recognized and are not offered (INV-2):",
     trashEmpty: "empty trash",
     trashDeleteEntry: "delete entry",
+    trashDeleteConfirmTitle: "empty trash?",
+    trashDeleteConfirmSingle: "delete entry permanently?",
     trashTrashedAt: "trashed {date}",
   },
   proton: {
@@ -122,6 +125,7 @@ export const en = {
     checksumUnavailable: "{tag} installed without verification (checksum unavailable)",
     checksumOk: "checksum ok",
     listenerUnavailable: "download progress unavailable: {error}",
+    removeConfirmTitle: "Delete {name}?",
     removeFailed: "delete failed: {msg}",
     noScanResult: "no scan result, scan the library first",
     statusUpdated: "updated · {n} releases · just now",

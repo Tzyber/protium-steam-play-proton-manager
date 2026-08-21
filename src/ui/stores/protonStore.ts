@@ -12,6 +12,7 @@ import { joinPath, paths } from "../../core/paths";
 import type { CompatTool } from "../../core/types";
 import { errMsg } from "../format";
 import { t } from "../i18n";
+import { useConfirmStore } from "./confirmStore";
 import { useScanStore } from "./scanStore";
 import { useUiStore } from "./uiStore";
 
@@ -353,13 +354,32 @@ export const useProtonStore = defineStore("proton", {
           path: toolDir,
           steamRoot,
         });
-        const res = await tauriPorts.system.executeDelete(pending.token);
-        if (res.success) {
-          await scan.runScan();
-        }
+        // bestätigungsdialog im hauptfenster; erst der klick führt das
+        // löschen aus (v0.3.1-look: "{name} löschen?").
+        const confirm = useConfirmStore();
+        confirm.ask(
+          {
+            title: t("proton.removeConfirmTitle", { name: tool.name }),
+            message: pending.consequences.map((c) => c.description).join("\n"),
+          },
+          {
+            onSuccess: async () => {
+              try {
+                const res = await tauriPorts.system.executeDelete(pending.token);
+                if (res.success) {
+                  await scan.runScan();
+                }
+              } finally {
+                this.busyRemove = null;
+              }
+            },
+            onCancel: () => {
+              this.busyRemove = null;
+            },
+          },
+        );
       } catch (e) {
         this.loadError = t("proton.removeFailed", { msg: errMsg(e) });
-      } finally {
         this.busyRemove = null;
       }
     },

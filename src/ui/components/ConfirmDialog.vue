@@ -107,4 +107,11 @@ h3 {
 .btn.ghost { background: transparent; color: var(--fg-1); border-color: var(--line); }
 .btn.ghost:hover { color: var(--fg-0); border-color: var(--signal-dim); }
 .btn.danger { background: #c03940; border-color: #c03940; color: #fff; }
+.btn:hover { background: var(--signal-dim); border-color: var(--signal-dim); }
+.btn.danger:hover { background: #a93238; border-color: #a93238; color: #fff; }
+.btn:focus-visible,
+.btn.ghost:focus-visible {
+  outline: 2px solid var(--signal-dim);
+  outline-offset: 2px;
+}
 </style>

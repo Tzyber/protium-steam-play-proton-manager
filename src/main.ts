@@ -6,5 +6,4 @@ import "./ui/tokens.css";
 import { getLocale } from "./ui/i18n";
 
 document.documentElement.lang = getLocale();
-
 createApp(App).use(createPinia()).mount("#app");

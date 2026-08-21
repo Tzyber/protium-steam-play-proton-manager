@@ -2,11 +2,14 @@
 import { computed, nextTick, onMounted, reactive, ref } from "vue";
 import type { TrashEntry } from "../../core/trash";
 import type { OrphanEntry } from "../../core/types";
+import ConfirmDialog from "../components/ConfirmDialog.vue";
 import { formatBytes } from "../format";
 import { getLocale, t } from "../i18n";
 import { useCleanupStore } from "../stores/cleanupStore";
+import { useConfirmStore } from "../stores/confirmStore";
 
 const cleanup = useCleanupStore();
+const confirm = useConfirmStore();
 
 // ---- tabs ----
 // drei listen auf einer seite waren nicht mehr bedienbar: bei 19 prefixes musste
@@ -528,6 +531,18 @@ const tabLabel = (id: Tab) =>
     </div>
 
   </section>
+
+  <ConfirmDialog
+    v-if="confirm.pending"
+    :title="confirm.pending.title"
+    danger
+    :confirm-label="t('common.delete')"
+    @confirm="confirm.confirm()"
+    @cancel="confirm.cancel()"
+  >
+    <p class="consequences">{{ confirm.pending.message }}</p>
+    <p v-if="confirm.error" class="confirm-error">{{ confirm.error }}</p>
+  </ConfirmDialog>
 </template>
 
 <style scoped>
@@ -763,5 +778,7 @@ position: relative;
   color: #ff9aa0; border-radius: var(--r-sm);
   padding: 10px 14px; font-family: var(--font-display); font-size: 0.875rem; font-weight: 600; margin-bottom: 12px;
 }
+.consequences { white-space: pre-line; margin: 0; max-height: 260px; overflow-y: auto; }
+.confirm-error { color: var(--tier-bronze); margin: 10px 0 0; font-size: 0.75rem; }
 
 </style>

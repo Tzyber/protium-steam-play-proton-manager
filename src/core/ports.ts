@@ -88,7 +88,7 @@ export interface System {
   cancelDownload(downloadId: string): Promise<void>;
   /** Bereitet eine Löschung vor (frischer Live-Zustandsabgleich, Token-Generierung). */
   prepareDelete(request: PrepareDeleteRequest): Promise<PendingDeleteInfo>;
-  /** Führt die vorbereitete Löschung nach nativer Bestätigung aus. */
+  /** Führt die vorbereitete Löschung nach Bestätigung im Hauptfenster aus. */
   executeDelete(token: string): Promise<DeleteResult>;
   /** Speichert Startoptionen in `localconfig.vdf` via backendkontrolliertem Write-Gate. */
   saveLaunchOptions(

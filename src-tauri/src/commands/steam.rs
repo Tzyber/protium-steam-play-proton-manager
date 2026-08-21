@@ -1084,8 +1084,13 @@ pub(super) fn is_app_installed_in_libraries(
 ) -> Result<bool, String> {
     for lib in libraries {
         let steamapps = lib.join("steamapps");
-        let steamapps_metadata = fs::symlink_metadata(&steamapps)
-            .map_err(|e| format!("cannot inspect {}: {e}", steamapps.display()))?;
+        let steamapps_metadata = match fs::symlink_metadata(&steamapps) {
+            Ok(metadata) => metadata,
+            // fehlende steamapps (z. b. nicht gemountete volume) kann keine
+            // manifeste tragen: überspringen statt fail (INV-2), kein fehler.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(format!("cannot inspect {}: {e}", steamapps.display())),
+        };
         if steamapps_metadata.file_type().is_symlink() || !steamapps_metadata.is_dir() {
             return Err(format!(
                 "{} is not a regular directory",
@@ -2596,6 +2601,28 @@ mod tests {
         let bad_manifest = "\"AppState\"\n{\n\t\"appid\"\t\t\"999\"\n}\n";
         std::fs::write(steamapps.join("appmanifest_440.acf"), bad_manifest).unwrap();
         assert!(is_app_installed_in_libraries(&libraries, 440).is_err());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn is_app_installed_library_ohne_steamapps_wird_uebersprungen() {
+        let root = wsg_fixture("app-installed-missing-steamapps");
+        let present = root.join("present");
+        std::fs::create_dir_all(present.join("steamapps")).unwrap();
+        let absent = root.join("absent"); // kein steamapps (z. b. volume nicht gemountet)
+
+        // fehlende steamapps = dort liegen keine manifeste: kein fehler (INV-2).
+        let libraries = vec![absent, present.clone()];
+        assert!(!is_app_installed_in_libraries(&libraries, 570).unwrap());
+
+        // symlink-steamapps bleibt anomalie -> abgelehnt.
+        let symlink_steamapps = root.join("symlinklib");
+        std::fs::create_dir_all(&symlink_steamapps).unwrap();
+        std::os::unix::fs::symlink(&present.join("steamapps"), symlink_steamapps.join("steamapps"))
+            .unwrap();
+        let symlink_libs = vec![symlink_steamapps];
+        assert!(is_app_installed_in_libraries(&symlink_libs, 570).is_err());
 
         let _ = std::fs::remove_dir_all(&root);
     }

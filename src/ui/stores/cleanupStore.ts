@@ -10,6 +10,7 @@ import { findTrashEntries, type TrashEntry, type TrashLibraryStatus } from "../.
 import type { OrphanEntry, ScanResult } from "../../core/types";
 import { errMsg } from "../format";
 import { t } from "../i18n";
+import { useConfirmStore } from "./confirmStore";
 import { useScanStore } from "./scanStore";
 
 /** cache-key für die dauerhaft ignorierten toten library-pfade */
@@ -190,11 +191,14 @@ export const useCleanupStore = defineStore("cleanup", {
       const installedAppIds = collectInstalledAppIds(result, shortcutResult);
 
       const errors: string[] = [];
-      // compatdata wird nicht gelöscht, sondern in den papierkorb VERSCHOBEN.
-      // ohne refresh danach bliebe die papierkorb-sektion auf dem stand vom
-      // öffnen der ansicht, der nutzer sieht "leer" und glaubt, die daten seien
-      // weg, obwohl sie noch platz belegen.
-      let trashedCompatdata = false;
+      // phase 1: alle einträge vorbereiten; der dialog zeigt die folgen und
+      // erst der bestätigungs-klick führt executeDelete aus.
+      const prepared: {
+        token: string;
+        key: string;
+        type: string;
+        descriptions: string[];
+      }[] = [];
       for (const entry of entries) {
         if (shortcutResult.status === "unreadable" && entry.type === "compatdata") {
           errors.push(
@@ -215,28 +219,57 @@ export const useCleanupStore = defineStore("cleanup", {
             path: entry.path,
             steamRoot: result.steamRoot,
           });
-          const res = await tauriPorts.system.executeDelete(pending.token);
-          if (res.success) {
-            this.orphans = this.orphans.filter((o) => this.key(o) !== k);
-            // shadercache wird hart gelöscht und landet nie im papierkorb
-            if (entry.type === "compatdata") trashedCompatdata = true;
-          }
+          prepared.push({
+            token: pending.token,
+            key: k,
+            type: entry.type,
+            descriptions: pending.consequences.map((c) => c.description),
+          });
         } catch (e) {
           errors.push(`${entry.type}/${entry.appId}: ${errMsg(e)}`);
-        } finally {
-          this.deleting.delete(k);
         }
       }
-      // reihenfolge: erst refreshes, dann fehler setzen. scanTrash() und
-      // scanOrphans() setzen this.error zurück und würden die löschfehler
-      // sonst verschlucken, der nutzer sähe die einträge noch in der liste,
-      // aber nicht warum. der orphan-rescan gehört deshalb HIERHER (nicht in
-      // die view): nur so ist die reihenfolge garantiert.
-      if (trashedCompatdata) await this.scanTrash();
-      await this.scanOrphans();
-      if (errors.length) {
-        this.error = [this.error, errors.join("; ")].filter(Boolean).join(" | ");
-      }
+      if (errors.length) this.error = errors.join("; ");
+      if (!prepared.length) return;
+
+      const confirm = useConfirmStore();
+      confirm.ask(
+        {
+          title: t("cleanup.deleteConfirmTitle", { n: prepared.length }),
+          message: prepared.flatMap((p) => p.descriptions).join("\n"),
+        },
+        {
+          onSuccess: async () => {
+            // compatdata wird nicht gelöscht, sondern in den papierkorb
+            // VERSCHOBEN; ohne refresh danach bliebe die papierkorb-sektion
+            // auf dem stand vom öffnen der ansicht.
+            let trashedCompatdata = false;
+            for (const p of prepared) {
+              try {
+                const res = await tauriPorts.system.executeDelete(p.token);
+                if (res.success) {
+                  this.orphans = this.orphans.filter((o) => this.key(o) !== p.key);
+                  // shadercache wird hart gelöscht, landet nie im papierkorb
+                  if (p.type === "compatdata") trashedCompatdata = true;
+                }
+              } catch (e) {
+                errors.push(`${p.type}/${p.key}: ${errMsg(e)}`);
+              } finally {
+                this.deleting.delete(p.key);
+              }
+            }
+            // reihenfolge: erst refreshes, dann fehler setzen. scanTrash() und
+            // scanOrphans() setzen this.error zurück und würden die löschfehler
+            // sonst verschlucken. der rescan gehört hierher, nicht in die view.
+            if (trashedCompatdata) await this.scanTrash();
+            await this.scanOrphans();
+            if (errors.length) this.error = errors.join("; ");
+          },
+          onCancel: () => {
+            for (const p of prepared) this.deleting.delete(p.key);
+          },
+        },
+      );
     },
 
     async loadIgnoredMissing() {
@@ -323,10 +356,21 @@ export const useCleanupStore = defineStore("cleanup", {
           path: entry.path,
           steamRoot,
         });
-        const res = await tauriPorts.system.executeDelete(pending.token);
-        if (res.success) {
-          this.trash = this.trash.filter((e) => e.path !== entry.path);
-        }
+        const confirm = useConfirmStore();
+        confirm.ask(
+          {
+            title: t("cleanup.trashDeleteConfirmSingle"),
+            message: pending.consequences.map((c) => c.description).join("\n"),
+          },
+          {
+            onSuccess: async () => {
+              const res = await tauriPorts.system.executeDelete(pending.token);
+              if (res.success) {
+                this.trash = this.trash.filter((e) => e.path !== entry.path);
+              }
+            },
+          },
+        );
       } catch (e) {
         this.error = `${entry.name}: ${errMsg(e)}`;
       }
@@ -336,6 +380,7 @@ export const useCleanupStore = defineStore("cleanup", {
       const scan = useScanStore();
       const steamRoot = scan.result?.steamRoot ?? "";
       const errors: string[] = [];
+      const prepared: { token: string; path: string; descriptions: string[] }[] = [];
       for (const entry of [...this.trash]) {
         try {
           const pending = await tauriPorts.system.prepareDelete({
@@ -343,15 +388,40 @@ export const useCleanupStore = defineStore("cleanup", {
             path: entry.path,
             steamRoot,
           });
-          const res = await tauriPorts.system.executeDelete(pending.token);
-          if (res.success) {
-            this.trash = this.trash.filter((e) => e.path !== entry.path);
-          }
+          prepared.push({
+            token: pending.token,
+            path: entry.path,
+            descriptions: pending.consequences.map((c) => c.description),
+          });
         } catch (e) {
           errors.push(`${entry.name}: ${errMsg(e)}`);
         }
       }
       if (errors.length) this.error = errors.join("; ");
+      if (!prepared.length) return;
+
+      const confirm = useConfirmStore();
+      confirm.ask(
+        {
+          title: t("cleanup.trashDeleteConfirmTitle"),
+          message: prepared.flatMap((p) => p.descriptions).join("\n"),
+        },
+        {
+          onSuccess: async () => {
+            for (const p of prepared) {
+              try {
+                const res = await tauriPorts.system.executeDelete(p.token);
+                if (res.success) {
+                  this.trash = this.trash.filter((e) => e.path !== p.path);
+                }
+              } catch (e) {
+                errors.push(`${p.path}: ${errMsg(e)}`);
+              }
+            }
+            if (errors.length) this.error = errors.join("; ");
+          },
+        },
+      );
     },
   },
 });

@@ -60,6 +60,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: mockListen,
 }));
 
+import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useProtonStore } from "../../src/ui/stores/protonStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
 
@@ -590,6 +591,8 @@ describe("protonStore.remove", () => {
       source: "user",
       usedBy: [],
     });
+    // der dialog wartet auf die bestätigung; erst der klick führt das löschen aus
+    await useConfirmStore().confirm();
     expect(prepareSpy).toHaveBeenCalledWith({
       targetType: "compatTool",
       path: "/root/compatibilitytools.d/GE-Proton9-27",

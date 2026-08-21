@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const RELEASE_TAG_PATTERN = /^v[0-9]+\.[0-9]+\.[0-9]+$/u;
+const RELEASE_TAG_PATTERN = /^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?$/u;
 const JSON_VERSION_KEY_PATTERN = /"version"\s*:/gu;
 const MARKDOWN_HEADING_PATTERN = /^\s{0,3}#{1,6}[ \t]+(.+?)\s*$/u;
 

@@ -2,14 +2,17 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { isManagedGeName } from "../../core/geproton";
 import type { CompatTool } from "../../core/types";
+import ConfirmDialog from "../components/ConfirmDialog.vue";
 import { formatBytes } from "../format";
 import type { Key } from "../i18n";
 import { t } from "../i18n";
+import { useConfirmStore } from "../stores/confirmStore";
 import type { Phase } from "../stores/protonStore";
 import { useProtonStore } from "../stores/protonStore";
 import { useUiStore } from "../stores/uiStore";
 
 const proton = useProtonStore();
+const confirm = useConfirmStore();
 const ui = useUiStore();
 
 onMounted(() => proton.init());
@@ -191,6 +194,18 @@ const statusLine = computed(() => {
     </ul>
 
   </section>
+
+  <ConfirmDialog
+    v-if="confirm.pending"
+    :title="confirm.pending.title"
+    danger
+    :confirm-label="t('common.delete')"
+    @confirm="confirm.confirm()"
+    @cancel="confirm.cancel()"
+  >
+    <p class="consequences">{{ confirm.pending.message }}</p>
+    <p v-if="confirm.error" class="confirm-error">{{ confirm.error }}</p>
+  </ConfirmDialog>
 </template>
 
 <style scoped>
@@ -307,4 +322,6 @@ const statusLine = computed(() => {
 .hint-close:hover { opacity: 0.6; }
 .games { margin: 8px 0 0; padding-left: 18px; color: var(--fg-1); }
 .games li { margin: 2px 0; }
+.consequences { white-space: pre-line; margin: 0; max-height: 260px; overflow-y: auto; }
+.confirm-error { color: var(--tier-bronze); margin: 10px 0 0; font-size: 0.75rem; }
 </style>

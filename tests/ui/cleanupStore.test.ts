@@ -72,6 +72,7 @@ vi.mock("../../src/core/adapters/tauri", async () => {
 });
 
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
+import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
 
 function fakeScan(
@@ -632,6 +633,7 @@ describe("cleanupStore, trash", () => {
     store.trash = [e1, e2];
 
     await store.emptyTrash();
+    await useConfirmStore().confirm();
 
     expect(store.trash).toHaveLength(0);
     expect(mockPrepareDelete).toHaveBeenCalledTimes(2);
@@ -675,6 +677,7 @@ describe("cleanupStore, trash", () => {
     store.trash = [e1, e2, e3];
 
     await store.emptyTrash();
+    await useConfirmStore().confirm();
 
     expect(store.trash).toHaveLength(1);
     expect(store.trash[0]?.appId).toBe(570); // der fehlgeschlagene bleibt
@@ -696,6 +699,7 @@ describe("cleanupStore, trash", () => {
     store.trash = [e1, e2];
 
     await store.deleteTrashEntry(e1);
+    await useConfirmStore().confirm();
 
     expect(store.trash).toHaveLength(1);
     expect(store.trash[0]?.appId).toBe(570);
@@ -751,6 +755,7 @@ describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
         library: "/lib",
       },
     ]);
+    await useConfirmStore().confirm();
 
     // ohne diesen refresh bleibt die papierkorb-sektion leer, obwohl gerade
     // ein prefix hineinverschoben wurde
@@ -770,6 +775,7 @@ describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
         library: "/lib",
       },
     ]);
+    await useConfirmStore().confirm();
 
     expect(mockFindTrashEntries).not.toHaveBeenCalled();
   });
@@ -805,6 +811,7 @@ describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
         library: "/lib",
       },
     ]);
+    await useConfirmStore().confirm();
 
     // der rescan muss gelaufen sein (liste aktualisiert) UND der fehler
     // darf davon nicht weggewischt worden sein
@@ -886,6 +893,7 @@ describe("cleanupStore, S-02: Pfadbasierte Keys (A-04)", () => {
     mockFindOrphans.mockResolvedValue([entry2]);
 
     await store.deleteOrphans([entry1]);
+    await useConfirmStore().confirm();
 
     expect(mockPrepareDelete).toHaveBeenCalledTimes(1);
     expect(mockPrepareDelete).toHaveBeenCalledWith({

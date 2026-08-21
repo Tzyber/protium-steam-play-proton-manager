@@ -81,6 +81,7 @@ export const de = {
     selectedInfo: "{n} ausgewählt · {size}",
     cleanAllShaders: "Alle Shader-Caches bereinigen",
     deleteSelected: "{n} - Ausgewählte löschen",
+    deleteConfirmTitle: "{n} verwaiste Einträge löschen?",
     winePrefixMovedNote:
       "Wine-Prefixes werden in den papierkorb verschoben, speicherplatz wird erst beim leeren des papierkorbs frei.",
     trash: "papierkorb",
@@ -99,6 +100,8 @@ export const de = {
       "{n} verzeichnisse im papierkorb wurden nicht erkannt und werden nicht angeboten (INV-2):",
     trashEmpty: "papierkorb leeren",
     trashDeleteEntry: "eintrag löschen",
+    trashDeleteConfirmTitle: "papierkorb leeren?",
+    trashDeleteConfirmSingle: "eintrag endgültig löschen?",
     trashTrashedAt: "verschoben am {date}",
   },
   proton: {
@@ -119,6 +122,7 @@ export const de = {
     checksumUnavailable: "{tag} ohne Verifikation installiert (Prüfsumme nicht abrufbar)",
     checksumOk: "prüfsumme ok",
     listenerUnavailable: "Download-Fortschritt nicht verfügbar: {error}",
+    removeConfirmTitle: "{name} löschen?",
     removeFailed: "löschen fehlgeschlagen: {msg}",
     noScanResult: "kein scan-ergebnis, erst library scannen",
     statusUpdated: "aktualisiert · {n} releases · gerade eben",
