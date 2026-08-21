@@ -85,10 +85,6 @@ export const en = {
     selectedInfo: "{n} selected · {size}",
     cleanAllShaders: "clean all shader caches",
     deleteSelected: "delete {n} selected",
-    deleteConfirmTitle: "delete {n} orphaned entries?",
-    savegameWarning:
-      "Wine-Prefixes may contain local savegames that are NOT synced to Steam Cloud! prefixes are not deleted but moved to the trash, protium does not restore them itself, only manual recovery via file manager (see README).",
-    totalSize: "total size: {size}",
     winePrefixMovedNote:
       "Wine-Prefixes are moved to trash, disk space is only freed when the trash is emptied.",
     trash: "trash",
@@ -106,11 +102,6 @@ export const en = {
     trashUnknownHint: "{n} directories in trash were not recognized and are not offered (INV-2):",
     trashEmpty: "empty trash",
     trashDeleteEntry: "delete entry",
-    trashDeleteAction: "permanently delete",
-    trashDeleteConfirmTitle: "empty trash?",
-    trashDeleteConfirmSingle: "permanently delete entry?",
-    trashPermanentWarning:
-      "permanently deleted, cannot be recovered. Wine-Prefixes may contain local savegames not in Steam Cloud.",
     trashTrashedAt: "trashed {date}",
   },
   proton: {

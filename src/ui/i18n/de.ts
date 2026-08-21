@@ -81,10 +81,6 @@ export const de = {
     selectedInfo: "{n} ausgewählt · {size}",
     cleanAllShaders: "Alle Shader-Caches bereinigen",
     deleteSelected: "{n} - Ausgewählte löschen",
-    deleteConfirmTitle: "{n} verwaiste Einträge löschen?",
-    savegameWarning:
-      "Wine-Prefixes können lokale Spielstände enthalten, die NICHT in der Steam-Cloud liegen! Prefixes werden nicht gelöscht, sondern in den papierkorb verschoben, protium holt sie nicht selbst zurück, das geht nur von hand im dateimanager (anleitung im README).",
-    totalSize: "Gesamtgröße: {size}",
     winePrefixMovedNote:
       "Wine-Prefixes werden in den papierkorb verschoben, speicherplatz wird erst beim leeren des papierkorbs frei.",
     trash: "papierkorb",
@@ -103,11 +99,6 @@ export const de = {
       "{n} verzeichnisse im papierkorb wurden nicht erkannt und werden nicht angeboten (INV-2):",
     trashEmpty: "papierkorb leeren",
     trashDeleteEntry: "eintrag löschen",
-    trashDeleteAction: "endgültig löschen",
-    trashDeleteConfirmTitle: "papierkorb leeren?",
-    trashDeleteConfirmSingle: "eintrag endgültig löschen?",
-    trashPermanentWarning:
-      "endgültig gelöscht, nicht wiederherstellbar. Wine-Prefixes können lokale spielstände enthalten, die nicht in der Steam-Cloud liegen.",
     trashTrashedAt: "verschoben am {date}",
   },
   proton: {

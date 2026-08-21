@@ -1,15 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref } from "vue";
 import type { TrashEntry } from "../../core/trash";
 import type { OrphanEntry } from "../../core/types";
-import ConfirmDialog from "../components/ConfirmDialog.vue";
 import { formatBytes } from "../format";
 import { getLocale, t } from "../i18n";
 import { useCleanupStore } from "../stores/cleanupStore";
-import { useUiStore } from "../stores/uiStore";
 
 const cleanup = useCleanupStore();
-const ui = useUiStore();
 
 // ---- tabs ----
 // drei listen auf einer seite waren nicht mehr bedienbar: bei 19 prefixes musste
@@ -129,29 +126,18 @@ const selectedHereBytes = computed(() =>
   selectedHere.value.reduce((sum, o) => sum + (o.sizeBytes ?? 0), 0),
 );
 
-const deleteCandidates = ref<OrphanEntry[]>([]);
-
-function startDelete(candidates: OrphanEntry[]) {
-  if (candidates.length) deleteCandidates.value = [...candidates];
-}
-
-async function confirmDelete() {
+async function confirmDeleteOrphans() {
   // der rescan läuft IM store (deleteOrphans), ein zweiter hier würde die
   // dort gesammelten löschfehler wieder zurücksetzen.
-  await cleanup.deleteOrphans(deleteCandidates.value);
-  deleteCandidates.value = [];
+  await cleanup.deleteOrphans(selectedHere.value);
   selected.clear();
 }
 
-function cancelDelete() {
-  deleteCandidates.value = [];
+function deleteShadersAll() {
+  // alle shader-caches leeren, selections-umweg unnötig: das backend-gate
+  // bestätigt über den native-dialog.
+  void cleanup.deleteOrphans(shadercacheOrphans.value);
 }
-
-const confirmCompat = computed(() => deleteCandidates.value.filter((o) => o.type === "compatdata"));
-const confirmTotalBytes = computed(() =>
-  deleteCandidates.value.reduce((sum, o) => sum + (o.sizeBytes ?? 0), 0),
-);
-const confirmPaths = computed(() => deleteCandidates.value.map((o) => o.path));
 
 const busy = computed(() => cleanup.scanning || cleanup.deleting.size > 0);
 
@@ -177,49 +163,22 @@ const trashSelectedBytes = computed(() =>
   trashSelectedAll.value.reduce((sum, e) => sum + (e.sizeBytes ?? 0), 0),
 );
 
-const trashDeleteCandidates = ref<TrashEntry[]>([]);
 const trashDeleting = ref(false);
 
-// hauptinhalt stilllegen während confirm-dialog offen ist
-watch(
-  () => deleteCandidates.value.length + trashDeleteCandidates.value.length,
-  (n) => {
-    ui.inertMain = n > 0;
-  },
-);
-onBeforeUnmount(() => {
-  ui.inertMain = false;
-});
-
-function startTrashDelete(candidates: TrashEntry[]) {
-  if (candidates.length) trashDeleteCandidates.value = [...candidates];
-}
-
-async function confirmTrashDelete() {
+/** all: der „papierkorb leeren“-knopf (löscht alles, unabhängig von der
+ *  auswahl); sonst nur die ausgewählten einträge. */
+async function deleteTrashEntries(all: boolean) {
   trashDeleting.value = true;
-  const isAll = trashDeleteCandidates.value.length === cleanup.trash.length;
-  if (isAll) {
+  if (all) {
     await cleanup.emptyTrash();
   } else {
-    for (const e of trashDeleteCandidates.value) {
+    for (const e of trashSelectedAll.value) {
       await cleanup.deleteTrashEntry(e);
     }
   }
-  trashDeleteCandidates.value = [];
   trashSelected.clear();
   trashDeleting.value = false;
 }
-
-function cancelTrashDelete() {
-  trashDeleteCandidates.value = [];
-}
-
-const trashConfirmCount = computed(() => trashDeleteCandidates.value.length);
-const trashConfirmBytes = computed(() =>
-  trashDeleteCandidates.value.reduce((sum, e) => sum + (e.sizeBytes ?? 0), 0),
-);
-const trashConfirmPaths = computed(() => trashDeleteCandidates.value.map((e) => e.path));
-
 /** kurzform für die spalte, der volle satz steht im title-attribut. eine
  *  datumsspalte in flexibler breite hat die zeile über den viewport geschoben. */
 function trashDate(ms: number): string {
@@ -529,7 +488,7 @@ const tabLabel = (id: Tab) =>
           class="action"
           type="button"
           :disabled="busy"
-          @click="startDelete(shadercacheOrphans)"
+          @click="deleteShadersAll"
         >
           {{ t("cleanup.cleanAllShaders") }}
         </button>
@@ -537,7 +496,7 @@ const tabLabel = (id: Tab) =>
           class="action danger"
           type="button"
           :disabled="busy || !selectedHere.length"
-          @click="startDelete(selectedHere)"
+          @click="confirmDeleteOrphans"
         >
           {{ t("cleanup.deleteSelected", { n: selectedHere.length }) }}
         </button>
@@ -553,7 +512,7 @@ const tabLabel = (id: Tab) =>
           class="action"
           type="button"
           :disabled="!trashSelectedAll.length || trashDeleting"
-          @click="startTrashDelete(trashSelectedAll)"
+          @click="deleteTrashEntries(false)"
         >
           {{ t("cleanup.trashDeleteEntry") }}
         </button>
@@ -561,46 +520,13 @@ const tabLabel = (id: Tab) =>
           class="action danger"
           type="button"
           :disabled="!cleanup.trash.length || trashDeleting"
-          @click="startTrashDelete(cleanup.trash)"
+          @click="deleteTrashEntries(true)"
         >
           {{ t("cleanup.trashEmpty") }}
         </button>
       </div>
     </div>
 
-    <ConfirmDialog
-      v-if="deleteCandidates.length"
-      :title="t('cleanup.deleteConfirmTitle', { n: deleteCandidates.length })"
-      :confirm-label="t('common.delete')"
-      danger
-      @cancel="cancelDelete"
-      @confirm="confirmDelete"
-    >
-      <p v-if="confirmCompat.length" class="saveurge">
-        {{ t("cleanup.savegameWarning") }}
-      </p>
-      <p>{{ t("cleanup.totalSize", { size: formatBytes(confirmTotalBytes) }) }}</p>
-      <ul class="paths">
-        <li v-for="p in confirmPaths" :key="p" class="mono">{{ p }}</li>
-      </ul>
-    </ConfirmDialog>
-
-    <ConfirmDialog
-      v-if="trashDeleteCandidates.length"
-      :title="trashConfirmCount === cleanup.trash.length ? t('cleanup.trashDeleteConfirmTitle') : t('cleanup.trashDeleteConfirmSingle')"
-      :confirm-label="t('cleanup.trashDeleteAction')"
-      danger
-      @cancel="cancelTrashDelete"
-      @confirm="confirmTrashDelete"
-    >
-      <p class="saveurge">
-        {{ t("cleanup.trashPermanentWarning") }}
-      </p>
-      <p>{{ t("cleanup.totalSize", { size: formatBytes(trashConfirmBytes) }) }}</p>
-      <ul class="paths">
-        <li v-for="p in trashConfirmPaths" :key="p" class="mono">{{ p }}</li>
-      </ul>
-    </ConfirmDialog>
   </section>
 </template>
 
