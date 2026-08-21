@@ -1,5 +1,6 @@
 // Interne Delete-Operationen und Replay-Schutz (Paket 19 / S-06b / S-06c).
 use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -55,7 +56,7 @@ pub struct DeleteResult {
     pub deleted_path: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PendingDelete {
     pub created_at: u64,
     pub expires_at: u64,
@@ -65,6 +66,12 @@ pub struct PendingDelete {
     pub steam_root: PathBuf,
     pub dev: u64,
     pub ino: u64,
+    // Der offene Descriptor hält das ursprünglich autorisierte Verzeichnis
+    // auch bei Linux-Inode-Recycling eindeutig gebunden.
+    pub target_handle: Option<fs::File>,
+    // Der Parent-Descriptor bindet den Directory-Entry für die Mutation.
+    pub parent_handle: Option<fs::File>,
+    pub target_name: Option<OsString>,
     pub consequences: Vec<DeleteConsequence>,
 }
 
@@ -80,6 +87,196 @@ pub(super) fn generate_os_random_128() -> Result<String, String> {
         let _ = write!(hex, "{:02x}", b);
     }
     Ok(hex)
+}
+
+#[cfg(target_os = "linux")]
+fn open_delete_target_handle(path: &Path) -> Result<fs::File, String> {
+    use std::os::fd::{FromRawFd, OwnedFd};
+    use std::os::unix::ffi::OsStrExt;
+
+    let mut path_bytes = path.as_os_str().as_bytes().to_vec();
+    path_bytes.push(0);
+    let raw = unsafe {
+        libc::open(
+            path_bytes.as_ptr().cast(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    };
+    if raw < 0 {
+        return Err(format!(
+            "cannot bind delete target directory: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    let handle = fs::File::from(unsafe { OwnedFd::from_raw_fd(raw) });
+    if !handle
+        .metadata()
+        .map_err(|e| format!("cannot stat bound delete target: {e}"))?
+        .is_dir()
+    {
+        return Err("bound delete target is not a directory".into());
+    }
+    Ok(handle)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn open_delete_target_handle(_path: &Path) -> Result<fs::File, String> {
+    Err("delete target identity binding requires Linux directory descriptors".into())
+}
+
+#[cfg(target_os = "linux")]
+fn delete_handle_identity(handle: &fs::File) -> Result<(u64, u64), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = handle
+        .metadata()
+        .map_err(|e| format!("cannot stat bound delete target: {e}"))?;
+    if !metadata.is_dir() {
+        return Err("bound delete target is not a directory".into());
+    }
+    Ok((metadata.dev(), metadata.ino()))
+}
+
+#[cfg(target_os = "linux")]
+fn open_delete_child_handle(parent: &fs::File, name: &OsStr) -> Result<fs::File, String> {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::unix::ffi::OsStrExt;
+
+    let name = std::ffi::CString::new(name.as_bytes())
+        .map_err(|_| "delete target name contains NUL".to_string())?;
+    let raw = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    };
+    if raw < 0 {
+        return Err(format!(
+            "cannot bind delete target entry: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    let handle = fs::File::from(unsafe { OwnedFd::from_raw_fd(raw) });
+    let _ = delete_handle_identity(&handle)?;
+    Ok(handle)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn open_delete_child_handle(_parent: &fs::File, _name: &OsStr) -> Result<fs::File, String> {
+    Err("delete target identity binding requires Linux directory descriptors".into())
+}
+
+#[cfg(target_os = "linux")]
+fn os_name(name: &OsStr, label: &str) -> Result<std::ffi::CString, String> {
+    use std::os::unix::ffi::OsStrExt;
+
+    std::ffi::CString::new(name.as_bytes()).map_err(|_| format!("{label} contains NUL"))
+}
+
+#[cfg(target_os = "linux")]
+fn renameat2_no_replace(
+    source_dir: &fs::File,
+    source_name: &OsStr,
+    target_dir: &fs::File,
+    target_name: &OsStr,
+) -> Result<(), String> {
+    use std::os::fd::AsRawFd;
+
+    let source_name = os_name(source_name, "delete source name")?;
+    let target_name = os_name(target_name, "delete target name")?;
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_renameat2,
+            source_dir.as_raw_fd(),
+            source_name.as_ptr(),
+            target_dir.as_raw_fd(),
+            target_name.as_ptr(),
+            1u32,
+        )
+    };
+    if result < 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn renameat2_no_replace(
+    _source_dir: &fs::File,
+    _source_name: &OsStr,
+    _target_dir: &fs::File,
+    _target_name: &OsStr,
+) -> Result<(), String> {
+    Err("delete target claim requires Linux directory descriptors".into())
+}
+
+#[cfg(target_os = "linux")]
+struct ClaimedDeleteTarget {
+    path: PathBuf,
+    handle: fs::File,
+    name: OsString,
+}
+
+#[cfg(not(target_os = "linux"))]
+struct ClaimedDeleteTarget {
+    path: PathBuf,
+    handle: fs::File,
+    name: OsString,
+}
+
+#[cfg(target_os = "linux")]
+fn claim_delete_target(pending: &PendingDelete) -> Result<ClaimedDeleteTarget, String> {
+    use std::os::fd::AsRawFd;
+
+    let parent = pending
+        .parent_handle
+        .as_ref()
+        .ok_or_else(|| "pending delete has no bound parent directory".to_string())?;
+    let source_name = pending
+        .target_name
+        .as_ref()
+        .ok_or_else(|| "pending delete has no bound target name".to_string())?;
+    let expected = pending
+        .target_handle
+        .as_ref()
+        .ok_or_else(|| "pending delete has no bound target identity".to_string())?;
+    let expected_identity = delete_handle_identity(expected)?;
+
+    for _ in 0..4 {
+        let claim_name = OsString::from(format!(
+            ".protium-delete-claim-{}",
+            generate_os_random_128()?
+        ));
+        match renameat2_no_replace(parent, source_name, parent, &claim_name) {
+            Ok(()) => {
+                let handle = open_delete_child_handle(parent, &claim_name)?;
+                if delete_handle_identity(&handle)? != expected_identity {
+                    return Err(
+                        "target changed before mutation; replacement left unmodified".into(),
+                    );
+                }
+                let path = PathBuf::from(format!(
+                    "/proc/self/fd/{}/{}",
+                    parent.as_raw_fd(),
+                    claim_name.to_string_lossy()
+                ));
+                return Ok(ClaimedDeleteTarget {
+                    path,
+                    handle,
+                    name: claim_name,
+                });
+            }
+            Err(error) if error.contains("File exists") => continue,
+            Err(error) => return Err(format!("cannot claim delete target: {error}")),
+        }
+    }
+    Err("cannot allocate unique delete claim name".into())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn claim_delete_target(_pending: &PendingDelete) -> Result<(), String> {
+    Err("delete target claim requires Linux directory descriptors".into())
 }
 
 pub(super) fn prepare_delete_inner(
@@ -99,6 +296,20 @@ pub(super) fn prepare_delete_inner(
         &request.path,
         scope_ok,
     )?;
+    let canonical_path = PathBuf::from(&inspection.canonical_path);
+    let target_name = canonical_path
+        .file_name()
+        .ok_or_else(|| "delete target has no directory name".to_string())?
+        .to_os_string();
+    let parent_path = canonical_path
+        .parent()
+        .ok_or_else(|| "delete target has no parent directory".to_string())?;
+    let parent_handle = open_delete_target_handle(parent_path)?;
+    let target_handle = open_delete_child_handle(&parent_handle, &target_name)?;
+    #[cfg(target_os = "linux")]
+    if delete_handle_identity(&target_handle)? != (inspection.dev, inspection.ino) {
+        return Err("delete target changed while binding identity".into());
+    }
 
     let token = generate_os_random_128()?;
 
@@ -113,10 +324,13 @@ pub(super) fn prepare_delete_inner(
         expires_at,
         target_type: request.target_type.clone(),
         target_path: request.path.clone(),
-        canonical_path: PathBuf::from(&inspection.canonical_path),
+        canonical_path,
         steam_root: PathBuf::from(&request.steam_root),
         dev: inspection.dev,
         ino: inspection.ino,
+        target_handle: Some(target_handle),
+        parent_handle: Some(parent_handle),
+        target_name: Some(target_name),
         consequences: inspection.consequences.clone(),
     };
 
@@ -158,6 +372,24 @@ pub(crate) fn execute_delete_with_confirmation(
     is_steam_running_fn: impl Fn() -> Result<bool, String>,
     confirm_fn: impl FnOnce(&PendingDelete) -> Result<bool, String>,
 ) -> Result<DeleteResult, String> {
+    execute_delete_with_confirmation_inner(
+        registry,
+        token,
+        scope_ok,
+        is_steam_running_fn,
+        confirm_fn,
+        || {},
+    )
+}
+
+fn execute_delete_with_confirmation_inner(
+    registry: &PendingDeleteRegistry,
+    token: &str,
+    scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
+    is_steam_running_fn: impl Fn() -> Result<bool, String>,
+    confirm_fn: impl FnOnce(&PendingDelete) -> Result<bool, String>,
+    before_claim_fn: impl FnOnce(),
+) -> Result<DeleteResult, String> {
     let pending = {
         let mut map = registry
             .0
@@ -196,6 +428,9 @@ pub(crate) fn execute_delete_with_confirmation(
     }
 
     inspect_pending_target(&pending, scope_ok)?;
+    before_claim_fn();
+    let claimed = claim_delete_target(&pending)?;
+    let _bound_claim_handle = &claimed.handle;
 
     match pending.target_type.as_str() {
         "orphan" => {
@@ -208,7 +443,7 @@ pub(crate) fn execute_delete_with_confirmation(
             )?;
             match typ {
                 "shadercache" => {
-                    fs::remove_dir_all(&pending.canonical_path)
+                    fs::remove_dir_all(&claimed.path)
                         .map_err(|e| format!("cannot remove shadercache: {e}"))?;
                 }
                 "compatdata" => {
@@ -217,19 +452,27 @@ pub(crate) fn execute_delete_with_confirmation(
                     fs::create_dir_all(&trash_dir)
                         .map_err(|e| format!("cannot create trash dir: {e}"))?;
                     let trash_name = format!("compatdata_{app_id_str}_{now_ms}");
-                    let trash_target = trash_dir.join(&trash_name);
-                    fs::rename(&pending.canonical_path, &trash_target)
-                        .map_err(|e| format!("cannot move to trash: {e}"))?;
+                    let trash_parent = open_delete_target_handle(&trash_dir)?;
+                    let source_parent = pending.parent_handle.as_ref().ok_or_else(|| {
+                        "pending delete has no bound parent directory".to_string()
+                    })?;
+                    renameat2_no_replace(
+                        source_parent,
+                        &claimed.name,
+                        &trash_parent,
+                        OsStr::new(&trash_name),
+                    )
+                    .map_err(|e| format!("cannot move to trash: {e}"))?;
                 }
                 _ => return Err("unsupported orphan type".into()),
             }
         }
         "trash" => {
-            fs::remove_dir_all(&pending.canonical_path)
+            fs::remove_dir_all(&claimed.path)
                 .map_err(|e| format!("cannot remove trash item: {e}"))?;
         }
         "compatTool" => {
-            fs::remove_dir_all(&pending.canonical_path)
+            fs::remove_dir_all(&claimed.path)
                 .map_err(|e| format!("cannot remove compat tool: {e}"))?;
         }
         _ => return Err(format!("unknown target type: {}", pending.target_type)),
@@ -296,6 +539,10 @@ fn inspect_pending_target(
     pending: &PendingDelete,
     scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
 ) -> Result<(), String> {
+    let target_handle = pending
+        .target_handle
+        .as_ref()
+        .ok_or_else(|| "pending delete has no bound target identity".to_string())?;
     let steam_root = pending
         .steam_root
         .to_str()
@@ -307,6 +554,10 @@ fn inspect_pending_target(
         scope_ok,
     )?;
     let canonical = pending.canonical_path.to_string_lossy();
+    #[cfg(target_os = "linux")]
+    if delete_handle_identity(target_handle)? != (inspection.dev, inspection.ino) {
+        return Err("target identity changed (bound handle mismatch), deletion refused".into());
+    }
     if inspection.dev != pending.dev || inspection.ino != pending.ino {
         return Err("target identity changed (dev/ino mismatch), deletion refused".into());
     }
@@ -404,6 +655,24 @@ mod tests {
         execute_delete_with_confirmation(registry, token, &|_| true, is_steam_running, |_| Ok(true))
     }
 
+    fn execute_delete_with_confirmation_after_inspection(
+        registry: &PendingDeleteRegistry,
+        token: &str,
+        scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
+        is_steam_running_fn: impl Fn() -> Result<bool, String>,
+        confirm_fn: impl FnOnce(&PendingDelete) -> Result<bool, String>,
+        before_claim_fn: impl FnOnce(),
+    ) -> Result<DeleteResult, String> {
+        execute_delete_with_confirmation_inner(
+            registry,
+            token,
+            scope_ok,
+            is_steam_running_fn,
+            confirm_fn,
+            before_claim_fn,
+        )
+    }
+
     fn write_shortcuts_fixture(path: &std::path::Path, app_id: u32) {
         let mut bytes = vec![0x00];
         bytes.extend_from_slice(b"shortcuts\0");
@@ -433,6 +702,18 @@ mod tests {
         assert!(!source.contains(&["/dev/", "urandom"].concat()));
         assert!(!source.contains(&["cfg(", "not(unix))"].concat()));
         assert!(!source.contains(&["as_", "nanos"].concat()));
+    }
+
+    #[test]
+    fn destruktive_mutation_laueft_nur_ueber_claim() {
+        let source = include_str!("delete_ops.rs");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production source must precede tests");
+        assert!(production.contains("renameat2_no_replace"));
+        assert!(!production.contains("fs::rename(&pending.canonical_path"));
+        assert!(!production.contains("fs::remove_dir_all(&pending.canonical_path"));
     }
 
     fn collect_source_files(root: &std::path::Path, files: &mut Vec<(std::path::PathBuf, String)>) {
@@ -580,6 +861,9 @@ mod tests {
             steam_root: PathBuf::from("/tmp/steam"),
             dev: 0,
             ino: 0,
+            target_handle: None,
+            parent_handle: None,
+            target_name: None,
             consequences: vec![],
         };
         map.insert("expired123".to_string(), expired_pending);
@@ -672,6 +956,9 @@ mod tests {
                     steam_root: steam.clone(),
                     dev: 0,
                     ino: 0,
+                    target_handle: None,
+                    parent_handle: None,
+                    target_name: None,
                     consequences: vec![],
                 },
             );
@@ -767,6 +1054,19 @@ mod tests {
         std::fs::remove_dir_all(&compatdata).unwrap();
         std::fs::create_dir_all(&compatdata).unwrap();
 
+        // Simuliere deterministisch das auf Linux mögliche Inode-Recycling:
+        // der neue Pfad bekommt absichtlich dieselbe gespeicherte `(dev, ino)`-
+        // Identität. Eine reine Metadatenprüfung dürfte hier nicht löschen.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let replacement = std::fs::metadata(&compatdata).unwrap();
+            let mut pending = registry.0.lock().unwrap();
+            let entry = pending.get_mut(&info.token).unwrap();
+            entry.dev = replacement.dev();
+            entry.ino = replacement.ino();
+        }
+
         let res = execute_delete_with_confirmation(
             &registry,
             &info.token,
@@ -798,6 +1098,47 @@ mod tests {
         assert!(res2.unwrap_err().contains("symlink"));
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn replacement_nach_letzter_inspektion_wird_vor_mutation_geclaimt_und_nicht_geloescht() {
+        let (root, steam) = orphan_fixture("delete-ops-after-inspection-race");
+        let registry = PendingDeleteRegistry::default();
+        let req = orphan_request(&steam);
+        let target = steam.join("steamapps/compatdata/999999");
+        let info = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
+
+        let result = execute_delete_with_confirmation_after_inspection(
+            &registry,
+            &info.token,
+            &|_| true,
+            || Ok(false),
+            |_| Ok(true),
+            || {
+                std::fs::remove_dir_all(&target).unwrap();
+                std::fs::create_dir_all(&target).unwrap();
+                std::fs::write(target.join("replacement-marker"), b"must survive").unwrap();
+            },
+        );
+
+        let error = result.unwrap_err();
+        assert!(
+            error.contains("target changed before mutation"),
+            "error: {error}"
+        );
+        assert!(!target.exists());
+        let claim = std::fs::read_dir(target.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(".protium-delete-claim-"))
+            })
+            .expect("replacement must remain under a private claim name");
+        assert!(claim.join("replacement-marker").exists());
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1074,6 +1415,9 @@ mod tests {
             steam_root: PathBuf::from("/steam"),
             dev: 1,
             ino: 2,
+            target_handle: None,
+            parent_handle: None,
+            target_name: None,
             consequences: vec![DeleteConsequence {
                 path: "/steamapps/compatdata/999999".to_string(),
                 action: "trash".to_string(),
