@@ -23,20 +23,20 @@ it came into being because this exact tool did not exist. protonup-qt only manag
 grab the AppImage or Debian package from the [releases page](https://github.com/Tzyber/protium-steam-play-proton-manager/releases). make the AppImage executable and run it:
 
 ```sh
-chmod +x protium_0.3.1_amd64.AppImage
-./protium_0.3.1_amd64.AppImage
+chmod +x protium_0.4.2_amd64.AppImage
+./protium_0.4.2_amd64.AppImage
 ```
 
 the AppImage is not signed. if you don't like that, build it yourself (see dev setup). Debian-based systems can install the accompanying Debian package:
 
 ```sh
-sudo apt install ./protium_0.3.1_amd64.deb
+sudo apt install ./protium_0.4.2_amd64.deb
 ```
 
 if nothing starts and no error message appears, fuse2 is usually missing. then either `sudo pacman -S fuse2` or run it once without fuse:
 
 ```sh
-./protium_0.3.1_amd64.AppImage --appimage-extract-and-run
+./protium_0.4.2_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## what it does
