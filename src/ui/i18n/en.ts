@@ -126,11 +126,6 @@ export const en = {
     install: "install",
     cancelDownload: "cancel download",
     cancelQueue: "remove from queue",
-    deleteTitle: "delete {name}?",
-    usedByConfirm:
-      'this version is used by {n} game(s), Steam will fall back to "default" afterwards:',
-    unusedConfirm: "the directory will be removed. no games use this version.",
-    appId: "app {id}",
     noReleases: "no releases (offline or rate-limit?)",
     installFailed: "install {tag} failed: {msg}",
     checksumUnavailable: "{tag} installed without verification (checksum unavailable)",

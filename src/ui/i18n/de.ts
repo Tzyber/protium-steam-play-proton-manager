@@ -123,11 +123,6 @@ export const de = {
     install: "installieren",
     cancelDownload: "download abbrechen",
     cancelQueue: "aus warteschlange entfernen",
-    deleteTitle: "{name} löschen?",
-    usedByConfirm:
-      "diese version wird von {n} spiel(en) genutzt, steam fällt danach auf „default“ zurück:",
-    unusedConfirm: "das verzeichnis wird entfernt. keine spiele nutzen diese version.",
-    appId: "app {id}",
     noReleases: "keine releases (offline oder rate-limit?)",
     installFailed: "install {tag} fehlgeschlagen: {msg}",
     checksumUnavailable: "{tag} ohne Verifikation installiert (Prüfsumme nicht abrufbar)",

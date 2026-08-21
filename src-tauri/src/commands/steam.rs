@@ -1546,11 +1546,11 @@ pub(super) fn inspect_deletion_target(
             let (action, desc) = match typ {
                 "compatdata" => (
                     "trash",
-                    format!("Move compatdata prefix for app {app_id} to trash"),
+                    format!("Prefix von app {app_id} in den Papierkorb verschieben"),
                 ),
                 "shadercache" => (
                     "permanentDelete",
-                    format!("Permanently delete shader cache for app {app_id}"),
+                    format!("Shader-Cache von app {app_id} dauerhaft löschen"),
                 ),
                 _ => return Err("unsupported orphan type".into()),
             };
@@ -1580,7 +1580,7 @@ pub(super) fn inspect_deletion_target(
                 path: canon_str.to_string(),
                 action: "permanentDelete".to_string(),
                 description: format!(
-                    "Permanently delete trash item {}",
+                    "Papierkorb-Eintrag {} dauerhaft löschen",
                     canonical.file_name().unwrap_or_default().to_string_lossy()
                 ),
                 affected_app_ids: None,
@@ -1619,7 +1619,7 @@ pub(super) fn inspect_deletion_target(
             let consequences = vec![DeleteConsequence {
                 path: canon_str.to_string(),
                 action: "permanentDelete".to_string(),
-                description: format!("Permanently delete GE-Proton tool {tool_name}"),
+                description: format!("GE-Proton-Tool {tool_name} dauerhaft löschen"),
                 affected_app_ids: if affected_apps.is_empty() {
                     None
                 } else {

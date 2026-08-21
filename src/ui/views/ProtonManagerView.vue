@@ -1,24 +1,18 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { isManagedGeName } from "../../core/geproton";
 import type { CompatTool } from "../../core/types";
-import ConfirmDialog from "../components/ConfirmDialog.vue";
 import { formatBytes } from "../format";
 import type { Key } from "../i18n";
 import { t } from "../i18n";
 import type { Phase } from "../stores/protonStore";
 import { useProtonStore } from "../stores/protonStore";
-import { useScanStore } from "../stores/scanStore";
 import { useUiStore } from "../stores/uiStore";
 
 const proton = useProtonStore();
-const scan = useScanStore();
 const ui = useUiStore();
 
 onMounted(() => proton.init());
-
-// appId → name, um usedBy in klarnamen aufzulösen
-const nameOf = computed(() => new Map(scan.games.map((g) => [g.appId, g.name])));
 
 function removable(tt: CompatTool): boolean {
   return tt.source === "user" && isManagedGeName(tt.name);
@@ -28,23 +22,6 @@ function removable(tt: CompatTool): boolean {
 // ordnername in compatibilitytools.d (= tt.name). r.tag bleibt der release-
 // und job-schlüssel; internalName aus der tool-vdf kann davon abweichen.
 const installedNames = computed(() => new Set(proton.installedTools.map((tt) => tt.name)));
-
-// remove-confirm-state
-const toRemove = ref<CompatTool | null>(null);
-
-// hauptinhalt stilllegen während confirm-dialog offen ist
-watch(toRemove, (v) => {
-  ui.inertMain = !!v;
-});
-const removeGames = computed(() =>
-  toRemove.value
-    ? toRemove.value.usedBy.map((id) => nameOf.value.get(id) ?? t("proton.appId", { id }))
-    : [],
-);
-function confirmRemove() {
-  if (toRemove.value) proton.remove(toRemove.value);
-  toRemove.value = null;
-}
 
 function pct(tag: string): number | null {
   const j = proton.jobs[tag];
@@ -93,7 +70,6 @@ async function refreshReleases() {
 }
 onBeforeUnmount(() => {
   if (flashTimer) clearTimeout(flashTimer);
-  ui.inertMain = false;
 });
 
 const statusLine = computed(() => {
@@ -159,7 +135,7 @@ const statusLine = computed(() => {
             class="rm"
             type="button"
             :disabled="proton.busyRemove === tt.name"
-            @click="toRemove = tt"
+            @click="proton.remove(tt)"
           >
             {{ proton.busyRemove === tt.name ? "…" : t("common.delete") }}
           </button>
@@ -214,22 +190,6 @@ const statusLine = computed(() => {
       </li>
     </ul>
 
-    <ConfirmDialog
-      v-if="toRemove"
-      :title="t('proton.deleteTitle', { name: toRemove.displayName })"
-      :confirm-label="t('common.delete')"
-      danger
-      @cancel="toRemove = null"
-      @confirm="confirmRemove"
-    >
-      <template v-if="removeGames.length">
-        <p>{{ t("proton.usedByConfirm", { n: removeGames.length }) }}</p>
-        <ul class="games">
-          <li v-for="g in removeGames" :key="g">{{ g }}</li>
-        </ul>
-      </template>
-      <p v-else>{{ t("proton.unusedConfirm") }}</p>
-    </ConfirmDialog>
   </section>
 </template>
 
