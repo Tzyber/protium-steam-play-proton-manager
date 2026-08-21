@@ -100,13 +100,12 @@ describe("findOrphans", () => {
     expect(shortcutPrefix).toBeUndefined();
   });
 
-  it("shortcut-appId NICHT in installedAppIds → prefix als orphan (regression)", async () => {
+  it("AppID oberhalb der Rust-Grenze wird nie als orphan angeboten", async () => {
     const { fs, libraries } = await setup();
     const withoutShortcut = new Set([570, 620, 730]);
     const orphans = await findOrphans(libraries, withoutShortcut, fs);
 
-    const shortcutPrefix = orphans.find((o) => o.appId === 3641016077);
-    expect(shortcutPrefix).toBeDefined();
-    expect(shortcutPrefix?.type).toBe("compatdata");
+    const outOfRangePrefix = orphans.find((o) => o.appId === 3641016077);
+    expect(outOfRangePrefix).toBeUndefined();
   });
 });

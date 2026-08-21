@@ -1,6 +1,6 @@
 {
   "name": "protium",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "steam/proton library manager",
   "directories": {
     "test": "tests"
@@ -9,7 +9,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "bench:scan": "vitest run --config vitest.bench.config.ts --disableConsoleIntercept",
-    "mutation": "stryker run",
+    "mutation": "node scripts/run-mutation.mjs",
     "check": "biome check && vue-tsc --noEmit",
     "vite:dev": "vite",
     "vite:build": "vue-tsc --noEmit && vite build",

@@ -1,7 +1,7 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.7/schema.json",
   "files": {
-    "includes": ["src/**", "tests/**", "vite.config.ts", "vitest.config.ts"]
+    "includes": ["src/**", "tests/**", "vite.config.ts", "vitest.config.ts", "!**/.stryker-tmp/**"]
   },
   "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
   "linter": {

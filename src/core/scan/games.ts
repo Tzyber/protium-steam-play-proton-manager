@@ -4,7 +4,7 @@ import { readLaunchOptions } from "../localconfig.js";
 import { parseManifest } from "../manifest.js";
 import { joinPath, LOCAL_HEADER_FILENAME, paths } from "../paths.js";
 import type { DirEntry, Ports } from "../ports.js";
-import type { Game, SkippedLibrary } from "../types.js";
+import { type Game, parseSafeAppId, type SkippedLibrary } from "../types.js";
 
 const MANIFEST_RE = /^appmanifest_(\d+)\.acf$/;
 
@@ -28,31 +28,30 @@ async function resolveLocalHeader(
   return null;
 }
 
-export async function scanGames(
-  fs: Ports["fs"],
-  system: Ports["system"],
-  steamRoot: string,
-  libraries: string[],
-  compatFor: (appId: number) => string,
-  localConfigText: string | null,
-): Promise<{
+export interface ScanGamesResult {
   games: Game[];
   blockedAppIds: Set<number>;
   warnings: string[];
   skippedLibraries: SkippedLibrary[];
-}> {
+  cleanupUnsafeLibraries: string[];
+}
+
+export async function scanGames(
+  fs: Ports["fs"],
+  _system: Ports["system"],
+  steamRoot: string,
+  libraries: string[],
+  compatFor: (appId: number) => string,
+  localConfigText: string | null,
+): Promise<ScanGamesResult> {
   const warnings: string[] = [];
   const skippedLibraries: SkippedLibrary[] = [];
+  const cleanupUnsafeLibraries = new Set<string>();
   const games: Game[] = [];
   const blockedAppIds = new Set<number>();
+  const seenManifests = new Map<number, { library: string; manifestPath: string }>();
+
   for (const lib of libraries) {
-    try {
-      await system.allowLibraryScope(lib); // Externe Mounts vor dem Lesen freigeben.
-    } catch (e) {
-      warnings.push(`library "${lib}" nicht scope-bar, übersprungen: ${errText(e)}`);
-      skippedLibraries.push({ path: lib, reason: "scope-failed" });
-      continue;
-    }
     const appsDir = paths.libraryAppsDir(lib);
     let entries: DirEntry[];
     try {
@@ -66,10 +65,38 @@ export async function scanGames(
     for (const entry of entries) {
       const m = MANIFEST_RE.exec(entry.name);
       if (!m) continue;
+
+      const manifestPath = joinPath(appsDir, entry.name);
+      const filenameRaw = m[1];
+      const filenameAppId = filenameRaw ? parseSafeAppId(filenameRaw) : null;
+      if (filenameAppId === null) {
+        cleanupUnsafeLibraries.add(lib);
+        warnings.push(`${entry.name} übersprungen: ungültige appid im dateinamen`);
+        continue;
+      }
+
       try {
-        // entry.name statt pfad-neukonstruktion: ein dateiname wie
-        // appmanifest_042.acf (führende null) würde sonst als _42 gelesen → throw.
-        const data = parseManifest(await fs.readTextFile(joinPath(appsDir, entry.name)));
+        const data = parseManifest(await fs.readTextFile(manifestPath));
+        if (data.appId !== filenameAppId) {
+          cleanupUnsafeLibraries.add(lib);
+          warnings.push(
+            `${entry.name} übersprungen: appid-mismatch (dateiname ${filenameAppId} vs vdf ${data.appId})`,
+          );
+          continue;
+        }
+
+        const existing = seenManifests.get(data.appId);
+        if (existing) {
+          cleanupUnsafeLibraries.add(lib);
+          cleanupUnsafeLibraries.add(existing.library);
+          warnings.push(
+            `doppelte appid ${data.appId} übersprungen: "${manifestPath}" kollidiert mit "${existing.manifestPath}"`,
+          );
+          continue;
+        }
+
+        seenManifests.set(data.appId, { library: lib, manifestPath });
+
         if (isBlocked(data.appId, data.name)) {
           blockedAppIds.add(data.appId);
           continue;
@@ -88,10 +115,17 @@ export async function scanGames(
             : undefined,
         });
       } catch (e) {
+        cleanupUnsafeLibraries.add(lib);
         warnings.push(`${entry.name} übersprungen: ${errText(e)}`);
       }
     }
   }
 
-  return { games, blockedAppIds, warnings, skippedLibraries };
+  return {
+    games,
+    blockedAppIds,
+    warnings,
+    skippedLibraries,
+    cleanupUnsafeLibraries: [...cleanupUnsafeLibraries],
+  };
 }

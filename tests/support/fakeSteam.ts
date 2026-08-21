@@ -16,6 +16,7 @@ import { join } from "node:path";
 import type {
   Cache,
   DirEntry,
+  EnvironmentSnapshot,
   FileSystem,
   Http,
   HttpResponse,
@@ -23,6 +24,7 @@ import type {
   System,
 } from "../../src/core/ports.js";
 import { ensureSizeLimit } from "../../src/core/ports.js";
+import { getVdfValue, removeVdfEntry, setVdfValue } from "../../src/core/vdfpatch.js";
 
 // ---- Fixture-Inhalte ----
 
@@ -175,6 +177,7 @@ export async function buildFakeSteam(): Promise<{
   staleLib: string;
   systemCompat: string;
   userId: string;
+  environment: EnvironmentSnapshot;
 }> {
   const home = await mkdtemp(join(tmpdir(), "protium-"));
   const root = join(home, ".local/share/Steam");
@@ -252,7 +255,15 @@ export async function buildFakeSteam(): Promise<{
 
   await writeFile(join(root, "userdata", userId, "config", "shortcuts.vdf"), SHORTCUT_VDF_BINARY);
 
-  return { home, root, lib2, lib2Dup, staleLib, systemCompat, userId };
+  const environment: EnvironmentSnapshot = {
+    generation: 1,
+    steamRoot: root,
+    libraries: [root, lib2],
+    systemCompatDirs: [systemCompat],
+    appCacheDir: join(home, "app-cache"),
+    appConfigDir: join(home, "app-config"),
+  };
+  return { home, root, lib2, lib2Dup, staleLib, systemCompat, userId, environment };
 }
 
 // ---- port-adapter über node:fs (echtes dir-walking gegen fixtures) ----
@@ -298,13 +309,26 @@ export function nodeFs(): FileSystem {
   };
 }
 
-/** system-port: allowLibraryScope protokolliert; pathIdentity via echtem stat.
- *  `failScope` set of paths, bei denen allowLibraryScope werfen soll (für skip-tests). */
-export function fakeSystem(opts?: { failScope?: Set<string> }): System & { scopedPaths: string[] } {
-  const failScope = opts?.failScope ?? new Set<string>();
-  const scopedPaths: string[] = [];
+/** system-port: pathIdentity via echtem stat; Environment wird vom Test
+ *  explizit als Snapshot übergeben. */
+export function fakeSystem(opts?: { environment?: EnvironmentSnapshot }): System {
+  const environment =
+    opts?.environment ??
+    ({
+      generation: 1,
+      steamRoot: "/tmp/steam",
+      libraries: ["/tmp/steam"],
+      systemCompatDirs: [],
+      appCacheDir: "/tmp/protium-cache",
+      appConfigDir: "/tmp/protium-config",
+    } satisfies EnvironmentSnapshot);
   return {
-    scopedPaths,
+    async geTargetArch() {
+      return "x86_64" as const;
+    },
+    async discoverSteamEnvironment() {
+      return environment;
+    },
     async listTrashEntries(library: string) {
       // fixture-fakes kennen keinen papierkorb; findTrashEntries wird separat getestet
       return { dir: `${library}/steamapps/.protium-trash`, present: false, entries: [] };
@@ -312,19 +336,11 @@ export function fakeSystem(opts?: { failScope?: Set<string> }): System & { scope
     async isProcessRunning() {
       return false;
     },
-    async fetchSha512() {
-      // wer den pfad testet, mockt ihn explizit, nie still durchlassen
-      throw new Error("fetchSha512 not mocked");
-    },
     async dirSize() {
       return 4096;
     },
     async batchDirSizes() {
       return {};
-    },
-    async allowLibraryScope(p) {
-      if (failScope.has(p)) throw new Error("scope rejected");
-      scopedPaths.push(p);
     },
     async pathIdentity(p): Promise<PathIdentity | null> {
       try {
@@ -335,30 +351,138 @@ export function fakeSystem(opts?: { failScope?: Set<string> }): System & { scope
         return null;
       }
     },
-    async downloadFile() {
-      return ""; // in geproton-tests gezielt gemockt
+    async installGeProton() {
+      return "verified";
     },
     async cancelDownload() {},
-    async extractTarball() {},
-    async removeCompatTool() {},
+    async prepareDelete(request) {
+      if (request.targetType !== "trash" && (await this.isProcessRunning("steam"))) {
+        throw new Error("steam is running, deletion refused");
+      }
+      return {
+        token: `token-${request.path}`,
+        expiresAt: Date.now() + 60000,
+        targetType: request.targetType,
+        targetPath: request.path,
+        consequences: [
+          {
+            path: request.path,
+            action: request.targetType === "orphan" ? "trash" : "permanentDelete",
+            description: `Delete ${request.targetType}`,
+          },
+        ],
+      };
+    },
+    async executeDelete(token) {
+      const path = token.replace(/^token-/, "");
+      try {
+        await rm(path, { recursive: true, force: true });
+      } catch {}
+      return { success: true, deletedPath: path };
+    },
     // Bildet das Rust-Write-Gate nach: Steam läuft, Abbruch,
-    // fail-closed bei fehlender datei, backup + atomarer temp+rename), damit
-    // die integrations-tests gegen disk-zustand weiter funktionieren.
-    async writeSteamConfigFile(file, original, content, backup) {
+    // fail-closed bei fehlender datei, backup + atomarer temp+rename.
+    async saveLaunchOptions(steamRoot, accountId, appId, launchOptions) {
       if (await this.isProcessRunning("steam")) {
         throw new Error("steam is running, write refused");
       }
+      const file = `${steamRoot}/userdata/${accountId}/config/localconfig.vdf`;
       try {
         await lstat(file);
       } catch {
         throw new Error("write target canonicalize: not found");
       }
-      const backupParent = backup.slice(0, backup.lastIndexOf("/"));
-      if (backupParent) await mkdir(backupParent, { recursive: true });
+      const original = await readFile(file, "utf8");
+      const path = [
+        "UserLocalConfigStore",
+        "Software",
+        "Valve",
+        "Steam",
+        "Apps",
+        String(appId),
+        "LaunchOptions",
+      ];
+      const currentVal = getVdfValue(original, path);
+      if (launchOptions.trim() === "") {
+        if (currentVal === undefined) return "unchanged";
+        const patched = removeVdfEntry(original, path);
+        const backup = `${steamRoot}/backups/localconfig-${accountId}-${Date.now()}.vdf`;
+        await mkdir(`${steamRoot}/backups`, { recursive: true });
+        await writeFile(backup, original, "utf8");
+        const tmp = `${file}.protium-tmp`;
+        await writeFile(tmp, patched, "utf8");
+        await rename(tmp, file);
+        return "written";
+      }
+      if (currentVal === launchOptions) return "unchanged";
+      const patched = setVdfValue(original, path, launchOptions);
+      const backup = `${steamRoot}/backups/localconfig-${accountId}-${Date.now()}.vdf`;
+      await mkdir(`${steamRoot}/backups`, { recursive: true });
       await writeFile(backup, original, "utf8");
       const tmp = `${file}.protium-tmp`;
-      await writeFile(tmp, content, "utf8");
+      await writeFile(tmp, patched, "utf8");
       await rename(tmp, file);
+      return "written";
+    },
+    async saveCompatTool(steamRoot, appId, toolName) {
+      if (await this.isProcessRunning("steam")) {
+        throw new Error("steam is running, write refused");
+      }
+      const file = `${steamRoot}/config/config.vdf`;
+      try {
+        await lstat(file);
+      } catch {
+        throw new Error("write target canonicalize: not found");
+      }
+      const original = await readFile(file, "utf8");
+      const namePath = [
+        "InstallConfigStore",
+        "Software",
+        "Valve",
+        "Steam",
+        "CompatToolMapping",
+        String(appId),
+        "name",
+      ];
+      const currentName = getVdfValue(original, namePath);
+      if (toolName === null || toolName === "default" || toolName === "") {
+        if (currentName === undefined) return "unchanged";
+        const blockPath = [
+          "InstallConfigStore",
+          "Software",
+          "Valve",
+          "Steam",
+          "CompatToolMapping",
+          String(appId),
+        ];
+        const patched = removeVdfEntry(original, blockPath);
+        const backup = `${steamRoot}/backups/config-${appId}-${Date.now()}.vdf`;
+        await mkdir(`${steamRoot}/backups`, { recursive: true });
+        await writeFile(backup, original, "utf8");
+        const tmp = `${file}.protium-tmp`;
+        await writeFile(tmp, patched, "utf8");
+        await rename(tmp, file);
+        return "written";
+      }
+      if (currentName === toolName) return "unchanged";
+      const basePath = [
+        "InstallConfigStore",
+        "Software",
+        "Valve",
+        "Steam",
+        "CompatToolMapping",
+        String(appId),
+      ];
+      let p = setVdfValue(original, [...basePath, "name"], toolName);
+      p = setVdfValue(p, [...basePath, "config"], "");
+      p = setVdfValue(p, [...basePath, "priority"], "250");
+      const backup = `${steamRoot}/backups/config-${appId}-${Date.now()}.vdf`;
+      await mkdir(`${steamRoot}/backups`, { recursive: true });
+      await writeFile(backup, original, "utf8");
+      const tmp = `${file}.protium-tmp`;
+      await writeFile(tmp, p, "utf8");
+      await rename(tmp, file);
+      return "written";
     },
   };
 }

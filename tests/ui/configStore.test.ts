@@ -2,16 +2,17 @@ import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScanResult } from "../../src/core/types";
 
-// mocks: compatwrite-core + appCacheDir (tauri-adapter)
-vi.mock("../../src/core/compatwrite", () => ({
-  writeCompatTool: vi.fn(async () => "written" as const),
-  removeCompatTool: vi.fn(async () => "written" as const),
-}));
-vi.mock("../../src/core/localconfig", () => ({
-  writeLaunchOptions: vi.fn(async () => "written" as const),
-}));
+// mocks: tauri-adapter system ports
 vi.mock("../../src/core/adapters/tauri", async () => {
-  const tauriPorts = { fs: {}, http: {}, system: {}, cache: {} };
+  const tauriPorts = {
+    fs: {},
+    http: {},
+    system: {
+      saveLaunchOptions: vi.fn(async () => "written" as const),
+      saveCompatTool: vi.fn(async () => "written" as const),
+    },
+    cache: {},
+  };
   return { tauriPorts, appCacheDir: async () => "/tmp/protium-cache" };
 });
 
@@ -40,6 +41,7 @@ function fakeScanResult(): ScanResult {
     steamUserId: "12345",
     warnings: [],
     skippedLibraries: [],
+    cleanupUnsafeLibraries: [],
   };
 }
 

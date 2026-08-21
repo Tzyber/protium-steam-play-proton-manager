@@ -6,6 +6,8 @@
 // pinnt, dupliziert nur die daten) und verzerrten den score; isBlocked und
 // availableBuiltinProtons bleiben drin. siehe docs/mutation-report.
 // @ts-check
+// .stryker-tmp bleibt ein temporäres Stryker-Arbeitsverzeichnis und gehört
+// weder in Biome- noch in TypeScript-Prüfungen.
 /** @type {import('@stryker-mutator/core').StrykerOptions} */
 const config = {
   testRunner: "vitest",
@@ -19,7 +21,6 @@ const config = {
   reporters: ["clear-text", "html", "json"],
   htmlReporter: { fileName: "reports/mutation/html/index.html" },
   jsonReporter: { fileName: "reports/mutation/mutation-report.json" },
-  disableProgress: true,
 };
 
 export default config;

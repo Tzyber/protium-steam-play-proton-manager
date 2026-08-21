@@ -1,3 +1,4 @@
+import { parseSafeAppId } from "./types.js";
 import { asInt, asString, getKeyInsensitive, parseVdf } from "./vdf.js";
 
 interface ManifestData {
@@ -13,8 +14,10 @@ export function parseManifest(text: string): ManifestData {
   if (typeof app !== "object" || app === null) {
     throw new Error("appmanifest ohne AppState-block");
   }
-  const appId = asInt(getKeyInsensitive(app, "appid"));
-  if (appId === undefined) throw new Error("appmanifest ohne gültige appid");
+  const appIdRaw = asString(getKeyInsensitive(app, "appid"));
+  if (appIdRaw === undefined) throw new Error("appmanifest ohne gültige appid");
+  const appId = parseSafeAppId(appIdRaw);
+  if (appId === null) throw new Error("appmanifest ohne gültige appid");
 
   const name = asString(getKeyInsensitive(app, "name")) ?? `app ${appId}`;
   const sizeBytes = asInt(getKeyInsensitive(app, "SizeOnDisk")) ?? 0;

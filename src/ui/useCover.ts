@@ -1,32 +1,69 @@
-import { computed, ref, watch } from "vue";
-import { assetUrl } from "../core/adapters/tauri";
+import { onBeforeUnmount, ref, watch } from "vue";
+import { tauriPorts } from "../core/adapters/tauri";
 import type { Game } from "../core/types";
 
-// kandidaten in reihenfolge: lokaler cache (CDN-unabhängig) → steam-cdn → text.
+// lokale Steam-Cover kommen als Backend-Bytes. Blob-URLs bleiben deshalb
+// außerhalb des plugin-fs- und asset-Protokolls.
 export function useCover(getGame: () => Game | null) {
-  const candidates = computed<string[]>(() => {
-    const g = getGame();
-    const list: string[] = [];
-    if (g?.localHeader) list.push(assetUrl(g.localHeader));
-    if (g?.headerImage) list.push(g.headerImage);
-    return list;
-  });
+  const src = ref<string | null>(null);
+  let blobUrl: string | null = null;
+  let request = 0;
+  let fallbackIndex = 0;
 
-  const idx = ref(0);
-  const src = computed<string | null>(() => candidates.value[idx.value] ?? null);
-  function onError() {
-    idx.value++; // Nächster Kandidat; danach folgt der Text-Fallback.
+  function revokeBlob(): void {
+    if (!blobUrl) return;
+    URL.revokeObjectURL(blobUrl);
+    blobUrl = null;
   }
 
-  // fehler-fallback-index zurücksetzen: ohne das erbt das nächste spiel den
-  // fallback-stand des vorherigen und zeigt trotz vorhandenem cover nur text.
+  async function load(): Promise<void> {
+    const currentRequest = ++request;
+    revokeBlob();
+    fallbackIndex = 0;
+    src.value = null;
+    const game = getGame();
+    if (!game) return;
+
+    if (game.localHeader) {
+      try {
+        const bytes = await tauriPorts.fs.readFile(game.localHeader);
+        if (currentRequest !== request || getGame()?.appId !== game.appId) return;
+        const blobBytes = new ArrayBuffer(bytes.byteLength);
+        new Uint8Array(blobBytes).set(bytes);
+        blobUrl = URL.createObjectURL(new Blob([blobBytes], { type: "image/jpeg" }));
+        src.value = blobUrl;
+        return;
+      } catch {
+        // unlesbares lokales cover fällt auf das CDN zurück.
+      }
+    }
+
+    if (currentRequest === request) src.value = game.headerImage;
+  }
+
+  function onError(): void {
+    revokeBlob();
+    fallbackIndex += 1;
+    const game = getGame();
+    src.value = fallbackIndex === 1 ? (game?.headerImage ?? null) : null;
+  }
+
   watch(
-    () => getGame()?.appId,
     () => {
-      idx.value = 0;
+      const game = getGame();
+      return [game?.appId, game?.localHeader, game?.headerImage] as const;
+    },
+    () => {
+      void load();
     },
     { immediate: true },
   );
+
+  onBeforeUnmount(() => {
+    request += 1;
+    revokeBlob();
+    src.value = null;
+  });
 
   return { src, onError };
 }

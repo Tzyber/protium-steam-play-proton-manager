@@ -1,4 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
 import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
 import { findOrphans } from "../../core/cleanup";
@@ -68,7 +67,7 @@ export const useCleanupStore = defineStore("cleanup", {
   },
   actions: {
     key(entry: OrphanEntry): string {
-      return `${entry.type}:${entry.appId}`;
+      return entry.path;
     },
 
     async scanOrphans() {
@@ -87,10 +86,17 @@ export const useCleanupStore = defineStore("cleanup", {
       try {
         const skipped = result.skippedLibraries;
         const blocking = skipped.filter((s) => s.reason !== "path-missing");
-        if (blocking.length > 0) {
+        const unsafe = result.cleanupUnsafeLibraries;
+        if (!Array.isArray(unsafe)) {
           this.blockedBySkipped = true;
+          this.error = t("errors.scanIncomplete", { paths: "cleanupUnsafeLibraries fehlt" });
+          return;
+        }
+        if (blocking.length > 0 || unsafe.length > 0) {
+          this.blockedBySkipped = true;
+          const blockedPaths = [...new Set([...blocking.map((s) => s.path), ...unsafe])];
           this.error = t("errors.scanIncomplete", {
-            paths: blocking.map((s) => s.path).join(", "),
+            paths: blockedPaths.join(", "),
           });
           return;
         }
@@ -153,15 +159,30 @@ export const useCleanupStore = defineStore("cleanup", {
 
     async deleteOrphans(entries: OrphanEntry[]) {
       if (this.blockedBySkipped) return;
-      if (await tauriPorts.system.isProcessRunning("steam")) {
-        this.error = t("errors.steamRunningCleanup");
-        return;
-      }
 
       const scan = useScanStore();
       const result = scan.result;
       if (!result) {
         this.error = t("errors.noScanResult");
+        return;
+      }
+
+      const unsafe = result.cleanupUnsafeLibraries;
+      if (!Array.isArray(unsafe)) {
+        this.blockedBySkipped = true;
+        this.error = t("errors.scanIncomplete", { paths: "cleanupUnsafeLibraries fehlt" });
+        return;
+      }
+      if (unsafe.length > 0) {
+        this.blockedBySkipped = true;
+        this.error = t("errors.scanIncomplete", {
+          paths: unsafe.join(", "),
+        });
+        return;
+      }
+
+      if (await tauriPorts.system.isProcessRunning("steam")) {
+        this.error = t("errors.steamRunningCleanup");
         return;
       }
 
@@ -189,10 +210,17 @@ export const useCleanupStore = defineStore("cleanup", {
         const k = this.key(entry);
         this.deleting.add(k);
         try {
-          await invoke<string>("remove_orphan_dir", { path: entry.path });
-          this.orphans = this.orphans.filter((o) => this.key(o) !== k);
-          // shadercache wird hart gelöscht und landet nie im papierkorb
-          if (entry.type === "compatdata") trashedCompatdata = true;
+          const pending = await tauriPorts.system.prepareDelete({
+            targetType: "orphan",
+            path: entry.path,
+            steamRoot: result.steamRoot,
+          });
+          const res = await tauriPorts.system.executeDelete(pending.token);
+          if (res.success) {
+            this.orphans = this.orphans.filter((o) => this.key(o) !== k);
+            // shadercache wird hart gelöscht und landet nie im papierkorb
+            if (entry.type === "compatdata") trashedCompatdata = true;
+          }
         } catch (e) {
           errors.push(`${entry.type}/${entry.appId}: ${errMsg(e)}`);
         } finally {
@@ -286,23 +314,39 @@ export const useCleanupStore = defineStore("cleanup", {
       }
     },
 
-    // busy-state fürs löschen hält die view lokal (eine quelle, kein doppelter
-    // store/view-zustand für denselben button).
     async deleteTrashEntry(entry: TrashEntry) {
+      const scan = useScanStore();
+      const steamRoot = scan.result?.steamRoot ?? "";
       try {
-        await invoke<string>("remove_trash_entry", { path: entry.path });
-        this.trash = this.trash.filter((e) => e.path !== entry.path);
+        const pending = await tauriPorts.system.prepareDelete({
+          targetType: "trash",
+          path: entry.path,
+          steamRoot,
+        });
+        const res = await tauriPorts.system.executeDelete(pending.token);
+        if (res.success) {
+          this.trash = this.trash.filter((e) => e.path !== entry.path);
+        }
       } catch (e) {
         this.error = `${entry.name}: ${errMsg(e)}`;
       }
     },
 
     async emptyTrash() {
+      const scan = useScanStore();
+      const steamRoot = scan.result?.steamRoot ?? "";
       const errors: string[] = [];
       for (const entry of [...this.trash]) {
         try {
-          await invoke<string>("remove_trash_entry", { path: entry.path });
-          this.trash = this.trash.filter((e) => e.path !== entry.path);
+          const pending = await tauriPorts.system.prepareDelete({
+            targetType: "trash",
+            path: entry.path,
+            steamRoot,
+          });
+          const res = await tauriPorts.system.executeDelete(pending.token);
+          if (res.success) {
+            this.trash = this.trash.filter((e) => e.path !== entry.path);
+          }
         } catch (e) {
           errors.push(`${entry.name}: ${errMsg(e)}`);
         }

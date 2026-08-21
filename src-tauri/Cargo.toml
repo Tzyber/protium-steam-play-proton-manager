@@ -1,6 +1,6 @@
 [package]
 name = "protium"
-version = "0.3.1"
+version = "0.4.0"
 description = "steam/proton library manager"
 edition = "2021"
 rust-version = "1.77"
@@ -13,9 +13,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset"] }
+tauri = { version = "2", features = [] }
 tauri-plugin-fs = "2"
 tauri-plugin-http = "2"
+tauri-plugin-dialog = "2"
+getrandom = "0.3"
+libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 sysinfo = "0.39"
 # phase 3: download (stream + sha512) + tarball-extraktion
@@ -24,8 +27,8 @@ futures-util = "0.3"
 sha2 = "0.11"
 flate2 = "1"
 tar = "0.4"
-tokio = { version = "1", features = ["fs", "io-util", "rt"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "rt", "sync"] }
 
 [dev-dependencies]
 # für die R-4 cargo-tests (#[tokio::test] + lokaler http-stub)
-tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "io-util"] }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "io-util", "sync"] }

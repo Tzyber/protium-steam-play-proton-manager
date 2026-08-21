@@ -69,6 +69,15 @@ describe("listCompatTools", () => {
     const pi: PathIdentity = { realpath: "/compat", dev: "1", ino: "1" };
 
     const system: System = {
+      geTargetArch: vi.fn(async () => "x86_64" as const),
+      discoverSteamEnvironment: vi.fn(async () => ({
+        generation: 1,
+        steamRoot: "/fake/steam",
+        libraries: ["/fake/steam"],
+        systemCompatDirs: [],
+        appCacheDir: "/tmp/cache",
+        appConfigDir: "/tmp/config",
+      })),
       listTrashEntries: vi.fn(async (library: string) => ({
         dir: `${library}/steamapps/.protium-trash`,
         present: false,
@@ -77,16 +86,19 @@ describe("listCompatTools", () => {
       isProcessRunning: vi.fn(async () => false),
       dirSize: vi.fn(async () => 0),
       batchDirSizes: vi.fn(async () => ({})),
-      allowLibraryScope: vi.fn(async () => {}),
       pathIdentity: vi.fn(async () => pi),
-      downloadFile: vi.fn(async () => "hash"),
-      fetchSha512: vi.fn(async () => {
-        throw new Error("fetchSha512 not mocked");
-      }),
+      installGeProton: vi.fn(async () => "verified" as const),
       cancelDownload: vi.fn(async () => {}),
-      extractTarball: vi.fn(async () => {}),
-      writeSteamConfigFile: vi.fn(async () => {}),
-      removeCompatTool: vi.fn(async () => {}),
+      saveLaunchOptions: vi.fn(async () => "written" as const),
+      saveCompatTool: vi.fn(async () => "written" as const),
+      prepareDelete: vi.fn(async () => ({
+        token: "tok",
+        expiresAt: Date.now() + 60000,
+        targetType: "compatTool" as const,
+        targetPath: "/path",
+        consequences: [],
+      })),
+      executeDelete: vi.fn(async () => ({ success: true, deletedPath: "/path" })),
     };
 
     const warnings: string[] = [];

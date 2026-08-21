@@ -1,37 +1,46 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { discoverSteamRoot } from "../../src/core/paths.js";
 import { scanLibrary } from "../../src/core/scan.js";
 import { buildFakeSteam, fakeHttp, fakeSystem, memCache, nodeFs } from "../support/fakeSteam";
 
 describe("scanLibrary (integration, dominiks reales setup)", () => {
-  it("dedupliziert libraries, findet system-compat-tools, erfüllt phase-1-akzeptanz", async () => {
-    const { home, root, lib2, lib2Dup, staleLib, systemCompat, userId } = await buildFakeSteam();
-    const fs = nodeFs();
+  it("bricht ohne aktuellen Environment-Root fail-closed ab", async () => {
+    await expect(
+      scanLibrary(
+        { fs: nodeFs(), http: fakeHttp(), system: fakeSystem(), cache: memCache() },
+        {
+          environment: {
+            generation: 0,
+            steamRoot: "/tmp/claimed",
+            libraries: [],
+            systemCompatDirs: [],
+            appCacheDir: "/tmp/cache",
+            appConfigDir: "/tmp/config",
+          },
+        },
+      ),
+    ).rejects.toThrow("environment snapshot");
+  });
 
-    const discovered = await discoverSteamRoot(fs, home);
-    expect(discovered).toBe(root);
+  it("dedupliziert libraries, findet system-compat-tools, erfüllt phase-1-akzeptanz", async () => {
+    const { root, lib2, lib2Dup, staleLib, systemCompat, userId, environment } =
+      await buildFakeSteam();
+    const fs = nodeFs();
 
     const system = fakeSystem();
     const result = await scanLibrary(
       { fs, http: fakeHttp(), system, cache: memCache() },
-      { steamRoot: root, protonDbDelayMs: 0, extraCompatDirs: [systemCompat] },
+      { environment: { ...environment, systemCompatDirs: [systemCompat] }, protonDbDelayMs: 0 },
     );
 
     // library-dedup: symlink-dup + staler eintrag raus, nur root + lib2 bleiben
     expect(result.libraries).toEqual([root, lib2]);
-    expect(system.scopedPaths).toEqual(expect.arrayContaining([root, lib2]));
     expect(result.warnings.some((w) => w.includes(lib2Dup) && w.includes("identischer"))).toBe(
-      true,
+      false,
     );
-    expect(
-      result.warnings.some((w) => w.includes(staleLib) && w.includes("tote config-leiche")),
-    ).toBe(true);
-
-    // skippedLibraries: staleLib als path-missing klassifiziert, keine blocking-skips
-    expect(result.skippedLibraries).toHaveLength(1);
-    expect(result.skippedLibraries[0]).toEqual({ path: staleLib, reason: "path-missing" });
+    expect(result.warnings.some((w) => w.includes(staleLib))).toBe(false);
+    expect(result.skippedLibraries).toHaveLength(0);
 
     const byId = new Map(result.games.map((g) => [g.appId, g]));
 
@@ -81,8 +90,10 @@ describe("scanLibrary (integration, dominiks reales setup)", () => {
     expect(byId.get(620)?.launchOptions).toBe("gamemoderun %command%");
     expect(byId.get(570)?.launchOptions).toBeUndefined();
 
-    // korruptes acf → warning, kein crash
+    // korruptes acf → warning, kein crash, library als unsafe markiert
     expect(result.warnings.some((w) => w.includes("appmanifest_9999"))).toBe(true);
+    expect(result.cleanupUnsafeLibraries).toContain(root);
+    expect(result.cleanupUnsafeLibraries).not.toContain(lib2);
 
     // installierte built-in protons (proton experimental) werden erfasst, obwohl sie aus games rausgefiltert sind
     expect(result.builtinProtonsInstalled).toEqual(
@@ -93,44 +104,33 @@ describe("scanLibrary (integration, dominiks reales setup)", () => {
     expect(result.games.some((g) => g.appId === 1493710)).toBe(false);
   });
 
-  it("klassifiziert scope-failed wenn pfad existiert aber allowLibraryScope wirft", async () => {
-    const { home, root, lib2 } = await buildFakeSteam();
+  it("scannt ausschließlich libraries aus dem aktuellen Environment-Snapshot", async () => {
+    const { root, lib2, environment } = await buildFakeSteam();
     const fs = nodeFs();
-
-    // extra library existiert, aber allowLibraryScope soll fehlschlagen
-    const scopeFailLib = join(home, "scope-fail-lib/SteamLibrary");
-    const scopeFailApps = join(scopeFailLib, "steamapps");
-    await mkdir(scopeFailApps, { recursive: true });
-
-    // libraryfolders.vdf um den extra pfad erweitern
-    const lfPath = join(root, "steamapps/libraryfolders.vdf");
-    const lfContent = await readFile(lfPath, "utf8");
-    const idx = lfContent.lastIndexOf("}");
-    const extra = `\t"99"\n\t{\n\t\t"path"\t\t"${scopeFailLib}"\n\t}\n`;
-    const patched = `${lfContent.slice(0, idx)}${extra}${lfContent.slice(idx)}`;
-    await writeFile(lfPath, patched, "utf8");
-
-    const system = fakeSystem({ failScope: new Set([scopeFailLib]) });
+    const claimed = join(root, "claimed-not-in-snapshot");
+    await import("node:fs/promises").then(({ mkdir }) =>
+      mkdir(join(claimed, "steamapps"), { recursive: true }),
+    );
+    const system = fakeSystem();
     const result = await scanLibrary(
       { fs, http: fakeHttp(), system, cache: memCache() },
-      { steamRoot: root, protonDbDelayMs: 0 },
+      { environment: { ...environment, libraries: [root, lib2] }, protonDbDelayMs: 0 },
     );
 
-    expect(result.libraries).toEqual([root, lib2, scopeFailLib]);
-    const scopeFailed = result.skippedLibraries.find((s) => s.path === scopeFailLib);
-    expect(scopeFailed?.reason).toBe("scope-failed");
+    expect(result.libraries).toEqual([root, lib2]);
+    expect(result.games.every((game) => game.library !== claimed)).toBe(true);
   });
 
   // der bericht (113:7): kein account durfte den scan nicht crashen, sondern
   // eine warnung zeigen, die erklärt, warum startoptionen fehlen.
   it("kein steam-account → warnung mit erklärung, scan läuft durch", async () => {
-    const { root } = await buildFakeSteam();
+    const { root, environment } = await buildFakeSteam();
     const fs = nodeFs();
     await rm(join(root, "userdata"), { recursive: true, force: true });
 
     const result = await scanLibrary(
       { fs, http: fakeHttp(), system: fakeSystem(), cache: memCache() },
-      { steamRoot: root, protonDbDelayMs: 0 },
+      { environment, protonDbDelayMs: 0 },
     );
 
     expect(result.warnings).toContain(
@@ -142,13 +142,13 @@ describe("scanLibrary (integration, dominiks reales setup)", () => {
   });
 
   it("fehlende config.vdf lässt spiele und tools sichtbar, aber compat-tools unbekannt", async () => {
-    const { root } = await buildFakeSteam();
+    const { root, environment } = await buildFakeSteam();
     const fs = nodeFs();
     await rm(join(root, "config", "config.vdf"));
 
     const result = await scanLibrary(
       { fs, http: fakeHttp(), system: fakeSystem(), cache: memCache() },
-      { steamRoot: root, protonDbDelayMs: 0, extraCompatDirs: [] },
+      { environment: { ...environment, systemCompatDirs: [] }, protonDbDelayMs: 0 },
     );
 
     expect(result.games).toHaveLength(3);

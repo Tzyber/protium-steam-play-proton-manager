@@ -98,6 +98,44 @@ describe("parseBinaryShortcutIds", () => {
     expect(parseBinaryShortcutIds(buf).size).toBe(0);
   });
 
+  it("mehrere 0x02-felder: nur appid landet im set, LastPlayTime nicht als appId (99:3)", () => {
+    // ein shortcut-eintrag mit appid=42 und LastPlayTime=99999 (beide 0x02/int32)
+    // entryKind-regelwerk: nur key "appid" wird als "appid" behandelt, der rest als "skip"
+    const lastPlayTimeValue = 99999;
+    const appIdValue = 42;
+
+    const enc = new TextEncoder();
+    const appIdBuf = new ArrayBuffer(4);
+    new DataView(appIdBuf).setUint32(0, appIdValue, true);
+    const lastPlayBuf = new ArrayBuffer(4);
+    new DataView(lastPlayBuf).setUint32(0, lastPlayTimeValue, true);
+
+    const parts = new Uint8Array([
+      0x00,
+      ...enc.encode("shortcuts"),
+      0x00,
+      0x00, // type: MAP (entry "0")
+      ...enc.encode("0"),
+      0x00, // entry key
+      0x02, // type: int32
+      ...enc.encode("appid"),
+      0x00, // key
+      ...new Uint8Array(appIdBuf), // value: 42
+      0x02, // type: int32
+      ...enc.encode("LastPlayTime"),
+      0x00, // key
+      ...new Uint8Array(lastPlayBuf), // value: 99999
+      0x08, // end entry
+      0x08, // end root
+    ]);
+
+    const ids = parseBinaryShortcutIds(parts);
+    expect(ids.has(appIdValue)).toBe(true);
+    // LastPlayTime darf NICHT als appId im set landen
+    expect(ids.has(lastPlayTimeValue)).toBe(false);
+    expect(ids.size).toBe(1);
+  });
+
   it("falsche magic → wirft", () => {
     const buf = makeBinVdf([{ appId: 1 }]);
     buf[0] = 0xff;

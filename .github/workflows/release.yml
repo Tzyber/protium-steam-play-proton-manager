@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -12,13 +11,18 @@ permissions:
 jobs:
   appimage:
     name: Build AppImage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       # M4.5: action-tags auf commit-SHAs gepinnt (2026-07-31), mutable
       # tags sind supply-chain-risiko, SHAs sind immutabel.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Verify release version
+        run: |
+          node scripts/check-release-version.mjs --self-test
+          node scripts/check-release-version.mjs
 
       - name: Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -112,17 +116,7 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: "Protium ${{ github.ref_name }}"
-          body: |
-            ## 0.3.1, besser bedienbar
-
-            Diese Version verbessert die Bedienung mit Tastatur und Screenreader.
-
-            Dialoge isolieren den Hintergrund jetzt vollständig. Die Proton-Auswahl
-            schließt beim Navigieren mit Tab sauber. Kleine Schließen- und
-            Hinweisaktionen sind besser erreichbar.
-
-            Außerdem bleibt die Statuskarte in der Seitenleiste bei allen
-            Fenstergrößen sichtbar.
+          body_path: docs/releases/${{ github.ref_name }}.md
           draft: true
           prerelease: false
           files: |

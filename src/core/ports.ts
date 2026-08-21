@@ -59,43 +59,88 @@ export interface PathIdentity {
   ino: string;
 }
 
+export type TargetArch = "x86_64" | "aarch64";
+
+export interface EnvironmentSnapshot {
+  generation: number;
+  steamRoot: string;
+  libraries: string[];
+  systemCompatDirs: string[];
+  appCacheDir: string;
+  appConfigDir: string;
+}
+
 export interface System {
+  /** Liefert ausschließlich die vom Rust-Backend kompilierte GE-Zielarchitektur. */
+  geTargetArch(): Promise<TargetArch>;
   isProcessRunning(name: string): Promise<boolean>;
   dirSize(path: string): Promise<number>;
   /** Größen für viele Pfade auf einmal; ein fehlender Map-Eintrag
    *  bedeutet: pfad wurde übersprungen (z. b. NotFound-race), KEINE größe 0. */
   batchDirSizes(paths: string[]): Promise<Record<string, number>>;
-  /** Muss vor Reads auf externen Pfaden laufen, sonst blockiert deren Scope den Zugriff. */
-  allowLibraryScope(path: string): Promise<void>;
+  /** entdeckt und ersetzt den atomaren, backendautorisierten Environment-Snapshot. */
+  discoverSteamEnvironment(): Promise<EnvironmentSnapshot>;
   /** `(dev, ino)` zur Library-Deduplizierung; `null`, wenn nicht erreichbar. */
   pathIdentity(path: string): Promise<PathIdentity | null>;
-  /** Streamt nach `dest`, berechnet SHA512 und meldet Fortschritt per `download-progress`. */
-  downloadFile(url: string, dest: string, downloadId: string): Promise<string>;
-  /** Lädt das SHA512-Asset über das Backend mit derselben Redirect-Policy wie
-   *  download_file (plugin-http folgt redirects ohne scope-recheck). wirft bei
-   *  netz-/http-/größenfehler, aufrufer degradiert zu „ohne prüfung" + warning. */
-  fetchSha512(url: string): Promise<string>;
+  /** Installiert ein GE-Proton-Release atomar, mit Hash-Verifikation und Swap-Schutz. */
+  installGeProton(params: GeInstallParams): Promise<InstallGeResult>;
   /** Bricht den Download ab und räumt die partielle Datei auf. */
   cancelDownload(downloadId: string): Promise<void>;
-  /** Entpackt ein `.tar.gz` nach `dest` mit einer Temp-Datei im Ziel-Dateisystem. */
-  extractTarball(src: string, dest: string): Promise<void>;
-  /** Entfernt ein GE-Tool aus `compatibilitytools.d` mit Scope-Check auf den
-   *  steam-root, tool_name-validierung, symlink-guard, in rust). */
-  removeCompatTool(steamRoot: string, toolName: string): Promise<void>;
-  /** Schreibt eine Steam-Konfigurationsdatei erst nach Prozesscheck, Backup und
-   *  check → backup → atomarer temp+rename). `original` = der vor dem patch
-   *  gelesene stand (backup-inhalt, TOCTOU-basis); `backup` = vom JS gebauter
-   *  backup-pfad im app-cache. */
-  writeSteamConfigFile(
-    file: string,
-    original: string,
-    content: string,
-    backup: string,
-  ): Promise<void>;
-  /** listet <library>/steamapps/.protium-trash. in rust, weil der webview-fs-scope
-   *  verzeichnisse mit führendem punkt nicht zuverlässig erfasst. */
+  /** Bereitet eine Löschung vor (frischer Live-Zustandsabgleich, Token-Generierung). */
+  prepareDelete(request: PrepareDeleteRequest): Promise<PendingDeleteInfo>;
+  /** Führt die vorbereitete Löschung nach nativer Bestätigung aus. */
+  executeDelete(token: string): Promise<DeleteResult>;
+  /** Speichert Startoptionen in `localconfig.vdf` via backendkontrolliertem Write-Gate. */
+  saveLaunchOptions(
+    steamRoot: string,
+    accountId: string,
+    appId: number,
+    launchOptions: string,
+  ): Promise<WriteResult>;
+  /** Speichert Compat-Tool-Mapping in `config.vdf` via backendkontrolliertem Write-Gate. */
+  saveCompatTool(steamRoot: string, appId: number, toolName: string | null): Promise<WriteResult>;
+  /** listet <library>/steamapps/.protium-trash über den aktuellen Backend-Snapshot. */
   listTrashEntries(library: string): Promise<TrashListing>;
 }
+
+export type DeleteTargetType = "orphan" | "trash" | "compatTool";
+
+export interface PrepareDeleteRequest {
+  targetType: DeleteTargetType;
+  path: string;
+  steamRoot: string;
+}
+
+export interface DeleteConsequence {
+  path: string;
+  action: "trash" | "permanentDelete";
+  description: string;
+  affectedAppIds?: number[];
+}
+
+export interface PendingDeleteInfo {
+  token: string;
+  expiresAt: number;
+  targetType: DeleteTargetType;
+  targetPath: string;
+  consequences: DeleteConsequence[];
+}
+
+export interface DeleteResult {
+  success: boolean;
+  deletedPath: string;
+}
+
+export interface GeInstallParams {
+  steamRoot: string;
+  releaseTag: string;
+  downloadUrl: string;
+  downloadId: string;
+}
+
+export type InstallGeResult = "verified" | "unverified";
+
+export type WriteResult = "written" | "unchanged";
 
 /** persistenter key/value-cache (protondb TTL, github etag). */
 export interface Cache {

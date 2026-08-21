@@ -20,24 +20,28 @@ it came into being because this exact tool did not exist. protonup-qt only manag
 
 ## installing
 
-grab the ready-made AppImage from the [releases page](https://github.com/Tzyber/protium-steam-play-proton-manager/releases), make it executable, run it:
+grab the AppImage or Debian package from the [releases page](https://github.com/Tzyber/protium-steam-play-proton-manager/releases). make the AppImage executable and run it:
 
 ```sh
-chmod +x protium_0.2.9_amd64.AppImage
-./protium_0.2.9_amd64.AppImage
+chmod +x protium_0.4.0_amd64.AppImage
+./protium_0.4.0_amd64.AppImage
 ```
 
-the AppImage is not signed. if you don't like that, build it yourself (see dev setup) or wait for the AUR package.
+the AppImage is not signed. if you don't like that, build it yourself (see dev setup). Debian-based systems can install the accompanying Debian package:
+
+```sh
+sudo apt install ./protium_0.4.0_amd64.deb
+```
 
 if nothing starts and no error message appears, fuse2 is usually missing. then either `sudo pacman -S fuse2` or run it once without fuse:
 
 ```sh
-./protium_0.2.9_amd64.AppImage --appimage-extract-and-run
+./protium_0.4.0_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## what it does
 
-**library overview.** every game across every library, external drives included, with cover art, size, assigned proton version and protondb tier right on the card. covers come from steam's local librarycache, so the app works fully offline.
+**library overview.** every game across every library, external drives included, with cover art, size, assigned proton version and protondb tier right on the card. Steam and library files are read through a current, backend-canonical environment snapshot; local covers arrive as short-lived blob URLs from a bounded backend binary read. The app still works offline without granting local Steam paths to the webview.
 
 **GE-proton manager.** installed versions with size and the information which games actually use them. install new releases straight from github (streaming download with sha512 verification, cancellable, partial file cleaned up), remove unused ones. distro protons such as proton-cachyos are detected and marked read-only. they belong to the package manager, not to us.
 
@@ -55,7 +59,11 @@ if nothing starts and no error message appears, fuse2 is usually missing. then e
 
 - **native**: `~/.local/share/Steam` and `~/.steam/steam`
 - **flatpak**: `~/.var/app/com.valvesoftware.Steam/.local/share/Steam`
-- **symlinks and custom paths**: `discoverSteamRoot` resolves symlinks via `realpath`
+- **discovery**: `discover_steam_environment` resolves only fixed candidates
+  from the backend home directory and reads libraries from `libraryfolders.vdf`;
+  webview-supplied library paths are not trusted.
+- **symlinks**: root and library symlinks are canonicalised by the backend and
+  checked against the current snapshot for every environment read.
 
 snap (`~/snap/steam/`) is included from 0.1.7, but only tested against fixtures. nobody has verified it on a real snap system yet.
 
@@ -77,7 +85,7 @@ important: the target `compatdata/<appId>` must not already exist. if it does, y
 
 tauri v2 as the shell, vue 3 and typescript for UI and domain logic, rust only for what the webview is not allowed to do. no electron; the binary stays small and uses the system webview (webkit2gtk).
 
-concretely, rust only handles: just over 1000 productive lines for path validation, streaming downloads with hashing, tarball extraction, the two delete commands, process check and fs scope grants. domain logic and UI decisions do not live in this layer. plus nearly 1800 lines of tests, almost twice as many as production code, because these paths modify and delete files.
+concretely, rust only handles: just over 1000 productive lines for environment discovery and snapshot-authorised reads, path validation, streaming downloads with hashing, tarball extraction, the two delete commands and the process check. domain logic and UI decisions do not live in this layer. plus nearly 1800 lines of tests, almost twice as many as production code, because these paths modify and delete files.
 
 the domain logic in `src/core/` is entirely UI-free and talks to the system only through ports and adapters. that lets the whole core test suite run headless against fixtures, no tauri, no steam, no network.
 
@@ -144,12 +152,9 @@ version history lives in the [releases](https://github.com/Tzyber/protium-steam-
 
 ## open points
 
-no security issues, rather maintenance. worked through when convenient, order is not a priority.
-
-- split up `scanLibrary` (`scan.ts`, 164 lines, 7 concerns), as its own cycle and not in passing
+open maintenance items. security boundaries are reviewed separately and before
+refactors. work proceeds as convenient; the order is not a priority.
 
 ## status
 
 under active development. api and UI change without notice. the roadmap describes the current state; it is not a promise of future versions.
-
-written with AI support, designed and owned by me. if you see a claude in the contributors list: that comes from `Co-Authored-By` trailers. he does not appear in the commit graph because he never pushed anything there.

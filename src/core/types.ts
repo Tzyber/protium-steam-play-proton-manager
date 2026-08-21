@@ -36,6 +36,7 @@ export interface ScanResult {
   steamUserId: string | null;
   warnings: string[];
   skippedLibraries: SkippedLibrary[];
+  cleanupUnsafeLibraries: string[];
 }
 
 export type SkipReason = "path-missing" | "scope-failed" | "read-failed";
@@ -61,11 +62,12 @@ export const NUMERIC_RE = /^\d+$/;
 
 /** Riesige Ziffernfolgen parsen jenseits der
  *  JS-präzision (NAME_MAX erlaubt 254 ziffern → 1.8e254). solche appIds
- *  sind nie legitim (steam: ≤ 10 stellen) und würden das rust-backend
+ *  außerhalb der Steam-AppID-Grenze sind nie legitim und würden das rust-backend
  *  (u64-parse) beim löschen ratlos lassen. null = kein brauchbarer wert. */
 export function parseSafeAppId(str: string): number | null {
+  if (!NUMERIC_RE.test(str)) return null;
   const appId = Number.parseInt(str, 10);
-  if (appId === 0 || !Number.isFinite(appId) || appId > Number.MAX_SAFE_INTEGER) return null;
+  if (appId < 1 || appId > 2_147_483_647 || !Number.isSafeInteger(appId)) return null;
   return appId;
 }
 

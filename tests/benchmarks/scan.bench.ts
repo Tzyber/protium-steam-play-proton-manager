@@ -69,6 +69,7 @@ async function measureScenario(scenario: ScanPerformanceScenario): Promise<void>
       expect(gamesResult.blockedAppIds).toHaveLength(0);
       expect(gamesResult.warnings).toEqual([]);
       expect(gamesResult.skippedLibraries).toEqual([]);
+      expect(gamesResult.cleanupUnsafeLibraries).toEqual([]);
     } finally {
       await gamesFixture.cleanup();
     }
@@ -90,7 +91,7 @@ async function measureScenario(scenario: ScanPerformanceScenario): Promise<void>
       };
 
       const localStartedAt = performance.now();
-      const local = await scanLocal(ports, fixture.root, []);
+      const local = await scanLocal(ports, fixture.environment);
       measurements.localMs.push(performance.now() - localStartedAt);
 
       expect(local.games).toHaveLength(fixture.appIds.length);
@@ -100,6 +101,7 @@ async function measureScenario(scenario: ScanPerformanceScenario): Promise<void>
       );
       expect(local.warnings).toEqual([]);
       expect(local.skippedLibraries).toEqual([]);
+      expect(local.cleanupUnsafeLibraries).toEqual([]);
 
       const protonDbStartedAt = performance.now();
       await enrichProtondb(ports, local.games, 0);

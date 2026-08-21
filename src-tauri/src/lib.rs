@@ -38,24 +38,30 @@ pub fn run() {
         })
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(commands::download::CancelRegistry::default())
+        .manage(commands::delete_ops::PendingDeleteRegistry::default())
+        .manage(commands::scope::EnvironmentState::default())
         .invoke_handler(tauri::generate_handler![
             commands::fs_ops::is_process_running,
             commands::external::open_external,
             commands::fs_ops::dir_size,
             commands::fs_ops::batch_dir_sizes,
-            commands::scope::allow_library_scope,
+            commands::fs_ops::environment_exists,
+            commands::fs_ops::environment_read_text,
+            commands::fs_ops::environment_read_binary,
+            commands::fs_ops::environment_read_dir,
+            commands::scope::discover_steam_environment,
             commands::fs_ops::canonicalize_path,
             commands::fs_ops::path_identity,
-            commands::extract::extract_tarball,
-            commands::download::download_file,
+            commands::ge_install::ge_target_arch,
+            commands::ge_install::install_ge_proton,
             commands::download::cancel_download,
-            commands::download::fetch_sha512,
-            commands::cleanup::remove_orphan_dir,
-            commands::cleanup::remove_trash_entry,
+            commands::delete_ops::prepare_delete,
+            commands::delete_ops::execute_delete,
             commands::cleanup::list_trash_entries,
-            commands::steam::write_steam_file,
-            commands::steam::remove_compat_tool,
+            commands::steam::save_launch_options,
+            commands::steam::save_compat_tool,
         ])
         .run(tauri::generate_context!())
         .expect("error while running protium");

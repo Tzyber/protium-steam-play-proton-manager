@@ -1,26 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { readLibraryList } from "../../../src/core/scan/libraries.js";
-import { buildFakeSteam, fakeSystem, nodeFs } from "../../support/fakeSteam";
+import { buildFakeSteam } from "../../support/fakeSteam";
 
 describe("readLibraryList", () => {
-  it("überspringt existierende libraries ohne identity vor jedem scope-zugriff", async () => {
-    const { root, lib2 } = await buildFakeSteam();
-    const fs = nodeFs();
-    const system = fakeSystem();
-    const identityOf = system.pathIdentity;
-    system.pathIdentity = async (path) => (path === root ? null : identityOf(path));
+  it("verwendet ausschließlich die backendgelieferte Library-Liste", async () => {
+    const { environment, root, lib2 } = await buildFakeSteam();
+    const result = readLibraryList({ ...environment, libraries: [root, lib2] });
 
-    const result = await readLibraryList(fs, system, root);
+    expect(result.libraries).toEqual([root, lib2]);
+    expect(result.warnings).toEqual([]);
+    expect(result.skippedLibraries).toEqual([]);
+  });
 
-    expect(result.libraries).toEqual([lib2]);
-    expect(result.skippedLibraries).toEqual(
-      expect.arrayContaining([{ path: root, reason: "scope-failed" }]),
-    );
-    expect(result.warnings).toEqual(
-      expect.arrayContaining([
-        `library-pfad nicht erreichbar (identity-check fehlgeschlagen), übersprungen: ${root}`,
-      ]),
-    );
-    expect(system.scopedPaths).toEqual([]);
+  it("reicht leere Listen fail-closed weiter", () => {
+    const result = readLibraryList({
+      generation: 1,
+      steamRoot: "/tmp/steam",
+      libraries: [],
+      systemCompatDirs: [],
+      appCacheDir: "/tmp/cache",
+      appConfigDir: "/tmp/config",
+    });
+
+    expect(result.libraries).toEqual([]);
   });
 });

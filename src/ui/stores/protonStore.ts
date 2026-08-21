@@ -1,12 +1,14 @@
 import { listen } from "@tauri-apps/api/event";
 import { defineStore } from "pinia";
-import { appCacheDir, tauriPorts } from "../../core/adapters/tauri";
+import { tauriPorts } from "../../core/adapters/tauri";
 import {
   type FetchSource,
   fetchReleases,
   type GeRelease,
   installRelease,
+  isManagedGeName,
 } from "../../core/geproton";
+import { joinPath, paths } from "../../core/paths";
 import type { CompatTool } from "../../core/types";
 import { errMsg } from "../format";
 import { t } from "../i18n";
@@ -17,6 +19,7 @@ export type Phase = "queued" | "downloading" | "verifying" | "extracting";
 
 interface Job {
   tag: string;
+  downloadId: string;
   phase: Phase;
   downloaded: number;
   total: number | null;
@@ -31,6 +34,29 @@ interface Job {
    *  leiche liegenbleiben und den nächsten versuch derselben version killen. */
   cancelRequested?: boolean;
 }
+
+let downloadSequence = 0;
+
+function createDownloadId(): string {
+  downloadSequence += 1;
+  return `proton-${Date.now().toString(36)}-${downloadSequence.toString(36)}`;
+}
+
+interface ListenerOwnership {
+  unlisteners: Array<() => void>;
+  token: object;
+}
+
+interface ListenerLifecycle {
+  initPromise: Promise<void> | null;
+  generation: number;
+  disposed: boolean;
+  pending: Map<number, Set<() => void>>;
+}
+
+const listenerLifecycle = new WeakMap<object, ListenerLifecycle>();
+const listenerOwnership = new WeakMap<object, ListenerOwnership>();
+const disposeHooks = new WeakSet<object>();
 
 interface State {
   releases: GeRelease[];
@@ -68,13 +94,44 @@ export const useProtonStore = defineStore("proton", {
     },
   },
   actions: {
-    async init() {
-      if (this.listenerReady) return;
-      try {
-        await listen<{ id: string; downloaded: number; total: number | null }>(
-          "download-progress",
-          (e) => {
-            const job = this.jobs[e.payload.id];
+    init() {
+      const lifecycle =
+        listenerLifecycle.get(this) ??
+        ({
+          initPromise: null,
+          generation: 0,
+          disposed: false,
+          pending: new Map<number, Set<() => void>>(),
+        } satisfies ListenerLifecycle);
+      listenerLifecycle.set(this, lifecycle);
+      if (this.listenerReady) return Promise.resolve();
+      if (lifecycle.initPromise) return lifecycle.initPromise;
+      if (!disposeHooks.has(this)) {
+        const originalDispose = this.$dispose.bind(this);
+        this.$dispose = () => {
+          void this.disposeListeners();
+          originalDispose();
+        };
+        disposeHooks.add(this);
+      }
+      lifecycle.disposed = false;
+      const generation = lifecycle.generation + 1;
+      lifecycle.generation = generation;
+      const pending = new Set<() => void>();
+      lifecycle.pending.set(generation, pending);
+      const token = {};
+      const promise = (async () => {
+        try {
+          const progressUnlisten = await listen<{
+            id: string;
+            downloaded: number;
+            total: number | null;
+          }>("download-progress", (e) => {
+            if (listenerOwnership.get(this)?.token !== token) return;
+            const job = Object.values(this.jobs).find(
+              (candidate) =>
+                candidate.downloadId === e.payload.id && this.activeTag === candidate.tag,
+            );
             if (job) {
               const now = Date.now();
               if (job.speedLastTs) {
@@ -88,23 +145,95 @@ export const useProtonStore = defineStore("proton", {
               job.downloaded = e.payload.downloaded;
               job.total = e.payload.total;
             }
-          },
-        );
-        this.listenerReady = true;
-      } catch (e) {
-        // ohne listener fehlt nur die fortschritts-anzeige, die view darf
-        // deshalb nicht leer bleiben, und der nächste mount darf es erneut
-        // versuchen (flag bleibt false).
-        useUiStore().showNotification(t("proton.listenerUnavailable", { error: errMsg(e) }));
+          });
+          pending.add(progressUnlisten);
+          if (lifecycle.disposed || lifecycle.generation !== generation) {
+            progressUnlisten();
+            pending.delete(progressUnlisten);
+            return;
+          }
+          const phaseUnlisten = await listen<{ id: string; phase: Phase; verified: boolean }>(
+            "install-phase",
+            (e) => {
+              if (listenerOwnership.get(this)?.token !== token) return;
+              const job = Object.values(this.jobs).find(
+                (candidate) =>
+                  candidate.downloadId === e.payload.id && this.activeTag === candidate.tag,
+              );
+              if (job) {
+                job.phase = e.payload.phase;
+                if (e.payload.verified) {
+                  job.verified = true;
+                }
+              }
+            },
+          );
+          pending.add(phaseUnlisten);
+          if (lifecycle.disposed || lifecycle.generation !== generation) {
+            phaseUnlisten();
+            pending.delete(phaseUnlisten);
+            for (const unlisten of pending) unlisten();
+            pending.clear();
+            return;
+          }
+          listenerOwnership.set(this, {
+            unlisteners: [...pending],
+            token,
+          });
+          lifecycle.pending.delete(generation);
+          this.listenerReady = true;
+          if (!this.releases.length) void this.loadReleases();
+        } catch (e) {
+          listenerOwnership.delete(this);
+          for (const unlisten of pending) unlisten();
+          pending.clear();
+          lifecycle.pending.delete(generation);
+          if (!lifecycle.disposed && lifecycle.generation === generation) {
+            useUiStore().showNotification(t("proton.listenerUnavailable", { error: errMsg(e) }));
+            if (!this.releases.length) void this.loadReleases();
+          }
+        } finally {
+          if (lifecycle.generation === generation) lifecycle.initPromise = null;
+        }
+      })();
+      lifecycle.initPromise = promise;
+      return promise;
+    },
+
+    async disposeListeners() {
+      const lifecycle = listenerLifecycle.get(this);
+      if (!lifecycle) {
+        this.listenerReady = false;
+        return;
       }
-      if (!this.releases.length) void this.loadReleases();
+      lifecycle.disposed = true;
+      lifecycle.generation += 1;
+      lifecycle.initPromise = null;
+      const ownership = listenerOwnership.get(this);
+      listenerOwnership.delete(this);
+      this.listenerReady = false;
+      if (ownership) {
+        for (const unlisten of ownership.unlisteners) unlisten();
+      }
+      for (const pending of lifecycle.pending.values()) {
+        for (const unlisten of pending) unlisten();
+        pending.clear();
+      }
+      lifecycle.pending.clear();
     },
 
     async loadReleases(force = false) {
       this.loading = true;
       this.loadError = null;
       try {
-        const result = await fetchReleases(tauriPorts.http, tauriPorts.cache, Date.now, force);
+        const targetArch = await tauriPorts.system.geTargetArch();
+        const result = await fetchReleases(
+          tauriPorts.http,
+          tauriPorts.cache,
+          targetArch,
+          Date.now,
+          force,
+        );
         this.releases = result.releases;
         this.lastFetchedAt = result.fetchedAt;
         this.lastSource = result.source;
@@ -124,7 +253,13 @@ export const useProtonStore = defineStore("proton", {
 
     queueInstall(release: GeRelease) {
       if (this.jobs[release.tag]) return; // schon in arbeit / queued
-      this.jobs[release.tag] = { tag: release.tag, phase: "queued", downloaded: 0, total: null };
+      this.jobs[release.tag] = {
+        tag: release.tag,
+        downloadId: createDownloadId(),
+        phase: "queued",
+        downloaded: 0,
+        total: null,
+      };
       this.queue.push(release.tag);
       void this.pump();
     },
@@ -138,17 +273,15 @@ export const useProtonStore = defineStore("proton", {
         return;
       }
       if (this.activeTag === tag) {
-        // zwei wege, weil sie zwei fenster abdecken:
-        // 1. cancelRequested → greift VOR der registrierung im backend
-        //    (appCacheDir + hash-asset-abruf); ohne das verpufft der klick still
-        //    und der download läuft trotzdem komplett durch.
-        // 2. `cancelDownload` bricht den laufenden
-        //    download ab und räumt die partielle datei auf.
+        // zwei wege decken die grenze vor und während der backend-registrierung
+        // ab. `cancelRequested` wird am start von installRelease geprüft;
+        // `cancelDownload` weckt danach den laufenden Rust-Download oder
+        // SHA-Abruf und löst Temp-/Registry-Cleanup aus.
         // beide wege enden im wurf von installRelease() → pump()-catch entfernt
         // den job.
         const job = this.jobs[tag];
         if (job) job.cancelRequested = true;
-        await tauriPorts.system.cancelDownload(tag).catch(() => {});
+        if (job) await tauriPorts.system.cancelDownload(job.downloadId).catch(() => {});
       }
     },
 
@@ -169,28 +302,25 @@ export const useProtonStore = defineStore("proton", {
       this.activeTag = tag;
       const scan = useScanStore();
       const steamRoot = scan.result?.steamRoot;
+      const downloadId = job.downloadId;
       // warnung erst nach erfolgreichem install publizieren, eine abgebrochene
       // oder fehlgeschlagene installation hat nichts installiert und dürfte
       // sonst „ohne verifikation installiert" neben der fehlermeldung zeigen.
       let warned = false;
       try {
         if (!steamRoot) throw new Error(t("proton.noScanResult"));
-        const cacheDir = `${await appCacheDir()}/downloads`;
         await installRelease(tauriPorts, {
           steamRoot,
-          cacheDir,
           release,
-          downloadId: tag,
+          downloadId,
           onPhase: (p) => {
-            job.phase = p;
-            // „entpacke" ohne vorherige warnung und mit hash-asset = geprüft.
-            // ohne asset ist der download bewusst unverifiziert (kein flag).
-            if (p === "extracting" && release.sha512Url && !warned) job.verified = true;
+            if (this.jobs[tag] === job && job.downloadId === downloadId) job.phase = p;
           },
           onWarning: () => {
             warned = true;
           },
-          isCancelled: () => this.jobs[tag]?.cancelRequested === true,
+          isCancelled: () =>
+            this.jobs[tag]?.downloadId === downloadId && this.jobs[tag]?.cancelRequested === true,
         });
         await scan.runScan(); // frische compatToolsInstalled + usedBy
         this.loadError = null; // stale fehlermeldung eines früheren fehlschlags
@@ -213,12 +343,20 @@ export const useProtonStore = defineStore("proton", {
     async remove(tool: CompatTool) {
       const scan = useScanStore();
       const steamRoot = scan.result?.steamRoot;
-      if (!steamRoot || tool.source !== "user") return;
+      if (!steamRoot || tool.source !== "user" || !isManagedGeName(tool.name)) return;
       this.busyRemove = tool.name;
       try {
         // NUR für GE-tools aufrufen (distro-tools gehören dem paketmanager)
-        await tauriPorts.system.removeCompatTool(steamRoot, tool.name);
-        await scan.runScan();
+        const toolDir = joinPath(paths.compatToolsDir(steamRoot), tool.name);
+        const pending = await tauriPorts.system.prepareDelete({
+          targetType: "compatTool",
+          path: toolDir,
+          steamRoot,
+        });
+        const res = await tauriPorts.system.executeDelete(pending.token);
+        if (res.success) {
+          await scan.runScan();
+        }
       } catch (e) {
         this.loadError = t("proton.removeFailed", { msg: errMsg(e) });
       } finally {

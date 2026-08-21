@@ -11,7 +11,8 @@ const {
   mockFindOrphans,
   mockReadAllShortcutAppIds,
   mockFindTrashEntries,
-  mockInvoke,
+  mockPrepareDelete,
+  mockExecuteDelete,
   mockBatchDirSizes,
 } = vi.hoisted(() => ({
   mockFindOrphans: vi.fn<typeof findOrphans>(async () => []),
@@ -24,9 +25,17 @@ const {
     unreadable: [],
     libraries: [],
   })),
-  mockInvoke: vi.fn<(cmd: string, args?: unknown) => Promise<unknown>>(
-    async (_cmd: string, _args?: unknown) => "deleted",
-  ),
+  mockPrepareDelete: vi.fn(async (req) => ({
+    token: `token-${req.path}`,
+    expiresAt: Date.now() + 60000,
+    targetType: req.targetType,
+    targetPath: req.path,
+    consequences: [],
+  })),
+  mockExecuteDelete: vi.fn(async (_token: string) => ({
+    success: true,
+    deletedPath: "",
+  })),
   mockBatchDirSizes: vi.fn<(paths: string[]) => Promise<Record<string, number>>>(async () => ({})),
 }));
 
@@ -40,16 +49,18 @@ vi.mock("../../src/core/shortcuts", () => ({
 vi.mock("../../src/core/trash", () => ({
   findTrashEntries: mockFindTrashEntries,
 }));
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: mockInvoke,
-}));
 vi.mock("../../src/core/adapters/tauri", async () => {
   // in-memory cache statt {}, der store persistiert die ignorier-entscheidung
   const cacheStore = new Map<string, string>();
   const tauriPorts = {
     fs: {},
     http: {},
-    system: { isProcessRunning: async () => false, batchDirSizes: mockBatchDirSizes },
+    system: {
+      isProcessRunning: async () => false,
+      batchDirSizes: mockBatchDirSizes,
+      prepareDelete: mockPrepareDelete,
+      executeDelete: mockExecuteDelete,
+    },
     cache: {
       get: async (k: string) => cacheStore.get(k) ?? null,
       set: async (k: string, v: string) => {
@@ -63,7 +74,10 @@ vi.mock("../../src/core/adapters/tauri", async () => {
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
 
-function fakeScan(skipped?: ScanResult["skippedLibraries"]): ScanResult {
+function fakeScan(
+  skipped?: ScanResult["skippedLibraries"],
+  cleanupUnsafeLibraries?: string[],
+): ScanResult {
   return {
     steamRoot: "/home/u/.steam",
     libraries: ["/home/u/.steam"],
@@ -74,7 +88,14 @@ function fakeScan(skipped?: ScanResult["skippedLibraries"]): ScanResult {
     steamUserId: null,
     warnings: [],
     skippedLibraries: skipped ?? [],
+    cleanupUnsafeLibraries: cleanupUnsafeLibraries ?? [],
   };
+}
+
+function fakeScanWithoutCleanupSafety(): ScanResult {
+  const result = fakeScan();
+  Reflect.deleteProperty(result, "cleanupUnsafeLibraries");
+  return result;
 }
 
 function fakeScanWithGames(gameIds: number[]): ScanResult {
@@ -100,8 +121,16 @@ describe("cleanupStore gate logic", () => {
     mockFindOrphans.mockReset();
     mockReadAllShortcutAppIds.mockReset();
     mockFindTrashEntries.mockReset();
-    mockInvoke.mockReset();
-    mockInvoke.mockResolvedValue("deleted");
+    mockPrepareDelete.mockReset();
+    mockPrepareDelete.mockImplementation(async (req) => ({
+      token: `token-${req.path}`,
+      expiresAt: Date.now() + 60000,
+      targetType: req.targetType,
+      targetPath: req.path,
+      consequences: [],
+    }));
+    mockExecuteDelete.mockReset();
+    mockExecuteDelete.mockResolvedValue({ success: true, deletedPath: "" });
     mockBatchDirSizes.mockReset();
     mockBatchDirSizes.mockResolvedValue({});
     mockReadAllShortcutAppIds.mockResolvedValue({ status: "none" });
@@ -245,6 +274,58 @@ describe("cleanupStore gate logic", () => {
     expect(store.deleting.size).toBe(0);
   });
 
+  it("blockiert scanOrphans wenn cleanupUnsafeLibraries vorhanden sind", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([], ["/unsafe/lib"]);
+    const store = useCleanupStore();
+
+    await store.scanOrphans();
+
+    expect(store.blockedBySkipped).toBe(true);
+    expect(store.error).toContain("/unsafe/lib");
+    expect(store.orphans).toEqual([]);
+  });
+
+  it("blockiert deleteOrphans wenn cleanupUnsafeLibraries vorhanden sind", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([], ["/unsafe/lib"]);
+    const store = useCleanupStore();
+
+    await store.deleteOrphans([{ appId: 1, type: "compatdata", path: "/fake", library: "/lib" }]);
+
+    expect(store.blockedBySkipped).toBe(true);
+    expect(store.error).toContain("/unsafe/lib");
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
+    expect(mockExecuteDelete).not.toHaveBeenCalled();
+  });
+
+  it("blockiert scanOrphans fail-closed wenn cleanupUnsafeLibraries fehlt", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScanWithoutCleanupSafety();
+    const store = useCleanupStore();
+
+    await store.scanOrphans();
+
+    expect(store.blockedBySkipped).toBe(true);
+    expect(store.error).toContain("cleanupUnsafeLibraries");
+    expect(mockFindOrphans).not.toHaveBeenCalled();
+  });
+
+  it("blockiert deleteOrphans fail-closed wenn cleanupUnsafeLibraries fehlt", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScanWithoutCleanupSafety();
+    const store = useCleanupStore();
+
+    await store.deleteOrphans([
+      { appId: 2147483647, type: "compatdata", path: "/fake", library: "/lib" },
+    ]);
+
+    expect(store.blockedBySkipped).toBe(true);
+    expect(store.error).toContain("cleanupUnsafeLibraries");
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
+    expect(mockExecuteDelete).not.toHaveBeenCalled();
+  });
+
   it("wenn keine skipped libraries → scan lauft normal durch", async () => {
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
@@ -264,8 +345,16 @@ describe("cleanupStore, S-05 + shortcuts", () => {
     setLocale("de");
     mockFindOrphans.mockReset();
     mockReadAllShortcutAppIds.mockReset();
-    mockInvoke.mockReset();
-    mockInvoke.mockResolvedValue("deleted");
+    mockPrepareDelete.mockReset();
+    mockPrepareDelete.mockImplementation(async (req) => ({
+      token: `token-${req.path}`,
+      expiresAt: Date.now() + 60000,
+      targetType: req.targetType,
+      targetPath: req.path,
+      consequences: [],
+    }));
+    mockExecuteDelete.mockReset();
+    mockExecuteDelete.mockResolvedValue({ success: true, deletedPath: "" });
     mockBatchDirSizes.mockReset();
     mockBatchDirSizes.mockResolvedValue({});
     mockReadAllShortcutAppIds.mockResolvedValue({ status: "none" });
@@ -367,7 +456,8 @@ describe("cleanupStore, S-05 + shortcuts", () => {
 
     await store.deleteOrphans([{ appId: 1, type: "compatdata", path: "/fake", library: "/lib" }]);
 
-    expect(mockInvoke).not.toHaveBeenCalled();
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
+    expect(mockExecuteDelete).not.toHaveBeenCalled();
     expect(store.error).toContain("scan-ergebnis");
     expect(store.orphans).toEqual([]);
   });
@@ -383,7 +473,8 @@ describe("cleanupStore, batch_dir_sizes NotFound-Skip", () => {
     setLocale("de");
     mockFindOrphans.mockReset();
     mockReadAllShortcutAppIds.mockReset();
-    mockInvoke.mockReset();
+    mockPrepareDelete.mockReset();
+    mockExecuteDelete.mockReset();
     mockBatchDirSizes.mockReset();
     mockBatchDirSizes.mockResolvedValue({});
     mockReadAllShortcutAppIds.mockResolvedValue({ status: "none" });
@@ -446,8 +537,16 @@ describe("cleanupStore, trash", () => {
     setActivePinia(createPinia());
     setLocale("de");
     mockFindTrashEntries.mockReset();
-    mockInvoke.mockReset();
-    mockInvoke.mockResolvedValue("deleted");
+    mockPrepareDelete.mockReset();
+    mockPrepareDelete.mockImplementation(async (req) => ({
+      token: `token-${req.path}`,
+      expiresAt: Date.now() + 60000,
+      targetType: req.targetType,
+      targetPath: req.path,
+      consequences: [],
+    }));
+    mockExecuteDelete.mockReset();
+    mockExecuteDelete.mockResolvedValue({ success: true, deletedPath: "" });
     mockBatchDirSizes.mockReset();
     mockBatchDirSizes.mockResolvedValue({});
     mockFindTrashEntries.mockResolvedValue({
@@ -466,7 +565,8 @@ describe("cleanupStore, trash", () => {
     await store.scanTrash();
 
     expect(store.error).toContain("scan-ergebnis");
-    expect(mockInvoke).not.toHaveBeenCalled();
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
+    expect(mockExecuteDelete).not.toHaveBeenCalled();
   });
 
   it("scanTrash füllt trash inkl. größen", async () => {
@@ -534,9 +634,18 @@ describe("cleanupStore, trash", () => {
     await store.emptyTrash();
 
     expect(store.trash).toHaveLength(0);
-    expect(mockInvoke).toHaveBeenCalledTimes(2);
-    expect(mockInvoke).toHaveBeenCalledWith("remove_trash_entry", { path: e1.path });
-    expect(mockInvoke).toHaveBeenCalledWith("remove_trash_entry", { path: e2.path });
+    expect(mockPrepareDelete).toHaveBeenCalledTimes(2);
+    expect(mockPrepareDelete).toHaveBeenCalledWith({
+      targetType: "trash",
+      path: e1.path,
+      steamRoot: "/home/u/.steam",
+    });
+    expect(mockPrepareDelete).toHaveBeenCalledWith({
+      targetType: "trash",
+      path: e2.path,
+      steamRoot: "/home/u/.steam",
+    });
+    expect(mockExecuteDelete).toHaveBeenCalledTimes(2);
   });
 
   it("emptyTrash mit fehlschlag in der mitte, rest wird trotzdem gelöscht", async () => {
@@ -554,13 +663,10 @@ describe("cleanupStore, trash", () => {
     });
 
     let callCount = 0;
-    mockInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === "remove_trash_entry") {
-        callCount++;
-        if (callCount === 2) throw new Error("permission denied");
-        return "deleted";
-      }
-      return "deleted";
+    mockExecuteDelete.mockImplementation(async (token: string) => {
+      callCount++;
+      if (callCount === 2) throw new Error("permission denied");
+      return { success: true, deletedPath: token };
     });
 
     const scanStore = useScanStore();
@@ -593,8 +699,13 @@ describe("cleanupStore, trash", () => {
 
     expect(store.trash).toHaveLength(1);
     expect(store.trash[0]?.appId).toBe(570);
-    expect(mockInvoke).toHaveBeenCalledTimes(1);
-    expect(mockInvoke).toHaveBeenCalledWith("remove_trash_entry", { path: e1.path });
+    expect(mockPrepareDelete).toHaveBeenCalledTimes(1);
+    expect(mockPrepareDelete).toHaveBeenCalledWith({
+      targetType: "trash",
+      path: e1.path,
+      steamRoot: "/home/u/.steam",
+    });
+    expect(mockExecuteDelete).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -605,7 +716,16 @@ describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
     mockFindOrphans.mockReset();
     mockReadAllShortcutAppIds.mockReset();
     mockFindTrashEntries.mockReset();
-    mockInvoke.mockReset();
+    mockPrepareDelete.mockReset();
+    mockPrepareDelete.mockImplementation(async (req) => ({
+      token: `token-${req.path}`,
+      expiresAt: Date.now() + 60000,
+      targetType: req.targetType,
+      targetPath: req.path,
+      consequences: [],
+    }));
+    mockExecuteDelete.mockReset();
+    mockExecuteDelete.mockResolvedValue({ success: true, deletedPath: "" });
     mockFindOrphans.mockResolvedValue([]);
     mockReadAllShortcutAppIds.mockResolvedValue({ status: "none" });
     mockFindTrashEntries.mockResolvedValue({
@@ -614,7 +734,6 @@ describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
       unreadable: [],
       libraries: [],
     });
-    mockInvoke.mockResolvedValue("deleted");
     mockBatchDirSizes.mockReset();
     mockBatchDirSizes.mockResolvedValue({});
   });
@@ -673,10 +792,7 @@ describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
   });
 
   it("löschfehler überlebt den internen orphan-rescan (scanOrphans setzt error zurück)", async () => {
-    mockInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === "remove_orphan_dir") throw new Error("permission denied");
-      return "deleted";
-    });
+    mockExecuteDelete.mockRejectedValue(new Error("permission denied"));
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
     const store = useCleanupStore();
@@ -695,5 +811,89 @@ describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
     expect(mockFindOrphans).toHaveBeenCalled();
     expect(store.error).toContain("888888");
     expect(store.error).toContain("permission denied");
+  });
+});
+
+describe("cleanupStore, S-02: Pfadbasierte Keys (A-04)", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    setLocale("de");
+    mockFindOrphans.mockReset();
+    mockReadAllShortcutAppIds.mockReset();
+    mockPrepareDelete.mockReset();
+    mockPrepareDelete.mockImplementation(async (req) => ({
+      token: `token-${req.path}`,
+      expiresAt: Date.now() + 60000,
+      targetType: req.targetType,
+      targetPath: req.path,
+      consequences: [],
+    }));
+    mockExecuteDelete.mockReset();
+    mockExecuteDelete.mockResolvedValue({ success: true, deletedPath: "" });
+    mockBatchDirSizes.mockReset();
+    mockBatchDirSizes.mockResolvedValue({});
+    mockReadAllShortcutAppIds.mockResolvedValue({ status: "none" });
+  });
+
+  it("key(entry) liefert den vollständigen Pfad", () => {
+    const store = useCleanupStore();
+    const entry = {
+      appId: 570,
+      type: "compatdata" as const,
+      path: "/lib1/steamapps/compatdata/570",
+      library: "/lib1",
+    };
+    expect(store.key(entry)).toBe("/lib1/steamapps/compatdata/570");
+  });
+
+  it("gleiche AppID in unterschiedlichen Libraries erzeugt unterschiedliche Keys", () => {
+    const store = useCleanupStore();
+    const entry1 = {
+      appId: 570,
+      type: "compatdata" as const,
+      path: "/lib1/steamapps/compatdata/570",
+      library: "/lib1",
+    };
+    const entry2 = {
+      appId: 570,
+      type: "compatdata" as const,
+      path: "/lib2/steamapps/compatdata/570",
+      library: "/lib2",
+    };
+    expect(store.key(entry1)).not.toBe(store.key(entry2));
+  });
+
+  it("Löschen eines Eintrags entfernt nur den betroffenen Pfad", async () => {
+    const entry1 = {
+      appId: 570,
+      type: "compatdata" as const,
+      path: "/lib1/steamapps/compatdata/570",
+      library: "/lib1",
+    };
+    const entry2 = {
+      appId: 570,
+      type: "compatdata" as const,
+      path: "/lib2/steamapps/compatdata/570",
+      library: "/lib2",
+    };
+
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    store.orphans = [entry1, entry2];
+
+    // Mock findOrphans beim rescan so, dass nur noch entry2 existiert
+    mockFindOrphans.mockResolvedValue([entry2]);
+
+    await store.deleteOrphans([entry1]);
+
+    expect(mockPrepareDelete).toHaveBeenCalledTimes(1);
+    expect(mockPrepareDelete).toHaveBeenCalledWith({
+      targetType: "orphan",
+      path: entry1.path,
+      steamRoot: "/home/u/.steam",
+    });
+    expect(mockExecuteDelete).toHaveBeenCalledTimes(1);
+    expect(store.orphans).toEqual([entry2]);
   });
 });

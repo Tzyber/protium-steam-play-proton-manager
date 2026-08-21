@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "protium default capability, enge scopes, kein wildcard (INV-7). sekundär-libraries werden zur laufzeit via allow_library_scope (R-5) ergänzt. externe urls laufen über R-7 (open_external) statt über den opener-plugin, die allowlist steht dort im rust-code.",
+  "description": "protium default capability, enge Anwendungsspeicher-Scope (INV-7). Steam-Environment-Reads laufen ausschließlich über den backendseitigen discover_steam_environment-Snapshot; externe URLs laufen über R-7 (open_external).",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -9,21 +9,10 @@
     "core:event:default",
     "core:window:allow-show",
     "fs:allow-read-text-file",
-    "fs:allow-read-file",
-    "fs:allow-read-dir",
     "fs:allow-exists",
-    "fs:allow-stat",
     {
       "identifier": "fs:scope",
       "allow": [
-        { "path": "$HOME/.local/share/Steam" },
-        { "path": "$HOME/.local/share/Steam/**" },
-        { "path": "$HOME/.steam" },
-        { "path": "$HOME/.steam/**" },
-        { "path": "$HOME/.var/app/com.valvesoftware.Steam" },
-        { "path": "$HOME/.var/app/com.valvesoftware.Steam/**" },
-        { "path": "$HOME/snap/steam" },
-        { "path": "$HOME/snap/steam/**" },
         { "path": "$APPCACHE" },
         { "path": "$APPCACHE/**" },
         { "path": "$APPCONFIG" },

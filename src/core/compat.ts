@@ -1,5 +1,5 @@
 import { errText } from "./errtext.js";
-import { joinPath, paths, SYSTEM_COMPAT_DIRS } from "./paths.js";
+import { joinPath, paths } from "./paths.js";
 import type { DirEntry, FileSystem, System } from "./ports.js";
 import type { CompatTool } from "./types.js";
 import { asNode, asString, getPath, parseVdf } from "./vdf.js";
@@ -69,7 +69,7 @@ export async function listCompatTools(
   mapping: CompatToolMapping,
   warnings: string[],
   installedAppIds: ReadonlySet<number>,
-  extraDirs: readonly string[] = SYSTEM_COMPAT_DIRS,
+  systemCompatDirs: readonly string[] = [],
 ): Promise<CompatTool[]> {
   // nur installierte echte spiele: keine stale einträge, kein appId 0, keine non-steam-shortcuts.
   const usedByOf = (id: string): number[] =>
@@ -77,7 +77,7 @@ export async function listCompatTools(
       .filter(([appId, name]) => name === id && installedAppIds.has(appId))
       .map(([appId]) => appId);
 
-  const candidateDirs = [paths.compatToolsDir(steamRoot), ...extraDirs];
+  const candidateDirs = [paths.compatToolsDir(steamRoot), ...systemCompatDirs];
   const userDir = paths.compatToolsDir(steamRoot);
 
   const tools: CompatTool[] = [];
@@ -86,15 +86,12 @@ export async function listCompatTools(
 
   for (const dir of candidateDirs) {
     const source: "user" | "system" = dir === userDir ? "user" : "system";
-    if (source === "system") {
-      try {
-        await system.allowLibraryScope(dir); // Der Steam-Root ist bereits im Scope.
-      } catch {
-        continue;
-      }
+    let id: Awaited<ReturnType<System["pathIdentity"]>>;
+    try {
+      id = await system.pathIdentity(dir);
+    } catch {
+      continue;
     }
-
-    const id = await system.pathIdentity(dir);
     const realKey = id ? id.realpath : dir;
     if (seenDirs.has(realKey)) continue; // symlink-duplikat
     seenDirs.add(realKey);

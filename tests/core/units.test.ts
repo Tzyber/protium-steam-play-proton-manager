@@ -6,6 +6,7 @@ import { parseLibraryFolders } from "../../src/core/libraryfolders.js";
 import { parseManifest } from "../../src/core/manifest.js";
 import { joinPath } from "../../src/core/paths.js";
 import { ensureSizeLimit, MAX_FILE_BYTES } from "../../src/core/ports.js";
+import { parseSafeAppId } from "../../src/core/types.js";
 
 const acf = () => `"AppState"
 {
@@ -22,6 +23,33 @@ describe("parseManifest", () => {
   });
   it("wirft bei fehlender appid", () => {
     expect(() => parseManifest('"AppState" { "name" "x" }')).toThrow();
+  });
+  it("wirft bei ungültiger appid (0, negativ, NaN, overflow)", () => {
+    expect(() => parseManifest('"AppState"\n{\n\t"appid"\t\t"0"\n}')).toThrow(
+      "appmanifest ohne gültige appid",
+    );
+    expect(() => parseManifest('"AppState"\n{\n\t"appid"\t\t"-1"\n}')).toThrow(
+      "appmanifest ohne gültige appid",
+    );
+    expect(() => parseManifest('"AppState"\n{\n\t"appid"\t\t"abc"\n}')).toThrow(
+      "appmanifest ohne gültige appid",
+    );
+    expect(() => parseManifest('"AppState"\n{\n\t"appid"\t\t""\n}')).toThrow(
+      "appmanifest ohne gültige appid",
+    );
+    expect(() => parseManifest('"AppState"\n{\n\t"appid"\t\t"9007199254740992"\n}')).toThrow(
+      "appmanifest ohne gültige appid",
+    );
+  });
+  it("akzeptiert führende Nullen in appid", () => {
+    const m = parseManifest('"AppState"\n{\n\t"appid"\t\t"0570"\n}');
+    expect(m.appId).toBe(570);
+  });
+
+  it("akzeptiert exakt die obere AppID-Grenze und verwirft den nächsten Wert", () => {
+    expect(parseSafeAppId("2147483647")).toBe(2147483647);
+    expect(parseSafeAppId("2147483648")).toBeNull();
+    expect(parseSafeAppId("999999999999999999999999")).toBeNull();
   });
 });
 

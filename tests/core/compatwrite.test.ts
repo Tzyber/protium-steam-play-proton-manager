@@ -3,9 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { removeCompatTool, writeCompatTool } from "../../src/core/compatwrite.js";
-import { SteamRunningError } from "../../src/core/configwrite.js";
 import { getVdfValue } from "../../src/core/vdfpatch.js";
-import { fakeSystem, nodeFs } from "../support/fakeSteam.js";
+import { fakeSystem } from "../support/fakeSteam.js";
 
 const tmp = () => mkdtemp(join(tmpdir(), "protium-compatwrite-"));
 
@@ -22,15 +21,15 @@ const CONFIG_VDF = `"InstallConfigStore"
           \t\t\t\t\t"0"
           \t\t\t\t\t{
             \t\t\t\t\t\t"name"\t\t"proton-cachyos-slr"
-            \t\t\t\t\t}
-            \t\t\t\t\t"620"
-            \t\t\t\t\t{
-              \t\t\t\t\t\t"name"\t\t"GE-Proton9-27"
-              \t\t\t\t\t}
-              \t\t\t\t}
-              \t\t\t}
-              \t\t}
-              \t}
+          \t\t\t\t\t}
+          \t\t\t\t\t"620"
+          \t\t\t\t\t{
+            \t\t\t\t\t\t"name"\t\t"GE-Proton9-27"
+          \t\t\t\t\t}
+        \t\t\t\t}
+      \t\t\t}
+    \t\t}
+  \t}
 }
 `;
 
@@ -47,16 +46,9 @@ describe("writeCompatTool", () => {
   it("setzt name, config und priority im mapping", async () => {
     const dir = await tmp();
     const root = await setupSteam(dir);
-    const backupDir = join(dir, "backups");
     const configPath = join(root, "config", "config.vdf");
 
-    const result = await writeCompatTool(
-      { fs: nodeFs(), system: fakeSystem() },
-      root,
-      730,
-      "custom-proton-99",
-      backupDir,
-    );
+    const result = await writeCompatTool({ system: fakeSystem() }, root, 730, "custom-proton-99");
 
     expect(result).toBe("written");
     const text = await readFile(configPath, "utf8");
@@ -68,51 +60,36 @@ describe("writeCompatTool", () => {
   it("no-op bei unverändertem tool → kein write, kein backup", async () => {
     const dir = await tmp();
     const root = await setupSteam(dir);
-    const backupDir = join(dir, "backups");
+    const backupDir = join(root, "backups");
     const configPath = join(root, "config", "config.vdf");
     const original = await readFile(configPath, "utf8");
 
-    const result = await writeCompatTool(
-      { fs: nodeFs(), system: fakeSystem() },
-      root,
-      620,
-      "GE-Proton9-27",
-      backupDir,
-    );
+    const result = await writeCompatTool({ system: fakeSystem() }, root, 620, "GE-Proton9-27");
 
     expect(result).toBe("unchanged");
     expect(await readFile(configPath, "utf8")).toBe(original);
-    expect(await readdir(backupDir).catch(() => [])).toEqual([]); // kein backup-dir angelegt
+    expect(await readdir(backupDir).catch(() => [])).toEqual([]);
   });
 
   it("ändert ein bestehendes tool → setzt config + priority zusätzlich", async () => {
     const dir = await tmp();
     const root = await setupSteam(dir);
-    const backupDir = join(dir, "backups");
     const configPath = join(root, "config", "config.vdf");
 
-    // 620 hat im fixture nur "name" (kein config/priority) → tool-change muss beide ergänzen
-    const result = await writeCompatTool(
-      { fs: nodeFs(), system: fakeSystem() },
-      root,
-      620,
-      "OtherTool",
-      backupDir,
-    );
+    const result = await writeCompatTool({ system: fakeSystem() }, root, 620, "OtherTool");
 
     expect(result).toBe("written");
     const text = await readFile(configPath, "utf8");
     expect(getVdfValue(text, [...C_PATH, "620", "name"])).toBe("OtherTool");
     expect(getVdfValue(text, [...C_PATH, "620", "config"])).toBe("");
     expect(getVdfValue(text, [...C_PATH, "620", "priority"])).toBe("250");
-    expect(getVdfValue(text, [...C_PATH, "0", "name"])).toBe("proton-cachyos-slr"); // nachbar unberührt
+    expect(getVdfValue(text, [...C_PATH, "0", "name"])).toBe("proton-cachyos-slr");
   });
 
   it("tool-wechsel setzt vorhandene config/priority BEWUSST auf steam-default zurück", async () => {
     const dir = await tmp();
     const root = join(dir, ".steam");
     await mkdir(join(root, "config"), { recursive: true });
-    // fixture mit tool-spezifischer config + abweichender priority
     const withExtras = `"InstallConfigStore"
     {
       \t"Software"
@@ -128,22 +105,20 @@ describe("writeCompatTool", () => {
                 \t\t\t\t\t\t"name"\t\t"GE-Proton9-27"
                 \t\t\t\t\t\t"config"\t\t"noesync"
                 \t\t\t\t\t\t"priority"\t\t"90"
-                \t\t\t\t\t}
-                \t\t\t\t}
-                \t\t\t}
-                \t\t}
-                \t}
+              \t\t\t\t\t}
+            \t\t\t\t}
+          \t\t\t}
+        \t\t}
+      \t}
     }
     `;
     const configPath = join(root, "config", "config.vdf");
     await writeFile(configPath, withExtras, "utf8");
-    const backupDir = join(dir, "backups");
 
-    await writeCompatTool({ fs: nodeFs(), system: fakeSystem() }, root, 620, "NewTool", backupDir);
+    await writeCompatTool({ system: fakeSystem() }, root, 620, "NewTool");
 
     const text = await readFile(configPath, "utf8");
     expect(getVdfValue(text, [...C_PATH, "620", "name"])).toBe("NewTool");
-    // dokumentiertes verhalten: alte tool-config/priority werden auf default zurückgesetzt
     expect(getVdfValue(text, [...C_PATH, "620", "config"])).toBe("");
     expect(getVdfValue(text, [...C_PATH, "620", "priority"])).toBe("250");
   });
@@ -151,15 +126,9 @@ describe("writeCompatTool", () => {
   it("write → remove → block vollständig weg", async () => {
     const dir = await tmp();
     const root = await setupSteam(dir);
-    const backupDir = join(dir, "backups");
 
-    await writeCompatTool({ fs: nodeFs(), system: fakeSystem() }, root, 730, "tmp", backupDir);
-    const result = await removeCompatTool(
-      { fs: nodeFs(), system: fakeSystem() },
-      root,
-      730,
-      backupDir,
-    );
+    await writeCompatTool({ system: fakeSystem() }, root, 730, "tmp");
+    const result = await removeCompatTool({ system: fakeSystem() }, root, 730);
 
     expect(result).toBe("written");
     const text = await readFile(join(root, "config", "config.vdf"), "utf8");
@@ -167,46 +136,16 @@ describe("writeCompatTool", () => {
     expect(getVdfValue(text, [...C_PATH, "620", "name"])).toBe("GE-Proton9-27");
   });
 
-  it("TOCTOU: backupText = ursprünglicher text, auch wenn disk sich ändert", async () => {
-    const dir = await tmp();
-    const root = await setupSteam(dir);
-    const backupDir = join(dir, "backups");
-    const configPath = join(root, "config", "config.vdf");
-
-    // simuliert parallelen externen write (z. B. steam): config.vdf wird
-    // zwischen read und write von außen auf einen anderen validen stand geändert
-    const altered = CONFIG_VDF.replace("GE-Proton9-27", "ExternalTool-1");
-    await writeFile(configPath, altered, "utf8");
-
-    // writeCompatTool liest jetzt "ExternalTool-1" text, setzt 730 → foo,
-    // backup muss den tatsächlich gelesenen text enthalten
-    const result = await writeCompatTool(
-      { fs: nodeFs(), system: fakeSystem() },
-      root,
-      730,
-      "foo",
-      backupDir,
-    );
-
-    expect(result).toBe("written");
-    const backups = await readdir(backupDir);
-    expect(backups).toHaveLength(1);
-    const backupText = await readFile(join(backupDir, backups[0] as string), "utf8");
-    expect(backupText).toContain("ExternalTool-1");
-    expect(backupText).not.toContain("foo"); // backup = vor dem patch
-  });
-
   it("write-gate: blockt bei laufendem steam", async () => {
     const dir = await tmp();
     const root = await setupSteam(dir);
-    const backupDir = join(dir, "backups");
     const configPath = join(root, "config", "config.vdf");
     const original = await readFile(configPath, "utf8");
     const steamSystem = { ...fakeSystem(), isProcessRunning: async () => true };
 
-    await expect(
-      writeCompatTool({ fs: nodeFs(), system: steamSystem }, root, 730, "foo", backupDir),
-    ).rejects.toBeInstanceOf(SteamRunningError);
+    await expect(writeCompatTool({ system: steamSystem }, root, 730, "foo")).rejects.toThrow(
+      "steam is running",
+    );
     expect(await readFile(configPath, "utf8")).toBe(original);
   });
 });
@@ -215,19 +154,12 @@ describe("removeCompatTool", () => {
   it("entfernt den appId-block aus dem mapping", async () => {
     const dir = await tmp();
     const root = await setupSteam(dir);
-    const backupDir = join(dir, "backups");
     const configPath = join(root, "config", "config.vdf");
 
-    const result = await removeCompatTool(
-      { fs: nodeFs(), system: fakeSystem() },
-      root,
-      620,
-      backupDir,
-    );
+    const result = await removeCompatTool({ system: fakeSystem() }, root, 620);
 
     expect(result).toBe("written");
     const text = await readFile(configPath, "utf8");
-    // 620 block weg, 0 bleibt
     expect(getVdfValue(text, [...C_PATH, "620", "name"])).toBeUndefined();
     expect(getVdfValue(text, [...C_PATH, "0", "name"])).toBe("proton-cachyos-slr");
   });
@@ -235,19 +167,14 @@ describe("removeCompatTool", () => {
   it("no-op wenn kein mapping existiert", async () => {
     const dir = await tmp();
     const root = await setupSteam(dir);
-    const backupDir = join(dir, "backups");
+    const backupDir = join(root, "backups");
     const configPath = join(root, "config", "config.vdf");
     const original = await readFile(configPath, "utf8");
 
-    const result = await removeCompatTool(
-      { fs: nodeFs(), system: fakeSystem() },
-      root,
-      999,
-      backupDir,
-    );
+    const result = await removeCompatTool({ system: fakeSystem() }, root, 999);
 
     expect(result).toBe("unchanged");
     expect(await readFile(configPath, "utf8")).toBe(original);
-    expect(await readdir(backupDir).catch(() => [])).toEqual([]); // kein backup-dir angelegt
+    expect(await readdir(backupDir).catch(() => [])).toEqual([]);
   });
 });

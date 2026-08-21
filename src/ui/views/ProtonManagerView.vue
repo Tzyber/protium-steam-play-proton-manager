@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { isManagedGeName } from "../../core/geproton";
 import type { CompatTool } from "../../core/types";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import { formatBytes } from "../format";
@@ -20,7 +21,7 @@ onMounted(() => proton.init());
 const nameOf = computed(() => new Map(scan.games.map((g) => [g.appId, g.name])));
 
 function removable(tt: CompatTool): boolean {
-  return tt.source === "user" && /^GE-Proton/i.test(tt.name);
+  return tt.source === "user" && isManagedGeName(tt.name);
 }
 
 // abgleich über den VERZEICHNISNAMEN: r.tag ist der GE-release-tag und wird als

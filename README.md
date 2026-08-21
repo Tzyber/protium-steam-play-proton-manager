@@ -28,30 +28,36 @@ glaubte, und der, die tatsächlich lief.
 
 ## installieren
 
-fertige AppImage von der [releases-seite](https://github.com/Tzyber/protium-steam-play-proton-manager/releases)
-laden, ausführbar machen, starten:
+AppImage oder Debian-Paket von der [releases-seite](https://github.com/Tzyber/protium-steam-play-proton-manager/releases)
+laden. die AppImage ausführbar machen und starten:
 
 ```sh
-chmod +x protium_0.3.0_amd64.AppImage
-./protium_0.3.0_amd64.AppImage
+chmod +x protium_0.4.0_amd64.AppImage
+./protium_0.4.0_amd64.AppImage
 ```
 
 die AppImage ist nicht signiert. wer das nicht mag, baut selbst (siehe
-dev-setup) oder wartet auf das AUR-paket.
+dev-setup). für Debian-basierte systeme liegt zusätzlich ein Debian-paket bei:
+
+```sh
+sudo apt install ./protium_0.4.0_amd64.deb
+```
 
 startet nichts und es kommt keine fehlermeldung, fehlt meist fuse2. dann
 entweder `sudo pacman -S fuse2` oder einmalig ohne fuse starten:
 
 ```sh
-./protium_0.3.0_amd64.AppImage --appimage-extract-and-run
+./protium_0.4.0_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## was es kann
 
 **library-übersicht.** alle spiele über alle libraries, auch auf externen
 platten, mit cover, größe, zugewiesener proton-version und protondb-tier direkt
-auf der karte. cover kommen aus steams lokalem librarycache, die app
-funktioniert also komplett offline.
+auf der karte. Steam- und Library-Dateien liest ein backendkanonisierter,
+aktueller Environment-Snapshot; lokale Cover kommen als kurzlebige Blob-URLs
+aus einem begrenzten Backend-Binary-Read. Die App funktioniert damit auch
+offline, ohne lokale Steam-Pfade an die Webview freizugeben.
 
 **GE-proton-manager.** installierte versionen mit größe und der info, welche
 spiele sie tatsächlich nutzen. neue releases direkt von github installieren
@@ -86,7 +92,13 @@ oberfläche auf deutsch und englisch, key-parität durch einen test abgesichert.
 
 - **nativ**: `~/.local/share/Steam` und `~/.steam/steam`
 - **flatpak**: `~/.var/app/com.valvesoftware.Steam/.local/share/Steam`
-- **symlinks und custom-pfade**: `discoverSteamRoot` löst symlinks via `realpath` auf
+- **Discovery**: `discover_steam_environment` löst ausschließlich feste
+  Kandidaten aus dem Backend-Home auf und liest Libraries selbst aus
+  `libraryfolders.vdf`; externe Library-Pfade werden nicht aus der Webview
+  übernommen.
+- **Symlinks**: Root- und Library-Symlinks werden backendseitig kanonisiert und
+  bei jeder Environment-Leseoperation erneut gegen den aktuellen Snapshot
+  geprüft.
 
 snap (`~/snap/steam/`) ist ab 0.1.7 enthalten, aber nur gegen fixtures
 getestet. auf einem echten snap-system hat das noch niemand verifiziert.
@@ -120,8 +132,9 @@ das, was die webview nicht darf. kein electron, das binary bleibt klein und
 nutzt die system-webview (webkit2gtk).
 
 konkret übernimmt rust nur: etwas über 1000 produktive zeilen für
-pfad-validierung, streaming-downloads mit hash, tarball-extraktion, die beiden
-löschbefehle, prozess-check und fs-scope-freigabe. geschäftslogik und
+Environment-Discovery und snapshotautorisierte Reads, Pfadvalidierung,
+streaming-downloads mit hash, tarball-extraktion, die beiden Löschbefehle und
+den Prozess-Check. geschäftslogik und
 UI-entscheidungen liegen nicht in dieser schicht. dazu kommen knapp 1800
 testzeilen, fast doppelt so viele wie produktivcode, denn diese pfade verändern
 und löschen dateien.
@@ -205,9 +218,6 @@ versionshistorie steht in den [releases](https://github.com/Tzyber/protium-steam
 
 offene wartungspunkte. sicherheitsgrenzen werden separat und vor Refactors
 geprüft. abarbeitung bei gelegenheit, reihenfolge ist keine priorität.
-
-- `scanLibrary` aufteilen (`scan.ts`, 315 zeilen, 7 concerns), als eigener
-  zyklus und nicht im vorbeigehen
 
 ## status
 

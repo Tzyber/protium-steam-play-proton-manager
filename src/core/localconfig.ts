@@ -1,10 +1,9 @@
 // localconfig.vdf (pro steam-account): startoptionen lesen/schreiben + aktiven user finden.
-import { writeSteamFile } from "./configwrite.js";
 import { paths } from "./paths.js";
-import type { FileSystem, System } from "./ports.js";
+import type { FileSystem, System, WriteResult } from "./ports.js";
 import { NUMERIC_RE } from "./types.js";
 import { asInt, asNode, getPath, parseVdf } from "./vdf.js";
-import { getVdfValue, setVdfValue } from "./vdfpatch.js";
+import { getVdfValue } from "./vdfpatch.js";
 
 /** pfad des LaunchOptions-werts eines spiels in localconfig.vdf. */
 function launchOptionsPath(appId: number): string[] {
@@ -83,24 +82,18 @@ export async function findActiveUser(
   };
 }
 
-export type LaunchWriteResult = "unchanged" | "written";
+export type LaunchWriteResult = WriteResult;
 
 /**
- * setzt die startoptionen eines spiels (string-patch + write-gate).
+ * setzt die startoptionen eines spiels via Write-Gate.
  * "unchanged" = wert stand schon so drin → kein write, kein backup.
  */
 export async function writeLaunchOptions(
-  ports: { fs: FileSystem; system: System },
+  ports: { system: System },
   steamRoot: string,
   userId: string,
   appId: number,
   value: string,
-  backupDir: string,
 ): Promise<LaunchWriteResult> {
-  const path = paths.localConfigVdf(steamRoot, userId);
-  const text = await ports.fs.readTextFile(path);
-  if ((readLaunchOptions(text, appId) ?? "") === value) return "unchanged";
-  const patched = setVdfValue(text, launchOptionsPath(appId), value);
-  await writeSteamFile(ports.system, path, patched, backupDir, text);
-  return "written";
+  return ports.system.saveLaunchOptions(steamRoot, userId, appId, value);
 }

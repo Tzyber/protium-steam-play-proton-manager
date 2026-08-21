@@ -1,17 +1,5 @@
-// Diese Datei konstruiert alle Steam-Pfade.
-// ACHTUNG: ROOT_CANDIDATES muss mit assetProtocol.scope in tauri.conf.json
-// synchron bleiben, beide listen müssen dieselben installationsarten abdecken.
-// bei änderungen hier IMMER tauri.conf.json → assetProtocol.scope mitpflegen.
-import type { FileSystem } from "./ports.js";
-import { SteamNotFoundError } from "./types.js";
-
-const ROOT_CANDIDATES = [
-  ".local/share/Steam",
-  ".steam/steam", // symlink → meist .local/share/Steam
-  ".steam/root",
-  ".var/app/com.valvesoftware.Steam/.local/share/Steam", // flatpak
-  "snap/steam/common/.local/share/Steam", // snap (canonical), ungetestet auf echtem snap-system
-] as const;
+// Diese Datei konstruiert alle Steam-Pfade. Die Environment-Wurzeln selbst
+// werden ausschließlich im Rust-Backend entdeckt und als Snapshot geliefert.
 
 function join(...parts: string[]): string {
   const joined = parts
@@ -22,21 +10,6 @@ function join(...parts: string[]): string {
     throw new Error(`joinPath: ".." segment rejected for security`);
   }
   return joined;
-}
-
-// Löst Symlinks auf, damit Scope-Checks gegen den echten Pfad laufen.
-export async function discoverSteamRoot(fs: FileSystem, home: string): Promise<string> {
-  const tried: string[] = [];
-  for (const rel of ROOT_CANDIDATES) {
-    const candidate = join(home, rel);
-    tried.push(candidate);
-    if (await fs.exists(candidate)) {
-      const real = await fs.realpath(candidate);
-      // echte root hat steamapps/
-      if (await fs.exists(join(real, "steamapps"))) return real;
-    }
-  }
-  throw new SteamNotFoundError(tried);
 }
 
 export const paths = {

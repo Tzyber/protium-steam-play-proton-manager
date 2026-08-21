@@ -35,7 +35,6 @@ pub(super) fn canonicalize_safe(path: &str, label: &str) -> Result<PathBuf, Stri
 /// canonicalize eines pfads, dessen roh-input kein symlink sein darf.
 /// der symlink_metadata-guard läuft auf dem roh-input VOR canonicalize
 /// canonicalize folgt symlinks, ein guard auf dem gefolgten pfad wäre tot.
-/// nutzer: validate_and_prepare + remove_trash_entry_inner.
 pub(super) fn canonicalize_no_symlink(path: &str) -> Result<PathBuf, String> {
     let raw_meta = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
     if raw_meta.file_type().is_symlink() {
@@ -90,6 +89,7 @@ pub(super) fn canonicalize_nearest_ancestor(path: &Path, label: &str) -> Result<
 /// durch). label für den fehler-prefix, die zwei stellen haben
 /// unterschiedliche meldungen („backup outside app cache" /
 /// download-fehlermeldung).
+#[cfg(test)]
 pub(super) fn ensure_dest_within_canon_dir(
     dest: &Path,
     dir: &Path,
@@ -117,6 +117,7 @@ pub(super) fn ensure_dest_within_canon_dir(
 
 /// validiert, dass ein download-ziel innerhalb des app-cache-verzeichnisses
 /// liegt (allowlist-statt-blocklist). lehnt symlinks auf dem ziel selbst ab.
+#[cfg(test)]
 pub(super) fn validate_download_dest(dest: &str, cache_dir: &Path) -> Result<(), String> {
     let dest_path = Path::new(dest);
     ensure_dest_within_canon_dir(dest_path, cache_dir, "download dest")?;

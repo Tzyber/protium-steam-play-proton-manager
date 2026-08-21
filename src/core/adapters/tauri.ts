@@ -1,38 +1,45 @@
 // ports-implementierung gegen tauri-plugins + rust-commands.
 // Einzige Datei mit Tauri-Imports auf der Core-Seite.
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { appCacheDir, homeDir } from "@tauri-apps/api/path";
+import { invoke } from "@tauri-apps/api/core";
+import { appCacheDir } from "@tauri-apps/api/path";
 import {
   BaseDirectory,
   exists as fsExists,
-  readFile as fsReadFile,
   remove as fsRemove,
-  stat as fsStat,
   mkdir,
-  readDir,
   readTextFile,
   rename,
   writeTextFile,
 } from "@tauri-apps/plugin-fs";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import type { Cache, DirEntry, FileSystem, Http, HttpResponse, Ports, System } from "../ports.js";
-import { ensureSizeLimit } from "../ports.js";
-
-// Größenprüfung vor jedem Read. Ein Stat-Fehler für nicht vorhandene Dateien
-// lässt den read wie bisher laufen (die aufrufer behandeln das); über-limit
-// wirft; der Fehler wird wie ein unlesbarer Pfad behandelt.
-async function withSizeLimit<T>(path: string, read: () => Promise<T>): Promise<T> {
-  const st = await fsStat(path).catch(() => null);
-  if (st) ensureSizeLimit(st.size);
-  return read();
-}
+import type {
+  Cache,
+  DeleteResult,
+  DirEntry,
+  EnvironmentSnapshot,
+  FileSystem,
+  Http,
+  HttpResponse,
+  InstallGeResult,
+  PendingDeleteInfo,
+  Ports,
+  System,
+  TargetArch,
+  WriteResult,
+} from "../ports.js";
 
 const fs: FileSystem = {
-  exists: (path) => fsExists(path).catch(() => false),
-  readTextFile: (path) => withSizeLimit(path, () => readTextFile(path)),
-  readFile: (path) => withSizeLimit(path, () => fsReadFile(path)),
+  exists: (path) => invoke<boolean>("environment_exists", { path }),
+  readTextFile: (path) => invoke<string>("environment_read_text", { path }),
+  readFile: async (path) => {
+    const bytes = await invoke<number[] | Uint8Array>("environment_read_binary", { path });
+    return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  },
   async readDir(path) {
-    const entries = await readDir(path);
+    const entries = await invoke<{ name: string; isDirectory: boolean; isSymlink: boolean }[]>(
+      "environment_read_dir",
+      { path },
+    );
     return entries.map(
       (e): DirEntry => ({
         name: e.name,
@@ -41,7 +48,7 @@ const fs: FileSystem = {
       }),
     );
   },
-  // plugin-fs kann kein realpath → rust canonicalize
+  // canonicalisierung läuft gegen den aktuellen backend-snapshot.
   realpath: (path) => invoke<string>("canonicalize_path", { path }),
   remove: (path, opts) => fsRemove(path, { recursive: opts?.recursive ?? false }),
   writeTextFile: (path, content) => writeTextFile(path, content),
@@ -62,10 +69,11 @@ const http: Http = {
 };
 
 const system: System = {
+  geTargetArch: () => invoke<TargetArch>("ge_target_arch"),
+  discoverSteamEnvironment: () => invoke<EnvironmentSnapshot>("discover_steam_environment"),
   isProcessRunning: (name) => invoke<boolean>("is_process_running", { name }),
   dirSize: (path) => invoke<number>("dir_size", { path }),
   batchDirSizes: (paths) => invoke<Record<string, number>>("batch_dir_sizes", { paths }),
-  allowLibraryScope: (path) => invoke<void>("allow_library_scope", { path }),
   listTrashEntries: async (library) => {
     // rust liefert serde-camelCase (isDir), core kennt nur DirEntry (isDirectory)
     const r = await invoke<{
@@ -87,15 +95,36 @@ const system: System = {
     invoke<{ realpath: string; dev: string; ino: string }>("path_identity", { path }).catch(
       () => null,
     ),
-  downloadFile: (url, dest, downloadId) =>
-    invoke<string>("download_file", { url, dest, downloadId }),
-  fetchSha512: (url) => invoke<string>("fetch_sha512", { url }),
+  installGeProton: (params) =>
+    invoke<InstallGeResult>("install_ge_proton", {
+      steamRoot: params.steamRoot,
+      releaseTag: params.releaseTag,
+      downloadUrl: params.downloadUrl,
+      downloadId: params.downloadId,
+    }),
   cancelDownload: (downloadId) => invoke<void>("cancel_download", { downloadId }),
-  extractTarball: (src, dest) => invoke<void>("extract_tarball", { src, dest }),
-  writeSteamConfigFile: (file, original, content, backup) =>
-    invoke<void>("write_steam_file", { file, original, content, backup }),
-  removeCompatTool: (steamRoot, toolName) =>
-    invoke<void>("remove_compat_tool", { steamRoot, toolName }),
+  prepareDelete: (request) =>
+    invoke<PendingDeleteInfo>("prepare_delete", {
+      request: {
+        targetType: request.targetType,
+        path: request.path,
+        steamRoot: request.steamRoot,
+      },
+    }),
+  executeDelete: (token) => invoke<DeleteResult>("execute_delete", { token }),
+  saveLaunchOptions: (steamRoot, accountId, appId, launchOptions) =>
+    invoke<WriteResult>("save_launch_options", {
+      steamRoot,
+      accountId,
+      appId,
+      launchOptions,
+    }),
+  saveCompatTool: (steamRoot, appId, toolName) =>
+    invoke<WriteResult>("save_compat_tool", {
+      steamRoot,
+      appId,
+      toolName,
+    }),
 };
 
 // cache als json-dateien unter dem app-cache-dir
@@ -133,16 +162,6 @@ const cache: Cache = {
 };
 
 export const tauriPorts: Ports = { fs, http, system, cache };
-
-/** $HOME für discoverSteamRoot. */
-export function getHome(): Promise<string> {
-  return homeDir();
-}
-
-/** lokaler pfad → asset-url für die webview. */
-export function assetUrl(path: string): string {
-  return convertFileSrc(path);
-}
 
 export { appCacheDir };
 

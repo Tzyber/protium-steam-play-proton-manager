@@ -40,8 +40,7 @@ describe("scan performance fixture", () => {
           http: immediateHttp(false).http,
           cache: createScanPerformanceCache().cache,
         },
-        fixture.root,
-        [],
+        fixture.environment,
       );
 
       expect(fixture.appIds).toHaveLength(500);
@@ -51,6 +50,7 @@ describe("scan performance fixture", () => {
       expect(local.games.filter((game) => game.localHeader !== null)).toHaveLength(250);
       expect(local.warnings).toEqual([]);
       expect(local.skippedLibraries).toEqual([]);
+      expect(local.cleanupUnsafeLibraries).toEqual([]);
     } finally {
       await fixture.cleanup();
     }
@@ -68,7 +68,7 @@ describe("scan performance fixture", () => {
         http: countedHttp.http,
         cache: cache.cache,
       };
-      const local = await scanLocal(ports, fixture.root, []);
+      const local = await scanLocal(ports, fixture.environment);
       await enrichProtondb(ports, local.games, 0);
 
       expect(countedHttp.calls).toHaveLength(0);
@@ -89,7 +89,7 @@ describe("scan performance fixture", () => {
         http: countedHttp.http,
         cache: createScanPerformanceCache().cache,
       };
-      const local = await scanLocal(ports, fixture.root, []);
+      const local = await scanLocal(ports, fixture.environment);
       await enrichProtondb(ports, local.games, 0);
 
       expect(countedHttp.calls).toHaveLength(500);

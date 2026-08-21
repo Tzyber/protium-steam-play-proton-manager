@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SteamRunningError } from "../../src/core/configwrite.js";
 import {
   findActiveUser,
   readLaunchOptions,
@@ -58,24 +57,21 @@ describe("findActiveUser", () => {
 describe("writeLaunchOptions", () => {
   it("setzt startoptionen: appId-block wird angelegt, backup da, nachbar unberührt", async () => {
     const { root, userId } = await buildFakeSteam();
-    const fs = nodeFs();
-    const backupDir = join(root, "backups-test");
+    const backupDir = join(root, "backups");
 
     const r = await writeLaunchOptions(
-      { fs, system: fakeSystem() },
+      { system: fakeSystem() },
       root,
       userId,
       730,
       "MANGOHUD=1 %command%",
-      backupDir,
     );
     expect(r).toBe("written");
 
     const text = await readFile(paths.localConfigVdf(root, userId), "utf8");
     expect(readLaunchOptions(text, 730)).toBe("MANGOHUD=1 %command%");
-    expect(readLaunchOptions(text, 620)).toBe("gamemoderun %command%"); // nachbar unberührt
+    expect(readLaunchOptions(text, 620)).toBe("gamemoderun %command%");
 
-    // backup enthält den ALTSTAND (730 noch ohne optionen)
     const backups = await readdir(backupDir);
     expect(backups).toHaveLength(1);
     const backupFile = backups[0];
@@ -88,44 +84,39 @@ describe("writeLaunchOptions", () => {
   it("no-op → unchanged: kein write, kein backup", async () => {
     const { root, userId } = await buildFakeSteam();
     const fs = nodeFs();
-    const backupDir = join(root, "backups-test");
+    const backupDir = join(root, "backups");
 
     const r = await writeLaunchOptions(
-      { fs, system: fakeSystem() },
+      { system: fakeSystem() },
       root,
       userId,
       620,
       "gamemoderun %command%",
-      backupDir,
     );
     expect(r).toBe("unchanged");
     expect(await fs.exists(backupDir)).toBe(false);
   });
 
-  it("steam läuft → SteamRunningError, datei unangetastet", async () => {
+  it("steam läuft → wirft, datei unangetastet", async () => {
     const { root, userId } = await buildFakeSteam();
-    const fs = nodeFs();
     const system = { ...fakeSystem(), isProcessRunning: async () => true };
     const before = await readFile(paths.localConfigVdf(root, userId), "utf8");
 
-    await expect(
-      writeLaunchOptions({ fs, system }, root, userId, 620, "x", join(root, "backups-test")),
-    ).rejects.toBeInstanceOf(SteamRunningError);
+    await expect(writeLaunchOptions({ system }, root, userId, 620, "x")).rejects.toThrow(
+      "steam is running",
+    );
     expect(await readFile(paths.localConfigVdf(root, userId), "utf8")).toBe(before);
   });
 });
 
-// sicherheit: die volle kette landet in einer für steam wohlgeformten datei
 it("geschriebene datei parst mit @node-steam/vdf und enthält den wert", async () => {
   const { root, userId } = await buildFakeSteam();
-  const fs = nodeFs();
   await writeLaunchOptions(
-    { fs, system: fakeSystem() },
+    { system: fakeSystem() },
     root,
     userId,
     620,
     'MANGOHUD_CONFIG="fps" %command%',
-    join(root, "backups-test"),
   );
   const text = await readFile(paths.localConfigVdf(root, userId), "utf8");
   expect(

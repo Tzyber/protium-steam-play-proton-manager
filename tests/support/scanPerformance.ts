@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import type { Cache, Http, HttpResponse } from "../../src/core/ports.js";
+import type { Cache, EnvironmentSnapshot, Http, HttpResponse } from "../../src/core/ports.js";
 import { nodeFs } from "./fakeSteam";
 
 export const SCAN_FIXTURE_GAME_COUNT = 500;
@@ -14,6 +14,7 @@ export type ScanPerformanceScenario = "cold" | "warm" | "offline";
 
 export interface ScanPerformanceFixture {
   root: string;
+  environment: EnvironmentSnapshot;
   appIds: readonly number[];
   headerAppIds: readonly number[];
   localConfigText: string;
@@ -126,6 +127,14 @@ export async function buildScanPerformanceFixture(): Promise<ScanPerformanceFixt
 
   return {
     root,
+    environment: {
+      generation: 1,
+      steamRoot: root,
+      libraries: [root],
+      systemCompatDirs: [],
+      appCacheDir: join(tempRoot, "app-cache"),
+      appConfigDir: join(tempRoot, "app-config"),
+    },
     appIds,
     headerAppIds,
     localConfigText: await readFile(join(userConfigDir, "localconfig.vdf"), "utf8"),

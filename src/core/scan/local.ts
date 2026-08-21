@@ -1,4 +1,4 @@
-import type { Ports } from "../ports.js";
+import type { EnvironmentSnapshot, Ports } from "../ports.js";
 import type { ScanResult } from "../types.js";
 import { readCompatMapping, readLaunchConfig } from "./config.js";
 import { scanGames } from "./games.js";
@@ -7,11 +7,11 @@ import { readCompatTools } from "./tools.js";
 
 export async function scanLocal(
   ports: Ports,
-  steamRoot: string,
-  extraCompatDirs: readonly string[] | undefined,
+  environment: EnvironmentSnapshot,
 ): Promise<Omit<ScanResult, "steamRoot">> {
   const { fs, system } = ports;
-  const libraryResult = await readLibraryList(fs, system, steamRoot);
+  const { steamRoot } = environment;
+  const libraryResult = readLibraryList(environment);
   const mappingResult = await readCompatMapping(fs, steamRoot);
   const launchResult = await readLaunchConfig(fs, steamRoot);
   const compatFor = (appId: number): string =>
@@ -31,7 +31,7 @@ export async function scanLocal(
     mappingResult.mapping,
     gamesResult.blockedAppIds,
     gamesResult.games,
-    extraCompatDirs,
+    environment.systemCompatDirs,
   );
 
   return {
@@ -49,5 +49,6 @@ export async function scanLocal(
       ...toolsResult.warnings,
     ],
     skippedLibraries: [...libraryResult.skippedLibraries, ...gamesResult.skippedLibraries],
+    cleanupUnsafeLibraries: gamesResult.cleanupUnsafeLibraries,
   };
 }

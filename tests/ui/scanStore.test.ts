@@ -1,22 +1,32 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { discoverSteamRoot } from "../../src/core/paths";
+import type { EnvironmentSnapshot } from "../../src/core/ports";
 import type { scanLibrary } from "../../src/core/scan";
-import { type ScanResult, SteamNotFoundError } from "../../src/core/types";
+import type { ScanResult } from "../../src/core/types";
 import { setLocale } from "../../src/ui/i18n";
 
-const { mockGetHome, mockDiscoverSteamRoot, mockScanLibrary } = vi.hoisted(() => ({
-  mockGetHome: vi.fn<() => Promise<string>>(async () => "/home/u"),
-  mockDiscoverSteamRoot: vi.fn<typeof discoverSteamRoot>(async () => "/home/u/.steam"),
+const { mockDiscoverEnvironment, mockScanLibrary } = vi.hoisted(() => ({
+  mockDiscoverEnvironment: vi.fn<() => Promise<EnvironmentSnapshot>>(async () => ({
+    generation: 1,
+    steamRoot: "/home/u/.steam",
+    libraries: ["/home/u/.steam"],
+    systemCompatDirs: [],
+    appCacheDir: "/home/u/.cache/protium",
+    appConfigDir: "/home/u/.config/protium",
+  })),
   mockScanLibrary: vi.fn<typeof scanLibrary>(),
 }));
 
 vi.mock("../../src/core/adapters/tauri", () => ({
-  getHome: mockGetHome,
-  tauriPorts: { fs: {}, http: {}, system: {}, cache: {} },
-}));
-vi.mock("../../src/core/paths", () => ({
-  discoverSteamRoot: mockDiscoverSteamRoot,
+  tauriPorts: {
+    fs: {},
+    http: {},
+    system: {
+      geTargetArch: vi.fn(async () => "x86_64" as const),
+      discoverSteamEnvironment: mockDiscoverEnvironment,
+    },
+    cache: {},
+  },
 }));
 vi.mock("../../src/core/scan", () => ({
   scanLibrary: mockScanLibrary,
@@ -46,6 +56,7 @@ function fakeResult(): ScanResult {
     steamUserId: null,
     warnings: [],
     skippedLibraries: [],
+    cleanupUnsafeLibraries: [],
   };
 }
 
@@ -53,10 +64,15 @@ describe("scanStore.runScan", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     setLocale("de");
-    mockGetHome.mockReset();
-    mockGetHome.mockResolvedValue("/home/u");
-    mockDiscoverSteamRoot.mockReset();
-    mockDiscoverSteamRoot.mockResolvedValue("/home/u/.steam");
+    mockDiscoverEnvironment.mockReset();
+    mockDiscoverEnvironment.mockResolvedValue({
+      generation: 1,
+      steamRoot: "/home/u/.steam",
+      libraries: ["/home/u/.steam"],
+      systemCompatDirs: [],
+      appCacheDir: "/home/u/.cache/protium",
+      appConfigDir: "/home/u/.config/protium",
+    });
     mockScanLibrary.mockReset();
   });
 
@@ -75,7 +91,7 @@ describe("scanStore.runScan", () => {
   });
 
   it("SteamNotFoundError → status not-found, kein error-text", async () => {
-    mockDiscoverSteamRoot.mockRejectedValue(new SteamNotFoundError(["/a", "/b"]));
+    mockDiscoverEnvironment.mockRejectedValue("steam installation not found");
     const store = useScanStore();
 
     await store.runScan();
@@ -98,7 +114,7 @@ describe("scanStore.runScan", () => {
 
   it("string-rejection (tauri-invoke) landet lesbar in error", async () => {
     // tauri-invoke rejectet mit strings, nicht mit Error-objekten (A3)
-    mockGetHome.mockRejectedValue("forbidden path: /home/u");
+    mockDiscoverEnvironment.mockRejectedValue("forbidden path: /home/u");
     const store = useScanStore();
 
     await store.runScan();

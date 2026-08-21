@@ -10,7 +10,7 @@ export async function readCompatTools(
   mapping: CompatToolMapping,
   blockedAppIds: ReadonlySet<number>,
   games: Game[],
-  extraCompatDirs: readonly string[] | undefined,
+  systemCompatDirs: readonly string[],
 ): Promise<{
   compatToolsInstalled: CompatTool[];
   builtinProtonsInstalled: { internalName: string; displayName: string }[];
@@ -28,7 +28,7 @@ export async function readCompatTools(
     mapping,
     warnings,
     installedAppIds,
-    extraCompatDirs,
+    systemCompatDirs,
   );
   return { compatToolsInstalled, builtinProtonsInstalled, defaultCompatTool, warnings };
 }

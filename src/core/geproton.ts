@@ -1,5 +1,4 @@
-import { joinPath, paths } from "./paths.js";
-import type { Cache, FileSystem, Http, System } from "./ports.js";
+import type { Cache, Http, System, TargetArch } from "./ports.js";
 
 const RELEASES_URL =
   "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases?per_page=15";
@@ -14,10 +13,13 @@ interface GeAsset {
 }
 
 export interface GeRelease {
-  tag: string; // = install-verzeichnisname
+  /** kanonischer GitHub-Release-Tag aus `tag_name` */
+  tag: string;
   name: string;
   publishedAt: string;
   notes: string;
+  /** Assetname ohne `.tar.gz`, zugleich autorisierter Installationsname. */
+  installName: string;
   tarball: GeAsset;
   sha512Url: string | null;
 }
@@ -53,33 +55,110 @@ function str(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
-function parseReleases(json: string): GeRelease[] {
+export const MANAGED_GE_NAME_RE = /^GE-Proton[0-9]+-[0-9]+(-(x86_64|aarch64))?$/;
+
+// upstream-snapshot 2026-08-20: suffix-assets ab GE-Proton11-4;
+// unsuffixt ist nur die belegte x86_64-legacy-familie bis 11-3.
+const LEGACY_MAX_MAJOR = 11;
+const LEGACY_MAX_MINOR = 3;
+
+function releaseVersion(name: string): [number, number] | null {
+  const match = /^GE-Proton([0-9]+)-([0-9]+)$/.exec(name);
+  if (!match) return null;
+  const majorText = match[1];
+  const minorText = match[2];
+  if (majorText === undefined || minorText === undefined) return null;
+  const major = Number(majorText);
+  const minor = Number(minorText);
+  if (!Number.isSafeInteger(major) || !Number.isSafeInteger(minor)) return null;
+  return [major, minor];
+}
+
+function isLegacyInstallName(name: string): boolean {
+  const version = releaseVersion(name);
+  if (!version) return false;
+  return (
+    version[0] < LEGACY_MAX_MAJOR ||
+    (version[0] === LEGACY_MAX_MAJOR && version[1] <= LEGACY_MAX_MINOR)
+  );
+}
+
+export function isManagedGeName(name: string): boolean {
+  if (!MANAGED_GE_NAME_RE.test(name)) return false;
+  return name.endsWith("-x86_64") || name.endsWith("-aarch64") || isLegacyInstallName(name);
+}
+
+function isExactAssetUrl(url: string, tag: string, assetName: string): boolean {
+  if (url.includes("%")) return false;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  return (
+    parsed.protocol === "https:" &&
+    parsed.hostname === "github.com" &&
+    parsed.port === "" &&
+    parsed.username === "" &&
+    parsed.password === "" &&
+    parsed.search === "" &&
+    parsed.hash === "" &&
+    parsed.pathname === `/GloriousEggroll/proton-ge-custom/releases/download/${tag}/${assetName}`
+  );
+}
+
+function isAllowedTarballName(tag: string, assetName: string, targetArch: TargetArch): boolean {
+  const current = `${tag}-${targetArch}.tar.gz`;
+  if (assetName === current) return true;
+  return targetArch === "x86_64" && isLegacyInstallName(tag) && assetName === `${tag}.tar.gz`;
+}
+
+export function parseReleases(json: string, targetArch: TargetArch): GeRelease[] {
   const raw = JSON.parse(json);
   if (!Array.isArray(raw)) return [];
   const out: GeRelease[] = [];
   for (const r of raw as RawRelease[]) {
+    const tag = str(r.tag_name);
+    if (!releaseVersion(tag)) continue;
     const assets = Array.isArray(r.assets) ? (r.assets as RawAsset[]) : [];
-    let tarball: GeAsset | null = null;
-    let sha512Url: string | null = null;
+    const tarballCandidates: GeAsset[] = [];
     for (const a of assets) {
       const name = str(a.name);
       const url = str(a.browser_download_url);
-      if (!name || !url) continue;
-      if (name.endsWith(".tar.gz")) {
-        tarball = { name, url, size: typeof a.size === "number" ? a.size : 0 };
-      } else if (name.endsWith(".sha512sum")) {
-        sha512Url = url;
+      if (
+        !name ||
+        !url ||
+        !name.endsWith(".tar.gz") ||
+        !isAllowedTarballName(tag, name, targetArch) ||
+        !isExactAssetUrl(url, tag, name)
+      ) {
+        continue;
       }
+      tarballCandidates.push({ name, url, size: typeof a.size === "number" ? a.size : 0 });
     }
-    if (!tarball) continue; // ohne tarball unbrauchbar
-    const tag = tarball.name.replace(/\.tar\.gz$/, "");
+
+    const selectedTarball = tarballCandidates[0];
+    if (!selectedTarball) continue;
+
+    const installName = selectedTarball.name.replace(/\.tar\.gz$/, "");
+    const checksumAssetName = `${installName}.sha512sum`;
+    const checksumAsset = assets.find((asset) => str(asset.name) === checksumAssetName);
+    if (
+      checksumAsset &&
+      !isExactAssetUrl(str(checksumAsset.browser_download_url), tag, checksumAssetName)
+    ) {
+      continue;
+    }
+    const sha512Url = checksumAsset ? str(checksumAsset.browser_download_url) : null;
     const body = str(r.body);
     out.push({
       tag,
       name: str(r.name) || tag,
       publishedAt: str(r.published_at),
       notes: body.length > MAX_NOTES ? `${body.slice(0, MAX_NOTES).trimEnd()}…` : body,
-      tarball,
+      installName,
+      tarball: selectedTarball,
       sha512Url,
     });
   }
@@ -90,12 +169,14 @@ function parseReleases(json: string): GeRelease[] {
 export async function fetchReleases(
   http: Http,
   cache: Cache,
+  targetArch: TargetArch,
   now: () => number = Date.now,
   force = false,
 ): Promise<FetchResult> {
+  const cacheKey = `${CACHE_KEY}:${targetArch}`;
   let cached: CacheEntry | null = null;
   try {
-    const raw = await cache.get(CACHE_KEY);
+    const raw = await cache.get(cacheKey);
     if (raw) cached = JSON.parse(raw) as CacheEntry;
     // Ein ungültiger oder fehlerhafter Cache
     // (releases: null/objekt) wird wie ein miss behandelt statt durchgereicht
@@ -122,7 +203,7 @@ export async function fetchReleases(
       const at = now();
       try {
         await cache.set(
-          CACHE_KEY,
+          cacheKey,
           JSON.stringify({ ...cached, fetchedAt: at } satisfies CacheEntry),
         );
       } catch {
@@ -140,10 +221,10 @@ export async function fetchReleases(
     }
 
     const at = now();
-    const releases = parseReleases(res.text);
+    const releases = parseReleases(res.text, targetArch);
     try {
       await cache.set(
-        CACHE_KEY,
+        cacheKey,
         JSON.stringify({
           etag: res.headers.etag ?? null,
           fetchedAt: at,
@@ -163,38 +244,22 @@ export async function fetchReleases(
   }
 }
 
-// erster token der .sha512sum-datei ist der hash.
-function parseSha512Sum(text: string): string | null {
-  const token = text.trim().split(/\s+/)[0];
-  return token && /^[0-9a-fA-F]{128}$/.test(token) ? token.toLowerCase() : null;
-}
-
 export type InstallPhase = "downloading" | "verifying" | "extracting";
 
 interface InstallOpts {
   steamRoot: string;
-  cacheDir: string; // tarball-zwischenspeicher (app-cache)
   release: GeRelease;
   downloadId: string; // korreliert die progress-events
   onPhase?: (phase: InstallPhase) => void;
-  /** hash-asset vorhanden, aber nicht lesbar, installation läuft ohne verifikation.
-   *  Kein Text-Parameter: Der Core enthält keine Übersetzungen und es gibt nur einen Grund. */
+  /** Backend meldet, dass das exakt abgeleitete SHA-Asset mit HTTP 404 fehlt. */
   onWarning?: () => void;
-  /** abbruch-abfrage für das fenster VOR dem rust-download. cancel_download kann
-   *  nur einen laufenden download treffen (die cancel-registry im backend kennt
-   *  eine id erst, wenn download_file sie registriert hat). alles davor, das
-   *  holen des hash-assets über netz, wäre sonst nicht abbrechbar und der
-   *  abbruch-klick des nutzers würde still verpuffen. */
+  /** abbruch-abfrage für das fenster vor dem Rust-Download. */
   isCancelled?: () => boolean;
 }
 
-// download → sha512-prüfung → entpacken. tarball wird immer aufgeräumt; wirft bei mismatch.
-export async function installRelease(
-  ports: { fs: FileSystem; http: Http; system: System },
-  opts: InstallOpts,
-): Promise<void> {
-  const { fs, system } = ports;
-  const dest = joinPath(opts.cacheDir, opts.release.tarball.name);
+// delegiert an das backend (download → sha512-prüfung → swap-schutz → entpacken).
+export async function installRelease(ports: { system: System }, opts: InstallOpts): Promise<void> {
+  const { system } = ports;
 
   // "cancelled" im text ist teil des kontrakts: der aufrufer unterscheidet
   // abbruch von fehler an /cancel/i und zeigt dann keine fehlermeldung.
@@ -203,40 +268,16 @@ export async function installRelease(
   };
 
   abortIfCancelled();
+  opts.onPhase?.("downloading");
 
-  // hash-asset optional: fehlt es, wird ohne prüfung installiert
-  let expected: string | null = null;
-  if (opts.release.sha512Url) {
-    try {
-      expected = parseSha512Sum(await system.fetchSha512(opts.release.sha512Url));
-    } catch {
-      expected = null;
-    }
-    if (!expected) opts.onWarning?.(); // asset da, aber unlesbar → ohne verifikation
-  }
+  const result = await system.installGeProton({
+    steamRoot: opts.steamRoot,
+    releaseTag: opts.release.tag,
+    downloadUrl: opts.release.tarball.url,
+    downloadId: opts.downloadId,
+  });
 
-  try {
-    abortIfCancelled(); // netz-abruf oben kann lange dauern
-    opts.onPhase?.("downloading");
-    const actual = await system.downloadFile(opts.release.tarball.url, dest, opts.downloadId);
-    if (expected) {
-      opts.onPhase?.("verifying");
-      if (actual.toLowerCase() !== expected) {
-        throw new Error(
-          `checksum stimmt nicht (erwartet ${expected.slice(0, 12)}…, war ${actual.slice(0, 12)}…)`,
-        );
-      }
-    }
-    abortIfCancelled();
-    opts.onPhase?.("extracting");
-    // residuum (bewusst offen): der hash oben wird auf dem download-STREAM
-    // berechnet, entpackt wird danach die DATEI auf der platte. wer zwischen
-    // prüfung und extraktion schreibzugriff auf den app-cache hat, kann den
-    // tarball tauschen, die prüfung deckt das nicht ab. gleiches threat-model
-    // wie der rest der app (lokaler prozess mit unseren rechten); schliessbar
-    // nur durch hashen des geöffneten fd im backend.
-    await system.extractTarball(dest, paths.compatToolsDir(opts.steamRoot));
-  } finally {
-    await fs.remove(dest).catch(() => {}); // tarball immer weg
+  if (result === "unverified") {
+    opts.onWarning?.();
   }
 }

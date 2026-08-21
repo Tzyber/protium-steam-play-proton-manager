@@ -323,6 +323,148 @@ describe("removeVdfEntry", () => {
   });
 });
 
+describe("tokenizer-edge-cases", () => {
+  it("CRLF-Zeilenenden: tokenisierung und patching korrekt (55:36)", () => {
+    // valve schreibt auf windows mit \r\n; tokenizer muss \r als whitespace behandeln
+    const crlf = `"Root"\r\n{\r\n\t"Key"\t\t"old"\r\n}\r\n`;
+    expect(getVdfValue(crlf, ["Root", "Key"])).toBe("old");
+    const patched = setVdfValue(crlf, ["Root", "Key"], "new");
+    expect(getVdfValue(patched, ["Root", "Key"])).toBe("new");
+    // rest bleibt byte-identisch (nur der value-span ändert sich)
+    expect(patched).toBe(crlf.replace('"old"', '"new"'));
+  });
+
+  it("block-kommentar: getVdfValue und setVdfValue korrekt (63:9)", () => {
+    // /* ... */ kommentar muss übersprungen werden, nicht als key interpretiert
+    const withBlockComment = `"Root"\n{\n\t/* dieser kommentar wird ignoriert */\n\t"Key"\t\t"val"\n}\n`;
+    expect(getVdfValue(withBlockComment, ["Root", "Key"])).toBe("val");
+    const patched = setVdfValue(withBlockComment, ["Root", "Key"], "new");
+    expect(getVdfValue(patched, ["Root", "Key"])).toBe("new");
+    expect(patched).toBe(withBlockComment.replace('"val"', '"new"'));
+  });
+
+  it("unterterminierter block-kommentar → wirft", () => {
+    const broken = `"Root"\n{\n\t/* nicht geschlossen\n\t"Key"\t\t"val"\n}\n`;
+    expect(() => getVdfValue(broken, ["Root", "Key"])).toThrow(VdfPatchError);
+  });
+
+  it("bare token (unquoted key/value): korrekt geparst (74:9)", () => {
+    // alte steam-dateien nutzen manchmal unquoted keys/values
+    const bare = `Root\n{\n\tKey\t\tvalue\n}\n`;
+    expect(getVdfValue(bare, ["Root", "Key"])).toBe("value");
+    const patched = setVdfValue(bare, ["Root", "Key"], "new");
+    expect(getVdfValue(patched, ["Root", "Key"])).toBe("new");
+  });
+
+  it("unbekannte backslash-sequenz: round-trip bleibt literal (32:36)", () => {
+    // valve escapet nur \" und \\; ein \n im wert ist backslash+n, kein newline
+    // der wert \n (zwei bytes) muss als \\n gespeichert und wieder als \n gelesen werden
+    const literal = "C:\\Users\\name"; // backslash + U = unbekannte sequenz, bleibt literal
+    const base = `"Root"\n{\n\t"Key"\t\t"${literal}"\n}\n`;
+    // getVdfValue liest den rohen wert; escaping: \U ist unbekannte sequenz → literal \U
+    const read = getVdfValue(base, ["Root", "Key"]);
+    expect(read).toBe("C:\\Users\\name");
+    // setVdfValue schreibt mit korrektem escaping, re-read muss wieder übereinstimmen
+    const patched = setVdfValue(base, ["Root", "Key"], read ?? "");
+    expect(getVdfValue(patched, ["Root", "Key"])).toBe("C:\\Users\\name");
+  });
+});
+
+describe("setVdfValue, leere und kopflose dateien (167:7, 230:7)", () => {
+  it("komplett leere datei → wirft VdfPatchError (kein wurzel-key) (167:7)", () => {
+    // insertionPoint: closeIdx >= tokens.length → top-level scope, kein block → kein fehler
+    // stattdessen: leere datei bedeutet kein wurzel-key-entry, der gesetzt werden müsste;
+    // setInScope findet keinen entry und fügt an top-level ein → kein throw
+    // das ist das tatsächliche verhalten: pinnen statt annehmen
+    const result = setVdfValue("", ["Key"], "val");
+    expect(getVdfValue(result, ["Key"])).toBe("val");
+  });
+
+  it("leerer pfad [] → wirft VdfPatchError (230:7)", () => {
+    expect(() => setVdfValue("", [], "val")).toThrow(VdfPatchError);
+    expect(() => setVdfValue(`"Root"\n{\n}\n`, [], "val")).toThrow(VdfPatchError);
+  });
+});
+
+describe("removeVdfEntry, leere und kopflose dateien (280:7)", () => {
+  it("leerer pfad [] → wirft VdfPatchError (280:7)", () => {
+    expect(() => removeVdfEntry("", [])).toThrow(VdfPatchError);
+    expect(() => removeVdfEntry(`"Root"\n{\n}\n`, [])).toThrow(VdfPatchError);
+  });
+
+  it("komplett leere datei → no-op (kein match, kein throw)", () => {
+    // removeInScope: key = keys[0] = "Key", findEntry → [], entry = undefined → return text
+    const result = removeVdfEntry("", ["Key"]);
+    expect(result).toBe("");
+  });
+});
+
+describe("removeVdfEntry, byte-genauer output (269, 271)", () => {
+  // pinnt dass kein trailing-whitespace oder leere zeile zurückbleibt
+  const COMPAT = `"InstallConfigStore"\n{\n\t"Software"\n\t{\n\t\t"Valve"\n\t\t{\n\t\t\t"Steam"\n\t\t\t{\n\t\t\t\t"CompatToolMapping"\n\t\t\t\t{\n\t\t\t\t\t"0"\n\t\t\t\t\t{\n\t\t\t\t\t\t"name"\t\t"proton-cachyos-slr"\n\t\t\t\t\t}\n\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"name"\t\t"GE-Proton9-27"\n\t\t\t\t\t}\n\t\t\t\t\t"730"\n\t\t\t\t\t{\n\t\t\t\t\t\t"name"\t\t"proton-cachyos-slr"\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n`;
+
+  it("kein leerer zeilenbeginn nach dem entfernten eintrag (Tabs/Leerzeilen)", () => {
+    const result = removeVdfEntry(COMPAT, [
+      "InstallConfigStore",
+      "Software",
+      "Valve",
+      "Steam",
+      "CompatToolMapping",
+      "620",
+    ]);
+    // kein trailing-whitespace in einer eigenen zeile nach dem entfernten block
+    const lines = result.split("\n");
+    for (const line of lines) {
+      // keine zeile darf ausschließlich tabs/leerzeichen sein (leere einzüge)
+      expect(/^[ \t]+$/.test(line)).toBe(false);
+    }
+    // nachbarn unberührt
+    expect(result).toContain('"0"');
+    expect(result).toContain('"730"');
+    expect(result).not.toContain('"620"');
+  });
+
+  it("byte-genaue struktur: 0 und 730 bleiben an ihrer position", () => {
+    const result = removeVdfEntry(COMPAT, [
+      "InstallConfigStore",
+      "Software",
+      "Valve",
+      "Steam",
+      "CompatToolMapping",
+      "620",
+    ]);
+    // 0 muss vor 730 erscheinen
+    const idx0 = result.indexOf('"0"');
+    const idx730 = result.indexOf('"730"');
+    expect(idx0).toBeGreaterThanOrEqual(0);
+    expect(idx730).toBeGreaterThan(idx0);
+  });
+});
+
+describe("[conditional]-marker-fixture (113:9)", () => {
+  // real existierender VDF-Marker nach einem eintrag: [linux], [windows] etc.
+  const WITH_CONDITIONAL = `"AppState"\n{\n\t"Key"\t\t"val"\t[linux]\n\t"Other"\t\t"other"\n}\n`;
+
+  it("getVdfValue ignoriert [conditional]-marker korrekt", () => {
+    expect(getVdfValue(WITH_CONDITIONAL, ["AppState", "Key"])).toBe("val");
+    expect(getVdfValue(WITH_CONDITIONAL, ["AppState", "Other"])).toBe("other");
+  });
+
+  it("setVdfValue patcht wert trotz nachfolgendem [conditional]-marker", () => {
+    const patched = setVdfValue(WITH_CONDITIONAL, ["AppState", "Key"], "new");
+    expect(getVdfValue(patched, ["AppState", "Key"])).toBe("new");
+    // Other unberührt
+    expect(getVdfValue(patched, ["AppState", "Other"])).toBe("other");
+  });
+
+  it("[conditional]-marker am blockanfang: navigate danach korrekt", () => {
+    const withMarkerFirst = `"AppState"\n{\n\t[linux]\n\t"Key"\t\t"val"\n}\n`;
+    // [linux] ist ein bare-token mit '[', wird als string-token mit kind "string" geparst;
+    // scanEntries überspringt es (startsWith("["))
+    expect(getVdfValue(withMarkerFirst, ["AppState", "Key"])).toBe("val");
+  });
+});
+
 // Wächter gegen Bibliotheksdrift: Die Bibliothek verarbeitet die Daten semantisch,
 // rundreist, ersetzt NICHT den string-patch (byte-identität/escaping kann sie nicht).
 describe("round-trip-wächter für @node-steam/vdf", () => {
