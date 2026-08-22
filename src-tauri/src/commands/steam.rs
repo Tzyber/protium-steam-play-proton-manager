@@ -2619,7 +2619,7 @@ mod tests {
         // symlink-steamapps bleibt anomalie -> abgelehnt.
         let symlink_steamapps = root.join("symlinklib");
         std::fs::create_dir_all(&symlink_steamapps).unwrap();
-        std::os::unix::fs::symlink(&present.join("steamapps"), symlink_steamapps.join("steamapps"))
+        std::os::unix::fs::symlink(present.join("steamapps"), symlink_steamapps.join("steamapps"))
             .unwrap();
         let symlink_libs = vec![symlink_steamapps];
         assert!(is_app_installed_in_libraries(&symlink_libs, 570).is_err());
