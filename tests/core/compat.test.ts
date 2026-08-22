@@ -60,9 +60,7 @@ describe("listCompatTools", () => {
       readFile: vi.fn(async () => new Uint8Array()),
       readDir: vi.fn(async () => entries),
       realpath: vi.fn(async (p: string) => p),
-      remove: vi.fn(async () => {}),
       writeTextFile: vi.fn(async () => {}),
-      rename: vi.fn(async () => {}),
       mkdir: vi.fn(async () => {}),
     };
 

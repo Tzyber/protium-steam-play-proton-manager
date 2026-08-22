@@ -2,12 +2,14 @@
 
 ## Supported Versions
 
-`v0.4.2` ist der aktuell belegte veröffentlichte release mit AppImage und
+`v0.4.8` ist für die Veröffentlichung vorbereitet. Bis zum abgeschlossenen
+Publish bleibt `v0.4.7` der aktuell veröffentlichte release mit AppImage und
 Debian-Paket. ältere versionen werden nicht pauschal unterstützt.
 
 | Version | Supported |
 |---------|-----------|
-| `0.4.2` | ✅ |
+| `0.4.7` | ✅ |
+| `0.4.8` | vorbereitet |
 | ältere versionen | ❌ keine pauschale supportzusage |
 
 ## Reporting a Vulnerability
@@ -63,14 +65,31 @@ zugesagt.
 ### Löschautorisierung
 
 Destruktive Cleanup-Aktionen verwenden eine einmalige backendgebundene
-Pending-Freigabe. Der Rust-Backend-Command liest Steam-Prozess, Zielidentität
-und Löschkonsequenzen frisch vor und nach dem nativen Tauri-Dialog mit
-`Warning` und `OkCancel`. Ablehnung, Zustandsdrift oder defekte Live-Daten
-beenden die Aktion ohne Mutation. Die Webview erhält dafür keine
-Dialog-Permission und kann die Bestätigung nicht per Testumgebungswert
-ersetzen. Tokens verwenden 128 Bit OS-Zufall, haben 60 Sekunden TTL und
-werden in einer Registry mit maximal 32 aktiven Einträgen gehalten; bei voller
-Registry verdrängt ein neues Prepare atomar den ältesten aktiven Eintrag.
+Pending-Freigabe. `prepare_delete` und `execute_delete` binden Ziel, Folgen,
+Token-TTL, frische Live-Prüfungen und den atomaren Claim an das Rust-Backend.
+Die Nutzerbestätigung läuft im Vue-Dialog des Hauptfensters. Er zeigt die aus
+`PendingDelete` übernommenen Beschreibungen, ist aber selbst eine Webview-
+Darstellung und keine manipulationssichere Vertrauensgrenze. Eine
+kompromittierte Webview könnte ein gültiges Token selbst an `execute_delete`
+übergeben; Backend-Revalidierung, Claim und Replay-Schutz bleiben die
+Sicherheitsgrenzen. Abbruch, Zustandsdrift oder defekte Live-Daten führen ohne
+Mutation zum Ende. Tokens verwenden 128 Bit OS-Zufall, haben 60 Sekunden TTL
+und werden in einer Registry mit maximal 32 aktiven Einträgen gehalten; bei
+voller Registry verdrängt ein neues Prepare atomar den ältesten aktiven
+Eintrag.
+
+Es gibt kein separates Confirm-Fenster, keine `confirm_window_*`-Commands und
+keine dedizierte Confirm-Capability. `tauri-plugin-dialog` bleibt ausschließlich
+für die native Warnbestätigung im GE-Installationspfad ohne Prüfsumme aktiv.
+
+### Neubewertung der Bestätigungsgrenze
+
+Die Webview-Bestätigung wird neu bewertet, sobald externe oder neue Webview-
+Inhalte hinzukommen, Capabilities breiter werden, neue IPC-Commands entstehen
+oder HTML direkt gerendert wird, etwa über `v-html`, `innerHTML` oder iframes.
+Auch eine Lockerung der Navigation-, CSP- oder Backend-Revalidierungsgrenzen
+ist ein Auslöser. Bis dahin ist die Webview-Bestätigung als bewusst
+akzeptiertes v0.4.8-Restrisiko dokumentiert.
 
 ### GE-release-identität
 

@@ -1,3 +1,4 @@
+import { rm } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { scanLocal } from "../../../src/core/scan/local.js";
 import { buildFakeSteam, fakeHttp, fakeSystem, memCache, nodeFs } from "../../support/fakeSteam";
@@ -20,12 +21,11 @@ describe("scanLocal", () => {
 
   it("aggregiert die lokale config-degradation ohne ProtonDB-phase", async () => {
     const { root, environment } = await buildFakeSteam();
-    const fs = nodeFs();
     const configPath = `${root}/config/config.vdf`;
-    await fs.remove(configPath);
+    await rm(configPath);
 
     const result = await scanLocal(
-      { fs, http: fakeHttp(), system: fakeSystem(), cache: memCache() },
+      { fs: nodeFs(), http: fakeHttp(), system: fakeSystem(), cache: memCache() },
       { ...environment, systemCompatDirs: [] },
     );
 

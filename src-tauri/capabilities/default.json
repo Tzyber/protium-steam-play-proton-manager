@@ -24,10 +24,6 @@
       "allow": [{ "path": "$APPCACHE/**" }]
     },
     {
-      "identifier": "fs:allow-remove",
-      "allow": [{ "path": "$APPCACHE/**" }]
-    },
-    {
       "identifier": "fs:allow-mkdir",
       "allow": [{ "path": "$APPCACHE/**" }]
     },

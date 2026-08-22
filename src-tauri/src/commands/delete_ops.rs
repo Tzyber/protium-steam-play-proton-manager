@@ -1003,6 +1003,58 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn trash_revalidierung_lehnt_verschachteltes_ziel_vor_claim_ab() {
+        let root = wsg_fixture("delete-ops-trash-boundary");
+        let steam = root.join("steam");
+        let trash_dir = steam.join("steamapps/.protium-trash");
+        let target = trash_dir.join("compatdata_123_1700000000000");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("replacement-marker"), b"must survive").unwrap();
+
+        let registry = PendingDeleteRegistry::default();
+        let request = PrepareDeleteRequest {
+            target_type: "trash".to_string(),
+            path: target.to_string_lossy().into_owned(),
+            steam_root: steam.to_string_lossy().into_owned(),
+        };
+        let info = prepare_delete_inner(&registry, &request, &|_| true, || Ok(false)).unwrap();
+
+        let nested_parent = trash_dir.join("nested");
+        let nested_target = nested_parent.join("compatdata_123_1700000000000");
+        std::fs::create_dir_all(&nested_parent).unwrap();
+        std::fs::rename(&target, &nested_target).unwrap();
+
+        {
+            let mut pending = registry.0.lock().unwrap();
+            let entry = pending.get_mut(&info.token).unwrap();
+            entry.target_path = nested_target.to_string_lossy().into_owned();
+            entry.canonical_path = nested_target.clone();
+            entry.parent_handle = Some(open_delete_target_handle(&nested_parent).unwrap());
+            entry.target_name = Some(nested_target.file_name().unwrap().to_os_string());
+            entry.consequences[0].path = nested_target.to_string_lossy().into_owned();
+        }
+
+        let claim_called = Arc::new(AtomicBool::new(false));
+        let claim_called_for_hook = Arc::clone(&claim_called);
+        let result = execute_delete_after_inspection(
+            &registry,
+            &info.token,
+            &|_| true,
+            || Ok(false),
+            move || {
+                claim_called_for_hook.store(true, Ordering::SeqCst);
+            },
+        );
+        let error = result.unwrap_err();
+        assert!(error.contains("direct child"), "error: {error}");
+        assert!(!claim_called.load(Ordering::SeqCst));
+        assert!(nested_target.join("replacement-marker").exists());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn neues_gueltiges_manifest_zwischen_prepare_und_execute_blockiert_orphan_delete() {
         let (root, steam) = orphan_fixture("delete-ops-live-manifest-valid");

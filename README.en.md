@@ -23,20 +23,20 @@ it came into being because this exact tool did not exist. protonup-qt only manag
 grab the AppImage or Debian package from the [releases page](https://github.com/Tzyber/protium-steam-play-proton-manager/releases). make the AppImage executable and run it:
 
 ```sh
-chmod +x protium_0.4.2_amd64.AppImage
-./protium_0.4.2_amd64.AppImage
+chmod +x protium_0.4.8_amd64.AppImage
+./protium_0.4.8_amd64.AppImage
 ```
 
 the AppImage is not signed. if you don't like that, build it yourself (see dev setup). Debian-based systems can install the accompanying Debian package:
 
 ```sh
-sudo apt install ./protium_0.4.2_amd64.deb
+sudo apt install ./protium_0.4.8_amd64.deb
 ```
 
 if nothing starts and no error message appears, fuse2 is usually missing. then either `sudo pacman -S fuse2` or run it once without fuse:
 
 ```sh
-./protium_0.4.2_amd64.AppImage --appimage-extract-and-run
+./protium_0.4.8_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## what it does
@@ -48,6 +48,10 @@ if nothing starts and no error message appears, fuse2 is usually missing. then e
 **compat tool and launch options.** set the proton version and launch options per game. write gate in front (steam-is-running check, backup, atomic rename), and a surgical vdf string patch instead of full serialisation, because otherwise steam's escaping and key order do not survive.
 
 **cleanup.** find and clear orphaned wine prefixes and shader caches, in three separate areas: shader caches, wine prefixes, trash. shader caches are deleted outright. prefixes move to the trash within the same filesystem. space is freed only when the trash is emptied.
+
+confirmation runs in the Vue dialog in the main window. the backend binds the
+target, consequences, token, live checks and claim; the webview confirmation
+itself is deliberately not a tamper-proof security boundary.
 
 **launching games.** via `steam://rungameid/<appId>`. no launcher of its own, no process supervision.
 

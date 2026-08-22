@@ -55,7 +55,11 @@ export async function scanGames(
     const appsDir = paths.libraryAppsDir(lib);
     let entries: DirEntry[];
     try {
-      if (!(await fs.exists(appsDir))) continue;
+      if (!(await fs.exists(appsDir))) {
+        warnings.push(`library "${lib}" fehlt: steamapps`);
+        skippedLibraries.push({ path: lib, reason: "path-missing" });
+        continue;
+      }
       entries = await fs.readDir(appsDir);
     } catch (e) {
       warnings.push(`library "${lib}" nicht lesbar: ${errText(e)}`);

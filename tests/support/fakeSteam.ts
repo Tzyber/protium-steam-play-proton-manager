@@ -300,9 +300,7 @@ export function nodeFs(): FileSystem {
       );
     },
     realpath: (p) => realpath(p),
-    remove: (p, opts) => rm(p, { recursive: opts?.recursive ?? false, force: true }),
     writeTextFile: (p, content) => writeFile(p, content, "utf8"),
-    rename: (a, b) => rename(a, b),
     async mkdir(p) {
       await mkdir(p, { recursive: true });
     },

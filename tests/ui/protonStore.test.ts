@@ -34,7 +34,7 @@ const {
 vi.mock("../../src/core/adapters/tauri", async () => {
   return {
     tauriPorts: {
-      fs: { remove: vi.fn(async () => {}) },
+      fs: {},
       http: {
         get: mockHttpGet,
       },

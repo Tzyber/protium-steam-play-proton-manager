@@ -26,6 +26,36 @@ describe("scanGames", () => {
     expect(result.cleanupUnsafeLibraries).toEqual([]);
   });
 
+  it("klassifiziert fehlendes steamapps als path-missing ohne cleanup-sperre", async () => {
+    const { root, lib2: readableLibrary } = await buildFakeSteam();
+    const baseFs = nodeFs();
+    const appsDir = join(root, "steamapps");
+    const readDirs: string[] = [];
+    const fs = {
+      ...baseFs,
+      exists: async (path: string) => (path === appsDir ? false : baseFs.exists(path)),
+      readDir: async (path: string) => {
+        readDirs.push(path);
+        return baseFs.readDir(path);
+      },
+    };
+
+    const result = await scanGames(
+      fs,
+      fakeSystem(),
+      root,
+      [root, readableLibrary],
+      () => "default",
+      null,
+    );
+
+    expect(result.games.map((game) => game.library)).toEqual([readableLibrary, readableLibrary]);
+    expect(result.warnings).toEqual([`library "${root}" fehlt: steamapps`]);
+    expect(result.skippedLibraries).toEqual([{ path: root, reason: "path-missing" }]);
+    expect(result.cleanupUnsafeLibraries).toEqual([]);
+    expect(readDirs).not.toContain(appsDir);
+  });
+
   it("liest appmanifest_042.acf über entry.name statt über die numerische id", async () => {
     const { root } = await buildFakeSteam();
     await rm(join(root, "steamapps/appmanifest_9999.acf"), { force: true });

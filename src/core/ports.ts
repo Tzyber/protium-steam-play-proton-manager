@@ -34,10 +34,7 @@ export interface FileSystem {
   readDir(path: string): Promise<DirEntry[]>;
   /** symlinks aufgelöst. */
   realpath(path: string): Promise<string>;
-  remove(path: string, opts?: { recursive?: boolean }): Promise<void>;
   writeTextFile(path: string, content: string): Promise<void>;
-  /** Gleiches Dateisystem erlaubt atomare Ersetzung per Temp-Datei und Rename. */
-  rename(from: string, to: string): Promise<void>;
   /** recursive, fehlende eltern werden mit angelegt. */
   mkdir(path: string): Promise<void>;
 }

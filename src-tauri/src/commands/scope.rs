@@ -408,15 +408,23 @@ fn reject_symlink_components(path: &Path, include_leaf: bool, label: &str) -> Re
     Ok(())
 }
 
+fn libraryfolders_path(steam_root: &Path) -> Result<Option<PathBuf>, String> {
+    for relative in ["config/libraryfolders.vdf", "steamapps/libraryfolders.vdf"] {
+        let path = steam_root.join(relative);
+        reject_symlink_components(&path, true, "libraryfolders.vdf")?;
+        match fs::symlink_metadata(&path) {
+            Ok(_) => return Ok(Some(path)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("libraryfolders.vdf: {error}")),
+        }
+    }
+    Ok(None)
+}
+
 fn read_library_paths(steam_root: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut path = steam_root.join("config").join("libraryfolders.vdf");
-    if !path.exists() {
-        path = steam_root.join("steamapps").join("libraryfolders.vdf");
-    }
-    if !path.exists() {
+    let Some(path) = libraryfolders_path(steam_root)? else {
         return Ok(vec![steam_root.to_path_buf()]);
-    }
-    reject_symlink_components(&path, true, "libraryfolders.vdf")?;
+    };
     let metadata =
         fs::symlink_metadata(&path).map_err(|error| format!("libraryfolders.vdf: {error}"))?;
     if metadata.file_type().is_symlink() || !metadata.is_file() {
@@ -492,6 +500,35 @@ fn canonical_library(path: &Path) -> Result<PathBuf, String> {
         return Err(format!("library path has no regular steamapps: {path:?}"));
     }
     Ok(canonical)
+}
+
+pub(super) fn read_library_folders(steam_root: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut libraries = vec![canonical_library(steam_root)?];
+    for path in read_library_paths(steam_root)? {
+        let Ok(canonical) = canonical_library(&path) else {
+            continue;
+        };
+        if !libraries.contains(&canonical) {
+            libraries.push(canonical);
+        }
+    }
+
+    let mut unique = Vec::new();
+    let mut identities = HashSet::new();
+    for library in libraries {
+        let metadata =
+            fs::metadata(&library).map_err(|error| format!("library identity: {error}"))?;
+        #[cfg(unix)]
+        use std::os::unix::fs::MetadataExt;
+        #[cfg(unix)]
+        let identity = (metadata.dev(), metadata.ino());
+        #[cfg(not(unix))]
+        let identity = (0, metadata.len());
+        if identities.insert(identity) {
+            unique.push(library);
+        }
+    }
+    Ok(unique)
 }
 
 fn prepare_app_dir(path: &Path, label: &str) -> Result<PathBuf, String> {
@@ -571,31 +608,7 @@ pub(crate) fn build_environment_snapshot(
     }
     let steam_root = steam_root.ok_or_else(|| "steam installation not found".to_string())?;
 
-    let mut libraries = vec![steam_root.clone()];
-    for path in read_library_paths(&steam_root)? {
-        let Ok(canonical) = canonical_library(&path) else {
-            continue;
-        };
-        if !libraries.contains(&canonical) {
-            libraries.push(canonical);
-        }
-    }
-    // `(dev, ino)`-Deduplizierung gehört zur frisch validierten Backend-Liste.
-    let mut unique = Vec::new();
-    let mut identities = HashSet::new();
-    for library in libraries {
-        let metadata =
-            fs::metadata(&library).map_err(|error| format!("library identity: {error}"))?;
-        #[cfg(unix)]
-        use std::os::unix::fs::MetadataExt;
-        #[cfg(unix)]
-        let identity = (metadata.dev(), metadata.ino());
-        #[cfg(not(unix))]
-        let identity = (0, metadata.len());
-        if identities.insert(identity) {
-            unique.push(library);
-        }
-    }
+    let unique = read_library_folders(&steam_root)?;
 
     let app_cache_dir = prepare_app_dir(app_cache_dir, "app cache")?;
     let app_config_dir = prepare_app_dir(app_config_dir, "app config")?;

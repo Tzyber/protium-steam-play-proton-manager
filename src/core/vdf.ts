@@ -9,12 +9,131 @@ export interface VdfNode {
 export function parseVdf(text: string): VdfNode {
   // keys vor parse neutralisieren: die lib weist ungefiltert zu und würde
   // "__proto__" als prototype-mutation behandeln (globale pollution).
-  const safe = text.replace(DANGEROUS_KEY_RE, '"__x_$1__"');
+  const safe = neutralizeDangerousBlockKeys(text);
   return sanitize(parse(safe));
 }
 
-// keys stehen in der zeilenbasierten lib allein auf einer zeile
-const DANGEROUS_KEY_RE = /^\s*"(__proto__|constructor|prototype)"\s*$/gm;
+const DANGEROUS_BLOCK_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function neutralizeDangerousBlockKeys(text: string): string {
+  const output: string[] = [];
+  let cursor = 0;
+  let expectsKey = true;
+
+  while (cursor < text.length) {
+    const character = text[cursor];
+    if (character === '"') {
+      const end = quotedTokenEnd(text, cursor);
+      if (end === undefined) {
+        output.push(text.slice(cursor));
+        break;
+      }
+      const value = text.slice(cursor + 1, end);
+      const isBlockKey =
+        expectsKey && DANGEROUS_BLOCK_KEYS.has(value) && nextRelevantToken(text, end + 1) === "{";
+      output.push(isBlockKey ? `"__x_${value}__"` : text.slice(cursor, end + 1));
+      expectsKey = !expectsKey;
+      cursor = end + 1;
+      continue;
+    }
+
+    if (character === "/" && text[cursor + 1] === "/") {
+      const end = text.indexOf("\n", cursor + 2);
+      if (end === -1) {
+        output.push(text.slice(cursor));
+        break;
+      }
+      output.push(text.slice(cursor, end));
+      cursor = end;
+      continue;
+    }
+
+    if (character === "/" && text[cursor + 1] === "*") {
+      const end = text.indexOf("*/", cursor + 2);
+      if (end === -1) {
+        output.push(text.slice(cursor));
+        break;
+      }
+      output.push(text.slice(cursor, end + 2));
+      cursor = end + 2;
+      continue;
+    }
+
+    if (character === "{" || character === "}") {
+      output.push(character);
+      expectsKey = true;
+      cursor += 1;
+      continue;
+    }
+
+    if (isWhitespace(character)) {
+      output.push(character);
+      cursor += 1;
+      continue;
+    }
+
+    const end = bareTokenEnd(text, cursor);
+    output.push(text.slice(cursor, end));
+    expectsKey = !expectsKey;
+    cursor = end;
+  }
+
+  return output.join("");
+}
+
+function quotedTokenEnd(text: string, start: number): number | undefined {
+  for (let cursor = start + 1; cursor < text.length; cursor += 1) {
+    if (text[cursor] === "\\") {
+      cursor += 1;
+      continue;
+    }
+    if (text[cursor] === '"') return cursor;
+  }
+  return undefined;
+}
+
+function nextRelevantToken(text: string, start: number): string | undefined {
+  let cursor = start;
+  while (cursor < text.length) {
+    if (isWhitespace(text[cursor])) {
+      cursor += 1;
+      continue;
+    }
+    if (text[cursor] === "/" && text[cursor + 1] === "/") {
+      const end = text.indexOf("\n", cursor + 2);
+      if (end === -1) return undefined;
+      cursor = end + 1;
+      continue;
+    }
+    if (text[cursor] === "/" && text[cursor + 1] === "*") {
+      const end = text.indexOf("*/", cursor + 2);
+      if (end === -1) return undefined;
+      cursor = end + 2;
+      continue;
+    }
+    return text[cursor];
+  }
+  return undefined;
+}
+
+function bareTokenEnd(text: string, start: number): number {
+  let cursor = start;
+  while (cursor < text.length) {
+    const character = text[cursor];
+    if (isWhitespace(character) || character === '"' || character === "{" || character === "}") {
+      break;
+    }
+    if (character === "/" && (text[cursor + 1] === "/" || text[cursor + 1] === "*")) {
+      break;
+    }
+    cursor += 1;
+  }
+  return cursor;
+}
+
+function isWhitespace(character: string | undefined): character is string {
+  return character !== undefined && character.trim() === "";
+}
 
 // die lib baut plain objects; ein key "__proto__" oder "constructor" würde
 // das prototype-objekt mutieren (getKeyInsensitive nutzt `in`). deep-copy auf

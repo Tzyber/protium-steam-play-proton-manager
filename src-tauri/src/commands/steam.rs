@@ -1001,80 +1001,9 @@ pub struct DeletionInspection {
 
 /// Liest `libraryfolders.vdf` aus `<steam_root>/config/libraryfolders.vdf` oder
 /// `<steam_root>/steamapps/libraryfolders.vdf`.
-/// Fail-closed: Bei korrupter oder ungültiger VDF-Datei bricht die Funktion mit Fehler ab.
+/// Verwendet den gemeinsamen, begrenzten Scope-Leser für Discovery und Delete.
 pub(super) fn read_library_folders(steam_root: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut vdf_path = steam_root.join("config").join("libraryfolders.vdf");
-    if !vdf_path.exists() {
-        vdf_path = steam_root.join("steamapps").join("libraryfolders.vdf");
-    }
-
-    if !vdf_path.exists() {
-        if steam_root.join("steamapps").is_dir() {
-            return Ok(vec![steam_root.to_path_buf()]);
-        }
-        return Err("steam root has no steamapps directory and no libraryfolders.vdf".into());
-    }
-
-    let content = fs::read_to_string(&vdf_path)
-        .map_err(|e| format!("cannot read libraryfolders.vdf: {e}"))?;
-
-    let tokens = vdf_patch::tokenize(&content)
-        .map_err(|e| format!("cannot parse libraryfolders.vdf: {e}"))?;
-
-    let entries = vdf_patch::scan_entries(&tokens, 0, tokens.len())
-        .map_err(|e| format!("scan libraryfolders entries: {e}"))?;
-
-    let mut lf_block = None;
-    for e in entries {
-        if let vdf_patch::TokenKind::String(k) = &e.key.kind {
-            if k.eq_ignore_ascii_case("libraryfolders") {
-                lf_block = Some(e);
-                break;
-            }
-        }
-    }
-
-    let lf_entry = lf_block
-        .ok_or_else(|| "missing libraryfolders root block in libraryfolders.vdf".to_string())?;
-
-    let (from, to) = lf_entry
-        .block
-        .ok_or_else(|| "libraryfolders is not a block".to_string())?;
-
-    let child_entries = vdf_patch::scan_entries(&tokens, from, to)?;
-
-    let mut libraries = Vec::new();
-    let mut seen = HashSet::new();
-
-    for child in child_entries {
-        if let vdf_patch::TokenKind::String(child_key) = &child.key.kind {
-            if !child_key.chars().all(|c| c.is_ascii_digit()) {
-                continue;
-            }
-            if let Some((sub_from, sub_to)) = child.block {
-                let sub_entries = vdf_patch::scan_entries(&tokens, sub_from, sub_to)?;
-                for sub in sub_entries {
-                    if let vdf_patch::TokenKind::String(sub_key) = &sub.key.kind {
-                        if sub_key.eq_ignore_ascii_case("path") {
-                            if let vdf_patch::TokenKind::String(path_val) = &sub.value.kind {
-                                let pb = PathBuf::from(path_val);
-                                if !seen.contains(&pb) {
-                                    seen.insert(pb.clone());
-                                    libraries.push(pb);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if libraries.is_empty() && steam_root.join("steamapps").is_dir() {
-        libraries.push(steam_root.to_path_buf());
-    }
-
-    Ok(libraries)
+    crate::commands::scope::read_library_folders(steam_root)
 }
 
 /// Prüft alle vorhandenen App-Manifeste und bricht bei unklaren Live-Daten ab.
@@ -1139,6 +1068,52 @@ pub(super) fn is_app_installed_in_libraries(
         }
     }
     Ok(false)
+}
+
+fn validate_trash_target(canon_str: &str, meta: &fs::Metadata) -> Result<(), String> {
+    if meta.file_type().is_symlink() {
+        return Err("trash target must not be a symlink".into());
+    }
+    if !meta.is_dir() {
+        return Err("trash target must be a directory".into());
+    }
+
+    let suffix = crate::commands::scope::suffix_after_steamapps(canon_str)?;
+    let name = suffix
+        .strip_prefix(".protium-trash/")
+        .ok_or_else(|| "trash target must be inside .protium-trash".to_string())?;
+    if name.is_empty() || name.contains('/') {
+        return Err("trash target must be a direct child of .protium-trash".into());
+    }
+
+    let mut fields = name.split('_');
+    let typ = fields
+        .next()
+        .ok_or_else(|| "trash target has invalid name".to_string())?;
+    let app_id_str = fields
+        .next()
+        .ok_or_else(|| "trash target has invalid name".to_string())?;
+    let timestamp_str = fields
+        .next()
+        .ok_or_else(|| "trash target has invalid name".to_string())?;
+    if fields.next().is_some() {
+        return Err("trash target has invalid name".into());
+    }
+
+    crate::commands::scope::parse_compat_id((typ, app_id_str))?;
+    if !timestamp_str.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(format!(
+            "trash target has non-numeric timestamp: {timestamp_str}"
+        ));
+    }
+    let timestamp = timestamp_str
+        .parse::<u64>()
+        .map_err(|_| format!("trash target timestamp out of range: {timestamp_str}"))?;
+    if timestamp == 0 {
+        return Err("trash target timestamp must be positive".into());
+    }
+
+    Ok(())
 }
 
 // ---- Binary VDF shortcuts.vdf Parser ----
@@ -1577,10 +1552,7 @@ pub(super) fn inspect_deletion_target(
             })
         }
         "trash" => {
-            let suffix = crate::commands::scope::suffix_after_steamapps(&canon_str)?;
-            if !suffix.starts_with(".protium-trash/") {
-                return Err("trash target must be inside .protium-trash".into());
-            }
+            validate_trash_target(&canon_str, &meta)?;
             let consequences = vec![DeleteConsequence {
                 path: canon_str.to_string(),
                 action: "permanentDelete".to_string(),
@@ -2549,16 +2521,218 @@ mod tests {
     // ---- Tests für Paket 18 (S-06a: State Readers) ----
 
     #[test]
+    fn read_library_folders_lehnt_symlink_und_nicht_regulaere_datei_ab() {
+        let root = wsg_fixture("lf-delete-hardening-file-types");
+        let steam = root.join("steam");
+        let config_dir = steam.join("config");
+        let steamapps = steam.join("steamapps");
+        let external = root.join("external");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&steamapps).unwrap();
+        std::fs::create_dir_all(&external).unwrap();
+        let valid_vdf = format!(
+            "\"libraryfolders\" {{ \"0\" {{ \"path\" \"{}\" }} }}",
+            external.display()
+        );
+        let target = config_dir.join("libraryfolders.vdf");
+        let external_vdf = root.join("external-libraryfolders.vdf");
+        std::fs::write(&external_vdf, &valid_vdf).unwrap();
+        std::fs::write(steamapps.join("libraryfolders.vdf"), &valid_vdf).unwrap();
+
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&external_vdf, &target).unwrap();
+            let error = read_library_folders(&steam).unwrap_err();
+            assert!(error.contains("symlink"), "error: {error}");
+            std::fs::remove_file(&target).unwrap();
+
+            let dangling_target = root.join("missing-libraryfolders.vdf");
+            std::os::unix::fs::symlink(&dangling_target, &target).unwrap();
+            let error = read_library_folders(&steam).unwrap_err();
+            assert!(error.contains("symlink"), "error: {error}");
+            std::fs::remove_file(&target).unwrap();
+        }
+
+        std::fs::create_dir(&target).unwrap();
+        assert!(read_library_folders(&steam).is_err());
+        std::fs::remove_dir(&target).unwrap();
+
+        let steamapps_vdf = steamapps.join("libraryfolders.vdf");
+        #[cfg(unix)]
+        {
+            std::fs::remove_file(&steamapps_vdf).unwrap();
+            std::os::unix::fs::symlink(&external_vdf, &steamapps_vdf).unwrap();
+            let error = read_library_folders(&steam).unwrap_err();
+            assert!(error.contains("symlink"), "error: {error}");
+            std::fs::remove_file(&steamapps_vdf).unwrap();
+
+            std::fs::create_dir(&steamapps_vdf).unwrap();
+            assert!(read_library_folders(&steam).is_err());
+            std::fs::remove_dir(&steamapps_vdf).unwrap();
+
+            let external_steamapps = root.join("external-steamapps");
+            std::fs::create_dir_all(&external_steamapps).unwrap();
+            std::fs::write(external_steamapps.join("libraryfolders.vdf"), &valid_vdf).unwrap();
+            std::fs::remove_dir(&steamapps).unwrap();
+            std::os::unix::fs::symlink(&external_steamapps, &steamapps).unwrap();
+            assert!(read_library_folders(&steam).is_err());
+        }
+
+        #[cfg(not(unix))]
+        {
+            std::fs::remove_file(&steamapps_vdf).unwrap();
+            std::fs::create_dir(&steamapps_vdf).unwrap();
+            assert!(read_library_folders(&steam).is_err());
+        }
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn read_library_folders_lehnt_dateien_ueber_dem_read_limit_ab() {
+        let root = wsg_fixture("lf-delete-hardening-size");
+        let steam = root.join("steam");
+        let config_dir = steam.join("config");
+        let steamapps = steam.join("steamapps");
+        let library = root.join("library");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&steamapps).unwrap();
+        std::fs::create_dir_all(&library).unwrap();
+        let prefix = format!(
+            "\"libraryfolders\" {{ \"0\" {{ \"path\" \"{}\" }} }}",
+            library.display()
+        );
+        let path = config_dir.join("libraryfolders.vdf");
+        std::fs::write(&path, prefix).unwrap();
+        let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_len(16 * 1024 * 1024 + 1).unwrap();
+
+        let error = read_library_folders(&steam).unwrap_err();
+        assert!(error.contains("read limit"), "error: {error}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn read_library_folders_config_und_steamapps_fallback_bleiben_identisch() {
+        let root = wsg_fixture("lf-delete-hardening-fallback");
+        let steam = root.join("steam");
+        let config_dir = steam.join("config");
+        let steamapps = steam.join("steamapps");
+        let config_library = root.join("config-library");
+        let fallback_library = root.join("fallback-library");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&steamapps).unwrap();
+        std::fs::create_dir_all(config_library.join("steamapps")).unwrap();
+        std::fs::create_dir_all(fallback_library.join("steamapps")).unwrap();
+
+        let config_vdf = format!(
+            "\"libraryfolders\" {{ \"0\" {{ \"path\" \"{}\" }} }}",
+            config_library.display()
+        );
+        std::fs::write(config_dir.join("libraryfolders.vdf"), &config_vdf).unwrap();
+        let config_libraries = read_library_folders(&steam).unwrap();
+        let config_discovery_libraries =
+            crate::commands::scope::read_library_folders(&steam).unwrap();
+        assert_eq!(config_libraries, config_discovery_libraries);
+
+        std::fs::remove_file(config_dir.join("libraryfolders.vdf")).unwrap();
+        let fallback_vdf = format!(
+            "\"libraryfolders\" {{ \"0\" {{ \"path\" \"{}\" }} }}",
+            fallback_library.display()
+        );
+        std::fs::write(steamapps.join("libraryfolders.vdf"), &fallback_vdf).unwrap();
+        let fallback_libraries = read_library_folders(&steam).unwrap();
+        let fallback_discovery_libraries =
+            crate::commands::scope::read_library_folders(&steam).unwrap();
+        assert_eq!(fallback_libraries, fallback_discovery_libraries);
+
+        let steam = std::fs::canonicalize(&steam).unwrap();
+        let config_library = std::fs::canonicalize(config_library).unwrap();
+        let fallback_library = std::fs::canonicalize(fallback_library).unwrap();
+        assert_eq!(config_libraries, vec![steam.clone(), config_library]);
+        assert_eq!(fallback_libraries, vec![steam.clone(), fallback_library]);
+
+        std::fs::remove_file(steam.join("steamapps/libraryfolders.vdf")).unwrap();
+        std::fs::write(
+            steam.join("steamapps/libraryfolders.vdf"),
+            "\"libraryfolders\" {}",
+        )
+        .unwrap();
+        let empty_delete_libraries = read_library_folders(&steam).unwrap();
+        let empty_discovery_libraries =
+            crate::commands::scope::read_library_folders(&steam).unwrap();
+        assert_eq!(empty_delete_libraries, empty_discovery_libraries);
+        assert_eq!(empty_delete_libraries, vec![steam.clone()]);
+
+        std::fs::remove_file(steam.join("steamapps/libraryfolders.vdf")).unwrap();
+        let no_vdf_delete_libraries = read_library_folders(&steam).unwrap();
+        let no_vdf_discovery_libraries =
+            crate::commands::scope::read_library_folders(&steam).unwrap();
+        assert_eq!(no_vdf_delete_libraries, no_vdf_discovery_libraries);
+        assert_eq!(no_vdf_delete_libraries, vec![steam.clone()]);
+
+        std::fs::remove_dir_all(steam.join("steamapps")).unwrap();
+        assert!(read_library_folders(&steam).is_err());
+        assert!(crate::commands::scope::read_library_folders(&steam).is_err());
+
+        std::fs::write(steam.join("steamapps"), b"").unwrap();
+        assert!(read_library_folders(&steam).is_err());
+        assert!(crate::commands::scope::read_library_folders(&steam).is_err());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn delete_livepruefung_verwirft_nachtraeglich_ungescopte_library() {
+        let root = wsg_fixture("lf-delete-hardening-snapshot-boundary");
+        let steam = root.join("steam");
+        let external = root.join("external-library");
+        let config_dir = steam.join("config");
+        let target = external.join("steamapps/.protium-trash/compatdata_123_1");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+
+        let initial_vdf = format!(
+            "\"libraryfolders\" {{ \"0\" {{ \"path\" \"{}\" }} }}",
+            steam.display()
+        );
+        std::fs::write(config_dir.join("libraryfolders.vdf"), initial_vdf).unwrap();
+        let changed_vdf = format!(
+            "\"libraryfolders\" {{ \"0\" {{ \"path\" \"{}\" }} \"1\" {{ \"path\" \"{}\" }} }}",
+            steam.display(),
+            external.display()
+        );
+        std::fs::write(config_dir.join("libraryfolders.vdf"), changed_vdf).unwrap();
+
+        let steam_owned = steam.clone();
+        let error = inspect_deletion_target(
+            steam.to_str().unwrap(),
+            "trash",
+            target.to_str().unwrap(),
+            &|path| path.starts_with(&steam_owned),
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("deletion target outside allowed scope"),
+            "error: {error}"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn read_library_folders_happy_path_und_corrupt() {
         let root = wsg_fixture("lf-readers");
         let steam = root.join("steam");
         let config_dir = steam.join("config");
         std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(steam.join("steamapps")).unwrap();
 
         let lib1 = root.join("lib1");
         let lib2 = root.join("lib2");
-        std::fs::create_dir_all(&lib1).unwrap();
-        std::fs::create_dir_all(&lib2).unwrap();
+        std::fs::create_dir_all(lib1.join("steamapps")).unwrap();
+        std::fs::create_dir_all(lib2.join("steamapps")).unwrap();
 
         let lf_vdf = format!(
             "\"libraryfolders\"\n{{\n\t\"0\"\n\t{{\n\t\t\"path\"\t\t\"{}\"\n\t}}\n\t\"1\"\n\t{{\n\t\t\"path\"\t\t\"{}\"\n\t}}\n}}",
@@ -2568,9 +2742,10 @@ mod tests {
         std::fs::write(config_dir.join("libraryfolders.vdf"), &lf_vdf).unwrap();
 
         let libs = read_library_folders(&steam).unwrap();
-        assert_eq!(libs.len(), 2);
-        assert_eq!(libs[0], lib1);
-        assert_eq!(libs[1], lib2);
+        assert_eq!(libs.len(), 3);
+        assert_eq!(libs[0], std::fs::canonicalize(&steam).unwrap());
+        assert_eq!(libs[1], std::fs::canonicalize(&lib1).unwrap());
+        assert_eq!(libs[2], std::fs::canonicalize(&lib2).unwrap());
 
         // Corrupt VDF -> Fail-closed
         std::fs::write(
@@ -2867,7 +3042,7 @@ mod tests {
         let root = wsg_fixture("inspect-target-scope");
         let steam = root.join("steam");
         let trash_dir = steam.join("steamapps/.protium-trash");
-        let target = trash_dir.join("compatdata_123");
+        let target = trash_dir.join("compatdata_123_1");
         std::fs::create_dir_all(&target).unwrap();
 
         // scope_ok autorisiert nur den steam-root selbst, nicht das target.
@@ -2895,6 +3070,75 @@ mod tests {
         )
         .unwrap();
         assert_eq!(ok.target_type, "trash");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn trash_inspektion_erlaubt_nur_direkte_gueltige_ordner() {
+        let root = wsg_fixture("inspect-trash-validator");
+        let steam = root.join("steam");
+        let trash_dir = steam.join("steamapps/.protium-trash");
+        std::fs::create_dir_all(&trash_dir).unwrap();
+        let all_in_scope = |_: &Path| true;
+        let inspect = |path: &Path| {
+            inspect_deletion_target(
+                steam.to_str().unwrap(),
+                "trash",
+                path.to_str().unwrap(),
+                &all_in_scope,
+            )
+        };
+
+        let compatdata = trash_dir.join("compatdata_123_1700000000000");
+        let shadercache = trash_dir.join("shadercache_4294967295_1");
+        std::fs::create_dir_all(&compatdata).unwrap();
+        std::fs::create_dir_all(&shadercache).unwrap();
+        assert!(inspect(&compatdata).is_ok());
+        assert!(inspect(&shadercache).is_ok());
+
+        let nested = trash_dir.join("nested/compatdata_123_1");
+        std::fs::create_dir_all(&nested).unwrap();
+        assert!(inspect(&nested).is_err());
+
+        let unknown = trash_dir.join("unknown_123_1");
+        std::fs::create_dir_all(&unknown).unwrap();
+        assert!(inspect(&unknown).is_err());
+
+        let file = trash_dir.join("compatdata_123_2");
+        std::fs::write(&file, b"not a directory").unwrap();
+        assert!(inspect(&file).is_err());
+
+        let app_id_zero = trash_dir.join("compatdata_0_3");
+        let app_id_non_numeric = trash_dir.join("compatdata_not-a-number_5");
+        let app_id_too_large = trash_dir.join("compatdata_4294967296_4");
+        let timestamp_zero = trash_dir.join("compatdata_123_0");
+        let timestamp_non_numeric = trash_dir.join("compatdata_123_not-a-number");
+        let timestamp_overflow = trash_dir.join("compatdata_123_18446744073709551616");
+        for path in [
+            &app_id_zero,
+            &app_id_non_numeric,
+            &app_id_too_large,
+            &timestamp_zero,
+            &timestamp_non_numeric,
+            &timestamp_overflow,
+        ] {
+            std::fs::create_dir_all(path).unwrap();
+            assert!(
+                inspect(path).is_err(),
+                "muss abgelehnt werden: {}",
+                path.display()
+            );
+        }
+
+        #[cfg(unix)]
+        {
+            let symlink_target = trash_dir.join("symlink-target");
+            let symlink = trash_dir.join("compatdata_123_5");
+            std::fs::create_dir_all(&symlink_target).unwrap();
+            std::os::unix::fs::symlink(&symlink_target, &symlink).unwrap();
+            assert!(inspect(&symlink).is_err());
+        }
 
         let _ = std::fs::remove_dir_all(&root);
     }
