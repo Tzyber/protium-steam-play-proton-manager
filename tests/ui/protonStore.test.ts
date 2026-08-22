@@ -624,4 +624,36 @@ describe("protonStore.remove", () => {
     expect(prepareSpy).not.toHaveBeenCalled();
     expect(executeSpy).not.toHaveBeenCalled();
   });
+
+  it("onError räumt busyRemove nach execute-fehler auf", async () => {
+    const scan = useScanStore();
+    scan.result = {
+      steamRoot: "/root",
+      libraries: [],
+      games: [],
+      compatToolsInstalled: [],
+      builtinProtonsInstalled: [],
+      defaultCompatTool: null,
+      steamUserId: null,
+      warnings: [],
+      skippedLibraries: [],
+      cleanupUnsafeLibraries: [],
+    };
+    const store = useProtonStore();
+    const { tauriPorts } = await import("../../src/core/adapters/tauri");
+    vi.spyOn(tauriPorts.system, "executeDelete").mockRejectedValueOnce(new Error("token expired"));
+
+    await store.remove({
+      name: "GE-Proton9-27",
+      internalName: "GE-Proton9-27",
+      displayName: "GE-Proton9-27",
+      sizeBytes: 1000,
+      source: "user",
+      usedBy: [],
+    });
+    await useConfirmStore().confirm();
+
+    expect(store.busyRemove).toBeNull();
+    expect(store.loadError).toContain("token expired");
+  });
 });

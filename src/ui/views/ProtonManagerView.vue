@@ -198,13 +198,13 @@ const statusLine = computed(() => {
   <ConfirmDialog
     v-if="confirm.pending"
     :title="confirm.pending.title"
+    :busy="confirm.busy"
     danger
     :confirm-label="t('common.delete')"
     @confirm="confirm.confirm()"
     @cancel="confirm.cancel()"
   >
     <p class="consequences">{{ confirm.pending.message }}</p>
-    <p v-if="confirm.error" class="confirm-error">{{ confirm.error }}</p>
   </ConfirmDialog>
 </template>
 
@@ -323,5 +323,4 @@ const statusLine = computed(() => {
 .games { margin: 8px 0 0; padding-left: 18px; color: var(--fg-1); }
 .games li { margin: 2px 0; }
 .consequences { white-space: pre-line; margin: 0; max-height: 260px; overflow-y: auto; }
-.confirm-error { color: var(--tier-bronze); margin: 10px 0 0; font-size: 0.75rem; }
 </style>

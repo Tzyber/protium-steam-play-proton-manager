@@ -1,6 +1,6 @@
 [package]
 name = "protium"
-version = "0.4.7-shame.22"
+version = "0.4.7"
 description = "steam/proton library manager"
 edition = "2021"
 rust-version = "1.77"

@@ -650,6 +650,97 @@ describe("cleanupStore, trash", () => {
     expect(mockExecuteDelete).toHaveBeenCalledTimes(2);
   });
 
+  it("deleteTrashEntries bündelt eine auswahl in einem dialog", async () => {
+    const e1 = fakeTrashEntry();
+    const e2 = fakeTrashEntry({
+      path: "/lib/steamapps/.protium-trash/compatdata_570_100",
+      name: "compatdata_570_100",
+      appId: 570,
+    });
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    store.trash = [e1, e2];
+
+    await store.deleteTrashEntries([e1, e2]);
+    expect(useConfirmStore().pending?.title).toBe("papierkorb leeren?");
+    await useConfirmStore().confirm();
+
+    expect(mockPrepareDelete).toHaveBeenCalledTimes(2);
+    expect(mockExecuteDelete).toHaveBeenCalledTimes(2);
+    expect(store.trash).toHaveLength(0);
+  });
+
+  it("prepare-teilfehler zeigt erfolgreiche einträge und lässt fehlende unverändert", async () => {
+    const e1 = fakeTrashEntry();
+    const e2 = fakeTrashEntry({
+      path: "/lib/steamapps/.protium-trash/compatdata_570_100",
+      name: "compatdata_570_100",
+      appId: 570,
+    });
+    mockPrepareDelete.mockImplementation(async (req) => {
+      if (req.path === e2.path) throw new Error("not readable");
+      return {
+        token: `token-${req.path}`,
+        expiresAt: Date.now() + 60000,
+        targetType: req.targetType,
+        targetPath: req.path,
+        consequences: [],
+      };
+    });
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    store.trash = [e1, e2];
+
+    await store.deleteTrashEntries([e1, e2]);
+
+    expect(store.error).toContain("compatdata_570_100");
+    expect(store.error).toContain("not readable");
+    expect(useConfirmStore().pending?.message).toContain(
+      "nicht vorbereitete Einträge (1) bleiben unverändert.",
+    );
+    await useConfirmStore().confirm();
+
+    expect(mockExecuteDelete).toHaveBeenCalledTimes(1);
+    expect(store.trash).toEqual([e2]);
+  });
+
+  it("ohne erfolgreiches prepare gibt es keinen dialog und kein execute", async () => {
+    mockPrepareDelete.mockRejectedValue(new Error("prepare failed"));
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    const e1 = fakeTrashEntry();
+
+    await store.deleteTrashEntries([e1]);
+
+    expect(store.error).toContain("prepare failed");
+    expect(useConfirmStore().pending).toBeNull();
+    expect(mockExecuteDelete).not.toHaveBeenCalled();
+  });
+
+  it("emptyTrash delegiert mit einem trash-snapshot", async () => {
+    const e1 = fakeTrashEntry();
+    const e2 = fakeTrashEntry({
+      path: "/lib/steamapps/.protium-trash/compatdata_570_100",
+      name: "compatdata_570_100",
+      appId: 570,
+    });
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    store.trash = [e1, e2];
+    const deleteSpy = vi.spyOn(store, "deleteTrashEntries").mockResolvedValue();
+
+    await store.emptyTrash();
+
+    expect(deleteSpy).toHaveBeenCalledTimes(1);
+    const snapshot = deleteSpy.mock.calls[0]?.[0];
+    expect(snapshot).toEqual([e1, e2]);
+    expect(snapshot).not.toBe(store.trash);
+  });
+
   it("emptyTrash mit fehlschlag in der mitte, rest wird trotzdem gelöscht", async () => {
     const e1 = fakeTrashEntry();
     const e2 = fakeTrashEntry({
@@ -682,6 +773,38 @@ describe("cleanupStore, trash", () => {
     expect(store.trash).toHaveLength(1);
     expect(store.trash[0]?.appId).toBe(570); // der fehlgeschlagene bleibt
     expect(store.error).toContain("compatdata_570_100");
+    expect(store.error).toContain("permission denied");
+  });
+
+  it("behält vorbereitungs- und execute-fehler getrennt sichtbar", async () => {
+    const e1 = fakeTrashEntry();
+    const e2 = fakeTrashEntry({
+      path: "/lib/steamapps/.protium-trash/compatdata_570_100",
+      name: "compatdata_570_100",
+      appId: 570,
+    });
+    mockPrepareDelete.mockImplementation(async (req) => {
+      if (req.path === e2.path) throw new Error("not readable");
+      return {
+        token: `token-${req.path}`,
+        expiresAt: Date.now() + 60000,
+        targetType: req.targetType,
+        targetPath: req.path,
+        consequences: [],
+      };
+    });
+    mockExecuteDelete.mockRejectedValue(new Error("permission denied"));
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    store.trash = [e1, e2];
+
+    await store.deleteTrashEntries([e1, e2]);
+    await useConfirmStore().confirm();
+
+    expect(store.error).toContain("nicht vorbereitete Einträge (1)");
+    expect(store.error).toContain("nicht gelöschte Einträge (1)");
+    expect(store.error).toContain("not readable");
     expect(store.error).toContain("permission denied");
   });
 
@@ -818,6 +941,27 @@ describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
     expect(mockFindOrphans).toHaveBeenCalled();
     expect(store.error).toContain("888888");
     expect(store.error).toContain("permission denied");
+  });
+
+  it("orphan-onError räumt deleting nach unerwartetem execute-folgefehler auf", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    store.scanOrphans = vi.fn(async () => {
+      throw new Error("rescan failed");
+    });
+    const entry = {
+      appId: 888888,
+      type: "shadercache" as const,
+      path: "/lib/steamapps/shadercache/888888",
+      library: "/lib",
+    };
+
+    await store.deleteOrphans([entry]);
+    await useConfirmStore().confirm();
+
+    expect(store.deleting.size).toBe(0);
+    expect(store.error).toContain("rescan failed");
   });
 });
 

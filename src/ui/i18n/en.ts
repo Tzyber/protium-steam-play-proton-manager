@@ -105,6 +105,9 @@ export const en = {
     trashDeleteEntry: "delete entry",
     trashDeleteConfirmTitle: "empty trash?",
     trashDeleteConfirmSingle: "delete entry permanently?",
+    trashPrepareWarning: "unprepared entries ({n}) remain unchanged.",
+    trashPrepareError: "unprepared entries ({n}): {errors}",
+    trashExecuteError: "undeleted entries ({n}): {errors}",
     trashTrashedAt: "trashed {date}",
   },
   proton: {

@@ -376,6 +376,10 @@ export const useProtonStore = defineStore("proton", {
             onCancel: () => {
               this.busyRemove = null;
             },
+            onError: (e) => {
+              this.loadError = t("proton.removeFailed", { msg: errMsg(e) });
+              this.busyRemove = null;
+            },
           },
         );
       } catch (e) {

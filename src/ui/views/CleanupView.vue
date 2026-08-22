@@ -172,15 +172,16 @@ const trashDeleting = ref(false);
  *  auswahl); sonst nur die ausgewählten einträge. */
 async function deleteTrashEntries(all: boolean) {
   trashDeleting.value = true;
-  if (all) {
-    await cleanup.emptyTrash();
-  } else {
-    for (const e of trashSelectedAll.value) {
-      await cleanup.deleteTrashEntry(e);
+  try {
+    if (all) {
+      await cleanup.emptyTrash();
+    } else {
+      await cleanup.deleteTrashEntries([...trashSelectedAll.value]);
     }
+    trashSelected.clear();
+  } finally {
+    trashDeleting.value = false;
   }
-  trashSelected.clear();
-  trashDeleting.value = false;
 }
 /** kurzform für die spalte, der volle satz steht im title-attribut. eine
  *  datumsspalte in flexibler breite hat die zeile über den viewport geschoben. */
@@ -535,13 +536,13 @@ const tabLabel = (id: Tab) =>
   <ConfirmDialog
     v-if="confirm.pending"
     :title="confirm.pending.title"
+    :busy="confirm.busy"
     danger
     :confirm-label="t('common.delete')"
     @confirm="confirm.confirm()"
     @cancel="confirm.cancel()"
   >
     <p class="consequences">{{ confirm.pending.message }}</p>
-    <p v-if="confirm.error" class="confirm-error">{{ confirm.error }}</p>
   </ConfirmDialog>
 </template>
 
@@ -779,6 +780,5 @@ position: relative;
   padding: 10px 14px; font-family: var(--font-display); font-size: 0.875rem; font-weight: 600; margin-bottom: 12px;
 }
 .consequences { white-space: pre-line; margin: 0; max-height: 260px; overflow-y: auto; }
-.confirm-error { color: var(--tier-bronze); margin: 10px 0 0; font-size: 0.75rem; }
 
 </style>

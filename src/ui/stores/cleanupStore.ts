@@ -40,6 +40,27 @@ function attachSizes(
   }
 }
 
+function formatTrashErrors(prepareErrors: string[], executeErrors: string[]): string | null {
+  const messages: string[] = [];
+  if (prepareErrors.length) {
+    messages.push(
+      t("cleanup.trashPrepareError", {
+        n: prepareErrors.length,
+        errors: prepareErrors.join("; "),
+      }),
+    );
+  }
+  if (executeErrors.length) {
+    messages.push(
+      t("cleanup.trashExecuteError", {
+        n: executeErrors.length,
+        errors: executeErrors.join("; "),
+      }),
+    );
+  }
+  return messages.join("; ") || null;
+}
+
 export const useCleanupStore = defineStore("cleanup", {
   state: () => ({
     orphans: [] as OrphanEntry[],
@@ -268,6 +289,11 @@ export const useCleanupStore = defineStore("cleanup", {
           onCancel: () => {
             for (const p of prepared) this.deleting.delete(p.key);
           },
+          onError: (e) => {
+            for (const p of prepared) this.deleting.delete(p.key);
+            errors.push(errMsg(e));
+            this.error = errors.join("; ");
+          },
         },
       );
     },
@@ -347,41 +373,20 @@ export const useCleanupStore = defineStore("cleanup", {
       }
     },
 
-    async deleteTrashEntry(entry: TrashEntry) {
+    async deleteTrashEntries(entries: TrashEntry[]) {
       const scan = useScanStore();
       const steamRoot = scan.result?.steamRoot ?? "";
-      try {
-        const pending = await tauriPorts.system.prepareDelete({
-          targetType: "trash",
-          path: entry.path,
-          steamRoot,
-        });
-        const confirm = useConfirmStore();
-        confirm.ask(
-          {
-            title: t("cleanup.trashDeleteConfirmSingle"),
-            message: pending.consequences.map((c) => c.description).join("\n"),
-          },
-          {
-            onSuccess: async () => {
-              const res = await tauriPorts.system.executeDelete(pending.token);
-              if (res.success) {
-                this.trash = this.trash.filter((e) => e.path !== entry.path);
-              }
-            },
-          },
-        );
-      } catch (e) {
-        this.error = `${entry.name}: ${errMsg(e)}`;
-      }
-    },
+      this.error = null;
+      const prepareErrors: string[] = [];
+      const executeErrors: string[] = [];
+      const prepared: {
+        token: string;
+        path: string;
+        name: string;
+        descriptions: string[];
+      }[] = [];
 
-    async emptyTrash() {
-      const scan = useScanStore();
-      const steamRoot = scan.result?.steamRoot ?? "";
-      const errors: string[] = [];
-      const prepared: { token: string; path: string; descriptions: string[] }[] = [];
-      for (const entry of [...this.trash]) {
+      for (const entry of entries) {
         try {
           const pending = await tauriPorts.system.prepareDelete({
             targetType: "trash",
@@ -391,20 +396,31 @@ export const useCleanupStore = defineStore("cleanup", {
           prepared.push({
             token: pending.token,
             path: entry.path,
+            name: entry.name,
             descriptions: pending.consequences.map((c) => c.description),
           });
         } catch (e) {
-          errors.push(`${entry.name}: ${errMsg(e)}`);
+          prepareErrors.push(`${entry.name}: ${errMsg(e)}`);
         }
       }
-      if (errors.length) this.error = errors.join("; ");
+
+      this.error = formatTrashErrors(prepareErrors, executeErrors);
       if (!prepared.length) return;
 
       const confirm = useConfirmStore();
+      const partialPrepareMessage =
+        prepareErrors.length > 0
+          ? t("cleanup.trashPrepareWarning", { n: prepareErrors.length })
+          : null;
       confirm.ask(
         {
-          title: t("cleanup.trashDeleteConfirmTitle"),
-          message: prepared.flatMap((p) => p.descriptions).join("\n"),
+          title:
+            prepared.length === 1
+              ? t("cleanup.trashDeleteConfirmSingle")
+              : t("cleanup.trashDeleteConfirmTitle"),
+          message: [partialPrepareMessage, ...prepared.flatMap((p) => p.descriptions)]
+            .filter((line): line is string => line !== null)
+            .join("\n"),
         },
         {
           onSuccess: async () => {
@@ -415,13 +431,25 @@ export const useCleanupStore = defineStore("cleanup", {
                   this.trash = this.trash.filter((e) => e.path !== p.path);
                 }
               } catch (e) {
-                errors.push(`${p.path}: ${errMsg(e)}`);
+                executeErrors.push(`${p.name}: ${errMsg(e)}`);
               }
             }
-            if (errors.length) this.error = errors.join("; ");
+            this.error = formatTrashErrors(prepareErrors, executeErrors);
+          },
+          onError: (e) => {
+            executeErrors.push(errMsg(e));
+            this.error = formatTrashErrors(prepareErrors, executeErrors);
           },
         },
       );
+    },
+
+    async deleteTrashEntry(entry: TrashEntry) {
+      await this.deleteTrashEntries([entry]);
+    },
+
+    async emptyTrash() {
+      await this.deleteTrashEntries([...this.trash]);
     },
   },
 });

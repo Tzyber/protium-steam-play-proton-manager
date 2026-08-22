@@ -5,10 +5,16 @@ import { t } from "../i18n";
 
 let dialogCount = 0;
 
-const { title, confirmLabel, danger } = defineProps<{
+const {
+  title,
+  confirmLabel,
+  danger,
+  busy = false,
+} = defineProps<{
   title: string;
   confirmLabel?: string;
   danger?: boolean;
+  busy?: boolean;
 }>();
 const emit = defineEmits<{ confirm: []; cancel: [] }>();
 
@@ -22,11 +28,19 @@ let lastFocusedElement: HTMLElement | null = null;
 function onKeydown(event: KeyboardEvent) {
   if (event.key === "Escape") {
     event.stopPropagation();
-    emit("cancel");
+    if (!busy) emit("cancel");
     return;
   }
 
   trapFocus(event, dialogRef.value);
+}
+
+function cancel() {
+  if (!busy) emit("cancel");
+}
+
+function confirm() {
+  if (!busy) emit("confirm");
 }
 
 onMounted(async () => {
@@ -43,7 +57,7 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
-    <div class="backdrop" @click.self="emit('cancel')">
+    <div class="backdrop" @click.self="cancel">
       <div
         ref="dialogRef"
         class="dialog"
@@ -51,14 +65,17 @@ onBeforeUnmount(() => {
         aria-modal="true"
         :aria-labelledby="titleId"
         :aria-describedby="contentId"
+        :aria-busy="busy"
         tabindex="-1"
         @keydown="onKeydown"
       >
         <h3 :id="titleId">{{ title }}</h3>
         <div :id="contentId" class="content"><slot /></div>
         <div class="actions">
-          <button class="btn ghost" type="button" @click="emit('cancel')">{{ t("common.cancel") }}</button>
-          <button class="btn" :class="{ danger }" type="button" @click="emit('confirm')">
+          <button class="btn ghost" type="button" :disabled="busy" @click="cancel">
+            {{ t("common.cancel") }}
+          </button>
+          <button class="btn" :class="{ danger }" type="button" :disabled="busy" @click="confirm">
             {{ confirmLabel ?? t("common.confirm") }}
           </button>
         </div>

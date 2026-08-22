@@ -102,6 +102,9 @@ export const de = {
     trashDeleteEntry: "eintrag löschen",
     trashDeleteConfirmTitle: "papierkorb leeren?",
     trashDeleteConfirmSingle: "eintrag endgültig löschen?",
+    trashPrepareWarning: "nicht vorbereitete Einträge ({n}) bleiben unverändert.",
+    trashPrepareError: "nicht vorbereitete Einträge ({n}): {errors}",
+    trashExecuteError: "nicht gelöschte Einträge ({n}): {errors}",
     trashTrashedAt: "verschoben am {date}",
   },
   proton: {
