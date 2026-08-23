@@ -2860,7 +2860,7 @@ mod tests {
             flat.push(b'a');
             flat.push(0x00);
         }
-        flat.extend(std::iter::repeat(0x08).take(11));
+        flat.extend(std::iter::repeat_n(0x08, 11));
         assert!(parse_binary_shortcut_ids(&flat).is_ok());
     }
 
