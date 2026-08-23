@@ -4,7 +4,7 @@ import { readLaunchOptions } from "../localconfig.js";
 import { parseManifest } from "../manifest.js";
 import { joinPath, LOCAL_HEADER_FILENAME, paths } from "../paths.js";
 import type { DirEntry, Ports } from "../ports.js";
-import { type Game, parseSafeAppId, type SkippedLibrary } from "../types.js";
+import { type CompatToolSource, type Game, parseSafeAppId, type SkippedLibrary } from "../types.js";
 
 const MANIFEST_RE = /^appmanifest_(\d+)\.acf$/;
 
@@ -36,12 +36,26 @@ export interface ScanGamesResult {
   cleanupUnsafeLibraries: string[];
 }
 
+export interface CompatAssignment {
+  compatTool: string;
+  compatToolSource: CompatToolSource;
+}
+
+type CompatFor = (appId: number) => CompatAssignment | string;
+
+function resolveCompatAssignment(value: CompatAssignment | string): CompatAssignment {
+  if (typeof value !== "string") return value;
+  if (value === "unknown") return { compatTool: value, compatToolSource: "unavailable" };
+  if (value === "default") return { compatTool: value, compatToolSource: "default" };
+  return { compatTool: value, compatToolSource: "explicit" };
+}
+
 export async function scanGames(
   fs: Ports["fs"],
   _system: Ports["system"],
   steamRoot: string,
   libraries: string[],
-  compatFor: (appId: number) => string,
+  compatFor: CompatFor,
   localConfigText: string | null,
 ): Promise<ScanGamesResult> {
   const warnings: string[] = [];
@@ -110,7 +124,7 @@ export async function scanGames(
           name: data.name,
           library: lib,
           sizeBytes: data.sizeBytes,
-          compatTool: compatFor(data.appId),
+          ...resolveCompatAssignment(compatFor(data.appId)),
           protonDb: null,
           localHeader: await resolveLocalHeader(fs, steamRoot, data.appId),
           headerImage: paths.headerImageUrl(data.appId),

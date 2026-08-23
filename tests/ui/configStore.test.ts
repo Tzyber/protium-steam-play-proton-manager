@@ -30,6 +30,7 @@ function fakeScanResult(): ScanResult {
         library: "/home/u/.steam",
         sizeBytes: 0,
         compatTool: "OldTool",
+        compatToolSource: "explicit",
         protonDb: { tier: "unknown", confidence: "unknown" },
         localHeader: null,
         headerImage: null,
@@ -38,6 +39,7 @@ function fakeScanResult(): ScanResult {
     compatToolsInstalled: [],
     builtinProtonsInstalled: [],
     defaultCompatTool: "proton-cachyos-slr", // bewusst != "default", regressionstest für Befund 1
+    compatConfigStatus: "available",
     steamUserId: "12345",
     warnings: [],
     skippedLibraries: [],

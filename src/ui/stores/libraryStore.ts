@@ -9,6 +9,7 @@ interface State {
   tiers: Tier[];
   compatTools: string[];
   libraries: string[];
+  protonCheck: boolean;
 }
 
 // sinnvolle default-richtung je sortierschlüssel
@@ -22,13 +23,15 @@ export const useLibraryStore = defineStore("library", {
     tiers: [],
     compatTools: [],
     libraries: [],
+    protonCheck: false,
   }),
   getters: {
     // sets für die pure filter-funktion
     tierSet: (s) => new Set(s.tiers),
     compatToolSet: (s) => new Set(s.compatTools),
     librarySet: (s) => new Set(s.libraries),
-    activeFilterCount: (s) => s.tiers.length + s.compatTools.length + s.libraries.length,
+    activeFilterCount: (s) =>
+      s.tiers.length + s.compatTools.length + s.libraries.length + (s.protonCheck ? 1 : 0),
   },
   actions: {
     setSort(key: SortKey) {
@@ -50,6 +53,7 @@ export const useLibraryStore = defineStore("library", {
       this.tiers = [];
       this.compatTools = [];
       this.libraries = [];
+      this.protonCheck = false;
     },
   },
 });

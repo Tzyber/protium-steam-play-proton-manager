@@ -20,7 +20,14 @@ const visible = computed(() =>
     tiers: lib.tierSet,
     compatTools: lib.compatToolSet,
     libraries: lib.librarySet,
+    protonCheckAppIds: lib.protonCheck ? scan.protonCheckAppIds : undefined,
   }),
+);
+
+const statusText = computed(() =>
+  scan.protonDbRemaining > 0
+    ? t("library.protonDbRemaining", { n: scan.protonDbRemaining })
+    : scan.statusText,
 );
 
 const showWarnings = ref(false);
@@ -49,7 +56,7 @@ const showWarnings = ref(false);
         >
           <span aria-hidden="true">⚠</span> {{ scan.warnings.length }}
         </button>
-        <span class="status" role="status" aria-live="polite" aria-atomic="true">{{ scan.statusText }}</span>
+        <span class="status" role="status" aria-live="polite" aria-atomic="true">{{ statusText }}</span>
         <button class="rescan" type="button" :disabled="scan.status === 'scanning'" @click="scan.runScan()">
           {{ scan.status === "scanning" ? t("library.scanning") : t("library.rescan") }}
         </button>
@@ -79,7 +86,7 @@ const showWarnings = ref(false);
       {{ t("library.nothingFound") }}<button class="linklike" type="button" @click="lib.reset()">{{ t("library.resetFilter") }}</button>
     </div>
 
-    <ul v-else class="grid" :aria-busy="scan.status === 'scanning'">
+    <ul v-else class="grid">
       <li v-for="g in visible" :key="g.appId" class="grid-item">
         <GameCard :game="g" />
       </li>

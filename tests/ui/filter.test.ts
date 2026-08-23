@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { Game, Tier } from "../../src/core/types";
 import { filterAndSortGames, fuzzyMatch, type LibraryQuery } from "../../src/ui/filter";
 
-function game(partial: Partial<Game> & { appId: number; name: string }): Game {
+function game(
+  partial: Omit<Partial<Game>, "compatToolSource"> & { appId: number; name: string },
+): Game {
   return {
     library: "/lib",
     sizeBytes: 0,
     compatTool: "default",
+    compatToolSource: "default",
     protonDb: { tier: "unknown", confidence: "unknown" },
     localHeader: null,
     headerImage: null,
@@ -90,5 +93,14 @@ describe("filterAndSortGames", () => {
   it("kombiniert suche + filter", () => {
     const r = filterAndSortGames(games, { ...base, search: "the", tiers: new Set<Tier>(["gold"]) });
     expect(ids(r)).toEqual([3]);
+  });
+  it("kombiniert proton-check mit bestehenden filtern und sortierung", () => {
+    const r = filterAndSortGames(games, {
+      ...base,
+      sortKey: "size",
+      sortDir: "desc",
+      protonCheckAppIds: new Set([1, 3]),
+    });
+    expect(ids(r)).toEqual([3, 1]);
   });
 });

@@ -3,27 +3,39 @@ import { errText } from "../errtext.js";
 import { findActiveUser } from "../localconfig.js";
 import { paths } from "../paths.js";
 import type { Ports } from "../ports.js";
+import type { CompatConfigStatus } from "../types.js";
 
 export async function readCompatMapping(
   fs: Ports["fs"],
   steamRoot: string,
-): Promise<{ mapping: CompatToolMapping; mappingUsable: boolean; warnings: string[] }> {
+): Promise<{
+  mapping: CompatToolMapping;
+  compatConfigStatus: CompatConfigStatus;
+  /** rückwärtskompatible Ableitung für bestehende Core-Aufrufer. */
+  mappingUsable: boolean;
+  warnings: string[];
+}> {
   const warnings: string[] = [];
   let mapping: CompatToolMapping = new Map();
-  let mappingUsable = true;
+  let compatConfigStatus: CompatConfigStatus = "available";
   try {
     const configPath = paths.configVdf(steamRoot);
     if (await fs.exists(configPath)) {
       mapping = parseCompatToolMapping(await fs.readTextFile(configPath));
     } else {
-      mappingUsable = false;
+      compatConfigStatus = "missing";
       warnings.push("config.vdf fehlt → compat-tools als 'unknown' markiert");
     }
   } catch (e) {
-    mappingUsable = false;
+    compatConfigStatus = "unreadable";
     warnings.push(`config.vdf nicht lesbar: ${errText(e)}`);
   }
-  return { mapping, mappingUsable, warnings };
+  return {
+    mapping,
+    compatConfigStatus,
+    mappingUsable: compatConfigStatus === "available",
+    warnings,
+  };
 }
 
 export async function readLaunchConfig(

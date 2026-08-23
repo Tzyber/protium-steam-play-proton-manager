@@ -1,13 +1,16 @@
 import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
 import { recomputeToolUsedBy } from "../../core/compat";
-import { scanLibrary } from "../../core/scan";
+import { deriveProtonCheck } from "../../core/protoncheck";
+import { scanLocal } from "../../core/scan/local";
+import { enrichProtondb } from "../../core/scan/protondb";
 import type { ScanResult } from "../../core/types";
 import { errMsg } from "../format";
 import { t } from "../i18n";
 import { useUiStore } from "./uiStore";
 
 type Status = "idle" | "scanning" | "done" | "not-found" | "error";
+const PROTONDB_DELAY_MS = 150;
 
 interface State {
   status: Status;
@@ -15,6 +18,8 @@ interface State {
   error: string | null;
   result: ScanResult | null;
   elapsedMs: number;
+  protonDbRemaining: number;
+  scanGeneration: number;
 }
 
 export const useScanStore = defineStore("scan", {
@@ -24,25 +29,59 @@ export const useScanStore = defineStore("scan", {
     error: null,
     result: null,
     elapsedMs: 0,
+    protonDbRemaining: 0,
+    scanGeneration: 0,
   }),
   getters: {
     games: (s) => s.result?.games ?? [],
     warnings: (s) => s.result?.warnings ?? [],
     compatTools: (s) => s.result?.compatToolsInstalled ?? [],
+    protonChecks: (s) => (s.result ? deriveProtonCheck(s.result) : []),
+    protonCheckAppIds(): Set<number> {
+      return new Set(this.protonChecks.map((check) => check.appId));
+    },
   },
   actions: {
     async runScan() {
+      const generation = this.scanGeneration + 1;
+      this.scanGeneration = generation;
       this.status = "scanning";
+      this.statusText = t("status.findingSteam");
       this.error = null;
+      this.elapsedMs = 0;
+      this.protonDbRemaining = 0;
       const t0 = performance.now();
+      const isCurrent = (result?: ScanResult): boolean =>
+        this.scanGeneration === generation && (result === undefined || this.result === result);
       try {
-        this.statusText = t("status.findingSteam");
         const environment = await tauriPorts.system.discoverSteamEnvironment();
+        if (!isCurrent()) return;
         this.statusText = t("status.scanningLibrary");
-        this.result = await scanLibrary(tauriPorts, { environment, protonDbDelayMs: 0 });
+        const local = await scanLocal(tauriPorts, environment);
+        if (!isCurrent()) return;
+        this.result = { steamRoot: environment.steamRoot, ...local };
+        const result = this.result;
+        if (result === null) return;
         this.status = "done";
         this.statusText = t("status.ready");
+        this.protonDbRemaining = result.games.length;
+        if (result.games.length === 0) return;
+
+        void enrichProtondb(tauriPorts, result.games, PROTONDB_DELAY_MS, {
+          shouldApply: () => isCurrent(result),
+          onSettled: () => {
+            if (!isCurrent(result)) return;
+            this.protonDbRemaining = Math.max(0, this.protonDbRemaining - 1);
+          },
+        })
+          .catch(() => {
+            if (isCurrent(result)) this.protonDbRemaining = 0;
+          })
+          .then(() => {
+            if (isCurrent(result)) this.protonDbRemaining = 0;
+          });
       } catch (e) {
+        if (!isCurrent()) return;
         if (errMsg(e).includes("steam installation not found")) {
           this.status = "not-found";
           this.statusText = t("status.noSteamInstallation");
@@ -54,7 +93,7 @@ export const useScanStore = defineStore("scan", {
           useUiStore().showNotification(t("status.scanFailed", { error: msg }));
         }
       } finally {
-        this.elapsedMs = Math.round(performance.now() - t0);
+        if (isCurrent()) this.elapsedMs = Math.round(performance.now() - t0);
       }
     },
 
@@ -69,6 +108,12 @@ export const useScanStore = defineStore("scan", {
       if (patch.launchOptions !== undefined) game.launchOptions = patch.launchOptions;
       if (patch.compatTool !== undefined) {
         game.compatTool = patch.compatTool;
+        game.compatToolSource =
+          patch.compatTool === "default"
+            ? result.defaultCompatTool === null
+              ? "unavailable"
+              : "default"
+            : "explicit";
         // usedBy der tools folgt dem mapping, nach dem wechsel neu aus den
         // spielen rechnen, sonst zeigt der proton-manager stale zähler.
         recomputeToolUsedBy(result.compatToolsInstalled, result.games);

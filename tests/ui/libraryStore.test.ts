@@ -59,6 +59,22 @@ describe("libraryStore", () => {
     expect(lib.activeFilterCount).toBe(4);
   });
 
+  it("proton-check ist ein resetbarer filter und zählt als aktiv", () => {
+    const lib = useLibraryStore();
+    expect(lib.protonCheck).toBe(false);
+    expect(lib.activeFilterCount).toBe(0);
+
+    lib.protonCheck = true;
+
+    expect(lib.protonCheck).toBe(true);
+    expect(lib.activeFilterCount).toBe(1);
+
+    lib.reset();
+
+    expect(lib.protonCheck).toBe(false);
+    expect(lib.activeFilterCount).toBe(0);
+  });
+
   it("set-getter spiegeln die arrays als Set", () => {
     const lib = useLibraryStore();
     lib.toggle("tiers", "platinum");

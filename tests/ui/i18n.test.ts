@@ -97,4 +97,28 @@ describe("i18n, fallback (vertrag)", () => {
     const enKeys = flat(en).sort();
     expect(enKeys).toEqual(deKeys);
   });
+
+  it("de und en haben pro key dieselben interpolations-platzhalter", () => {
+    const flat = (obj: unknown, prefix = ""): Record<string, string> => {
+      if (obj == null || typeof obj !== "object") return {};
+      return Object.entries(obj as Record<string, unknown>).reduce<Record<string, string>>(
+        (values, [k, v]) => {
+          const path = prefix ? `${prefix}.${k}` : k;
+          if (typeof v === "string") values[path] = v;
+          else Object.assign(values, flat(v, path));
+          return values;
+        },
+        {},
+      );
+    };
+    const placeholders = (value: string): string[] =>
+      [...value.matchAll(/\{(\w+)\}/g)].map((match) => match[1] ?? "").sort();
+    const deValues = flat(de);
+    const enValues = flat(en);
+
+    expect(Object.keys(enValues).sort()).toEqual(Object.keys(deValues).sort());
+    for (const key of Object.keys(deValues)) {
+      expect(placeholders(enValues[key] ?? "")).toEqual(placeholders(deValues[key] ?? ""));
+    }
+  });
 });

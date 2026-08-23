@@ -57,6 +57,18 @@ function libShort(path: string): string {
       </button>
     </div>
 
+    <button
+      v-if="scan.protonChecks.length"
+      class="seg proton-check"
+      :class="{ on: lib.protonCheck }"
+      type="button"
+      :aria-label="t('filter.protonCheckAria')"
+      :aria-pressed="lib.protonCheck"
+      @click="lib.protonCheck = !lib.protonCheck"
+    >
+      {{ t("filter.protonCheck") }}
+    </button>
+
     <div class="group">
       <button
         v-for="t in tiersPresent"

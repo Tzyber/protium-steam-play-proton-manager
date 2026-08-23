@@ -9,8 +9,9 @@
 aufmachen, spiel starten oder startoptionen setzen, verwaiste prefixes löschen,
 proton-versionen nachladen. so viel, und trotzdem an einem ort.
 
-protium zeigt dir, was auf deinem system wirklich los ist: welche spiele über
-welche proton-version laufen, wie die auf protondb bewertet sind, welche
+protium zeigt dir, was auf deinem system wirklich los ist: welchen spielen
+steam in seiner konfiguration welche proton-version zuordnet, wie die auf
+protondb bewertet sind, welche
 GE-proton-versionen ungenutzt platz fressen und welche prefixes von längst
 deinstallierten spielen noch gigabytes belegen.
 
@@ -18,7 +19,7 @@ entstanden, weil es genau dieses tool nicht gab. protonup-qt managt nur
 versionen. protontricks ist ein winetricks-wrapper. steamtinkerlaunch kann
 alles und ist genau deshalb unübersichtlich. der erste scan mit protium zeigte
 sofort einen unterschied zwischen der proton-version, die ich eingestellt
-glaubte, und der, die tatsächlich lief.
+glaubte, und der, die in steams konfiguration zugeordnet war.
 
 ![library-ansicht: cover-grid mit protondb-tiers, proton-zuordnung und filtern](docs/screenshots/main_page.png)
 
@@ -32,29 +33,32 @@ AppImage oder Debian-Paket von der [releases-seite](https://github.com/Tzyber/pr
 laden. die AppImage ausführbar machen und starten:
 
 ```sh
-chmod +x protium_0.4.8_amd64.AppImage
-./protium_0.4.8_amd64.AppImage
+chmod +x protium_0.5.0_amd64.AppImage
+./protium_0.5.0_amd64.AppImage
 ```
 
 die AppImage ist nicht signiert. wer das nicht mag, baut selbst (siehe
 dev-setup). für Debian-basierte systeme liegt zusätzlich ein Debian-paket bei:
 
 ```sh
-sudo apt install ./protium_0.4.8_amd64.deb
+sudo apt install ./protium_0.5.0_amd64.deb
 ```
 
 startet nichts und es kommt keine fehlermeldung, fehlt meist fuse2. dann
 entweder `sudo pacman -S fuse2` oder einmalig ohne fuse starten:
 
 ```sh
-./protium_0.4.8_amd64.AppImage --appimage-extract-and-run
+./protium_0.5.0_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## was es kann
 
 **library-übersicht.** alle spiele über alle libraries, auch auf externen
-platten, mit cover, größe, zugewiesener proton-version und protondb-tier direkt
-auf der karte. Steam- und Library-Dateien liest ein backendkanonisierter,
+platten, mit cover, größe, der in steams konfiguration zugewiesenen
+proton-version und protondb-tier direkt auf der karte. der lokale scan ist
+sofort sichtbar; protondb ergänzt danach im hintergrund. der proton-check
+filtert nur `bronze`, `borked` und explizite tools, die bei diesem scan nicht
+erkannt wurden. Steam- und Library-Dateien liest ein backendkanonisierter,
 aktueller Environment-Snapshot; lokale Cover kommen als kurzlebige Blob-URLs
 aus einem begrenzten Backend-Binary-Read. Die App funktioniert damit auch
 offline, ohne lokale Steam-Pfade an die Webview freizugeben.
@@ -213,9 +217,17 @@ die app blockieren. was sich nicht zuverlässig bestimmen lässt, heißt in der 
 - [x] i18n (deutsch/englisch)
 - [x] CI: lint, typecheck und tests bei jedem push
 - [x] phase 6 (teil 1): AppImage-build in der CI
+- [x] v0.5.0: library sofort, protondb im nachlauf und proton-check
 - [ ] phase 6 (teil 2): AUR-paket
 
 versionshistorie steht in den [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
+
+## weiter
+
+protium muss nicht schnell fertig werden. neue versionen kommen nur dazu,
+wenn sie lokale steam-daten klarer machen, ohne daemon oder autoreparatur. als
+nächste kleine richtung wird eher „scan-wahrheit“ geprüft: warnungen und
+abdeckung verständlich erklären.
 
 ## offene punkte
 

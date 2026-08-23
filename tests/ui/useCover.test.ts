@@ -21,6 +21,7 @@ function game(appId: number, localHeader: string | null): Game {
     library: "/library",
     sizeBytes: 0,
     compatTool: "default",
+    compatToolSource: "default",
     protonDb: null,
     localHeader,
     headerImage: `https://cdn.example/${appId}.jpg`,

@@ -134,6 +134,28 @@ async function saveLaunch() {
 const compatSelected = ref("__default__");
 const compatState = ref<"idle" | "saving" | "saved" | string>("idle");
 
+const compatProvenance = computed(() => {
+  const result = scan.result;
+  const current = game.value;
+  if (!result || !current) return "";
+
+  if (result.compatConfigStatus === "missing") return t("drawer.compatProvenanceMissing");
+  if (result.compatConfigStatus === "unreadable") return t("drawer.compatProvenanceUnreadable");
+  if (current.compatToolSource === "explicit") {
+    return t("drawer.compatProvenanceExplicit", { name: current.compatTool });
+  }
+  if (current.compatToolSource === "default" && result.defaultCompatTool !== null) {
+    return t("drawer.compatProvenanceDefault", { name: result.defaultCompatTool });
+  }
+  return t("drawer.compatProvenanceNoDefault");
+});
+
+const compatToolUnrecognized = computed(() =>
+  scan.protonChecks.some(
+    (check) => check.appId === game.value?.appId && check.reasons.includes("tool-not-recognized"),
+  ),
+);
+
 const compatOptions = computed(() => {
   const builtIns = scan.result?.builtinProtonsInstalled ?? [];
   const tools = scan.result?.compatToolsInstalled ?? [];
@@ -151,8 +173,18 @@ const compatOptions = computed(() => {
   }
 
   const seen = new Set(list.map((o) => o.value));
-  if (current && current !== "default" && !seen.has(current)) {
-    list.push({ value: current, label: t("drawer.notInstalled", { name: current }) });
+  const customToolByDirectory = new Map(tools.map((tool) => [tool.name, tool]));
+  if (
+    current &&
+    current !== "default" &&
+    game.value?.compatToolSource === "explicit" &&
+    !seen.has(current)
+  ) {
+    const customTool = customToolByDirectory.get(current);
+    list.push({
+      value: current,
+      label: customTool?.displayName ?? t("drawer.notRecognized", { name: current }),
+    });
   }
 
   return list;
@@ -264,6 +296,10 @@ watch(errorMessage, (msg) => {
               {{ compatState === "saving" ? "…" : compatState === "saved" ? t("drawer.saved") : t("drawer.save") }}
             </button>
           </div>
+          <p class="hint" data-testid="compat-provenance">{{ compatProvenance }}</p>
+          <p v-if="compatToolUnrecognized" class="hint" data-testid="compat-unrecognized">
+            {{ t("drawer.compatToolUnrecognized") }}
+          </p>
         </div>
 
         <div class="field">

@@ -10,6 +10,7 @@ export interface LibraryQuery {
   tiers: ReadonlySet<Tier>; // leer = alle
   compatTools: ReadonlySet<string>; // leer = alle
   libraries: ReadonlySet<string>; // leer = alle
+  protonCheckAppIds?: ReadonlySet<number>; // undefiniert = alle
 }
 
 // best → schlecht; kanonische reihenfolge für filter-UI und sortierung
@@ -39,6 +40,7 @@ export function filterAndSortGames(games: readonly Game[], q: LibraryQuery): Gam
     if (q.tiers.size && !q.tiers.has(g.protonDb?.tier ?? "unknown")) return false;
     if (q.compatTools.size && !q.compatTools.has(g.compatTool)) return false;
     if (q.libraries.size && !q.libraries.has(g.library)) return false;
+    if (q.protonCheckAppIds && !q.protonCheckAppIds.has(g.appId)) return false;
     return true;
   });
 

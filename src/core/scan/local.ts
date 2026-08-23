@@ -14,8 +14,21 @@ export async function scanLocal(
   const libraryResult = readLibraryList(environment);
   const mappingResult = await readCompatMapping(fs, steamRoot);
   const launchResult = await readLaunchConfig(fs, steamRoot);
-  const compatFor = (appId: number): string =>
-    !mappingResult.mappingUsable ? "unknown" : (mappingResult.mapping.get(appId) ?? "default");
+  const compatFor = (appId: number) => {
+    if (mappingResult.compatConfigStatus !== "available") {
+      return { compatTool: "unknown", compatToolSource: "unavailable" as const };
+    }
+    const explicit = mappingResult.mapping.get(appId);
+    if (explicit !== undefined) {
+      return { compatTool: explicit, compatToolSource: "explicit" as const };
+    }
+    return {
+      compatTool: "default",
+      compatToolSource: mappingResult.mapping.has(0)
+        ? ("default" as const)
+        : ("unavailable" as const),
+    };
+  };
   const gamesResult = await scanGames(
     fs,
     system,
@@ -40,6 +53,7 @@ export async function scanLocal(
     compatToolsInstalled: toolsResult.compatToolsInstalled,
     builtinProtonsInstalled: toolsResult.builtinProtonsInstalled,
     defaultCompatTool: toolsResult.defaultCompatTool,
+    compatConfigStatus: mappingResult.compatConfigStatus,
     steamUserId: launchResult.steamUserId,
     warnings: [
       ...libraryResult.warnings,

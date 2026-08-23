@@ -2,12 +2,17 @@
 
 export type Tier = "platinum" | "gold" | "silver" | "bronze" | "borked" | "unknown";
 
+export type CompatConfigStatus = "available" | "missing" | "unreadable";
+
+export type CompatToolSource = "explicit" | "default" | "unavailable";
+
 export interface Game {
   appId: number;
   name: string;
   library: string;
   sizeBytes: number;
   compatTool: string; // "GE-Proton9-27" | "proton_experimental" | "default" | "unknown"
+  compatToolSource: CompatToolSource;
   protonDb: { tier: Tier; confidence: string } | null;
   localHeader: string | null; // bevorzugt (CDN-unabhängig)
   headerImage: string | null; // CDN-fallback
@@ -32,6 +37,7 @@ export interface ScanResult {
   builtinProtonsInstalled: { internalName: string; displayName: string }[];
   /** globaler default aus CompatToolMapping[0] ("für alle spiele"), sonst null. */
   defaultCompatTool: string | null;
+  compatConfigStatus: CompatConfigStatus;
   /** account, dessen localconfig.vdf gelesen wird (null = keiner gefunden → keine startoptionen). */
   steamUserId: string | null;
   warnings: string[];

@@ -1,6 +1,7 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GeRelease } from "../../src/core/geproton";
+import type { ScanResult } from "../../src/core/types";
 import { setLocale } from "../../src/ui/i18n";
 
 type Listener = (event: { payload: unknown }) => void;
@@ -79,7 +80,7 @@ const release: GeRelease = {
     "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton9-27/GE-Proton9-27.sha512sum",
 };
 
-function fakeScanResult() {
+function fakeScanResult(): ScanResult {
   return {
     steamRoot: "/root",
     libraries: [],
@@ -87,6 +88,7 @@ function fakeScanResult() {
     compatToolsInstalled: [],
     builtinProtonsInstalled: [],
     defaultCompatTool: null,
+    compatConfigStatus: "available",
     steamUserId: null,
     warnings: [],
     skippedLibraries: [],
@@ -573,6 +575,7 @@ describe("protonStore.remove", () => {
       compatToolsInstalled: [],
       builtinProtonsInstalled: [],
       defaultCompatTool: null,
+      compatConfigStatus: "available",
       steamUserId: null,
       warnings: [],
       skippedLibraries: [],
@@ -634,6 +637,7 @@ describe("protonStore.remove", () => {
       compatToolsInstalled: [],
       builtinProtonsInstalled: [],
       defaultCompatTool: null,
+      compatConfigStatus: "available",
       steamUserId: null,
       warnings: [],
       skippedLibraries: [],

@@ -8,9 +8,12 @@
 
 open it, start a game or set launch options, delete orphaned prefixes, pull down proton versions. that much, and still in one place.
 
-protium shows you what is actually going on on your system: which games run on which proton version, how those are rated on protondb, which GE-proton versions are eating space unused, and which prefixes from long-uninstalled games still occupy gigabytes.
+protium shows you what is actually going on on your system: which proton
+version Steam assigns to each game in its configuration, how those are rated
+on protondb, which GE-proton versions are eating space unused, and which
+prefixes from long-uninstalled games still occupy gigabytes.
 
-it came into being because this exact tool did not exist. protonup-qt only manages versions. protontricks is a winetricks wrapper. steamtinkerlaunch does everything and is unwieldy for exactly that reason. the first scan with protium immediately revealed a difference between the proton version I thought I had set and the one that was actually running.
+it came into being because this exact tool did not exist. protonup-qt only manages versions. protontricks is a winetricks wrapper. steamtinkerlaunch does everything and is unwieldy for exactly that reason. the first scan with protium immediately revealed a difference between the proton version I thought I had set and the one assigned in Steam's configuration.
 
 ![library view: cover grid with protondb tiers, proton assignment and filters](docs/screenshots/main_page.png)
 
@@ -23,25 +26,25 @@ it came into being because this exact tool did not exist. protonup-qt only manag
 grab the AppImage or Debian package from the [releases page](https://github.com/Tzyber/protium-steam-play-proton-manager/releases). make the AppImage executable and run it:
 
 ```sh
-chmod +x protium_0.4.8_amd64.AppImage
-./protium_0.4.8_amd64.AppImage
+chmod +x protium_0.5.0_amd64.AppImage
+./protium_0.5.0_amd64.AppImage
 ```
 
 the AppImage is not signed. if you don't like that, build it yourself (see dev setup). Debian-based systems can install the accompanying Debian package:
 
 ```sh
-sudo apt install ./protium_0.4.8_amd64.deb
+sudo apt install ./protium_0.5.0_amd64.deb
 ```
 
 if nothing starts and no error message appears, fuse2 is usually missing. then either `sudo pacman -S fuse2` or run it once without fuse:
 
 ```sh
-./protium_0.4.8_amd64.AppImage --appimage-extract-and-run
+./protium_0.5.0_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## what it does
 
-**library overview.** every game across every library, external drives included, with cover art, size, assigned proton version and protondb tier right on the card. Steam and library files are read through a current, backend-canonical environment snapshot; local covers arrive as short-lived blob URLs from a bounded backend binary read. The app still works offline without granting local Steam paths to the webview.
+**library overview.** every game across every library, external drives included, with cover art, size, the proton version assigned in Steam's configuration and protondb tier right on the card. the local scan appears immediately; protondb follows in the background. proton-check filters only `bronze`, `borked` and explicit tools not recognised in this scan. Steam and library files are read through a current, backend-canonical environment snapshot; local covers arrive as short-lived blob URLs from a bounded backend binary read. The app still works offline without granting local Steam paths to the webview.
 
 **GE-proton manager.** installed versions with size and the information which games actually use them. install new releases straight from github (streaming download with sha512 verification, cancellable, partial file cleaned up), remove unused ones. distro protons such as proton-cachyos are detected and marked read-only. they belong to the package manager, not to us.
 
@@ -150,9 +153,17 @@ rules for the implementation: writes to steam files go through the write gate wi
 - [x] i18n (german/english)
 - [x] CI: lint, typecheck and tests on every push
 - [x] phase 6 (part 1): AppImage build in CI
+- [x] v0.5.0: library first, protondb follow-up and proton-check
 - [ ] phase 6 (part 2): AUR package
 
 version history lives in the [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
+
+## next
+
+protium does not need to finish quickly. new versions only belong here when
+they make local Steam data clearer without a daemon or auto-repair. the next
+small direction under consideration is scan truth: explaining warnings and
+coverage better.
 
 ## open points
 

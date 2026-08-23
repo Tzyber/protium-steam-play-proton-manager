@@ -46,6 +46,7 @@ export const en = {
     errorPrefix: "error: {error}",
     scanningState: "scanning…",
     warningsToggle: "show {n} scan warnings",
+    protonDbRemaining: "protondb loading: {n} remaining",
     nothingFound: "nothing found, ",
     resetFilter: "reset filters",
   },
@@ -58,6 +59,8 @@ export const en = {
     sortSize: "size",
     sortTier: "tier",
     proton: "proton",
+    protonCheck: "proton-check",
+    protonCheckAria: "show only games with proton-check notices",
     disk: "disk",
     reset: "reset",
     sortAsc: "sorted ascending",
@@ -160,7 +163,14 @@ export const en = {
       "reports with operating system, proton version and notes from other players. data from protondb (ODbL).",
     play: "start game",
     launch: "start {name}",
-    notInstalled: "{name} (not installed)",
+    notRecognized: "{name} (not recognized in this scan)",
+    compatProvenanceExplicit: "configured for this game: {name}",
+    compatProvenanceDefault:
+      "no per-game assignment; Steam's config has this global default: {name}",
+    compatProvenanceNoDefault: "no per-game assignment; no global default in Steam's config",
+    compatProvenanceMissing: "config.vdf is missing; assignment unknown",
+    compatProvenanceUnreadable: "config.vdf is unreadable or invalid; assignment unknown",
+    compatToolUnrecognized: "this explicit tool was not recognized in this scan.",
     launchFailed: "launch failed: {error}",
   },
   card: {
@@ -173,7 +183,7 @@ export const en = {
     silver: "runs with limitations",
     bronze: "runs, but with issues",
     borked: "does not run currently",
-    unknown: "no protondb data",
+    unknown: "no ProtonDB rating available",
   },
   errors: {
     steamRunning:
