@@ -162,10 +162,8 @@ version history lives in the [releases](https://github.com/Tzyber/protium-steam-
 ## next
 
 protium does not need to finish quickly. new versions only belong here when
-they make local Steam data clearer without a daemon or auto-repair. the
-planning baseline lives in
-[docs/protium-roadmap-post-v0.5.md](docs/protium-roadmap-post-v0.5.md),
-with this direction ahead:
+they make local Steam data clearer without a daemon or auto-repair. with
+this direction ahead:
 
 - v0.7.0: game footprint in the drawer (known local storage per game,
   without a full-disk scan)

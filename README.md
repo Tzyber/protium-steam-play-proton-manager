@@ -227,8 +227,6 @@ versionshistorie steht in den [releases](https://github.com/Tzyber/protium-steam
 
 protium muss nicht schnell fertig werden. neue versionen kommen nur dazu,
 wenn sie lokale steam-daten klarer machen, ohne daemon oder autoreparatur.
-die planungsgrundlage liegt in
-[docs/protium-roadmap-post-v0.5.md](docs/protium-roadmap-post-v0.5.md),
 als richtung folgen:
 
 - v0.7.0: game-footprint im drawer (bekannter lokaler speicher pro spiel,
