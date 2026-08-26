@@ -15,13 +15,30 @@ describe("findActiveUser", () => {
   it("findet den einzigen account mit localconfig.vdf", async () => {
     const { root, userId } = await buildFakeSteam();
     const found = await findActiveUser(nodeFs(), root);
-    expect(found?.userId).toBe(userId);
-    expect(found?.warning).toBeUndefined();
+    expect(found).toEqual({ status: "selected", userId, selection: "unique" });
   });
 
-  it("null ohne userdata-verzeichnis", async () => {
+  it("meldet fehlenden account ohne userdata-verzeichnis", async () => {
     const leer = await mkdtemp(join(tmpdir(), "protium-nouser-"));
-    expect(await findActiveUser(nodeFs(), leer)).toBeNull();
+    expect(await findActiveUser(nodeFs(), leer)).toEqual({ status: "missing" });
+  });
+
+  it("unterscheidet unlesbare userdata von fehlendem account", async () => {
+    const { root } = await buildFakeSteam();
+    const baseFs = nodeFs();
+    const userdata = join(root, "userdata");
+    const fs = {
+      ...baseFs,
+      readDir: async (path: string) => {
+        if (path === userdata) throw new Error("read denied");
+        return baseFs.readDir(path);
+      },
+    };
+
+    expect(await findActiveUser(fs, root)).toEqual({
+      status: "unreadable",
+      detail: "read denied",
+    });
   });
 
   it("bei mehreren accounts entscheidet loginusers.vdf (MostRecent)", async () => {
@@ -34,7 +51,7 @@ describe("findActiveUser", () => {
       "utf8",
     );
     const found = await findActiveUser(nodeFs(), root);
-    expect(found?.userId).toBe(userId);
+    expect(found).toEqual({ status: "selected", userId, selection: "unique" });
   });
 
   it("fallback ohne loginusers.vdf: numerisch kleinster account, nicht lexikographisch", async () => {
@@ -49,8 +66,7 @@ describe("findActiveUser", () => {
       );
     }
     const found = await findActiveUser(nodeFs(), root);
-    expect(found?.userId).toBe("2");
-    expect(found?.warning).toBeTruthy();
+    expect(found).toEqual({ status: "selected", userId: "2", selection: "ambiguous" });
   });
 });
 

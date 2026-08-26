@@ -20,7 +20,13 @@ describe("scanLocal", () => {
     expect(result.games.find((game) => game.appId === 570)?.compatToolSource).toBe("default");
     expect(result.compatToolsInstalled).toHaveLength(3);
     expect(result.defaultCompatTool).toBe("proton-cachyos-slr");
-    expect(result.warnings.some((warning) => warning.includes("appmanifest_9999.acf"))).toBe(true);
+    expect(
+      result.warnings.some(
+        (warning) => warning.type === "manifest" && warning.manifestName === "appmanifest_9999.acf",
+      ),
+    ).toBe(true);
+    expect(result.manifestCounts).toEqual({ read: 4, failed: 1 });
+    expect(result.compatToolCounts).toEqual({ read: 3, failed: 0 });
     expect(result.cleanupUnsafeLibraries).toContain(root);
   });
 
@@ -40,7 +46,11 @@ describe("scanLocal", () => {
     expect(result.games.every((game) => game.compatToolSource === "unavailable")).toBe(true);
     expect(result.compatToolsInstalled).toHaveLength(2);
     expect(result.defaultCompatTool).toBeNull();
-    expect(result.warnings).toContain("config.vdf fehlt → compat-tools als 'unknown' markiert");
+    expect(result.warnings).toContainEqual({
+      type: "compat-config",
+      reason: "missing",
+      detail: "config.vdf fehlt → compat-tools als 'unknown' markiert",
+    });
     expect(result.cleanupUnsafeLibraries).toContain(root);
   });
 

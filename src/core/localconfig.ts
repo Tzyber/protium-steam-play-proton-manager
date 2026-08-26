@@ -49,37 +49,40 @@ async function mostRecentUser(fs: FileSystem, steamRoot: string): Promise<string
   return null;
 }
 
+export type ActiveUserSearchResult =
+  | { status: "missing" }
+  | { status: "unreadable"; detail: string }
+  | { status: "selected"; userId: string; selection: "unique" | "ambiguous" };
+
 /**
  * der account, dessen localconfig.vdf wir lesen/schreiben: kandidaten sind userdata-dirs
  * MIT localconfig.vdf. bei mehreren entscheidet loginusers.vdf (MostRecent), sonst fallback.
- * null wenn es keinen kandidaten gibt.
  */
 export async function findActiveUser(
   fs: FileSystem,
   steamRoot: string,
-): Promise<{ userId: string; warning?: string } | null> {
+): Promise<ActiveUserSearchResult> {
   const candidates: string[] = [];
   try {
     const dir = paths.userdataDir(steamRoot);
-    if (!(await fs.exists(dir))) return null;
+    if (!(await fs.exists(dir))) return { status: "missing" };
     for (const e of await fs.readDir(dir)) {
       if (!e.isDirectory || !NUMERIC_RE.test(e.name)) continue;
       if (await fs.exists(paths.localConfigVdf(steamRoot, e.name))) candidates.push(e.name);
     }
-  } catch {
-    return null; // Nicht lesbare Benutzerdaten lassen die Startoptionen unbekannt.
+  } catch (e) {
+    return { status: "unreadable", detail: e instanceof Error ? e.message : String(e) };
   }
   // numerisch sortieren: lexikographisch läge "10" vor "2".
   const first = candidates.sort((a, b) => Number(a) - Number(b))[0];
-  if (first === undefined) return null;
-  if (candidates.length === 1) return { userId: first };
+  if (first === undefined) return { status: "missing" };
+  if (candidates.length === 1) return { status: "selected", userId: first, selection: "unique" };
 
   const recent = await mostRecentUser(fs, steamRoot);
-  if (recent && candidates.includes(recent)) return { userId: recent };
-  return {
-    userId: first,
-    warning: `mehrere steam-accounts gefunden, loginusers.vdf nicht eindeutig → nehme ${first}`,
-  };
+  if (recent && candidates.includes(recent)) {
+    return { status: "selected", userId: recent, selection: "unique" };
+  }
+  return { status: "selected", userId: first, selection: "ambiguous" };
 }
 
 export type LaunchWriteResult = WriteResult;

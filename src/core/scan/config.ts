@@ -3,7 +3,7 @@ import { errText } from "../errtext.js";
 import { findActiveUser } from "../localconfig.js";
 import { paths } from "../paths.js";
 import type { Ports } from "../ports.js";
-import type { CompatConfigStatus } from "../types.js";
+import type { CompatConfigStatus, ScanWarning } from "../types.js";
 
 export async function readCompatMapping(
   fs: Ports["fs"],
@@ -13,9 +13,9 @@ export async function readCompatMapping(
   compatConfigStatus: CompatConfigStatus;
   /** rückwärtskompatible Ableitung für bestehende Core-Aufrufer. */
   mappingUsable: boolean;
-  warnings: string[];
+  warnings: ScanWarning[];
 }> {
-  const warnings: string[] = [];
+  const warnings: ScanWarning[] = [];
   let mapping: CompatToolMapping = new Map();
   let compatConfigStatus: CompatConfigStatus = "available";
   try {
@@ -24,11 +24,19 @@ export async function readCompatMapping(
       mapping = parseCompatToolMapping(await fs.readTextFile(configPath));
     } else {
       compatConfigStatus = "missing";
-      warnings.push("config.vdf fehlt → compat-tools als 'unknown' markiert");
+      warnings.push({
+        type: "compat-config",
+        reason: "missing",
+        detail: "config.vdf fehlt → compat-tools als 'unknown' markiert",
+      });
     }
   } catch (e) {
     compatConfigStatus = "unreadable";
-    warnings.push(`config.vdf nicht lesbar: ${errText(e)}`);
+    warnings.push({
+      type: "compat-config",
+      reason: "unreadable",
+      detail: `config.vdf nicht lesbar: ${errText(e)}`,
+    });
   }
   return {
     mapping,
@@ -41,21 +49,52 @@ export async function readCompatMapping(
 export async function readLaunchConfig(
   fs: Ports["fs"],
   steamRoot: string,
-): Promise<{ steamUserId: string | null; localConfigText: string | null; warnings: string[] }> {
-  const warnings: string[] = [];
+): Promise<{
+  steamUserId: string | null;
+  localConfigText: string | null;
+  launchConfigStatus: CompatConfigStatus;
+  warnings: ScanWarning[];
+}> {
+  const warnings: ScanWarning[] = [];
   let steamUserId: string | null = null;
   let localConfigText: string | null = null;
+  let launchConfigStatus: CompatConfigStatus = "available";
   const activeUser = await findActiveUser(fs, steamRoot);
-  if (!activeUser) {
-    warnings.push("kein steam-account mit localconfig.vdf gefunden → startoptionen unbekannt");
+  if (activeUser.status === "missing") {
+    launchConfigStatus = "missing";
+    warnings.push({
+      type: "launch-config",
+      reason: "missing",
+      detail: "kein steam-account mit localconfig.vdf gefunden → startoptionen unbekannt",
+    });
+  } else if (activeUser.status === "unreadable") {
+    launchConfigStatus = "unreadable";
+    warnings.push({
+      type: "launch-config",
+      reason: "unreadable",
+      detail: `accountsuche nicht lesbar: ${activeUser.detail}`,
+    });
   } else {
     steamUserId = activeUser.userId;
-    if (activeUser.warning) warnings.push(activeUser.warning);
+    if (activeUser.selection === "ambiguous") {
+      warnings.push({
+        type: "launch-config",
+        reason: "selection-ambiguous",
+        steamUserId: activeUser.userId,
+        detail: `mehrere steam-accounts gefunden, loginusers.vdf nicht eindeutig → nehme ${activeUser.userId}`,
+      });
+    }
     try {
       localConfigText = await fs.readTextFile(paths.localConfigVdf(steamRoot, activeUser.userId));
     } catch (e) {
-      warnings.push(`localconfig.vdf nicht lesbar: ${errText(e)}`);
+      launchConfigStatus = "unreadable";
+      warnings.push({
+        type: "launch-config",
+        reason: "unreadable",
+        steamUserId: activeUser.userId,
+        detail: `localconfig.vdf nicht lesbar: ${errText(e)}`,
+      });
     }
   }
-  return { steamUserId, localConfigText, warnings };
+  return { steamUserId, localConfigText, launchConfigStatus, warnings };
 }

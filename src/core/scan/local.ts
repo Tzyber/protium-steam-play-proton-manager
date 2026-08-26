@@ -55,6 +55,9 @@ export async function scanLocal(
     defaultCompatTool: toolsResult.defaultCompatTool,
     compatConfigStatus: mappingResult.compatConfigStatus,
     steamUserId: launchResult.steamUserId,
+    launchConfigStatus: launchResult.launchConfigStatus,
+    manifestCounts: gamesResult.manifestCounts,
+    compatToolCounts: toolsResult.compatToolCounts,
     warnings: [
       ...libraryResult.warnings,
       ...mappingResult.warnings,

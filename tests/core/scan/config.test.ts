@@ -1,4 +1,4 @@
-import { rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readCompatMapping, readLaunchConfig } from "../../../src/core/scan/config.js";
@@ -14,7 +14,13 @@ describe("scan config", () => {
     expect(result.mapping).toEqual(new Map());
     expect(result.compatConfigStatus).toBe("missing");
     expect(result.mappingUsable).toBe(false);
-    expect(result.warnings).toEqual(["config.vdf fehlt → compat-tools als 'unknown' markiert"]);
+    expect(result.warnings).toEqual([
+      {
+        type: "compat-config",
+        reason: "missing",
+        detail: "config.vdf fehlt → compat-tools als 'unknown' markiert",
+      },
+    ]);
   });
 
   it("markiert eine lesbare config auch ohne mapping als verfügbar", async () => {
@@ -39,7 +45,13 @@ describe("scan config", () => {
     expect(result.mapping).toEqual(new Map());
     expect(result.compatConfigStatus).toBe("unreadable");
     expect(result.mappingUsable).toBe(false);
-    expect(result.warnings[0]).toContain("config.vdf nicht lesbar:");
+    expect(result.warnings).toEqual([
+      {
+        type: "compat-config",
+        reason: "unreadable",
+        detail: expect.stringContaining("config.vdf nicht lesbar:"),
+      },
+    ]);
   });
 
   it("behält den aktiven account bei, wenn seine localconfig nicht lesbar ist", async () => {
@@ -58,6 +70,82 @@ describe("scan config", () => {
 
     expect(result.steamUserId).toBe(userId);
     expect(result.localConfigText).toBeNull();
-    expect(result.warnings).toEqual(["localconfig.vdf nicht lesbar: read denied"]);
+    expect(result.launchConfigStatus).toBe("unreadable");
+    expect(result.warnings).toEqual([
+      {
+        type: "launch-config",
+        reason: "unreadable",
+        steamUserId: userId,
+        detail: "localconfig.vdf nicht lesbar: read denied",
+      },
+    ]);
+  });
+
+  it("klassifiziert eine unlesbare account-discovery typisiert", async () => {
+    const { root } = await buildFakeSteam();
+    const baseFs = nodeFs();
+    const userdataPath = join(root, "userdata");
+    const fs = {
+      ...baseFs,
+      readDir: async (path: string) => {
+        if (path === userdataPath) throw new Error("account discovery denied");
+        return baseFs.readDir(path);
+      },
+    };
+
+    const result = await readLaunchConfig(fs, root);
+
+    expect(result.steamUserId).toBeNull();
+    expect(result.localConfigText).toBeNull();
+    expect(result.launchConfigStatus).toBe("unreadable");
+    expect(result.warnings).toEqual([
+      {
+        type: "launch-config",
+        reason: "unreadable",
+        detail: "accountsuche nicht lesbar: account discovery denied",
+      },
+    ]);
+  });
+
+  it("meldet fehlende launch-config als fehlend", async () => {
+    const { root } = await buildFakeSteam();
+    await rm(join(root, "userdata"), { recursive: true });
+
+    const result = await readLaunchConfig(nodeFs(), root);
+
+    expect(result.steamUserId).toBeNull();
+    expect(result.localConfigText).toBeNull();
+    expect(result.launchConfigStatus).toBe("missing");
+    expect(result.warnings).toEqual([
+      {
+        type: "launch-config",
+        reason: "missing",
+        detail: "kein steam-account mit localconfig.vdf gefunden → startoptionen unbekannt",
+      },
+    ]);
+  });
+
+  it("zeigt mehrdeutige accountauswahl ohne launch-coverage-fehler", async () => {
+    const { root, userId } = await buildFakeSteam();
+    await rm(join(root, "config", "loginusers.vdf"));
+    await mkdir(join(root, "userdata", "222222222", "config"), { recursive: true });
+    await writeFile(
+      join(root, "userdata", "222222222", "config", "localconfig.vdf"),
+      '"UserLocalConfigStore"\n{\n}\n',
+      "utf8",
+    );
+
+    const result = await readLaunchConfig(nodeFs(), root);
+
+    expect(result.launchConfigStatus).toBe("available");
+    expect(result.steamUserId).toBe(userId);
+    expect(result.warnings).toEqual([
+      {
+        type: "launch-config",
+        reason: "selection-ambiguous",
+        steamUserId: userId,
+        detail: expect.stringContaining("mehrere steam-accounts"),
+      },
+    ]);
   });
 });

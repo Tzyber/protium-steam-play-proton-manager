@@ -2,6 +2,7 @@
 
 import { mount } from "@vue/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { version as packageVersion } from "../../package.json";
 
 const mockUiState = vi.hoisted(() => ({
   activeView: "library",
@@ -46,6 +47,12 @@ afterEach(() => {
 });
 
 describe("App modal background", () => {
+  it("zeigt die release-version aus dem paketstand im statusblock", () => {
+    const wrapper = mount(App);
+
+    expect(wrapper.get(".readout-version").text()).toContain(`v${packageVersion}`);
+  });
+
   it("setzt inert auf die gesamte shell, wenn ein modal aktiv ist", () => {
     const wrapper = mount(App);
 

@@ -21,7 +21,15 @@ describe("scanGames", () => {
 
     expect(result.games).toEqual([]);
     expect(result.blockedAppIds).toEqual(new Set());
-    expect(result.warnings).toEqual([`library "${root}" nicht lesbar: read denied`]);
+    expect(result.warnings).toEqual([
+      {
+        type: "library",
+        path: root,
+        reason: "read-failed",
+        detail: `library "${root}" nicht lesbar: read denied`,
+      },
+    ]);
+    expect(result.manifestCounts).toEqual({ read: 0, failed: 0 });
     expect(result.skippedLibraries).toEqual([{ path: root, reason: "read-failed" }]);
     expect(result.cleanupUnsafeLibraries).toEqual([]);
   });
@@ -50,10 +58,57 @@ describe("scanGames", () => {
     );
 
     expect(result.games.map((game) => game.library)).toEqual([readableLibrary, readableLibrary]);
-    expect(result.warnings).toEqual([`library "${root}" fehlt: steamapps`]);
+    expect(result.warnings).toEqual([
+      {
+        type: "library",
+        path: root,
+        reason: "path-missing",
+        detail: `library "${root}" fehlt: steamapps`,
+      },
+    ]);
     expect(result.skippedLibraries).toEqual([{ path: root, reason: "path-missing" }]);
     expect(result.cleanupUnsafeLibraries).toEqual([]);
     expect(readDirs).not.toContain(appsDir);
+  });
+
+  it("trennt Manifest-Lesefehler von unlesbarem Inhalt", async () => {
+    const { root } = await buildFakeSteam();
+    const baseFs = nodeFs();
+    const unreadable = join(root, "steamapps/appmanifest_570.acf");
+    const fs = {
+      ...baseFs,
+      readTextFile: async (path: string) => {
+        if (path === unreadable) throw new Error("read denied");
+        return baseFs.readTextFile(path);
+      },
+    };
+
+    const result = await scanGames(fs, fakeSystem(), root, [root], () => "default", null);
+
+    expect(result.manifestCounts).toEqual({ read: 1, failed: 2 });
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "manifest",
+          library: root,
+          manifestName: "appmanifest_570.acf",
+          appId: 570,
+          reason: "unreadable",
+          detail: "read denied",
+        }),
+        expect.objectContaining({
+          type: "manifest",
+          library: root,
+          manifestName: "appmanifest_9999.acf",
+          appId: 9999,
+          reason: "invalid-content",
+          detail: expect.any(String),
+        }),
+      ]),
+    );
+    expect(result.cleanupUnsafeLibraries).toContain(root);
+    expect(result.games.some((game) => game.appId === 570)).toBe(false);
+    expect(result.games.some((game) => game.appId === 9999)).toBe(false);
   });
 
   it("liest appmanifest_042.acf über entry.name statt über die numerische id", async () => {
@@ -82,8 +137,11 @@ describe("scanGames", () => {
       }),
     );
     expect(
-      result.warnings.some((warning) => warning.startsWith("appmanifest_042.acf übersprungen:")),
+      result.warnings.some(
+        (warning) => warning.type === "manifest" && warning.manifestName === "appmanifest_042.acf",
+      ),
     ).toBe(false);
+    expect(result.manifestCounts).toEqual({ read: 3, failed: 0 });
     expect(result.cleanupUnsafeLibraries).toEqual([]);
   });
 
@@ -97,7 +155,10 @@ describe("scanGames", () => {
     const result = await scanGames(nodeFs(), fakeSystem(), root, [root], () => "default", null);
 
     expect(result.games.find((g) => g.appId === 570 || g.appId === 440)).toBeUndefined();
-    expect(result.warnings.some((w) => w.includes("appid-mismatch"))).toBe(true);
+    expect(
+      result.warnings.some((w) => w.type === "manifest" && w.reason === "appid-mismatch"),
+    ).toBe(true);
+    expect(result.manifestCounts).toEqual({ read: 1, failed: 2 });
     expect(result.cleanupUnsafeLibraries).toContain(root);
   });
 
@@ -127,6 +188,7 @@ describe("scanGames", () => {
     expect(result.cleanupUnsafeLibraries).toContain(root);
     expect(result.games.some((g) => [100, 101, 102, 103, 104].includes(g.appId))).toBe(false);
     expect(result.games.some((g) => g.appId >= 2147483648)).toBe(false);
+    expect(result.manifestCounts).toEqual({ read: 2, failed: 7 });
   });
 
   it("akzeptiert AppID 2147483647 aus Dateiname und Manifest", async () => {
@@ -164,7 +226,10 @@ describe("scanGames", () => {
     const dotaGames = result.games.filter((g) => g.appId === 570);
     expect(dotaGames).toHaveLength(1);
     expect(dotaGames[0]?.library).toBe(lib1);
-    expect(result.warnings.some((w) => w.includes("doppelte appid 570 übersprungen"))).toBe(true);
+    expect(result.warnings.some((w) => w.type === "manifest" && w.reason === "duplicate")).toBe(
+      true,
+    );
+    expect(result.manifestCounts).toEqual({ read: 2, failed: 4 });
     expect(result.cleanupUnsafeLibraries).toContain(lib1);
     expect(result.cleanupUnsafeLibraries).toContain(lib2);
   });
@@ -184,7 +249,9 @@ describe("scanGames", () => {
 
     const dotaGames = result.games.filter((g) => g.appId === 570);
     expect(dotaGames).toHaveLength(1);
-    expect(result.warnings.some((w) => w.includes("doppelte appid 570 übersprungen"))).toBe(true);
+    expect(result.warnings.some((w) => w.type === "manifest" && w.reason === "duplicate")).toBe(
+      true,
+    );
     expect(result.cleanupUnsafeLibraries).toContain(root);
   });
 
@@ -206,7 +273,11 @@ describe("scanGames", () => {
 
     expect(result.blockedAppIds.has(1493710)).toBe(true);
     expect(result.cleanupUnsafeLibraries).toEqual(expect.arrayContaining([root, lib2]));
-    expect(result.warnings.some((w) => w.includes("1493710") && w.includes("doppelte"))).toBe(true);
+    expect(
+      result.warnings.some(
+        (w) => w.type === "manifest" && w.reason === "duplicate" && w.appId === 1493710,
+      ),
+    ).toBe(true);
   });
 
   it("fremde datei in steamapps wird still übersprungen (147:11)", async () => {
@@ -217,7 +288,11 @@ describe("scanGames", () => {
     const result = await scanGames(nodeFs(), fakeSystem(), root, [root], () => "default", null);
 
     // keine warnung für die json-datei
-    expect(result.warnings.some((w) => w.includes("downloading_progress.json"))).toBe(false);
+    expect(
+      result.warnings.some(
+        (w) => w.type === "manifest" && w.manifestName.includes("downloading_progress.json"),
+      ),
+    ).toBe(false);
     // normale spiele noch vorhanden
     expect(result.games.some((g) => g.appId === 570)).toBe(true);
   });
@@ -239,7 +314,15 @@ describe("scanGames", () => {
     // weder präfix noch suffix-datei erzeugt einen eintrag in games
     expect(result.games.some((g) => g.appId === 5)).toBe(false);
     // keine warnung für diese dateien (sie werden still geskippt)
-    expect(result.warnings.some((w) => w.includes("xappmanifest_5"))).toBe(false);
-    expect(result.warnings.some((w) => w.includes("appmanifest_5.acf.bak"))).toBe(false);
+    expect(
+      result.warnings.some(
+        (w) => w.type === "manifest" && w.manifestName.includes("xappmanifest_5"),
+      ),
+    ).toBe(false);
+    expect(
+      result.warnings.some(
+        (w) => w.type === "manifest" && w.manifestName.includes("appmanifest_5.acf.bak"),
+      ),
+    ).toBe(false);
   });
 });

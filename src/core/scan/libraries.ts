@@ -1,9 +1,9 @@
 import type { EnvironmentSnapshot } from "../ports.js";
-import type { SkippedLibrary } from "../types.js";
+import type { ScanWarning, SkippedLibrary } from "../types.js";
 
 export function readLibraryList(environment: EnvironmentSnapshot): {
   libraries: string[];
-  warnings: string[];
+  warnings: ScanWarning[];
   skippedLibraries: SkippedLibrary[];
 } {
   return {

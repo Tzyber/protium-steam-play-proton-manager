@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { version as appVersion } from "../../package.json";
 import ProtiumLogo from "./components/ProtiumLogo.vue";
 import { t } from "./i18n";
 import { useScanStore } from "./stores/scanStore";
@@ -92,6 +93,7 @@ async function copyError() {
         <div class="row"><span class="label">{{ t("app.libs") }}</span><span class="mono val">{{ scan.result?.libraries.length ?? "-" }}</span></div>
         <div class="row"><span class="label">{{ t("app.tools") }}</span><span class="mono val">{{ scan.compatTools.length || "-" }}</span></div>
         <div class="row" v-if="scan.elapsedMs"><span class="label">{{ t("app.scan") }}</span><span class="mono val">{{ scan.elapsedMs }} ms</span></div>
+        <div class="row readout-version"><span class="label">{{ t("app.version") }}</span><span class="mono val">v{{ appVersion }}</span></div>
       </div>
       </aside>
 

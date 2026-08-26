@@ -36,10 +36,10 @@ describe("scanLibrary (integration, dominiks reales setup)", () => {
 
     // library-dedup: symlink-dup + staler eintrag raus, nur root + lib2 bleiben
     expect(result.libraries).toEqual([root, lib2]);
-    expect(result.warnings.some((w) => w.includes(lib2Dup) && w.includes("identischer"))).toBe(
+    expect(result.warnings.some((w) => w.type === "manifest" && w.detail?.includes(lib2Dup))).toBe(
       false,
     );
-    expect(result.warnings.some((w) => w.includes(staleLib))).toBe(false);
+    expect(result.warnings.some((w) => w.detail?.includes(staleLib))).toBe(false);
     expect(result.skippedLibraries).toHaveLength(0);
 
     const byId = new Map(result.games.map((g) => [g.appId, g]));
@@ -91,7 +91,11 @@ describe("scanLibrary (integration, dominiks reales setup)", () => {
     expect(byId.get(570)?.launchOptions).toBeUndefined();
 
     // korruptes acf → warning, kein crash, library als unsafe markiert
-    expect(result.warnings.some((w) => w.includes("appmanifest_9999"))).toBe(true);
+    expect(
+      result.warnings.some(
+        (w) => w.type === "manifest" && w.manifestName === "appmanifest_9999.acf",
+      ),
+    ).toBe(true);
     expect(result.cleanupUnsafeLibraries).toContain(root);
     expect(result.cleanupUnsafeLibraries).not.toContain(lib2);
 
@@ -133,9 +137,11 @@ describe("scanLibrary (integration, dominiks reales setup)", () => {
       { environment, protonDbDelayMs: 0 },
     );
 
-    expect(result.warnings).toContain(
-      "kein steam-account mit localconfig.vdf gefunden → startoptionen unbekannt",
-    );
+    expect(result.warnings).toContainEqual({
+      type: "launch-config",
+      reason: "missing",
+      detail: "kein steam-account mit localconfig.vdf gefunden → startoptionen unbekannt",
+    });
     expect(result.steamUserId).toBeNull();
     expect(result.games.length).toBeGreaterThan(0);
     expect(result.games.every((g) => g.launchOptions === undefined)).toBe(true);
@@ -155,6 +161,10 @@ describe("scanLibrary (integration, dominiks reales setup)", () => {
     expect(result.games.every((game) => game.compatTool === "unknown")).toBe(true);
     expect(result.compatToolsInstalled).toHaveLength(2);
     expect(result.defaultCompatTool).toBeNull();
-    expect(result.warnings).toContain("config.vdf fehlt → compat-tools als 'unknown' markiert");
+    expect(result.warnings).toContainEqual({
+      type: "compat-config",
+      reason: "missing",
+      detail: "config.vdf fehlt → compat-tools als 'unknown' markiert",
+    });
   });
 });

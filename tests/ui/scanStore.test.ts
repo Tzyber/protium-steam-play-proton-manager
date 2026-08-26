@@ -60,6 +60,9 @@ function fakeResult(): ScanResult {
     builtinProtonsInstalled: [],
     defaultCompatTool: null,
     compatConfigStatus: "available",
+    launchConfigStatus: "available",
+    manifestCounts: { read: 0, failed: 0 },
+    compatToolCounts: { read: 0, failed: 0 },
     steamUserId: null,
     warnings: [],
     skippedLibraries: [],
@@ -75,6 +78,9 @@ function fakeLocalResult(result = fakeResult()): Awaited<ReturnType<typeof scanL
     builtinProtonsInstalled: result.builtinProtonsInstalled,
     defaultCompatTool: result.defaultCompatTool,
     compatConfigStatus: result.compatConfigStatus,
+    launchConfigStatus: result.launchConfigStatus,
+    manifestCounts: result.manifestCounts,
+    compatToolCounts: result.compatToolCounts,
     steamUserId: result.steamUserId,
     warnings: result.warnings,
     skippedLibraries: result.skippedLibraries,
@@ -462,5 +468,36 @@ describe("scanStore.applyGameConfig", () => {
   it("ohne scan-ergebnis: kein throw", () => {
     const store = useScanStore();
     expect(() => store.applyGameConfig(42, { compatTool: "x" })).not.toThrow();
+  });
+});
+
+describe("scanStore.coverage", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    setLocale("en");
+  });
+
+  it("leitet coverage nur für ein abgeschlossenes lokales resultat ab", () => {
+    const store = useScanStore();
+    store.result = fakeResult();
+
+    store.status = "scanning";
+    expect(store.coverage).toBeNull();
+    store.status = "error";
+    expect(store.coverage).toBeNull();
+    store.status = "done";
+    expect(store.coverage?.state).toBe("complete");
+  });
+
+  it("ändert coverage nicht durch den ProtonDB-reststatus", () => {
+    const store = useScanStore();
+    store.result = fakeResult();
+    store.status = "done";
+    const before = store.coverage;
+
+    store.protonDbRemaining = 1;
+    expect(store.coverage).toEqual(before);
+    store.protonDbRemaining = 0;
+    expect(store.coverage).toEqual(before);
   });
 });

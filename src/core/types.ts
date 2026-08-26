@@ -4,7 +4,61 @@ export type Tier = "platinum" | "gold" | "silver" | "bronze" | "borked" | "unkno
 
 export type CompatConfigStatus = "available" | "missing" | "unreadable";
 
+export type ScanWarning =
+  | {
+      type: "library";
+      path: string;
+      reason: SkipReason;
+      detail?: string;
+    }
+  | {
+      type: "compat-config";
+      reason: "missing" | "unreadable";
+      detail?: string;
+    }
+  | {
+      type: "launch-config";
+      reason: "missing" | "unreadable" | "selection-ambiguous";
+      steamUserId?: string;
+      detail?: string;
+    }
+  | {
+      type: "manifest";
+      library: string;
+      manifestName: string;
+      appId?: number;
+      reason:
+        | "invalid-filename"
+        | "unreadable"
+        | "invalid-content"
+        | "appid-mismatch"
+        | "duplicate";
+      detail?: string;
+    }
+  | {
+      type: "compat-tool";
+      directory: string;
+      toolName?: string;
+      reason:
+        | "path-identity"
+        | "directory-unreadable"
+        | "symlink"
+        | "vdf-unreadable"
+        | "vdf-invalid"
+        | "size-unreadable";
+      detail?: string;
+    };
+
 export type CompatToolSource = "explicit" | "default" | "unavailable";
+
+export interface ScanCoverage {
+  state: "complete" | "incomplete" | "limited";
+  libraries: { total: number; read: number; unavailable: number };
+  compatConfig: CompatConfigStatus;
+  launchConfig: CompatConfigStatus;
+  manifests: { read: number; failed: number };
+  tools: { read: number; failed: number };
+}
 
 export interface Game {
   appId: number;
@@ -40,7 +94,10 @@ export interface ScanResult {
   compatConfigStatus: CompatConfigStatus;
   /** account, dessen localconfig.vdf gelesen wird (null = keiner gefunden → keine startoptionen). */
   steamUserId: string | null;
-  warnings: string[];
+  launchConfigStatus: CompatConfigStatus;
+  manifestCounts: { read: number; failed: number };
+  compatToolCounts: { read: number; failed: number };
+  warnings: ScanWarning[];
   skippedLibraries: SkippedLibrary[];
   cleanupUnsafeLibraries: string[];
 }

@@ -40,6 +40,9 @@ function fakeScanResult(): ScanResult {
     builtinProtonsInstalled: [],
     defaultCompatTool: "proton-cachyos-slr", // bewusst != "default", regressionstest für Befund 1
     compatConfigStatus: "available",
+    launchConfigStatus: "available",
+    manifestCounts: { read: 0, failed: 0 },
+    compatToolCounts: { read: 0, failed: 0 },
     steamUserId: "12345",
     warnings: [],
     skippedLibraries: [],

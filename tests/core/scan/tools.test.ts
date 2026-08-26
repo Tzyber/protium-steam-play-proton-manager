@@ -47,6 +47,7 @@ describe("readCompatTools", () => {
     );
 
     expect(result.defaultCompatTool).toBe("proton-cachyos-slr");
+    expect(result.compatToolCounts).toEqual({ read: 3, failed: 0 });
     expect(result.builtinProtonsInstalled).toEqual([
       { internalName: "proton_experimental", displayName: "Proton Experimental" },
     ]);

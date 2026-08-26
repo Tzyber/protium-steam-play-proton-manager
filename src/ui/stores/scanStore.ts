@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
 import { recomputeToolUsedBy } from "../../core/compat";
 import { deriveProtonCheck } from "../../core/protoncheck";
+import { deriveScanCoverage } from "../../core/scan/coverage";
 import { scanLocal } from "../../core/scan/local";
 import { enrichProtondb } from "../../core/scan/protondb";
 import type { ScanResult } from "../../core/types";
@@ -35,6 +36,7 @@ export const useScanStore = defineStore("scan", {
   getters: {
     games: (s) => s.result?.games ?? [],
     warnings: (s) => s.result?.warnings ?? [],
+    coverage: (s) => (s.status === "done" && s.result ? deriveScanCoverage(s.result) : null),
     compatTools: (s) => s.result?.compatToolsInstalled ?? [],
     protonChecks: (s) => (s.result ? deriveProtonCheck(s.result) : []),
     protonCheckAppIds(): Set<number> {
