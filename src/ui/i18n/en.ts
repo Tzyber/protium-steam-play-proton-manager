@@ -147,6 +147,8 @@ export const en = {
     trashSearchButton: "scan trash",
     trashEmptyState: "trash is empty",
     trashUnknownHint: "{n} directories in trash were not recognized and are not offered (INV-2):",
+    incompleteDeletionsHint:
+      "{n} leftover deletion claims from interrupted deletions found, not offered:",
     trashEmpty: "empty trash",
     trashDeleteEntry: "delete entry",
     trashDeleteConfirmTitle: "empty trash?",

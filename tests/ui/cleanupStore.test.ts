@@ -1,6 +1,6 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { findOrphans } from "../../src/core/cleanup";
+import type { findIncompleteDeletions, findOrphans } from "../../src/core/cleanup";
 import type { readAllShortcutAppIds } from "../../src/core/shortcuts";
 import type { findTrashEntries, TrashEntry } from "../../src/core/trash";
 import type { ScanResult } from "../../src/core/types";
@@ -9,6 +9,7 @@ import { setLocale } from "../../src/ui/i18n";
 
 const {
   mockFindOrphans,
+  mockFindIncompleteDeletions,
   mockReadAllShortcutAppIds,
   mockFindTrashEntries,
   mockPrepareDelete,
@@ -16,6 +17,7 @@ const {
   mockBatchDirSizes,
 } = vi.hoisted(() => ({
   mockFindOrphans: vi.fn<typeof findOrphans>(async () => []),
+  mockFindIncompleteDeletions: vi.fn<typeof findIncompleteDeletions>(async () => []),
   mockReadAllShortcutAppIds: vi.fn<typeof readAllShortcutAppIds>(async () => ({
     status: "none" as const,
   })),
@@ -41,6 +43,7 @@ const {
 
 vi.mock("../../src/core/cleanup", () => ({
   findOrphans: mockFindOrphans,
+  findIncompleteDeletions: mockFindIncompleteDeletions,
 }));
 vi.mock("../../src/core/shortcuts", () => ({
   readAllShortcutAppIds: mockReadAllShortcutAppIds,
@@ -125,6 +128,7 @@ describe("cleanupStore gate logic", () => {
     setActivePinia(createPinia());
     setLocale("de"); // assertions matchen deutsche substrings
     mockFindOrphans.mockReset();
+    mockFindIncompleteDeletions.mockReset();
     mockReadAllShortcutAppIds.mockReset();
     mockFindTrashEntries.mockReset();
     mockPrepareDelete.mockReset();
@@ -198,6 +202,27 @@ describe("cleanupStore gate logic", () => {
     expect(store.blockedBySkipped).toBe(false);
     expect(store.pathMissingLibs).toEqual(["/gone/lib"]);
     expect(store.error).toBeNull();
+  });
+
+  it("meldet liegengebliebene claim-verzeichnisse als incompleteDeletions", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan();
+    const store = useCleanupStore();
+
+    mockFindIncompleteDeletions.mockResolvedValue([
+      {
+        path: "/home/u/.steam/steamapps/compatdata/.protium-delete-claim-123",
+        library: "/home/u/.steam",
+        type: "compatdata",
+        name: ".protium-delete-claim-123",
+      },
+    ]);
+
+    await store.scanOrphans();
+
+    expect(store.incompleteDeletions).toHaveLength(1);
+    expect(store.incompleteDeletions[0]?.type).toBe("compatdata");
+    expect(store.orphans).toEqual([]);
   });
 
   it("die ignorier-entscheidung überlebt einen erneuten scan (kein wiederkehrender dialog)", async () => {

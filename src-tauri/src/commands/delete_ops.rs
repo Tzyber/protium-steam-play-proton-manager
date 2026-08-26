@@ -262,6 +262,51 @@ fn claim_delete_target(_pending: &PendingDelete) -> Result<(), String> {
     Err("delete target claim requires Linux directory descriptors".into())
 }
 
+/// Rückweg für einen geclaimten, aber nicht abgeschlossenen Löschvorgang.
+///
+/// `claim_delete_target` benennt das Ziel vor der Mutation auf einen privaten
+/// Namen um. Scheitert die Mutation danach (EACCES, EBUSY, kein Platz im
+/// Trash-Ziel, Panik), läge das Verzeichnis sonst dauerhaft unter
+/// `.protium-delete-claim-*`: unsichtbar für Steam UND für Protium, weil
+/// `findOrphans` auf numerische Namen filtert. Bei compatdata bedeutet
+/// unsichtbar = Savegames verloren.
+///
+/// Der Rückweg ist NOREPLACE — ist am Originalnamen inzwischen etwas Neues
+/// entstanden, bleibt der Claim liegen, statt das Neue zu überschreiben.
+/// Best effort: ein fehlgeschlagener Rückweg darf den ursprünglichen Fehler
+/// nicht verdecken.
+///
+/// Nicht abgedeckt (per Konstruktion unerreichbar für In-Process-Code):
+/// SIGKILL oder Stromausfall im Fenster zwischen Claim und Mutation.
+struct ClaimRestoreGuard<'a> {
+    parent: &'a fs::File,
+    claim_name: &'a OsStr,
+    original_name: &'a OsStr,
+    armed: bool,
+}
+
+impl ClaimRestoreGuard<'_> {
+    /// Nach erfolgreicher Mutation existiert der Claim-Name nicht mehr
+    /// (gelöscht oder in den Trash verschoben) — es gibt nichts zurückzuholen.
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ClaimRestoreGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let _ = renameat2_no_replace(
+            self.parent,
+            self.claim_name,
+            self.parent,
+            self.original_name,
+        );
+    }
+}
+
 pub(super) fn prepare_delete_inner(
     registry: &PendingDeleteRegistry,
     request: &PrepareDeleteRequest,
@@ -386,17 +431,40 @@ fn execute_delete_pipeline_inner(
         return Err("steam is running, deletion refused".into());
     }
 
-    inspect_pending_target(&pending, scope_ok)?;
+    // Die beiden Invarianten hängen nur am pending, nicht am Claim: sie VOR
+    // dem Claim ziehen, damit zwischen claim_delete_target und der
+    // Guard-Armierung kein fallibler Schritt den Claim stranden lassen kann.
+    let claim_parent = pending
+        .parent_handle
+        .as_ref()
+        .ok_or_else(|| "pending delete has no bound parent directory".to_string())?;
+    let original_name = pending
+        .target_name
+        .as_deref()
+        .ok_or_else(|| "pending delete has no bound target name".to_string())?;
 
+    // Letzte Zustandsprüfung unmittelbar vor dem Claim: zwischen Token-Ausgabe
+    // und hier kann sich alles geändert haben. Steam-Lauf und Zielzustand
+    // werden nach der Inspection direkt vor dem Claim ein zweites Mal geprüft
+    // — die Inspection (VDF-Parsing) kann dauern, in diesem Fenster darf sich
+    // weder Steam noch das Ziel ändern (steam_start_zwischen_den_checks_...,
+    // live_aenderung_zwischen_checks_...).
+    inspect_pending_target(&pending, scope_ok)?;
     let steam_running = is_steam_running_fn()?;
     if pending.target_type != "trash" && steam_running {
         return Err("steam is running, deletion refused".into());
     }
-
     inspect_pending_target(&pending, scope_ok)?;
     before_claim_fn();
     let claimed = claim_delete_target(&pending)?;
     let _bound_claim_handle = &claimed.handle;
+    let mut restore = ClaimRestoreGuard {
+        parent: claim_parent,
+        claim_name: &claimed.name,
+        original_name,
+        armed: true,
+    };
+    let deleted_path = pending.target_path.clone();
 
     match pending.target_type.as_str() {
         "orphan" => {
@@ -444,9 +512,12 @@ fn execute_delete_pipeline_inner(
         _ => return Err(format!("unknown target type: {}", pending.target_type)),
     }
 
+    // Ab hier ist die Mutation abgeschlossen; der Claim-Name ist weg.
+    restore.disarm();
+
     Ok(DeleteResult {
         success: true,
-        deleted_path: pending.target_path,
+        deleted_path,
     })
 }
 
@@ -1318,4 +1389,90 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    /// Regression: Scheitert die Mutation NACH dem Claim, muss das Ziel unter
+    /// seinem Originalnamen zurückkommen. Fehlerinjektion ohne Rechtetricks
+    /// (läuft damit auch als root): `.protium-trash` liegt als reguläre Datei
+    /// im Weg, `create_dir_all` scheitert deterministisch.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn fehlgeschlagene_mutation_stellt_originalnamen_wieder_her() {
+        let (root, steam) = orphan_fixture("delete-ops-restore-after-failure");
+        let target = steam.join("steamapps/compatdata/999999");
+        std::fs::write(target.join("savegame-marker"), b"must survive").unwrap();
+        std::fs::write(steam.join("steamapps/.protium-trash"), b"blockiert").unwrap();
+
+        let registry = PendingDeleteRegistry::default();
+        let info =
+            prepare_delete_inner(&registry, &orphan_request(&steam), &|_| true, || Ok(false))
+                .unwrap();
+
+        let error =
+            execute_delete_pipeline(&registry, &info.token, &|_| true, || Ok(false)).unwrap_err();
+        assert!(error.contains("cannot create trash dir"), "error: {error}");
+
+        assert!(
+            target.exists(),
+            "Ziel muss unter dem Originalnamen zurück sein"
+        );
+        assert!(target.join("savegame-marker").exists());
+        assert!(
+            !claim_leftovers(target.parent().unwrap()),
+            "kein .protium-delete-claim-* darf zurückbleiben"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// Gegenprobe: Der Guard darf den absichtlichen Fall NICHT anfassen. Ein
+    /// nach der Inspektion untergeschobenes Replacement bleibt unter dem
+    /// Claim-Namen liegen (das ist die Schutzwirkung, kein Fehlerfall) und
+    /// wird nicht auf den Originalnamen zurückbenannt.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn guard_benennt_untergeschobenes_replacement_nicht_zurueck() {
+        let (root, steam) = orphan_fixture("delete-ops-restore-keeps-replacement");
+        let target = steam.join("steamapps/compatdata/999999");
+        let registry = PendingDeleteRegistry::default();
+        let info =
+            prepare_delete_inner(&registry, &orphan_request(&steam), &|_| true, || Ok(false))
+                .unwrap();
+
+        let error = execute_delete_after_inspection(
+            &registry,
+            &info.token,
+            &|_| true,
+            || Ok(false),
+            || {
+                std::fs::remove_dir_all(&target).unwrap();
+                std::fs::create_dir_all(&target).unwrap();
+                std::fs::write(target.join("replacement-marker"), b"must survive").unwrap();
+            },
+        )
+        .unwrap_err();
+
+        assert!(
+            error.contains("target changed before mutation"),
+            "error: {error}"
+        );
+        assert!(
+            !target.exists(),
+            "Replacement darf nicht am Originalnamen stehen"
+        );
+        assert!(claim_leftovers(target.parent().unwrap()));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    fn claim_leftovers(dir: &std::path::Path) -> bool {
+        std::fs::read_dir(dir)
+            .map(|entries| {
+                entries.filter_map(Result::ok).any(|entry| {
+                    entry
+                        .file_name()
+                        .to_str()
+                        .is_some_and(|name| name.starts_with(".protium-delete-claim-"))
+                })
+            })
+            .unwrap_or(false)
+    }
 }

@@ -290,6 +290,13 @@ const tabLabel = (id: Tab) =>
         </ul>
       </div>
 
+      <div v-if="cleanup.incompleteDeletions.length" class="blocked">
+        {{ t("cleanup.incompleteDeletionsHint", { n: cleanup.incompleteDeletions.length }) }}
+        <ul class="pm-list">
+          <li v-for="d in cleanup.incompleteDeletions" :key="d.path" class="mono">{{ d.path }}</li>
+        </ul>
+      </div>
+
       <!-- ---- shader-caches ---- -->
       <div
         v-show="tab === 'shaders'"

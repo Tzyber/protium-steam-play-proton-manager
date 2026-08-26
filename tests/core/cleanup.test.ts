@@ -1,5 +1,10 @@
+import { symlink } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { findOrphans } from "../../src/core/cleanup.js";
+import {
+  DELETE_CLAIM_PREFIX,
+  findIncompleteDeletions,
+  findOrphans,
+} from "../../src/core/cleanup.js";
 import { buildFakeSteam, nodeFs } from "../support/fakeSteam";
 
 async function setup() {
@@ -107,5 +112,37 @@ describe("findOrphans", () => {
 
     const outOfRangePrefix = orphans.find((o) => o.appId === 3641016077);
     expect(outOfRangePrefix).toBeUndefined();
+  });
+});
+
+describe("findIncompleteDeletions", () => {
+  it("findet Claims je Typ und schließt Dateien, Symlinks und Orphans aus", async () => {
+    const { root, lib2, fs, libraries, installedAppIds } = await setup();
+    const compatClaim = `${root}/steamapps/compatdata/${DELETE_CLAIM_PREFIX}compat`;
+    const shaderClaim = `${lib2}/steamapps/shadercache/${DELETE_CLAIM_PREFIX}shader`;
+    const fileClaim = `${root}/steamapps/compatdata/${DELETE_CLAIM_PREFIX}file`;
+    const symlinkClaim = `${root}/steamapps/compatdata/${DELETE_CLAIM_PREFIX}symlink`;
+
+    await fs.mkdir(compatClaim);
+    await fs.mkdir(shaderClaim);
+    await fs.writeTextFile(fileClaim, "kein verzeichnis");
+    await symlink(compatClaim, symlinkClaim, "dir");
+
+    const incomplete = await findIncompleteDeletions(libraries, fs);
+    expect(incomplete).toHaveLength(2);
+    expect(incomplete.map((entry) => entry.name)).toEqual(
+      expect.arrayContaining([`${DELETE_CLAIM_PREFIX}compat`, `${DELETE_CLAIM_PREFIX}shader`]),
+    );
+    expect(incomplete.find((entry) => entry.path === compatClaim)?.type).toBe("compatdata");
+    expect(incomplete.find((entry) => entry.path === shaderClaim)?.type).toBe("shadercache");
+
+    const orphans = await findOrphans(libraries, installedAppIds, fs);
+    expect(orphans.every((entry) => !entry.path.includes(DELETE_CLAIM_PREFIX))).toBe(true);
+  });
+
+  it("überspringt fehlende oder nicht lesbare basisordner", async () => {
+    const { fs } = await setup();
+
+    await expect(findIncompleteDeletions(["/nicht/existenter/pfad"], fs)).resolves.toEqual([]);
   });
 });

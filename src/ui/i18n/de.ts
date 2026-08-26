@@ -144,6 +144,8 @@ export const de = {
     trashEmptyState: "papierkorb ist leer",
     trashUnknownHint:
       "{n} verzeichnisse im papierkorb wurden nicht erkannt und werden nicht angeboten (INV-2):",
+    incompleteDeletionsHint:
+      "{n} liegengebliebene löschmarkierungen aus abgebrochenen löschvorgängen gefunden, werden nicht angeboten:",
     trashEmpty: "papierkorb leeren",
     trashDeleteEntry: "eintrag löschen",
     trashDeleteConfirmTitle: "papierkorb leeren?",

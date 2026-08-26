@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
-import { findOrphans } from "../../core/cleanup";
+import { findIncompleteDeletions, findOrphans, type IncompleteDeletion } from "../../core/cleanup";
 import {
   readAllShortcutAppIds,
   SHORTCUT_ID_THRESHOLD,
@@ -64,6 +64,9 @@ function formatTrashErrors(prepareErrors: string[], executeErrors: string[]): st
 export const useCleanupStore = defineStore("cleanup", {
   state: () => ({
     orphans: [] as OrphanEntry[],
+    /** liegengebliebene claim-verzeichnisse aus abgebrochenen löschungen.
+     *  werden nur gemeldet, nie als löschkandidaten angeboten (INV-2). */
+    incompleteDeletions: [] as IncompleteDeletion[],
     scanning: false,
     deleting: new Set<string>(),
     error: null as string | null,
@@ -152,6 +155,7 @@ export const useCleanupStore = defineStore("cleanup", {
         const installedAppIds = collectInstalledAppIds(result, shortcutResult);
 
         this.orphans = await findOrphans(result.libraries, installedAppIds, tauriPorts.fs);
+        this.incompleteDeletions = await findIncompleteDeletions(result.libraries, tauriPorts.fs);
 
         if (this.shortcutUnreadable) {
           // WHY fail-closed: unlesbares shortcuts.vdf → Non-Steam-Shortcuts sind nicht
