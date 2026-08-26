@@ -156,16 +156,28 @@ rules for the implementation: writes to steam files go through the write gate wi
 - [x] v0.5.0: library first, protondb follow-up and proton-check
 - [x] v0.6.0: scan truth with clear coverage and local detail facts
 - [x] v0.6.1: incomplete deletions (claim restore, claim leftovers in cleanup)
-- [ ] phase 6 (part 2): AUR package
 
 version history lives in the [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 
 ## next
 
 protium does not need to finish quickly. new versions only belong here when
-they make local Steam data clearer without a daemon or auto-repair. the next
-small direction is a data-minimal diagnostic record: grouping local facts
-clearly without monitoring or automatic intervention.
+they make local Steam data clearer without a daemon or auto-repair. the
+planning baseline lives in
+[docs/protium-roadmap-post-v0.5.md](docs/protium-roadmap-post-v0.5.md),
+with this direction ahead:
+
+- v0.7.0: game footprint in the drawer (known local storage per game,
+  without a full-disk scan)
+- v0.8.0: explainability and a data-minimal diagnostic record (copyable,
+  without private paths, accounts or upload)
+- v0.9.0: GE reference analysis (known explicit game mappings per GE
+  version, without an "unused" claim)
+- v1.0.0: consolidation (consistency, error semantics, security and
+  accessibility review)
+
+the order is a direction, not a promise. if something more important comes
+up in between (like v0.6.1 after v0.6.0), the rest shifts.
 
 ## open points
 
