@@ -33,22 +33,22 @@ AppImage oder Debian-Paket von der [releases-seite](https://github.com/Tzyber/pr
 laden. die AppImage ausführbar machen und starten:
 
 ```sh
-chmod +x protium_0.6.0_amd64.AppImage
-./protium_0.6.0_amd64.AppImage
+chmod +x protium_0.6.1_amd64.AppImage
+./protium_0.6.1_amd64.AppImage
 ```
 
 die AppImage ist nicht signiert. wer das nicht mag, baut selbst (siehe
 dev-setup). für Debian-basierte systeme liegt zusätzlich ein Debian-paket bei:
 
 ```sh
-sudo apt install ./protium_0.6.0_amd64.deb
+sudo apt install ./protium_0.6.1_amd64.deb
 ```
 
 startet nichts und es kommt keine fehlermeldung, fehlt meist fuse2. dann
 entweder `sudo pacman -S fuse2` oder einmalig ohne fuse starten:
 
 ```sh
-./protium_0.6.0_amd64.AppImage --appimage-extract-and-run
+./protium_0.6.1_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## was es kann
@@ -219,6 +219,7 @@ die app blockieren. was sich nicht zuverlässig bestimmen lässt, heißt in der 
 - [x] phase 6 (teil 1): AppImage-build in der CI
 - [x] v0.5.0: library sofort, protondb im nachlauf und proton-check
 - [x] v0.6.0: scan-wahrheit mit klarer abdeckung und lokalen detailfakten
+- [x] v0.6.1: incomplete deletions (claim-restore, claim-reste im cleanup)
 - [ ] phase 6 (teil 2): AUR-paket
 
 versionshistorie steht in den [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).

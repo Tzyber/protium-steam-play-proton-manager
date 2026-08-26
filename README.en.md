@@ -26,20 +26,20 @@ it came into being because this exact tool did not exist. protonup-qt only manag
 grab the AppImage or Debian package from the [releases page](https://github.com/Tzyber/protium-steam-play-proton-manager/releases). make the AppImage executable and run it:
 
 ```sh
-chmod +x protium_0.6.0_amd64.AppImage
-./protium_0.6.0_amd64.AppImage
+chmod +x protium_0.6.1_amd64.AppImage
+./protium_0.6.1_amd64.AppImage
 ```
 
 the AppImage is not signed. if you don't like that, build it yourself (see dev setup). Debian-based systems can install the accompanying Debian package:
 
 ```sh
-sudo apt install ./protium_0.6.0_amd64.deb
+sudo apt install ./protium_0.6.1_amd64.deb
 ```
 
 if nothing starts and no error message appears, fuse2 is usually missing. then either `sudo pacman -S fuse2` or run it once without fuse:
 
 ```sh
-./protium_0.6.0_amd64.AppImage --appimage-extract-and-run
+./protium_0.6.1_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## what it does
@@ -155,6 +155,7 @@ rules for the implementation: writes to steam files go through the write gate wi
 - [x] phase 6 (part 1): AppImage build in CI
 - [x] v0.5.0: library first, protondb follow-up and proton-check
 - [x] v0.6.0: scan truth with clear coverage and local detail facts
+- [x] v0.6.1: incomplete deletions (claim restore, claim leftovers in cleanup)
 - [ ] phase 6 (part 2): AUR package
 
 version history lives in the [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
