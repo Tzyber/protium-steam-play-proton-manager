@@ -77,3 +77,5 @@ AGENTS.md
 
 # temporäre Superdesign-Komponenten- und Markenassets
 .superdesign/tmp/
+/.superdesign
+docs/Protium-Aenderungen-v0.4.0-bis-v0.5.0.md
