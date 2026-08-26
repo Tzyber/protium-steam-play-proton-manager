@@ -32,10 +32,12 @@ const result = (
   games: Game[],
   compatToolsInstalled: CompatTool[] = [],
   builtinProtonsInstalled: ScanResult["builtinProtonsInstalled"] = [],
-): Pick<ScanResult, "games" | "compatToolsInstalled" | "builtinProtonsInstalled"> => ({
+  warnings: ScanResult["warnings"] = [],
+): Pick<ScanResult, "games" | "compatToolsInstalled" | "builtinProtonsInstalled" | "warnings"> => ({
   games,
   compatToolsInstalled,
   builtinProtonsInstalled,
+  warnings,
 });
 
 describe("deriveProtonCheck", () => {
@@ -93,5 +95,173 @@ describe("deriveProtonCheck", () => {
     );
 
     expect(checks).toEqual([{ appId: 1, reasons: ["tier-borked", "tool-not-recognized"] }]);
+  });
+
+  it("unterdrückt tool-not-recognized bei unlesbarem tool-verzeichnis", () => {
+    const checks = deriveProtonCheck(
+      result(
+        [game(3, { tier: "unknown", confidence: "unknown" }, "missing-tool", "explicit")],
+        [],
+        [],
+        [
+          {
+            type: "compat-tool",
+            directory: "/steam/compatibilitytools.d",
+            reason: "directory-unreadable",
+          },
+        ],
+      ),
+    );
+
+    expect(checks).toEqual([]);
+  });
+
+  it("unterdrückt tool-not-recognized bei vdf-fehler eines eintrags", () => {
+    const checks = deriveProtonCheck(
+      result(
+        [game(3, { tier: "unknown", confidence: "unknown" }, "missing-tool", "explicit")],
+        [],
+        [],
+        [
+          {
+            type: "compat-tool",
+            directory: "/steam/compatibilitytools.d",
+            toolName: "other-tool",
+            reason: "vdf-invalid",
+          },
+        ],
+      ),
+    );
+
+    expect(checks).toEqual([]);
+  });
+
+  it("unterdrückt tool-not-recognized bei unlesbarer tool-vdf", () => {
+    const checks = deriveProtonCheck(
+      result(
+        [game(3, { tier: "unknown", confidence: "unknown" }, "missing-tool", "explicit")],
+        [],
+        [],
+        [
+          {
+            type: "compat-tool",
+            directory: "/steam/compatibilitytools.d",
+            toolName: "other-tool",
+            reason: "vdf-unreadable",
+          },
+        ],
+      ),
+    );
+
+    expect(checks).toEqual([]);
+  });
+
+  it("unterdrückt tool-not-recognized bei nicht lesbarer pfadidentität", () => {
+    const checks = deriveProtonCheck(
+      result(
+        [game(3, { tier: "unknown", confidence: "unknown" }, "missing-tool", "explicit")],
+        [],
+        [],
+        [
+          {
+            type: "compat-tool",
+            directory: "/steam/compatibilitytools.d",
+            reason: "path-identity",
+          },
+        ],
+      ),
+    );
+
+    expect(checks).toEqual([]);
+  });
+
+  it("unterdrückt tool-not-recognized, wenn das gemappte tool als symlink vorliegt", () => {
+    const checks = deriveProtonCheck(
+      result(
+        [game(3, { tier: "unknown", confidence: "unknown" }, "missing-tool", "explicit")],
+        [],
+        [],
+        [
+          {
+            type: "compat-tool",
+            directory: "/steam/compatibilitytools.d",
+            toolName: "missing-tool",
+            reason: "symlink",
+          },
+        ],
+      ),
+    );
+
+    expect(checks).toEqual([]);
+  });
+
+  it("erlaubt tool-not-recognized trotz size-unreadable-warning eines anderen tools", () => {
+    const checks = deriveProtonCheck(
+      result(
+        [game(3, { tier: "unknown", confidence: "unknown" }, "missing-tool", "explicit")],
+        [],
+        [],
+        [
+          {
+            type: "compat-tool",
+            directory: "/steam/compatibilitytools.d",
+            toolName: "other-tool",
+            reason: "size-unreadable",
+          },
+        ],
+      ),
+    );
+
+    expect(checks).toEqual([{ appId: 3, reasons: ["tool-not-recognized"] }]);
+  });
+
+  it("erlaubt tool-not-recognized trotz symlink-warning eines anderen tools", () => {
+    const checks = deriveProtonCheck(
+      result(
+        [game(3, { tier: "unknown", confidence: "unknown" }, "missing-tool", "explicit")],
+        [],
+        [],
+        [
+          {
+            type: "compat-tool",
+            directory: "/steam/compatibilitytools.d",
+            toolName: "unrelated-link",
+            reason: "symlink",
+          },
+        ],
+      ),
+    );
+
+    expect(checks).toEqual([{ appId: 3, reasons: ["tool-not-recognized"] }]);
+  });
+
+  it("erkennt ein tool trotz unbekannter größe weiterhin", () => {
+    const checks = deriveProtonCheck(
+      result(
+        [game(1, null, "internal-tool", "explicit")],
+        [{ ...customTool("directory-tool", "internal-tool"), sizeBytes: undefined }],
+      ),
+    );
+
+    expect(checks).toEqual([]);
+  });
+
+  it("lässt bronze/borked auch bei unvollständigem tool-scan bestehen", () => {
+    const checks = deriveProtonCheck(
+      result(
+        [game(1, { tier: "bronze", confidence: "strong" }, "missing-tool", "explicit")],
+        [],
+        [],
+        [
+          {
+            type: "compat-tool",
+            directory: "/steam/compatibilitytools.d",
+            reason: "directory-unreadable",
+          },
+        ],
+      ),
+    );
+
+    expect(checks).toEqual([{ appId: 1, reasons: ["tier-bronze"] }]);
   });
 });

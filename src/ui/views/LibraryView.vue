@@ -114,7 +114,7 @@ function formatLibraryReason(reason: SkipReason): string {
   }
 }
 
-function formatConfigStatus(status: "available" | "missing" | "unreadable"): string {
+function formatConfigStatus(status: "available" | "missing" | "unreadable" | "ambiguous"): string {
   switch (status) {
     case "available":
       return t("library.coverageStatusAvailable");
@@ -122,6 +122,8 @@ function formatConfigStatus(status: "available" | "missing" | "unreadable"): str
       return t("library.coverageStatusMissing");
     case "unreadable":
       return t("library.coverageStatusUnreadable");
+    case "ambiguous":
+      return t("library.coverageStatusAmbiguous");
   }
 }
 

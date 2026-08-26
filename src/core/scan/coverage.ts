@@ -19,7 +19,9 @@ export function deriveScanCoverage(result: ScanResult): ScanCoverage {
     manifests.failed > 0 ||
     tools.failed > 0;
   const limited =
-    result.compatConfigStatus === "missing" || result.launchConfigStatus === "missing";
+    result.compatConfigStatus === "missing" ||
+    result.launchConfigStatus === "missing" ||
+    result.launchConfigStatus === "ambiguous";
 
   return {
     state: incomplete ? "incomplete" : limited ? "limited" : "complete",

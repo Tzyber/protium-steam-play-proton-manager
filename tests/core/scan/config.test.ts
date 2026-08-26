@@ -125,7 +125,7 @@ describe("scan config", () => {
     ]);
   });
 
-  it("zeigt mehrdeutige accountauswahl ohne launch-coverage-fehler", async () => {
+  it("zeigt mehrdeutige accountauswahl als ambiguous", async () => {
     const { root, userId } = await buildFakeSteam();
     await rm(join(root, "config", "loginusers.vdf"));
     await mkdir(join(root, "userdata", "222222222", "config"), { recursive: true });
@@ -137,7 +137,7 @@ describe("scan config", () => {
 
     const result = await readLaunchConfig(nodeFs(), root);
 
-    expect(result.launchConfigStatus).toBe("available");
+    expect(result.launchConfigStatus).toBe("ambiguous");
     expect(result.steamUserId).toBe(userId);
     expect(result.warnings).toEqual([
       {

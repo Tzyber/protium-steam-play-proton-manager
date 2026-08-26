@@ -44,7 +44,7 @@ export const de = {
     warningsToggle: "{n} scan-warnungen anzeigen",
     protonDbRemaining: "protondb lädt: {n} offen",
     coverageComplete: "scan vollständig · {libraries} libraries · {games} spiele",
-    coverageLimited: "scan eingeschränkt · konfiguration nicht verfügbar",
+    coverageLimited: "scan eingeschränkt · konfiguration prüfen",
     coverageIncomplete: "scan unvollständig · details prüfen",
     coverageLocalOnly: "zeigt nur den stand dieses lokalen scans",
     coverageDetailsOpen: "scan-details anzeigen",
@@ -61,6 +61,7 @@ export const de = {
     coverageStatusAvailable: "verfügbar",
     coverageStatusMissing: "fehlend",
     coverageStatusUnreadable: "nicht lesbar",
+    coverageStatusAmbiguous: "mehrdeutig",
     coverageManifests: "manifeste",
     coverageTools: "compat-tools",
     coverageCounts: "{read} gelesen · {failed} fehlgeschlagen",
@@ -144,8 +145,11 @@ export const de = {
     trashEmptyState: "papierkorb ist leer",
     trashUnknownHint:
       "{n} verzeichnisse im papierkorb wurden nicht erkannt und werden nicht angeboten (INV-2):",
+    incompleteDeletionsTitle: "unvollständiger löschvorgang erkannt",
+    incompleteDeletionsBody:
+      "Protium hat daten eines früheren löschvorgangs gefunden, der nicht vollständig abgeschlossen wurde. aus sicherheitsgründen nimmt Protium daran keine automatische änderung vor.",
     incompleteDeletionsHint:
-      "{n} liegengebliebene löschmarkierungen aus abgebrochenen löschvorgängen gefunden, werden nicht angeboten:",
+      "falls gerade eine zweite Protium-Instanz eine bereinigung ausführt, warte, bis sie abgeschlossen ist, und scanne erneut:",
     trashEmpty: "papierkorb leeren",
     trashDeleteEntry: "eintrag löschen",
     trashDeleteConfirmTitle: "papierkorb leeren?",
@@ -161,8 +165,10 @@ export const de = {
     refreshReleases: "releases aktualisieren",
     installed: "installiert",
     distroReadonly: "distro · read-only",
-    usedBy: "{n} spiel(e) →",
-    unused: "ungenutzt",
+    usedBy: "explizite spielzuordnungen: {n} →",
+    unused: "keine bekannte explizite spielzuordnung",
+    mappingHint:
+      "bedeutet nicht, dass die version ungenutzt ist: globale defaults, externe werkzeuge oder andere workflows können sie weiterhin nutzen.",
     notManageable: "nicht über protium verwaltbar",
     geReleases: "GE-Proton releases",
     install: "installieren",

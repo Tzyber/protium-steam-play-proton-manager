@@ -96,7 +96,37 @@ describe("deriveScanCoverage", () => {
     ).toBe("incomplete");
   });
 
-  it("ignoriert mehrdeutige Accountauswahl ohne freie Textklassifikation", () => {
+  it("wertet eine mehrdeutige launch-config als eingeschränkt", () => {
+    const coverage = deriveScanCoverage(
+      result({
+        launchConfigStatus: "ambiguous",
+        warnings: [
+          {
+            type: "launch-config",
+            reason: "selection-ambiguous",
+            steamUserId: "123",
+            detail: "beliebiger Text mit unreadable und missing",
+          },
+        ],
+      }),
+    );
+
+    expect(coverage.state).toBe("limited");
+    expect(coverage.launchConfig).toBe("ambiguous");
+  });
+
+  it("stuft mehrdeutige launch-config mit manifestfehler als unvollständig ein", () => {
+    const coverage = deriveScanCoverage(
+      result({
+        launchConfigStatus: "ambiguous",
+        manifestCounts: { read: 1, failed: 1 },
+      }),
+    );
+
+    expect(coverage.state).toBe("incomplete");
+  });
+
+  it("wertet die selection-ambiguous-warning ohne status nicht aus", () => {
     const coverage = deriveScanCoverage(
       result({
         warnings: [

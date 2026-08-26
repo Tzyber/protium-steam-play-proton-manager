@@ -128,9 +128,10 @@ describe("LibraryView proton-check und ProtonDB-Nachlauf", () => {
     );
   });
 
-  it("zeigt eine mehrdeutige accountauswahl weiter neutral", async () => {
+  it("zeigt eine mehrdeutige accountauswahl als eingeschränkt statt vollständig", async () => {
     const scan = useScanStore();
     scan.result = result({
+      launchConfigStatus: "ambiguous",
       warnings: [
         {
           type: "launch-config",
@@ -142,20 +143,17 @@ describe("LibraryView proton-check und ProtonDB-Nachlauf", () => {
     });
     const wrapper = mount(LibraryView);
 
-    expect(wrapper.get(".coverage").classes()).toContain("coverage--complete");
+    expect(wrapper.get(".coverage").classes()).toContain("coverage--limited");
+    expect(wrapper.get(".coverage-summary").text()).toBe(t("library.coverageLimited"));
     await wrapper.get(".coverage-toggle").trigger("click");
     expect(wrapper.get(".coverage-card:nth-child(2)").classes()).toContain(
-      "coverage-card--complete",
+      "coverage-card--attention",
     );
   });
 
   it.each([
-    [
-      "de",
-      "scan eingeschränkt · konfiguration nicht verfügbar",
-      "zeigt nur den stand dieses lokalen scans",
-    ],
-    ["en", "scan limited · configuration unavailable", "shows only this local scan"],
+    ["de", "scan eingeschränkt · konfiguration prüfen", "zeigt nur den stand dieses lokalen scans"],
+    ["en", "scan limited · review configuration", "shows only this local scan"],
   ] as const)("zeigt eingeschränkte coverage lokalisiert (%s)", (locale, label, context) => {
     setLocale(locale);
     const scan = useScanStore();

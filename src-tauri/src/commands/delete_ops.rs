@@ -233,12 +233,25 @@ fn claim_delete_target(pending: &PendingDelete) -> Result<ClaimedDeleteTarget, S
         ));
         match renameat2_no_replace(parent, source_name, parent, &claim_name) {
             Ok(()) => {
+                // Guard direkt nach dem eigenen Rename armen: scheitern das
+                // Öffnen oder der Identity-Check, wird der Claim best-effort
+                // per NOREPLACE auf den Originalnamen zurückbenannt, statt
+                // fremde Daten unter .protium-delete-claim-* liegen zu lassen.
+                let mut restore = ClaimRestoreGuard {
+                    parent,
+                    claim_name: &claim_name,
+                    original_name: source_name,
+                    armed: true,
+                };
                 let handle = open_delete_child_handle(parent, &claim_name)?;
                 if delete_handle_identity(&handle)? != expected_identity {
                     return Err(
-                        "target changed before mutation; replacement left unmodified".into(),
+                        "target changed before mutation; claim restored to its original name"
+                            .into(),
                     );
                 }
+                restore.disarm();
+                drop(restore); // borrow auf claim_name endet vor dem move in das ergebnis
                 let path = PathBuf::from(format!(
                     "/proc/self/fd/{}/{}",
                     parent.as_raw_fd(),
@@ -1059,18 +1072,11 @@ mod tests {
             error.contains("target changed before mutation"),
             "error: {error}"
         );
-        assert!(!target.exists());
-        let claim = std::fs::read_dir(target.parent().unwrap())
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-            .find(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| name.starts_with(".protium-delete-claim-"))
-            })
-            .expect("replacement must remain under a private claim name");
-        assert!(claim.join("replacement-marker").exists());
-
+        // das replacement wurde geclaimt, aber nicht gelöscht: der
+        // claim-restore benennt es unbeschadet auf den originalnamen zurück.
+        assert!(target.exists());
+        assert!(target.join("replacement-marker").exists());
+        assert!(!claim_leftovers(target.parent().unwrap()));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -1423,14 +1429,15 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    /// Gegenprobe: Der Guard darf den absichtlichen Fall NICHT anfassen. Ein
-    /// nach der Inspektion untergeschobenes Replacement bleibt unter dem
-    /// Claim-Namen liegen (das ist die Schutzwirkung, kein Fehlerfall) und
-    /// wird nicht auf den Originalnamen zurückbenannt.
+    /// Regression: Wird zwischen letzter Inspektion und Claim ein Replacement
+    /// untergeschoben, claimt Protium es und erkennt den Identity-Mismatch.
+    /// Der Claim-Restore benennt das Replacement best-effort per NOREPLACE auf
+    /// den Originalnamen zurück — fremde Daten bleiben am sichtbaren Ort
+    /// statt unter .protium-delete-claim-*.
     #[cfg(target_os = "linux")]
     #[test]
-    fn guard_benennt_untergeschobenes_replacement_nicht_zurueck() {
-        let (root, steam) = orphan_fixture("delete-ops-restore-keeps-replacement");
+    fn claim_mismatch_benennt_replacement_zurueck() {
+        let (root, steam) = orphan_fixture("delete-ops-restore-replacement");
         let target = steam.join("steamapps/compatdata/999999");
         let registry = PendingDeleteRegistry::default();
         let info =
@@ -1455,10 +1462,53 @@ mod tests {
             "error: {error}"
         );
         assert!(
-            !target.exists(),
-            "Replacement darf nicht am Originalnamen stehen"
+            target.exists(),
+            "Replacement muss am Originalnamen zurück sein"
         );
-        assert!(claim_leftovers(target.parent().unwrap()));
+        assert!(target.join("replacement-marker").exists());
+        assert!(
+            !claim_leftovers(target.parent().unwrap()),
+            "kein .protium-delete-claim-* darf zurückbleiben"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// Fall 2: Ist der Originalname beim Restore-Versuch erneut belegt, darf
+    /// NOREPLACE nichts überschreiben: das neue Original bleibt unberührt,
+    /// der Claim-Rest bleibt liegen und wird später vom Cleanup erkannt.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn claim_restore_ueberschreibt_neues_original_nicht() {
+        let (root, steam) = orphan_fixture("delete-ops-restore-blocked");
+        let target = steam.join("steamapps/compatdata/999999");
+        let registry = PendingDeleteRegistry::default();
+        let info =
+            prepare_delete_inner(&registry, &orphan_request(&steam), &|_| true, || Ok(false))
+                .unwrap();
+        let registry_guard = registry.0.lock().unwrap();
+        let pending = registry_guard.get(&info.token).unwrap();
+        let claim = claim_delete_target(pending).unwrap();
+
+        // originalnamen erneut belegen, bevor der restore zurückbenennen will
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("new-marker"), b"must survive").unwrap();
+
+        drop(ClaimRestoreGuard {
+            parent: pending.parent_handle.as_ref().unwrap(),
+            claim_name: claim.name.as_os_str(),
+            original_name: pending.target_name.as_deref().unwrap(),
+            armed: true,
+        });
+
+        assert!(
+            target.join("new-marker").exists(),
+            "neu entstandener Originalpfad muss unberührt bleiben"
+        );
+        assert!(
+            claim_leftovers(target.parent().unwrap()),
+            "claim-rest muss liegen bleiben, wenn der originalname belegt ist"
+        );
 
         let _ = std::fs::remove_dir_all(root);
     }

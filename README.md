@@ -12,8 +12,8 @@ proton-versionen nachladen. so viel, und trotzdem an einem ort.
 protium zeigt dir, was auf deinem system wirklich los ist: welchen spielen
 steam in seiner konfiguration welche proton-version zuordnet, wie die auf
 protondb bewertet sind, welche
-GE-proton-versionen ungenutzt platz fressen und welche prefixes von längst
-deinstallierten spielen noch gigabytes belegen.
+GE-proton-versionen bekannte explizite spielzuordnungen besitzen und welche
+prefixes von längst deinstallierten spielen noch gigabytes belegen.
 
 entstanden, weil es genau dieses tool nicht gab. protonup-qt managt nur
 versionen. protontricks ist ein winetricks-wrapper. steamtinkerlaunch kann
@@ -23,7 +23,7 @@ glaubte, und der, die in steams konfiguration zugeordnet war.
 
 ![library-ansicht: cover-grid mit protondb-tiers, proton-zuordnung und filtern](docs/screenshots/main_page.png)
 
-![proton-manager: installierte versionen mit nutzung, GE-releases zum installieren](docs/screenshots/proton_page.png)
+![proton-manager: installierte versionen mit spielzuordnungen, GE-releases zum installieren](docs/screenshots/proton_page.png)
 
 ![cleanup-ansicht: tabs für shader-caches, wine-prefixes und papierkorb](docs/screenshots/cleanup_view.png)
 
@@ -33,22 +33,22 @@ AppImage oder Debian-Paket von der [releases-seite](https://github.com/Tzyber/pr
 laden. die AppImage ausführbar machen und starten:
 
 ```sh
-chmod +x protium_0.6.1_amd64.AppImage
-./protium_0.6.1_amd64.AppImage
+chmod +x protium_0.6.2_amd64.AppImage
+./protium_0.6.2_amd64.AppImage
 ```
 
 die AppImage ist nicht signiert. wer das nicht mag, baut selbst (siehe
 dev-setup). für Debian-basierte systeme liegt zusätzlich ein Debian-paket bei:
 
 ```sh
-sudo apt install ./protium_0.6.1_amd64.deb
+sudo apt install ./protium_0.6.2_amd64.deb
 ```
 
 startet nichts und es kommt keine fehlermeldung, fehlt meist fuse2. dann
 entweder `sudo pacman -S fuse2` oder einmalig ohne fuse starten:
 
 ```sh
-./protium_0.6.1_amd64.AppImage --appimage-extract-and-run
+./protium_0.6.2_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## was es kann
@@ -64,9 +64,11 @@ aus einem begrenzten Backend-Binary-Read. Die App funktioniert damit auch
 offline, ohne lokale Steam-Pfade an die Webview freizugeben.
 
 **GE-proton-manager.** installierte versionen mit größe und der info, welche
-spiele sie tatsächlich nutzen. neue releases direkt von github installieren
+spiele eine bekannte explizite zuordnung besitzen. neue releases direkt von
+github installieren
 (streaming-download mit sha512-prüfung, abbrechbar, mit aufräumen der
-partiellen datei), ungenutzte löschen. distro-protons wie proton-cachyos werden
+partiellen datei), installierte versionen löschen. distro-protons wie
+proton-cachyos werden
 erkannt und als read-only markiert. die gehören dem paketmanager, nicht uns.
 
 **compat-tool und startoptionen.** proton-version und startoptionen pro spiel

@@ -4,6 +4,11 @@ export type Tier = "platinum" | "gold" | "silver" | "bronze" | "borked" | "unkno
 
 export type CompatConfigStatus = "available" | "missing" | "unreadable";
 
+/** launch-config zusätzlich "ambiguous": Datei lesbar, aber die Auswahl des
+ *  aktiven Accounts (loginusers.vdf) war nicht eindeutig. Kein Read-Fehler,
+ *  aber die Quelle ist nicht sicher bestimmt → Coverage limited. */
+export type LaunchConfigStatus = CompatConfigStatus | "ambiguous";
+
 export type ScanWarning =
   | {
       type: "library";
@@ -55,7 +60,7 @@ export interface ScanCoverage {
   state: "complete" | "incomplete" | "limited";
   libraries: { total: number; read: number; unavailable: number };
   compatConfig: CompatConfigStatus;
-  launchConfig: CompatConfigStatus;
+  launchConfig: LaunchConfigStatus;
   manifests: { read: number; failed: number };
   tools: { read: number; failed: number };
 }
@@ -77,7 +82,8 @@ export interface CompatTool {
   name: string; // verzeichnisname in compatibilitytools.d (für fs-ops: größe, löschen)
   internalName: string; // key aus compatibilitytool.vdf → steht so in config.vdf-mapping
   displayName: string;
-  sizeBytes: number;
+  /** undefined = größenmessung fehlgeschlagen; tool ist trotzdem erkannt. nie still 0. */
+  sizeBytes?: number;
   usedBy: number[]; // appIds, die dieses tool via mapping nutzen
   source: "user" | "system"; // system = distro-dir (/usr/share/…), read-only
 }
@@ -94,7 +100,7 @@ export interface ScanResult {
   compatConfigStatus: CompatConfigStatus;
   /** account, dessen localconfig.vdf gelesen wird (null = keiner gefunden → keine startoptionen). */
   steamUserId: string | null;
-  launchConfigStatus: CompatConfigStatus;
+  launchConfigStatus: LaunchConfigStatus;
   manifestCounts: { read: number; failed: number };
   compatToolCounts: { read: number; failed: number };
   warnings: ScanWarning[];

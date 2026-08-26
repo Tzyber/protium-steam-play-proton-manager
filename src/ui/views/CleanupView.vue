@@ -291,7 +291,9 @@ const tabLabel = (id: Tab) =>
       </div>
 
       <div v-if="cleanup.incompleteDeletions.length" class="blocked">
-        {{ t("cleanup.incompleteDeletionsHint", { n: cleanup.incompleteDeletions.length }) }}
+        <strong>{{ t("cleanup.incompleteDeletionsTitle") }}</strong>
+        <p class="pm-note">{{ t("cleanup.incompleteDeletionsBody") }}</p>
+        <p class="pm-note">{{ t("cleanup.incompleteDeletionsHint") }}</p>
         <ul class="pm-list">
           <li v-for="d in cleanup.incompleteDeletions" :key="d.path" class="mono">{{ d.path }}</li>
         </ul>

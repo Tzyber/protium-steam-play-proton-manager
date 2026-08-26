@@ -205,7 +205,7 @@ export async function listCompatTools(
         }
       }
 
-      let sizeBytes: number;
+      let sizeBytes: number | undefined;
       try {
         sizeBytes = await system.dirSize(joinPath(dir, name));
         if (!Number.isFinite(sizeBytes) || sizeBytes < 0) {
@@ -220,7 +220,9 @@ export async function listCompatTools(
           reason: "size-unreadable",
           detail: errText(e),
         });
-        continue;
+        // tool bleibt im inventar: internalName/displayName sind bekannt, nur
+        // die größe nicht. ein unvollständiges inventar darf später keinen
+        // falschen tool-not-recognized erzeugen (protoncheck.ts).
       }
 
       readCount += 1;

@@ -125,14 +125,20 @@ const statusLine = computed(() => {
           <div class="rmain">
             <div class="rname">{{ tt.displayName }}</div>
             <div class="rsub mono">
-              {{ tt.internalName }} · {{ formatBytes(tt.sizeBytes) }}
+              {{ tt.internalName }} · {{ tt.sizeBytes === undefined ? "…" : formatBytes(tt.sizeBytes) }}
               <span v-if="tt.source === 'system'" class="tag distro">{{ t("proton.distroReadonly") }}</span>
             </div>
           </div>
-          <button v-if="tt.usedBy.length" class="used" type="button" @click="ui.showLibraryForTool(tt.internalName)">
+          <button
+            v-if="tt.usedBy.length"
+            class="used"
+            type="button"
+            :title="t('proton.mappingHint')"
+            @click="ui.showLibraryForTool(tt.internalName)"
+          >
             {{ t("proton.usedBy", { n: tt.usedBy.length }) }}
           </button>
-          <span v-else class="used muted">{{ t("proton.unused") }}</span>
+          <span v-else class="used muted" :title="t('proton.mappingHint')">{{ t("proton.unused") }}</span>
           <button
             v-if="removable(tt)"
             class="rm"

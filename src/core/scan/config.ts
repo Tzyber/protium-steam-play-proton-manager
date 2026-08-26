@@ -3,7 +3,7 @@ import { errText } from "../errtext.js";
 import { findActiveUser } from "../localconfig.js";
 import { paths } from "../paths.js";
 import type { Ports } from "../ports.js";
-import type { CompatConfigStatus, ScanWarning } from "../types.js";
+import type { CompatConfigStatus, LaunchConfigStatus, ScanWarning } from "../types.js";
 
 export async function readCompatMapping(
   fs: Ports["fs"],
@@ -52,13 +52,13 @@ export async function readLaunchConfig(
 ): Promise<{
   steamUserId: string | null;
   localConfigText: string | null;
-  launchConfigStatus: CompatConfigStatus;
+  launchConfigStatus: LaunchConfigStatus;
   warnings: ScanWarning[];
 }> {
   const warnings: ScanWarning[] = [];
   let steamUserId: string | null = null;
   let localConfigText: string | null = null;
-  let launchConfigStatus: CompatConfigStatus = "available";
+  let launchConfigStatus: LaunchConfigStatus = "available";
   const activeUser = await findActiveUser(fs, steamRoot);
   if (activeUser.status === "missing") {
     launchConfigStatus = "missing";
@@ -77,6 +77,7 @@ export async function readLaunchConfig(
   } else {
     steamUserId = activeUser.userId;
     if (activeUser.selection === "ambiguous") {
+      launchConfigStatus = "ambiguous";
       warnings.push({
         type: "launch-config",
         reason: "selection-ambiguous",

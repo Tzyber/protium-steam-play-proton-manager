@@ -1,4 +1,4 @@
-import type { ScanResult } from "./types.js";
+import type { ScanResult, ScanWarning } from "./types.js";
 
 export type ProtonCheckReason = "tier-bronze" | "tier-borked" | "tool-not-recognized";
 
@@ -9,8 +9,30 @@ export interface ProtonCheck {
 
 type ProtonCheckInput = Pick<
   ScanResult,
-  "games" | "compatToolsInstalled" | "builtinProtonsInstalled"
+  "games" | "compatToolsInstalled" | "builtinProtonsInstalled" | "warnings"
 >;
+
+/** true, wenn der Tool-Scan die Abwesenheit von `compatTool` nicht sicher
+ *  beweisen kann. Nur strukturierte ScanWarning-Daten, keine Text-Heuristik.
+ *  size-unreadable unterdrückt nie: das Tool bleibt im Inventar (Präsenz
+ *  vollständig, nur die Größe fehlt). */
+function toolAbsenceUncertain(warnings: ScanWarning[], compatTool: string): boolean {
+  return warnings.some((warning) => {
+    if (warning.type !== "compat-tool") return false;
+    if (warning.reason === "directory-unreadable" || warning.reason === "path-identity") {
+      // das verzeichnis ist unbekannt: das gemappte tool könnte darin liegen
+      return true;
+    }
+    if (warning.reason === "vdf-unreadable" || warning.reason === "vdf-invalid") {
+      // der internalName des eintrags ist unbekannt und könnte das gemappte tool sein
+      return true;
+    }
+    if (warning.reason === "symlink") {
+      return warning.toolName === compatTool;
+    }
+    return false;
+  });
+}
 
 export function deriveProtonCheck(result: ProtonCheckInput): ProtonCheck[] {
   const customNames = new Set<string>();
@@ -25,8 +47,12 @@ export function deriveProtonCheck(result: ProtonCheckInput): ProtonCheck[] {
     if (game.protonDb?.tier === "bronze") reasons.push("tier-bronze");
     if (game.protonDb?.tier === "borked") reasons.push("tier-borked");
 
+    // tool-not-recognized ist eine Abwesenheitsbehauptung: nur erlaubt, wenn
+    // der Tool-Scan sie sicher beweist. Lieber kein Check als ein False
+    // Positive (fail-closed).
     if (
       game.compatToolSource === "explicit" &&
+      !toolAbsenceUncertain(result.warnings, game.compatTool) &&
       !customNames.has(game.compatTool) &&
       !builtinNames.has(game.compatTool)
     ) {

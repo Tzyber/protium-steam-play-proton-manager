@@ -10,14 +10,14 @@ open it, start a game or set launch options, delete orphaned prefixes, pull down
 
 protium shows you what is actually going on on your system: which proton
 version Steam assigns to each game in its configuration, how those are rated
-on protondb, which GE-proton versions are eating space unused, and which
-prefixes from long-uninstalled games still occupy gigabytes.
+on protondb, which GE-proton versions have known explicit game mappings, and
+which prefixes from long-uninstalled games still occupy gigabytes.
 
 it came into being because this exact tool did not exist. protonup-qt only manages versions. protontricks is a winetricks wrapper. steamtinkerlaunch does everything and is unwieldy for exactly that reason. the first scan with protium immediately revealed a difference between the proton version I thought I had set and the one assigned in Steam's configuration.
 
 ![library view: cover grid with protondb tiers, proton assignment and filters](docs/screenshots/main_page.png)
 
-![proton manager: installed versions with usage, GE releases to install](docs/screenshots/proton_page.png)
+![proton manager: installed versions with game mappings, GE releases to install](docs/screenshots/proton_page.png)
 
 ![cleanup view: tabs for shader caches, wine prefixes and trash](docs/screenshots/cleanup_view.png)
 
@@ -26,27 +26,32 @@ it came into being because this exact tool did not exist. protonup-qt only manag
 grab the AppImage or Debian package from the [releases page](https://github.com/Tzyber/protium-steam-play-proton-manager/releases). make the AppImage executable and run it:
 
 ```sh
-chmod +x protium_0.6.1_amd64.AppImage
-./protium_0.6.1_amd64.AppImage
+chmod +x protium_0.6.2_amd64.AppImage
+./protium_0.6.2_amd64.AppImage
 ```
 
 the AppImage is not signed. if you don't like that, build it yourself (see dev setup). Debian-based systems can install the accompanying Debian package:
 
 ```sh
-sudo apt install ./protium_0.6.1_amd64.deb
+sudo apt install ./protium_0.6.2_amd64.deb
 ```
 
 if nothing starts and no error message appears, fuse2 is usually missing. then either `sudo pacman -S fuse2` or run it once without fuse:
 
 ```sh
-./protium_0.6.1_amd64.AppImage --appimage-extract-and-run
+./protium_0.6.2_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## what it does
 
 **library overview.** every game across every library, external drives included, with cover art, size, the proton version assigned in Steam's configuration and protondb tier right on the card. the local scan appears immediately; protondb follows in the background. proton-check filters only `bronze`, `borked` and explicit tools not recognised in this scan. Steam and library files are read through a current, backend-canonical environment snapshot; local covers arrive as short-lived blob URLs from a bounded backend binary read. The app still works offline without granting local Steam paths to the webview.
 
-**GE-proton manager.** installed versions with size and the information which games actually use them. install new releases straight from github (streaming download with sha512 verification, cancellable, partial file cleaned up), remove unused ones. distro protons such as proton-cachyos are detected and marked read-only. they belong to the package manager, not to us.
+**GE-proton manager.** installed versions with size and the information which
+games have a known explicit mapping. install new releases straight from github
+(streaming download with sha512 verification, cancellable, partial file
+cleaned up), remove installed versions. distro protons such as proton-cachyos
+are detected and marked read-only. they belong to the package manager, not to
+us.
 
 **compat tool and launch options.** set the proton version and launch options per game. write gate in front (steam-is-running check, backup, atomic rename), and a surgical vdf string patch instead of full serialisation, because otherwise steam's escaping and key order do not survive.
 

@@ -59,4 +59,30 @@ describe("readCompatTools", () => {
       ]),
     );
   });
+
+  it("behält ein tool mit fehlgeschlagener größenmessung im inventar", async () => {
+    const { root, systemCompat } = await buildFakeSteam();
+    const system = {
+      ...fakeSystem(),
+      dirSize: async () => {
+        throw new Error("disk error");
+      },
+    };
+
+    const result = await readCompatTools(
+      nodeFs(),
+      system,
+      root,
+      new Map(),
+      new Set(),
+      [],
+      [systemCompat],
+    );
+
+    // fixture hat 3 tools; alle bleiben im inventar, alle mit unbekannter größe.
+    expect(result.compatToolCounts).toEqual({ read: 3, failed: 3 });
+    expect(result.compatToolsInstalled).toHaveLength(3);
+    expect(result.compatToolsInstalled.every((tool) => tool.sizeBytes === undefined)).toBe(true);
+    expect(result.warnings.some((warning) => warning.reason === "size-unreadable")).toBe(true);
+  });
 });

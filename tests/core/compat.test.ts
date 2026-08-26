@@ -257,7 +257,7 @@ describe("listCompatTools", () => {
       new Map(),
       new Set(),
     );
-    expect(second.counts).toEqual({ read: 0, failed: 3 });
+    expect(second.counts).toEqual({ read: 1, failed: 3 });
     expect(second.warnings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: "compat-tool", toolName: "link", reason: "symlink" }),
@@ -273,5 +273,10 @@ describe("listCompatTools", () => {
         }),
       ]),
     );
+    // bad-size bleibt trotz fehlgeschlagener größenmessung erkannt im inventar
+    // (nur die größe ist unbekannt, nie still 0).
+    expect(second.tools).toEqual([
+      expect.objectContaining({ internalName: "bad-size", sizeBytes: undefined }),
+    ]);
   });
 });
