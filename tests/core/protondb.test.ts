@@ -26,9 +26,60 @@ describe("ProtonDbClient", () => {
     expect(await c.getSummary(620)).toEqual({ tier: "gold", confidence: "strong" });
   });
 
+  it("kaputter cache → refetch statt fehler", async () => {
+    let calls = 0;
+    const cache = memCache();
+    await cache.set("protondb:620", "{kaputt");
+    const http = {
+      async get() {
+        calls++;
+        return summary("gold");
+      },
+    };
+    const c = new ProtonDbClient(http, cache);
+
+    expect(await c.getSummary(620)).toEqual({ tier: "gold", confidence: "strong" });
+    expect(calls).toBe(1);
+  });
+
   it("404 → null (→ aufrufer setzt unknown, INV-3)", async () => {
     const c = new ProtonDbClient(fakeHttp(), memCache());
     expect(await c.getSummary(1)).toBeNull();
+  });
+
+  it("werfender HTTP-Aufruf → null (offline, INV-3)", async () => {
+    const c = new ProtonDbClient(
+      {
+        async get() {
+          throw new Error("offline");
+        },
+      },
+      memCache(),
+    );
+    expect(await c.getSummary(620)).toBeNull();
+  });
+
+  it("ungültiges Antwort-JSON → null (INV-3)", async () => {
+    const c = new ProtonDbClient(
+      fakeHttp({ [url(620)]: { status: 200, ok: true, text: "{kaputt", headers: {} } }),
+      memCache(),
+    );
+    expect(await c.getSummary(620)).toBeNull();
+  });
+
+  it("nicht-string confidence → unknown", async () => {
+    const c = new ProtonDbClient(
+      fakeHttp({
+        [url(620)]: {
+          status: 200,
+          ok: true,
+          text: JSON.stringify({ tier: "gold", confidence: 42 }),
+          headers: {},
+        },
+      }),
+      memCache(),
+    );
+    expect(await c.getSummary(620)).toEqual({ tier: "gold", confidence: "unknown" });
   });
 
   it("unbekannter tier-string → 'unknown'", async () => {

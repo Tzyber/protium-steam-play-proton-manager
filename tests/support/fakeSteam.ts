@@ -23,8 +23,16 @@ import type {
   PathIdentity,
   System,
 } from "../../src/core/ports.js";
-import { ensureSizeLimit } from "../../src/core/ports.js";
 import { getVdfValue, removeVdfEntry, setVdfValue } from "../../src/core/vdfpatch.js";
+
+/** größenlimit, das der fake wie das rust-backend (16-MiB-caps) durchsetzt. */
+export const MAX_FILE_BYTES = 16 * 1024 * 1024;
+
+export function ensureSizeLimit(size: number): void {
+  if (size > MAX_FILE_BYTES) {
+    throw new Error(`datei zu groß (${size} bytes), übersprungen`);
+  }
+}
 
 // ---- Fixture-Inhalte ----
 

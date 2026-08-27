@@ -195,6 +195,36 @@ describe("setVdfValue, schutz vor strukturbruch", () => {
       new VdfPatchError("unterminierter string"),
     );
   }, 2000);
+
+  it("key ohne wert → wirft mit sichtbarer meldung", () => {
+    expect(() => getVdfValue('"Key"', ["Key"])).toThrow(new VdfPatchError('key "Key" ohne wert'));
+  });
+
+  it("schließende klammer als wert → wirft mit sichtbarer meldung", () => {
+    const closeAsValue = '"Root"\n{\n\t"Key"\n}\n';
+    expect(() => getVdfValue(closeAsValue, ["Root", "Key"])).toThrow(
+      new VdfPatchError('key "Key" ohne wert'),
+    );
+  });
+
+  it("minifizierte datei (schließende klammer nicht auf eigener zeile) → wirft", () => {
+    const minified = '"Root" { "Key" "old" }';
+    expect(() => setVdfValue(minified, ["Root", "NewKey"], "new")).toThrow(
+      new VdfPatchError("schließende klammer nicht auf eigener zeile, abbruch"),
+    );
+  });
+
+  it("pfad durch skalaren wert → wirft mit sichtbarer meldung", () => {
+    expect(() => setVdfValue('"Root" "x"', ["Root", "Key"], "y")).toThrow(
+      new VdfPatchError('"Root" ist ein wert, kein block'),
+    );
+  });
+
+  it("block am pfadende statt wert → wirft mit sichtbarer meldung", () => {
+    expect(() => setVdfValue('"Root"\n{\n\t"Key"\t\t"old"\n}\n', ["Root"], "y")).toThrow(
+      new VdfPatchError('"Root" ist ein block, kein wert'),
+    );
+  });
 });
 
 describe("removeVdfEntry", () => {

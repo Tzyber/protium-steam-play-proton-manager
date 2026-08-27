@@ -83,6 +83,14 @@ describe("configStore.saveCompatTool", () => {
     const config = useConfigStore();
     await expect(config.saveCompatTool(1, "x")).rejects.toThrow(/kein scan/);
   });
+
+  it("wirft lokalisiert, wenn kein steam-account vorliegt", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = { ...fakeScanResult(), steamUserId: null };
+    const config = useConfigStore();
+
+    await expect(config.saveLaunchOptions(730, "x")).rejects.toThrow("kein steam-account");
+  });
 });
 
 describe("scanStore.applyGameConfig", () => {

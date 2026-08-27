@@ -707,4 +707,71 @@ mod tests {
         let res = get_vdf_value(vdf, &["Apps", "620", "LaunchOptions"]).unwrap();
         assert_eq!(res, Some("\\über %command%".to_string()));
     }
+
+    #[test]
+    fn case_insensitive_navigation() {
+        let lower = LOCALCONFIG.replace("\"Software\"", "\"software\"");
+        let mut path = LAUNCH_620.to_vec();
+        path.push("LaunchOptions");
+        let patched = set_vdf_value(&lower, &path, "new").unwrap();
+        assert_eq!(
+            get_vdf_value(&patched, &path).unwrap(),
+            Some("new".to_string())
+        );
+    }
+
+    #[test]
+    fn crlf_zeilenenden_bleiben_beim_patch_erhalten() {
+        let crlf = "\"Root\"\r\n{\r\n\t\"Key\"\t\t\"old\"\r\n}\r\n";
+        assert_eq!(
+            get_vdf_value(crlf, &["Root", "Key"]).unwrap(),
+            Some("old".to_string())
+        );
+        let patched = set_vdf_value(crlf, &["Root", "Key"], "new").unwrap();
+        assert_eq!(patched, crlf.replace("\"old\"", "\"new\""));
+    }
+
+    #[test]
+    fn block_kommentar_wird_uebersprungen() {
+        let with_block_comment =
+            "\"Root\"\n{\n\t/* dieser kommentar wird ignoriert */\n\t\"Key\"\t\t\"val\"\n}\n";
+        assert_eq!(
+            get_vdf_value(with_block_comment, &["Root", "Key"]).unwrap(),
+            Some("val".to_string())
+        );
+        let patched = set_vdf_value(with_block_comment, &["Root", "Key"], "new").unwrap();
+        assert_eq!(
+            get_vdf_value(&patched, &["Root", "Key"]).unwrap(),
+            Some("new".to_string())
+        );
+        assert_eq!(patched, with_block_comment.replace("\"val\"", "\"new\""));
+    }
+
+    #[test]
+    fn conditional_marker_wird_uebersprungen() {
+        let with_conditional =
+            "\"AppState\"\n{\n\t\"Key\"\t\t\"val\"\t[linux]\n\t\"Other\"\t\t\"other\"\n}\n";
+        assert_eq!(
+            get_vdf_value(with_conditional, &["AppState", "Key"]).unwrap(),
+            Some("val".to_string())
+        );
+        assert_eq!(
+            get_vdf_value(with_conditional, &["AppState", "Other"]).unwrap(),
+            Some("other".to_string())
+        );
+        let patched = set_vdf_value(with_conditional, &["AppState", "Key"], "new").unwrap();
+        assert_eq!(
+            get_vdf_value(&patched, &["AppState", "Key"]).unwrap(),
+            Some("new".to_string())
+        );
+    }
+
+    #[test]
+    fn leere_datei_legt_wert_an() {
+        let patched = set_vdf_value("", &["Key"], "val").unwrap();
+        assert_eq!(
+            get_vdf_value(&patched, &["Key"]).unwrap(),
+            Some("val".to_string())
+        );
+    }
 }

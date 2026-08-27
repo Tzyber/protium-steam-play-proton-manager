@@ -1,18 +1,5 @@
 // einzige schnittstelle von core zur außenwelt: adapter implementieren, tests mocken.
 
-/** Größenlimit für Datei-Reads. Eine 2-GB-VDF
- *  würde die webview oomen; steam-dateien sind nie größer (cache-reads werden
- *  mitgecappt, konsistent, schadet nicht). */
-export const MAX_FILE_BYTES = 16 * 1024 * 1024;
-
-/** wirft, wenn die datei-größe das limit überschreitet, aufrufer (adapter)
- *  behandeln den Fehler wie einen unlesbaren Pfad. */
-export function ensureSizeLimit(size: number): void {
-  if (size > MAX_FILE_BYTES) {
-    throw new Error(`datei zu groß (${size} bytes), übersprungen`);
-  }
-}
-
 export interface DirEntry {
   name: string;
   isDirectory: boolean;

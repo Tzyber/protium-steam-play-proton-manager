@@ -2,11 +2,7 @@ import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  findActiveUser,
-  readLaunchOptions,
-  writeLaunchOptions,
-} from "../../src/core/localconfig.js";
+import { findActiveUser, readLaunchOptions } from "../../src/core/localconfig.js";
 import { paths } from "../../src/core/paths.js";
 import { getVdfValue } from "../../src/core/vdfpatch.js";
 import { buildFakeSteam, fakeSystem, nodeFs } from "../support/fakeSteam.js";
@@ -75,13 +71,7 @@ describe("writeLaunchOptions", () => {
     const { root, userId } = await buildFakeSteam();
     const backupDir = join(root, "backups");
 
-    const r = await writeLaunchOptions(
-      { system: fakeSystem() },
-      root,
-      userId,
-      730,
-      "MANGOHUD=1 %command%",
-    );
+    const r = await fakeSystem().saveLaunchOptions(root, userId, 730, "MANGOHUD=1 %command%");
     expect(r).toBe("written");
 
     const text = await readFile(paths.localConfigVdf(root, userId), "utf8");
@@ -102,13 +92,7 @@ describe("writeLaunchOptions", () => {
     const fs = nodeFs();
     const backupDir = join(root, "backups");
 
-    const r = await writeLaunchOptions(
-      { system: fakeSystem() },
-      root,
-      userId,
-      620,
-      "gamemoderun %command%",
-    );
+    const r = await fakeSystem().saveLaunchOptions(root, userId, 620, "gamemoderun %command%");
     expect(r).toBe("unchanged");
     expect(await fs.exists(backupDir)).toBe(false);
   });
@@ -118,7 +102,7 @@ describe("writeLaunchOptions", () => {
     const system = { ...fakeSystem(), isProcessRunning: async () => true };
     const before = await readFile(paths.localConfigVdf(root, userId), "utf8");
 
-    await expect(writeLaunchOptions({ system }, root, userId, 620, "x")).rejects.toThrow(
+    await expect(system.saveLaunchOptions(root, userId, 620, "x")).rejects.toThrow(
       "steam is running",
     );
     expect(await readFile(paths.localConfigVdf(root, userId), "utf8")).toBe(before);
@@ -127,13 +111,7 @@ describe("writeLaunchOptions", () => {
 
 it("geschriebene datei parst mit @node-steam/vdf und enthält den wert", async () => {
   const { root, userId } = await buildFakeSteam();
-  await writeLaunchOptions(
-    { system: fakeSystem() },
-    root,
-    userId,
-    620,
-    'MANGOHUD_CONFIG="fps" %command%',
-  );
+  await fakeSystem().saveLaunchOptions(root, userId, 620, 'MANGOHUD_CONFIG="fps" %command%');
   const text = await readFile(paths.localConfigVdf(root, userId), "utf8");
   expect(
     getVdfValue(text, [

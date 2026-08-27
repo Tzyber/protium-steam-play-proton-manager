@@ -18,6 +18,11 @@ use crate::commands::scope::SYSTEM_COMPAT_DIRS;
 use crate::commands::spawn_blocking_io;
 use crate::commands::vdf_patch;
 
+#[cfg(not(target_os = "linux"))]
+fn delete_inspection_unsupported() -> String {
+    "delete inspection requires Linux no-follow descriptors".into()
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
 pub enum WriteResult {
@@ -465,13 +470,89 @@ fn read_fd_text(file: &mut std::fs::File, label: &str, max_bytes: u64) -> Result
     if length > max_bytes {
         return Err(format!("{label} exceeds read limit"));
     }
+    let read_limit = max_bytes
+        .checked_add(1)
+        .ok_or_else(|| format!("{label} read limit overflows"))?;
     let mut text = String::new();
-    file.read_to_string(&mut text)
+    file.take(read_limit)
+        .read_to_string(&mut text)
         .map_err(|error| format!("cannot read {label}: {error}"))?;
     if text.len() as u64 > max_bytes {
         return Err(format!("{label} exceeds read limit"));
     }
     Ok(text)
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DeleteReadStage {
+    ManifestBeforeOpen,
+    ManifestAfterOpen,
+    ManifestBeforeRead,
+    ShortcutsBeforeOpen,
+    ShortcutsAfterOpen,
+    ShortcutsBeforeRead,
+    ConfigBeforeOpen,
+    ConfigAfterOpen,
+    ConfigBeforeRead,
+}
+
+#[cfg(target_os = "linux")]
+fn read_fd_text_with_hook<F>(
+    file: &mut std::fs::File,
+    label: &str,
+    max_bytes: u64,
+    hook: &mut F,
+    stage: DeleteReadStage,
+) -> Result<String, String>
+where
+    F: FnMut(DeleteReadStage, Option<&mut std::fs::File>),
+{
+    let length = ensure_regular_fd(file, label)?;
+    if length > max_bytes {
+        return Err(format!("{label} exceeds read limit"));
+    }
+    let read_limit = max_bytes
+        .checked_add(1)
+        .ok_or_else(|| format!("{label} read limit overflows"))?;
+    hook(stage, Some(file));
+    let mut text = String::new();
+    file.take(read_limit)
+        .read_to_string(&mut text)
+        .map_err(|error| format!("cannot read {label}: {error}"))?;
+    if text.len() as u64 > max_bytes {
+        return Err(format!("{label} exceeds read limit"));
+    }
+    Ok(text)
+}
+
+#[cfg(target_os = "linux")]
+fn read_fd_bytes_with_hook<F>(
+    file: &mut std::fs::File,
+    label: &str,
+    max_bytes: u64,
+    hook: &mut F,
+    stage: DeleteReadStage,
+) -> Result<Vec<u8>, String>
+where
+    F: FnMut(DeleteReadStage, Option<&mut std::fs::File>),
+{
+    let length = ensure_regular_fd(file, label)?;
+    if length > max_bytes {
+        return Err(format!("{label} exceeds read limit"));
+    }
+    let read_limit = max_bytes
+        .checked_add(1)
+        .ok_or_else(|| format!("{label} read limit overflows"))?;
+    hook(stage, Some(file));
+    let mut bytes = Vec::new();
+    file.take(read_limit)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("cannot read {label}: {error}"))?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(format!("{label} exceeds read limit"));
+    }
+    Ok(bytes)
 }
 
 #[cfg(target_os = "linux")]
@@ -1007,59 +1088,100 @@ pub(super) fn read_library_folders(steam_root: &Path) -> Result<Vec<PathBuf>, St
 }
 
 /// Prüft alle vorhandenen App-Manifeste und bricht bei unklaren Live-Daten ab.
-pub(super) fn is_app_installed_in_libraries(
+#[cfg(test)]
+fn is_app_installed_in_libraries(libraries: &[PathBuf], app_id: u32) -> Result<bool, String> {
+    #[cfg(target_os = "linux")]
+    {
+        let mut no_hook = |_: DeleteReadStage, _: Option<&mut std::fs::File>| {};
+        is_app_installed_in_libraries_linux_with_hook(libraries, app_id, &mut no_hook)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (libraries, app_id);
+        Err(delete_inspection_unsupported())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn is_app_installed_in_libraries_linux_with_hook<F>(
     libraries: &[PathBuf],
     app_id: u32,
-) -> Result<bool, String> {
+    hook: &mut F,
+) -> Result<bool, String>
+where
+    F: FnMut(DeleteReadStage, Option<&mut std::fs::File>),
+{
     for lib in libraries {
-        let steamapps = lib.join("steamapps");
-        let steamapps_metadata = match fs::symlink_metadata(&steamapps) {
-            Ok(metadata) => metadata,
+        let canonical = match fs::canonicalize(lib) {
+            Ok(path) => path,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("cannot canonicalize Steam library: {error}")),
+        };
+        let mut no_hook = |_| {};
+        let library_fd = open_external_library_fd_with_hook(&canonical, &mut no_hook)?;
+        let steamapps_fd = match open_dir_at(library_fd.as_raw_fd(), OsStr::new("steamapps")) {
+            Ok(fd) => fd,
             // fehlende steamapps (z. b. nicht gemountete volume) kann keine
             // manifeste tragen: überspringen statt fail (INV-2), kein fehler.
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(format!("cannot inspect {}: {e}", steamapps.display())),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("cannot open Steam library steamapps: {error}")),
         };
-        if steamapps_metadata.file_type().is_symlink() || !steamapps_metadata.is_dir() {
-            return Err(format!(
-                "{} is not a regular directory",
-                steamapps.display()
-            ));
-        }
-        let entries = fs::read_dir(&steamapps)
-            .map_err(|e| format!("cannot read {}: {e}", steamapps.display()))?;
+        let proc_dir = Path::new("/proc/self/fd").join(steamapps_fd.as_raw_fd().to_string());
+        let entries = fs::read_dir(&proc_dir)
+            .map_err(|error| format!("cannot read manifest directory: {error}"))?;
         for entry in entries {
-            let entry = entry.map_err(|e| format!("cannot read manifest entry: {e}"))?;
+            let entry = entry.map_err(|error| format!("cannot read manifest entry: {error}"))?;
             let name = entry.file_name();
-            let name = name.to_string_lossy();
-            let Some(id_part) = name
+            let name_string = name.to_string_lossy();
+            let Some(id_part) = name_string
                 .strip_prefix("appmanifest_")
                 .and_then(|rest| rest.strip_suffix(".acf"))
             else {
                 continue;
             };
             let file_id = crate::commands::scope::parse_app_id(id_part)
-                .map_err(|_| format!("invalid app manifest filename: {name}"))?;
-            let metadata = fs::symlink_metadata(entry.path())
-                .map_err(|e| format!("cannot inspect manifest {name}: {e}"))?;
-            if metadata.file_type().is_symlink() || !metadata.is_file() {
-                return Err(format!("manifest {name} is not a regular file"));
-            }
-            let content = fs::read_to_string(entry.path())
-                .map_err(|e| format!("cannot read manifest {name}: {e}"))?;
+                .map_err(|_| format!("invalid app manifest filename: {name_string}"))?;
+
+            hook(DeleteReadStage::ManifestBeforeOpen, None);
+            let mut manifest = match open_file_at(steamapps_fd.as_raw_fd(), &name) {
+                Ok(file) => file,
+                // manifest zwischen read_dir und openat verschwunden: skip
+                // (INV-2) statt fail — die löschpipeline revalidiert das ziel
+                // ohnehin erneut und der claim bindet die identität.
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(format!("cannot open manifest {name_string}: {error}"));
+                }
+            };
+            hook(DeleteReadStage::ManifestAfterOpen, Some(&mut manifest));
+            let content = read_fd_text_with_hook(
+                &mut manifest,
+                &format!("manifest {name_string}"),
+                MAX_DELETE_MANIFEST_BYTES,
+                hook,
+                DeleteReadStage::ManifestBeforeRead,
+            )
+            .map_err(|error| {
+                if error.contains("exceeds read limit") {
+                    format!("manifest {name_string} exceeds size limit")
+                } else {
+                    error
+                }
+            })?;
             let internal_id = match vdf_patch::get_vdf_value(&content, &["AppState", "appid"])
-                .map_err(|e| format!("cannot parse manifest {name}: {e}"))?
+                .map_err(|error| format!("cannot parse manifest {name_string}: {error}"))?
             {
                 Some(value) => value,
                 None => vdf_patch::get_vdf_value(&content, &["AppState", "AppId"])
-                    .map_err(|e| format!("cannot parse manifest {name}: {e}"))?
-                    .ok_or_else(|| format!("manifest {name} has no AppState appid"))?,
+                    .map_err(|error| format!("cannot parse manifest {name_string}: {error}"))?
+                    .ok_or_else(|| format!("manifest {name_string} has no AppState appid"))?,
             };
             let internal_id = crate::commands::scope::parse_app_id(internal_id.trim())
-                .map_err(|_| format!("manifest {name} has invalid appid"))?;
+                .map_err(|_| format!("manifest {name_string} has invalid appid"))?;
             if file_id != internal_id {
                 return Err(format!(
-                    "manifest {name} filename/appid mismatch ({file_id} != {internal_id})"
+                    "manifest {name_string} filename/appid mismatch ({file_id} != {internal_id})"
                 ));
             }
             if internal_id == app_id {
@@ -1147,6 +1269,12 @@ const MAX_BINARY_VDF_DEPTH: usize = 64;
 /// Grössenlimit für shortcuts.vdf-reads im delete-pipeline (analog zu den
 /// 16-MiB-caps der übrigen environment-reads).
 const MAX_SHORTCUTS_VDF_BYTES: u64 = 16 * 1024 * 1024;
+
+/// Caps für die delete-pipeline-reads: appmanifeste (analog 1-MiB-read im
+/// valve-pfad) und config.vdf. ohne cap könnte eine präparierte datei jeden
+/// löschversuch in eine voll-allokation (oom) treiben.
+const MAX_DELETE_MANIFEST_BYTES: u64 = 1024 * 1024;
+const MAX_DELETE_CONFIG_BYTES: u64 = 16 * 1024 * 1024;
 
 fn skip_binary_value(buf: &[u8], pos: usize, val_type: u8, depth: usize) -> Result<usize, String> {
     match val_type {
@@ -1243,130 +1371,160 @@ pub(super) fn parse_binary_shortcut_ids(buf: &[u8]) -> Result<HashSet<u32>, Stri
     Ok(ids)
 }
 
-pub(super) fn read_all_shortcut_app_ids(steam_root: &Path) -> Result<HashSet<u32>, String> {
-    let userdata_dir = steam_root.join("userdata");
-    match fs::symlink_metadata(&userdata_dir) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(HashSet::new()),
-        Err(error) => return Err(format!("cannot inspect userdata directory: {error}")),
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            return Err("userdata directory is a symlink".into())
-        }
-        Ok(metadata) if !metadata.is_dir() => return Err("userdata is not a directory".into()),
-        Ok(_) => {}
+#[cfg(test)]
+fn read_all_shortcut_app_ids(steam_root: &Path) -> Result<HashSet<u32>, String> {
+    #[cfg(target_os = "linux")]
+    {
+        let canonical_root = fs::canonicalize(steam_root)
+            .map_err(|error| format!("cannot canonicalize Steam root: {error}"))?;
+        let root_fd = open_bound_root_fd(&canonical_root, &mut || {})?;
+        let mut no_hook = |_: DeleteReadStage, _: Option<&mut std::fs::File>| {};
+        read_all_shortcut_app_ids_linux_with_hook(&root_fd, &mut no_hook)
     }
 
-    let entries =
-        fs::read_dir(&userdata_dir).map_err(|e| format!("cannot read userdata directory: {e}"))?;
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = steam_root;
+        Err(delete_inspection_unsupported())
+    }
+}
 
+#[cfg(target_os = "linux")]
+fn read_all_shortcut_app_ids_linux_with_hook<F>(
+    steam_root_fd: &OwnedFd,
+    hook: &mut F,
+) -> Result<HashSet<u32>, String>
+where
+    F: FnMut(DeleteReadStage, Option<&mut std::fs::File>),
+{
+    let userdata_fd = match open_dir_at(steam_root_fd.as_raw_fd(), OsStr::new("userdata")) {
+        Ok(fd) => fd,
+        // fehlendes userdata bedeutet, dass keine shortcuts bekannt sind.
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(HashSet::new()),
+        Err(error) => return Err(format!("cannot open userdata directory: {error}")),
+    };
+
+    let proc_dir = Path::new("/proc/self/fd").join(userdata_fd.as_raw_fd().to_string());
+    let entries = fs::read_dir(&proc_dir)
+        .map_err(|error| format!("cannot read userdata directory: {error}"))?;
     let mut all_ids = HashSet::new();
     for entry in entries {
-        let entry = entry.map_err(|e| format!("cannot read userdata entry: {e}"))?;
+        let entry = entry.map_err(|error| format!("cannot read userdata entry: {error}"))?;
         let entry_type = entry
             .file_type()
-            .map_err(|e| format!("cannot inspect userdata entry: {e}"))?;
+            .map_err(|error| format!("cannot inspect userdata entry: {error}"))?;
         if entry_type.is_symlink() {
             return Err(format!(
                 "userdata entry {} is a symlink",
                 entry.path().display()
             ));
         }
-        if entry_type.is_dir() {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if name_str.chars().all(|c| c.is_ascii_digit()) {
-                let config_dir = entry.path().join("config");
-                match fs::symlink_metadata(&config_dir) {
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-                    Err(error) => {
-                        return Err(format!("cannot inspect {}: {error}", config_dir.display()))
-                    }
-                    Ok(metadata) if metadata.file_type().is_symlink() => {
-                        return Err(format!(
-                            "userdata config is a symlink: {}",
-                            config_dir.display()
-                        ))
-                    }
-                    Ok(metadata) if !metadata.is_dir() => {
-                        return Err(format!(
-                            "userdata config is not a directory: {}",
-                            config_dir.display()
-                        ))
-                    }
-                    Ok(_) => {}
-                }
-                let shortcuts_vdf = config_dir.join("shortcuts.vdf");
-                match fs::symlink_metadata(&shortcuts_vdf) {
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-                    Err(error) => {
-                        return Err(format!(
-                            "cannot inspect {}: {error}",
-                            shortcuts_vdf.display()
-                        ))
-                    }
-                    Ok(metadata) if metadata.file_type().is_symlink() => {
-                        return Err(format!(
-                            "shortcuts.vdf is a symlink: {}",
-                            shortcuts_vdf.display()
-                        ))
-                    }
-                    Ok(metadata) if !metadata.is_file() => {
-                        return Err(format!(
-                            "shortcuts.vdf is not a regular file: {}",
-                            shortcuts_vdf.display()
-                        ))
-                    }
-                    Ok(metadata) if metadata.len() > MAX_SHORTCUTS_VDF_BYTES => {
-                        return Err(format!(
-                            "shortcuts.vdf is too large: {}",
-                            shortcuts_vdf.display()
-                        ))
-                    }
-                    Ok(_) => {
-                        let bytes = fs::read(&shortcuts_vdf)
-                            .map_err(|e| format!("cannot read {}: {e}", shortcuts_vdf.display()))?;
-                        let ids = parse_binary_shortcut_ids(&bytes).map_err(|e| {
-                            format!("failed to parse {}: {e}", shortcuts_vdf.display())
-                        })?;
-                        all_ids.extend(ids);
-                    }
-                }
-            }
+        if !entry_type.is_dir() {
+            continue;
         }
+
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if !name_str.chars().all(|character| character.is_ascii_digit()) {
+            continue;
+        }
+        let account_fd = match open_dir_at(userdata_fd.as_raw_fd(), &name) {
+            Ok(fd) => fd,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("cannot open userdata account: {error}")),
+        };
+        let config_fd = match open_dir_at(account_fd.as_raw_fd(), OsStr::new("config")) {
+            Ok(fd) => fd,
+            // fehlendes account/config bedeutet, dass dieser account keine
+            // shortcuts beitragen kann.
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("cannot open userdata config: {error}")),
+        };
+
+        hook(DeleteReadStage::ShortcutsBeforeOpen, None);
+        let mut shortcuts = match open_file_at(config_fd.as_raw_fd(), OsStr::new("shortcuts.vdf")) {
+            Ok(file) => file,
+            // fehlende shortcuts.vdf bleibt ein skip wie im bisherigen Pfad.
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("cannot open shortcuts.vdf: {error}")),
+        };
+        hook(DeleteReadStage::ShortcutsAfterOpen, Some(&mut shortcuts));
+        let bytes = read_fd_bytes_with_hook(
+            &mut shortcuts,
+            "shortcuts.vdf",
+            MAX_SHORTCUTS_VDF_BYTES,
+            hook,
+            DeleteReadStage::ShortcutsBeforeRead,
+        )
+        .map_err(|error| {
+            if error.contains("exceeds read limit") {
+                "shortcuts.vdf is too large".to_string()
+            } else {
+                format!("cannot read shortcuts.vdf: {error}")
+            }
+        })?;
+        let ids = parse_binary_shortcut_ids(&bytes)
+            .map_err(|error| format!("failed to parse shortcuts.vdf: {error}"))?;
+        all_ids.extend(ids);
     }
 
     Ok(all_ids)
 }
 
 /// Findet alle AppIDs in `config.vdf`, die für das angegebene Tool konfiguriert sind.
-pub(super) fn find_apps_using_compat_tool(
-    steam_root: &Path,
-    tool_name: &str,
-) -> Result<Vec<u32>, String> {
-    let config_dir = steam_root.join("config");
-    match fs::symlink_metadata(&config_dir) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(format!("cannot inspect config directory: {error}")),
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            return Err("config directory is a symlink".into())
-        }
-        Ok(metadata) if !metadata.is_dir() => return Err("config is not a directory".into()),
-        Ok(_) => {}
-    }
-    let config_vdf = config_dir.join("config.vdf");
-    match fs::symlink_metadata(&config_vdf) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(format!("cannot inspect config.vdf: {error}")),
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            return Err("config.vdf is a symlink".into())
-        }
-        Ok(metadata) if !metadata.is_file() => {
-            return Err("config.vdf is not a regular file".into())
-        }
-        Ok(_) => {}
+#[cfg(test)]
+fn find_apps_using_compat_tool(steam_root: &Path, tool_name: &str) -> Result<Vec<u32>, String> {
+    #[cfg(target_os = "linux")]
+    {
+        let canonical_root = fs::canonicalize(steam_root)
+            .map_err(|error| format!("cannot canonicalize Steam root: {error}"))?;
+        let root_fd = open_bound_root_fd(&canonical_root, &mut || {})?;
+        let mut no_hook = |_: DeleteReadStage, _: Option<&mut std::fs::File>| {};
+        find_apps_using_compat_tool_linux_with_hook(&root_fd, tool_name, &mut no_hook)
     }
 
-    let content =
-        fs::read_to_string(&config_vdf).map_err(|e| format!("cannot read config.vdf: {e}"))?;
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (steam_root, tool_name);
+        Err(delete_inspection_unsupported())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn find_apps_using_compat_tool_linux_with_hook<F>(
+    steam_root_fd: &OwnedFd,
+    tool_name: &str,
+    hook: &mut F,
+) -> Result<Vec<u32>, String>
+where
+    F: FnMut(DeleteReadStage, Option<&mut std::fs::File>),
+{
+    let config_fd = match open_dir_at(steam_root_fd.as_raw_fd(), OsStr::new("config")) {
+        Ok(fd) => fd,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("cannot open config directory: {error}")),
+    };
+    hook(DeleteReadStage::ConfigBeforeOpen, None);
+    let mut config_vdf = match open_file_at(config_fd.as_raw_fd(), OsStr::new("config.vdf")) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("cannot open config.vdf: {error}")),
+    };
+    hook(DeleteReadStage::ConfigAfterOpen, Some(&mut config_vdf));
+    let content = read_fd_text_with_hook(
+        &mut config_vdf,
+        "config.vdf",
+        MAX_DELETE_CONFIG_BYTES,
+        hook,
+        DeleteReadStage::ConfigBeforeRead,
+    )
+    .map_err(|error| {
+        if error.contains("exceeds read limit") {
+            "config.vdf exceeds size limit".to_string()
+        } else {
+            error
+        }
+    })?;
 
     let tokens =
         vdf_patch::tokenize(&content).map_err(|e| format!("cannot tokenize config.vdf: {e}"))?;
@@ -1454,13 +1612,49 @@ pub(super) fn inspect_deletion_target(
     target_path_str: &str,
     scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
 ) -> Result<DeletionInspection, String> {
+    #[cfg(target_os = "linux")]
+    {
+        let mut no_hook = |_: DeleteReadStage, _: Option<&mut std::fs::File>| {};
+        inspect_deletion_target_linux_with_hook(
+            steam_root_str,
+            target_type,
+            target_path_str,
+            scope_ok,
+            &mut no_hook,
+        )
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (steam_root_str, target_type, target_path_str, scope_ok);
+        Err(delete_inspection_unsupported())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn inspect_deletion_target_linux_with_hook<F>(
+    steam_root_str: &str,
+    target_type: &str,
+    target_path_str: &str,
+    scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
+    hook: &mut F,
+) -> Result<DeletionInspection, String>
+where
+    F: FnMut(DeleteReadStage, Option<&mut std::fs::File>),
+{
     sanitize_path(steam_root_str, "steam root")?;
     sanitize_path(target_path_str, "deletion target")?;
 
-    let steam_root = Path::new(steam_root_str);
-    if !scope_ok(steam_root) {
+    let steam_root_input = Path::new(steam_root_str);
+    if !scope_ok(steam_root_input) {
         return Err("steam root outside allowed scope".into());
     }
+    let steam_root = fs::canonicalize(steam_root_input)
+        .map_err(|error| format!("cannot canonicalize Steam root: {error}"))?;
+    if !scope_ok(&steam_root) {
+        return Err("steam root outside allowed scope".into());
+    }
+    let steam_root_fd = open_bound_root_fd(&steam_root, &mut || {})?;
 
     let canonical = crate::commands::path::canonicalize_no_symlink(target_path_str)?;
     let canon_str = canonical.to_string_lossy();
@@ -1502,7 +1696,7 @@ pub(super) fn inspect_deletion_target(
             )?;
             let app_id = crate::commands::scope::parse_app_id(app_id_str)?;
 
-            let libraries = read_library_folders(steam_root)?;
+            let libraries = read_library_folders(&steam_root)?;
 
             let lib_str = crate::commands::scope::library_of(&canon_str)?;
             let lib_path = PathBuf::from(lib_str);
@@ -1510,13 +1704,13 @@ pub(super) fn inspect_deletion_target(
                 return Err("target library is not listed in libraryfolders.vdf".into());
             }
 
-            if is_app_installed_in_libraries(&libraries, app_id)? {
+            if is_app_installed_in_libraries_linux_with_hook(&libraries, app_id, hook)? {
                 return Err(format!(
                     "target is not an orphan: app {app_id} is currently installed"
                 ));
             }
 
-            let shortcut_ids = read_all_shortcut_app_ids(steam_root)?;
+            let shortcut_ids = read_all_shortcut_app_ids_linux_with_hook(&steam_root_fd, hook)?;
             if shortcut_ids.contains(&app_id) {
                 return Err(format!(
                     "target is not an orphan: app {app_id} exists as a non-steam shortcut"
@@ -1592,7 +1786,8 @@ pub(super) fn inspect_deletion_target(
                 return Err("compat tool must be directly inside compatibilitytools.d".into());
             }
 
-            let affected_apps = find_apps_using_compat_tool(steam_root, tool_name)?;
+            let affected_apps =
+                find_apps_using_compat_tool_linux_with_hook(&steam_root_fd, tool_name, hook)?;
             let consequences = vec![DeleteConsequence {
                 path: canon_str.to_string(),
                 action: "permanentDelete".to_string(),
@@ -1615,6 +1810,26 @@ pub(super) fn inspect_deletion_target(
         }
         _ => Err(format!("unknown target type: {target_type}")),
     }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) fn inspect_deletion_target_with_test_hook<F>(
+    steam_root_str: &str,
+    target_type: &str,
+    target_path_str: &str,
+    scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
+    hook: &mut F,
+) -> Result<DeletionInspection, String>
+where
+    F: FnMut(DeleteReadStage, Option<&mut std::fs::File>),
+{
+    inspect_deletion_target_linux_with_hook(
+        steam_root_str,
+        target_type,
+        target_path_str,
+        scope_ok,
+        hook,
+    )
 }
 
 #[tauri::command]
@@ -2794,10 +3009,273 @@ mod tests {
         // symlink-steamapps bleibt anomalie -> abgelehnt.
         let symlink_steamapps = root.join("symlinklib");
         std::fs::create_dir_all(&symlink_steamapps).unwrap();
-        std::os::unix::fs::symlink(present.join("steamapps"), symlink_steamapps.join("steamapps"))
-            .unwrap();
+        std::os::unix::fs::symlink(
+            present.join("steamapps"),
+            symlink_steamapps.join("steamapps"),
+        )
+        .unwrap();
         let symlink_libs = vec![symlink_steamapps];
         assert!(is_app_installed_in_libraries(&symlink_libs, 570).is_err());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn uebergrosses_manifest_blockiert_delete_inspektion() {
+        let root = wsg_fixture("app-installed-oversized");
+        let lib = root.join("lib");
+        let steamapps = lib.join("steamapps");
+        std::fs::create_dir_all(&steamapps).unwrap();
+        let oversized = vec![b'x'; (MAX_DELETE_MANIFEST_BYTES + 1) as usize];
+        std::fs::write(steamapps.join("appmanifest_570.acf"), oversized).unwrap();
+
+        let error = is_app_installed_in_libraries(&[lib], 570).unwrap_err();
+        assert!(error.contains("exceeds size limit"), "error: {error}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn uebergrosse_config_vdf_blockiert_compat_tool_suche() {
+        let root = wsg_fixture("config-vdf-oversized");
+        let steam_root = root.join("steam");
+        std::fs::create_dir_all(steam_root.join("config")).unwrap();
+        let oversized = vec![b'x'; (MAX_DELETE_CONFIG_BYTES + 1) as usize];
+        std::fs::write(steam_root.join("config/config.vdf"), oversized).unwrap();
+
+        let error = find_apps_using_compat_tool(&steam_root, "GE-Proton9-27").unwrap_err();
+        assert!(error.contains("exceeds size limit"), "error: {error}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn delete_reads_begrenzen_wachstum_nach_fd_pruefung() {
+        let root = wsg_fixture("delete-read-growth");
+
+        let library = root.join("library");
+        let manifest_dir = library.join("steamapps");
+        std::fs::create_dir_all(&manifest_dir).unwrap();
+        std::fs::write(
+            manifest_dir.join("appmanifest_570.acf"),
+            "\"AppState\" { \"appid\" \"570\" }",
+        )
+        .unwrap();
+        let manifest_path = manifest_dir.join("appmanifest_570.acf");
+        let mut manifest_hook = |stage: DeleteReadStage, _file: Option<&mut std::fs::File>| {
+            if stage == DeleteReadStage::ManifestBeforeRead {
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&manifest_path)
+                    .unwrap()
+                    .set_len(MAX_DELETE_MANIFEST_BYTES + 1)
+                    .unwrap();
+            }
+        };
+        let manifest_error =
+            is_app_installed_in_libraries_linux_with_hook(&[library], 570, &mut manifest_hook)
+                .unwrap_err();
+        assert!(
+            manifest_error.contains("exceeds size limit"),
+            "error: {manifest_error}"
+        );
+
+        let steam = root.join("steam");
+        let config_dir = steam.join("config");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(config_dir.join("config.vdf"), "\"InstallConfigStore\" {}\n").unwrap();
+        let steam = std::fs::canonicalize(&steam).unwrap();
+        let root_fd = open_bound_root_fd(&steam, &mut || {}).unwrap();
+        let config_path = config_dir.join("config.vdf");
+        let mut config_hook = |stage: DeleteReadStage, _file: Option<&mut std::fs::File>| {
+            if stage == DeleteReadStage::ConfigBeforeRead {
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&config_path)
+                    .unwrap()
+                    .set_len(MAX_DELETE_CONFIG_BYTES + 1)
+                    .unwrap();
+            }
+        };
+        let config_error = find_apps_using_compat_tool_linux_with_hook(
+            &root_fd,
+            "GE-Proton9-27",
+            &mut config_hook,
+        )
+        .unwrap_err();
+        assert!(
+            config_error.contains("exceeds size limit"),
+            "error: {config_error}"
+        );
+
+        let shortcut_dir = steam.join("userdata/123/config");
+        std::fs::create_dir_all(&shortcut_dir).unwrap();
+        std::fs::write(
+            shortcut_dir.join("shortcuts.vdf"),
+            make_test_bin_shortcuts(&[42]),
+        )
+        .unwrap();
+        let shortcuts_path = shortcut_dir.join("shortcuts.vdf");
+        let mut shortcuts_hook = |stage: DeleteReadStage, _file: Option<&mut std::fs::File>| {
+            if stage == DeleteReadStage::ShortcutsBeforeRead {
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&shortcuts_path)
+                    .unwrap()
+                    .set_len(MAX_SHORTCUTS_VDF_BYTES + 1)
+                    .unwrap();
+            }
+        };
+        let shortcuts_root_fd = open_bound_root_fd(&steam, &mut || {}).unwrap();
+        let shortcuts_error =
+            read_all_shortcut_app_ids_linux_with_hook(&shortcuts_root_fd, &mut shortcuts_hook)
+                .unwrap_err();
+        assert!(
+            shortcuts_error.contains("too large"),
+            "error: {shortcuts_error}"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn manifest_read_bleibt_am_geoeffneten_fd_bei_pfadtausch() {
+        let root = wsg_fixture("manifest-fd-swap");
+        let library = root.join("library");
+        let steamapps = library.join("steamapps");
+        std::fs::create_dir_all(&steamapps).unwrap();
+        let manifest = steamapps.join("appmanifest_570.acf");
+        std::fs::write(&manifest, "\"AppState\" { \"appid\" \"570\" }").unwrap();
+
+        let before_path = manifest.clone();
+        let mut before_open = |stage: DeleteReadStage, _: Option<&mut std::fs::File>| {
+            if stage == DeleteReadStage::ManifestBeforeOpen {
+                let old = before_path.with_extension("old");
+                std::fs::rename(&before_path, old).unwrap();
+                std::fs::File::create(&before_path)
+                    .unwrap()
+                    .set_len(MAX_DELETE_MANIFEST_BYTES + 1)
+                    .unwrap();
+            }
+        };
+        let error = is_app_installed_in_libraries_linux_with_hook(
+            std::slice::from_ref(&library),
+            570,
+            &mut before_open,
+        )
+        .unwrap_err();
+        assert!(error.contains("exceeds size limit"), "error: {error}");
+
+        std::fs::write(&manifest, "\"AppState\" { \"appid\" \"570\" }").unwrap();
+        let after_path = manifest.clone();
+        let mut after_open = |stage: DeleteReadStage, _: Option<&mut std::fs::File>| {
+            if stage == DeleteReadStage::ManifestAfterOpen {
+                let old = after_path.with_extension("bound");
+                // defensiv: readdir-lieferung unter modifikation ist nicht
+                // spezifiziert; ein zweiter slot darf nicht am fehlenden
+                // original paniken.
+                if std::fs::rename(&after_path, &old).is_ok() {
+                    std::fs::write(&after_path, "\"AppState\" { \"appid\" \"999\" }").unwrap();
+                }
+            }
+        };
+        assert!(
+            is_app_installed_in_libraries_linux_with_hook(&[library], 570, &mut after_open,)
+                .unwrap()
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn config_read_bleibt_am_geoeffneten_fd_bei_pfadtausch() {
+        let root = wsg_fixture("config-fd-swap");
+        let steam = root.join("steam");
+        let config_dir = steam.join("config");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let config = config_dir.join("config.vdf");
+        let content = "\"InstallConfigStore\" { \"Software\" { \"Valve\" { \"Steam\" { \"CompatToolMapping\" { \"620\" { \"name\" \"GE-Proton9-27\" } } } } } }";
+        std::fs::write(&config, content).unwrap();
+        let steam = std::fs::canonicalize(&steam).unwrap();
+        let root_fd = open_bound_root_fd(&steam, &mut || {}).unwrap();
+
+        let before_path = config.clone();
+        let mut before_open = |stage: DeleteReadStage, _: Option<&mut std::fs::File>| {
+            if stage == DeleteReadStage::ConfigBeforeOpen {
+                let old = before_path.with_extension("old");
+                std::fs::rename(&before_path, old).unwrap();
+                std::fs::File::create(&before_path)
+                    .unwrap()
+                    .set_len(MAX_DELETE_CONFIG_BYTES + 1)
+                    .unwrap();
+            }
+        };
+        let error = find_apps_using_compat_tool_linux_with_hook(
+            &root_fd,
+            "GE-Proton9-27",
+            &mut before_open,
+        )
+        .unwrap_err();
+        assert!(error.contains("exceeds size limit"), "error: {error}");
+
+        std::fs::write(&config, content).unwrap();
+        let after_path = config.clone();
+        let mut after_open = |stage: DeleteReadStage, _: Option<&mut std::fs::File>| {
+            if stage == DeleteReadStage::ConfigAfterOpen {
+                let old = after_path.with_extension("bound");
+                std::fs::rename(&after_path, old).unwrap();
+                std::fs::write(&after_path, "\"InstallConfigStore\" {}").unwrap();
+            }
+        };
+        assert_eq!(
+            find_apps_using_compat_tool_linux_with_hook(&root_fd, "GE-Proton9-27", &mut after_open)
+                .unwrap(),
+            vec![620]
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn shortcuts_read_bleibt_am_geoeffneten_fd_bei_pfadtausch() {
+        let root = wsg_fixture("shortcuts-fd-swap");
+        let steam = root.join("steam");
+        let config_dir = steam.join("userdata/123/config");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let shortcuts = config_dir.join("shortcuts.vdf");
+        std::fs::write(&shortcuts, make_test_bin_shortcuts(&[42])).unwrap();
+        let steam = std::fs::canonicalize(&steam).unwrap();
+        let root_fd = open_bound_root_fd(&steam, &mut || {}).unwrap();
+
+        let before_path = shortcuts.clone();
+        let mut before_open = |stage: DeleteReadStage, _: Option<&mut std::fs::File>| {
+            if stage == DeleteReadStage::ShortcutsBeforeOpen {
+                let old = before_path.with_extension("old");
+                std::fs::rename(&before_path, old).unwrap();
+                std::fs::File::create(&before_path)
+                    .unwrap()
+                    .set_len(MAX_SHORTCUTS_VDF_BYTES + 1)
+                    .unwrap();
+            }
+        };
+        let error =
+            read_all_shortcut_app_ids_linux_with_hook(&root_fd, &mut before_open).unwrap_err();
+        assert!(error.contains("too large"), "error: {error}");
+
+        std::fs::write(&shortcuts, make_test_bin_shortcuts(&[42])).unwrap();
+        let after_path = shortcuts.clone();
+        let mut after_open = |stage: DeleteReadStage, _: Option<&mut std::fs::File>| {
+            if stage == DeleteReadStage::ShortcutsAfterOpen {
+                let old = after_path.with_extension("bound");
+                std::fs::rename(&after_path, old).unwrap();
+                std::fs::write(&after_path, b"not-a-shortcuts-vdf").unwrap();
+            }
+        };
+        assert!(
+            read_all_shortcut_app_ids_linux_with_hook(&root_fd, &mut after_open)
+                .unwrap()
+                .contains(&42)
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }

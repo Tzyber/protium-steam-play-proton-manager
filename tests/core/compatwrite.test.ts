@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { removeCompatTool, writeCompatTool } from "../../src/core/compatwrite.js";
 import { getVdfValue } from "../../src/core/vdfpatch.js";
 import { fakeSystem } from "../support/fakeSteam.js";
 
@@ -48,7 +47,7 @@ describe("writeCompatTool", () => {
     const root = await setupSteam(dir);
     const configPath = join(root, "config", "config.vdf");
 
-    const result = await writeCompatTool({ system: fakeSystem() }, root, 730, "custom-proton-99");
+    const result = await fakeSystem().saveCompatTool(root, 730, "custom-proton-99");
 
     expect(result).toBe("written");
     const text = await readFile(configPath, "utf8");
@@ -64,7 +63,7 @@ describe("writeCompatTool", () => {
     const configPath = join(root, "config", "config.vdf");
     const original = await readFile(configPath, "utf8");
 
-    const result = await writeCompatTool({ system: fakeSystem() }, root, 620, "GE-Proton9-27");
+    const result = await fakeSystem().saveCompatTool(root, 620, "GE-Proton9-27");
 
     expect(result).toBe("unchanged");
     expect(await readFile(configPath, "utf8")).toBe(original);
@@ -76,7 +75,7 @@ describe("writeCompatTool", () => {
     const root = await setupSteam(dir);
     const configPath = join(root, "config", "config.vdf");
 
-    const result = await writeCompatTool({ system: fakeSystem() }, root, 620, "OtherTool");
+    const result = await fakeSystem().saveCompatTool(root, 620, "OtherTool");
 
     expect(result).toBe("written");
     const text = await readFile(configPath, "utf8");
@@ -115,7 +114,7 @@ describe("writeCompatTool", () => {
     const configPath = join(root, "config", "config.vdf");
     await writeFile(configPath, withExtras, "utf8");
 
-    await writeCompatTool({ system: fakeSystem() }, root, 620, "NewTool");
+    await fakeSystem().saveCompatTool(root, 620, "NewTool");
 
     const text = await readFile(configPath, "utf8");
     expect(getVdfValue(text, [...C_PATH, "620", "name"])).toBe("NewTool");
@@ -127,8 +126,8 @@ describe("writeCompatTool", () => {
     const dir = await tmp();
     const root = await setupSteam(dir);
 
-    await writeCompatTool({ system: fakeSystem() }, root, 730, "tmp");
-    const result = await removeCompatTool({ system: fakeSystem() }, root, 730);
+    await fakeSystem().saveCompatTool(root, 730, "tmp");
+    const result = await fakeSystem().saveCompatTool(root, 730, null);
 
     expect(result).toBe("written");
     const text = await readFile(join(root, "config", "config.vdf"), "utf8");
@@ -143,9 +142,7 @@ describe("writeCompatTool", () => {
     const original = await readFile(configPath, "utf8");
     const steamSystem = { ...fakeSystem(), isProcessRunning: async () => true };
 
-    await expect(writeCompatTool({ system: steamSystem }, root, 730, "foo")).rejects.toThrow(
-      "steam is running",
-    );
+    await expect(steamSystem.saveCompatTool(root, 730, "foo")).rejects.toThrow("steam is running");
     expect(await readFile(configPath, "utf8")).toBe(original);
   });
 });
@@ -156,7 +153,7 @@ describe("removeCompatTool", () => {
     const root = await setupSteam(dir);
     const configPath = join(root, "config", "config.vdf");
 
-    const result = await removeCompatTool({ system: fakeSystem() }, root, 620);
+    const result = await fakeSystem().saveCompatTool(root, 620, null);
 
     expect(result).toBe("written");
     const text = await readFile(configPath, "utf8");
@@ -171,7 +168,7 @@ describe("removeCompatTool", () => {
     const configPath = join(root, "config", "config.vdf");
     const original = await readFile(configPath, "utf8");
 
-    const result = await removeCompatTool({ system: fakeSystem() }, root, 999);
+    const result = await fakeSystem().saveCompatTool(root, 999, null);
 
     expect(result).toBe("unchanged");
     expect(await readFile(configPath, "utf8")).toBe(original);

@@ -343,6 +343,7 @@ const tabLabel = (id: Tab) =>
             </button>
           </li>
         </ul>
+        <div v-else-if="cleanup.scanning" class="empty">{{ t("cleanup.searching") }}</div>
         <div v-else class="empty">{{ t("cleanup.empty") }}</div>
       </div>
 
@@ -402,6 +403,7 @@ const tabLabel = (id: Tab) =>
             </button>
           </li>
         </ul>
+        <div v-else-if="cleanup.scanning" class="empty">{{ t("cleanup.searching") }}</div>
         <div v-else class="empty">{{ t("cleanup.empty") }}</div>
       </div>
 

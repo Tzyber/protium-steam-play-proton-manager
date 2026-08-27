@@ -13,7 +13,6 @@ describe("scan config", () => {
 
     expect(result.mapping).toEqual(new Map());
     expect(result.compatConfigStatus).toBe("missing");
-    expect(result.mappingUsable).toBe(false);
     expect(result.warnings).toEqual([
       {
         type: "compat-config",
@@ -32,7 +31,6 @@ describe("scan config", () => {
 
     expect(result.mapping).toEqual(new Map());
     expect(result.compatConfigStatus).toBe("available");
-    expect(result.mappingUsable).toBe(true);
     expect(result.warnings).toEqual([]);
   });
 
@@ -44,7 +42,6 @@ describe("scan config", () => {
 
     expect(result.mapping).toEqual(new Map());
     expect(result.compatConfigStatus).toBe("unreadable");
-    expect(result.mappingUsable).toBe(false);
     expect(result.warnings).toEqual([
       {
         type: "compat-config",

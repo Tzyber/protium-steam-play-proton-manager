@@ -72,7 +72,10 @@ function onListKeydown(e: KeyboardEvent) {
     const o = props.options[ho.value];
     if (o) select(o.value);
   } else if (e.key === "Escape") {
+    // stopPropagation: sonst schließt das event auch den drawer-keydown
+    // (ESC schließt den drawer), obwohl nur die listbox zu schließen war.
     e.preventDefault();
+    e.stopPropagation();
     open.value = false;
     nextTick(() => btnRef.value?.focus());
   }

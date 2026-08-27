@@ -1,7 +1,6 @@
 // ports-implementierung gegen tauri-plugins + rust-commands.
 // Einzige Datei mit Tauri-Imports auf der Core-Seite.
 import { invoke } from "@tauri-apps/api/core";
-import { appCacheDir } from "@tauri-apps/api/path";
 import {
   BaseDirectory,
   exists as fsExists,
@@ -52,15 +51,37 @@ const fs: FileSystem = {
   mkdir: (path) => mkdir(path, { recursive: true }),
 };
 
+// plugin-http kennt nur connectTimeout, keinen read-timeout: ein server, der
+// die verbindung annimmt und nichts sendet, würde den aufrufer sonst endlos
+// hängen lassen (INV-3). der timer umfasst fetch UND body-read.
+const HTTP_TIMEOUT_MS = 30_000;
+
 const http: Http = {
   async get(url, opts) {
-    const res = await tauriFetch(url, { method: "GET", headers: opts?.headers });
-    const text = await res.text();
-    const headers: Record<string, string> = {};
-    res.headers.forEach((v, k) => {
-      headers[k.toLowerCase()] = v;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("HTTP request timed out")), HTTP_TIMEOUT_MS);
     });
-    return { status: res.status, ok: res.ok, text, headers } satisfies HttpResponse;
+    try {
+      return await Promise.race([
+        (async () => {
+          const res = await tauriFetch(url, {
+            method: "GET",
+            headers: opts?.headers,
+            connectTimeout: 10_000,
+          });
+          const text = await res.text();
+          const headers: Record<string, string> = {};
+          res.headers.forEach((v, k) => {
+            headers[k.toLowerCase()] = v;
+          });
+          return { status: res.status, ok: res.ok, text, headers } satisfies HttpResponse;
+        })(),
+        timeout,
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   },
 };
 
@@ -158,8 +179,6 @@ const cache: Cache = {
 };
 
 export const tauriPorts: Ports = { fs, http, system, cache };
-
-export { appCacheDir };
 
 /** url im system-browser öffnen (eigener command: host-xdg-open, nicht
  * plugin-opener, dessen PATH-lookup nimmt im appimage das gebündelte

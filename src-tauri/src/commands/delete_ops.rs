@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::commands::scope::EnvironmentState;
-use crate::commands::steam::{inspect_deletion_target, DeleteConsequence};
+use crate::commands::steam::{inspect_deletion_target, DeleteConsequence, DeletionInspection};
 
 pub const DELETE_TOKEN_TTL_SECS: u64 = 60;
 pub const MAX_PENDING_DELETES: usize = 32;
@@ -163,11 +163,13 @@ fn renameat2_no_replace(
     source_name: &OsStr,
     target_dir: &fs::File,
     target_name: &OsStr,
-) -> Result<(), String> {
+) -> Result<(), std::io::Error> {
     use std::os::fd::AsRawFd;
 
-    let source_name = os_name(source_name, "delete source name")?;
-    let target_name = os_name(target_name, "delete target name")?;
+    let source_name = os_name(source_name, "delete source name")
+        .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
+    let target_name = os_name(target_name, "delete target name")
+        .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
     let result = unsafe {
         libc::syscall(
             libc::SYS_renameat2,
@@ -179,7 +181,7 @@ fn renameat2_no_replace(
         )
     };
     if result < 0 {
-        return Err(std::io::Error::last_os_error().to_string());
+        return Err(std::io::Error::last_os_error());
     }
     Ok(())
 }
@@ -263,7 +265,7 @@ fn claim_delete_target(pending: &PendingDelete) -> Result<ClaimedDeleteTarget, S
                     name: claim_name,
                 });
             }
-            Err(error) if error.contains("File exists") => continue,
+            Err(error) if error.raw_os_error() == Some(libc::EEXIST) => continue,
             Err(error) => return Err(format!("cannot claim delete target: {error}")),
         }
     }
@@ -337,6 +339,14 @@ pub(super) fn prepare_delete_inner(
         &request.path,
         scope_ok,
     )?;
+    prepare_delete_with_inspection(registry, request, inspection)
+}
+
+fn prepare_delete_with_inspection(
+    registry: &PendingDeleteRegistry,
+    request: &PrepareDeleteRequest,
+    inspection: DeletionInspection,
+) -> Result<PendingDeleteInfo, String> {
     let canonical_path = PathBuf::from(&inspection.canonical_path);
     let target_name = canonical_path
         .file_name()
@@ -404,6 +414,32 @@ pub(super) fn prepare_delete_inner(
         target_path: request.path.clone(),
         consequences: inspection.consequences,
     })
+}
+
+#[cfg(all(test, target_os = "linux"))]
+fn prepare_delete_inner_with_hook<F>(
+    registry: &PendingDeleteRegistry,
+    request: &PrepareDeleteRequest,
+    scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
+    is_steam_running_fn: impl Fn() -> Result<bool, String>,
+    hook: &mut F,
+) -> Result<PendingDeleteInfo, String>
+where
+    F: FnMut(crate::commands::steam::DeleteReadStage, Option<&mut std::fs::File>),
+{
+    let steam_running = is_steam_running_fn()?;
+    if request.target_type != "trash" && steam_running {
+        return Err("steam is running, deletion refused".into());
+    }
+
+    let inspection = crate::commands::steam::inspect_deletion_target_with_test_hook(
+        &request.steam_root,
+        &request.target_type,
+        &request.path,
+        scope_ok,
+        hook,
+    )?;
+    prepare_delete_with_inspection(registry, request, inspection)
 }
 
 pub(crate) fn execute_delete_pipeline(
@@ -534,7 +570,6 @@ fn execute_delete_pipeline_inner(
     })
 }
 
-
 fn inspect_pending_target(
     pending: &PendingDelete,
     scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
@@ -599,12 +634,9 @@ pub async fn execute_delete(
     let snapshot = env.current()?;
     let registry = (*state).clone();
     crate::commands::spawn_blocking_io(move || {
-        execute_delete_pipeline(
-            &registry,
-            &token,
-            &|p| snapshot.authorizes(p),
-            || crate::commands::fs_ops::is_process_running_sync("steam"),
-        )
+        execute_delete_pipeline(&registry, &token, &|p| snapshot.authorizes(p), || {
+            crate::commands::fs_ops::is_process_running_sync("steam")
+        })
     })
     .await
 }
@@ -820,23 +852,12 @@ mod tests {
         assert_eq!(info.consequences[0].action, "trash");
 
         // 2. Execute 1st time -> Success
-        let res = execute_delete_pipeline(
-            &registry,
-            &info.token,
-            &|_| true,
-            || Ok(false),
-            )
-        .unwrap();
+        let res = execute_delete_pipeline(&registry, &info.token, &|_| true, || Ok(false)).unwrap();
         assert!(res.success);
         assert!(!compatdata.exists());
 
         // 3. Execute 2nd time (Replay) -> Fails with invalid token
-        let res_replay = execute_delete_pipeline(
-            &registry,
-            &info.token,
-            &|_| true,
-            || Ok(false),
-            );
+        let res_replay = execute_delete_pipeline(&registry, &info.token, &|_| true, || Ok(false));
         assert!(res_replay.is_err());
         assert!(res_replay.unwrap_err().contains("invalid deletion token"));
 
@@ -864,12 +885,7 @@ mod tests {
         map.insert("expired123".to_string(), expired_pending);
         drop(map);
 
-        let res = execute_delete_pipeline(
-            &registry,
-            "expired123",
-            &|_| true,
-            || Ok(false),
-            );
+        let res = execute_delete_pipeline(&registry, "expired123", &|_| true, || Ok(false));
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("expired"));
     }
@@ -973,7 +989,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-
     #[test]
     fn ino_mismatch_oder_symlink_mutation_zwischen_prepare_und_execute_wird_abgelehnt() {
         let root = wsg_fixture("delete-ops-inode");
@@ -1016,12 +1031,7 @@ mod tests {
             entry.ino = replacement.ino();
         }
 
-        let res = execute_delete_pipeline(
-            &registry,
-            &info.token,
-            &|_| true,
-            || Ok(false),
-            );
+        let res = execute_delete_pipeline(&registry, &info.token, &|_| true, || Ok(false));
         let error = res.unwrap_err();
         assert!(
             error.contains("identity changed"),
@@ -1035,12 +1045,7 @@ mod tests {
         std::fs::create_dir_all(&target_real).unwrap();
         std::os::unix::fs::symlink(&target_real, &compatdata).unwrap();
 
-        let res2 = execute_delete_pipeline(
-            &registry,
-            &info2.token,
-            &|_| true,
-            || Ok(false),
-            );
+        let res2 = execute_delete_pipeline(&registry, &info2.token, &|_| true, || Ok(false));
         assert!(res2.is_err());
         assert!(res2.unwrap_err().contains("symlink"));
 
@@ -1266,6 +1271,67 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn manifest_replacement_nach_openat_in_prepare_wird_vor_execute_erkannt() {
+        let (root, steam) = orphan_fixture("delete-ops-manifest-after-openat");
+        let target = steam.join("steamapps/compatdata/999999");
+        let manifest = steam.join("steamapps/appmanifest_570.acf");
+        std::fs::write(&manifest, "\"AppState\" { \"appid\" \"570\" }").unwrap();
+        let replacement = manifest.clone();
+        let mut hook = move |stage, _: Option<&mut std::fs::File>| {
+            if stage == crate::commands::steam::DeleteReadStage::ManifestAfterOpen {
+                std::fs::rename(&replacement, replacement.with_extension("bound")).unwrap();
+                std::fs::write(&replacement, "\"AppState\" { \"appid\" \"999999\" }").unwrap();
+            }
+        };
+
+        let registry = PendingDeleteRegistry::default();
+        let info = prepare_delete_inner_with_hook(
+            &registry,
+            &orphan_request(&steam),
+            &|_| true,
+            || Ok(false),
+            &mut hook,
+        )
+        .unwrap();
+
+        assert!(execute_confirmed(&registry, &info.token, || Ok(false)).is_err());
+        assert!(target.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn shortcut_replacement_nach_openat_in_prepare_wird_vor_execute_erkannt() {
+        let (root, steam) = orphan_fixture("delete-ops-shortcut-after-openat");
+        let target = steam.join("steamapps/compatdata/999999");
+        let shortcuts = steam.join("userdata/123/config/shortcuts.vdf");
+        std::fs::create_dir_all(shortcuts.parent().unwrap()).unwrap();
+        write_shortcuts_fixture(&shortcuts, 42);
+        let replacement = shortcuts.clone();
+        let mut hook = move |stage, _: Option<&mut std::fs::File>| {
+            if stage == crate::commands::steam::DeleteReadStage::ShortcutsAfterOpen {
+                std::fs::rename(&replacement, replacement.with_extension("bound")).unwrap();
+                write_shortcuts_fixture(&replacement, 999999);
+            }
+        };
+
+        let registry = PendingDeleteRegistry::default();
+        let info = prepare_delete_inner_with_hook(
+            &registry,
+            &orphan_request(&steam),
+            &|_| true,
+            || Ok(false),
+            &mut hook,
+        )
+        .unwrap();
+
+        assert!(execute_confirmed(&registry, &info.token, || Ok(false)).is_err());
+        assert!(target.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn neue_gueltige_compat_mapping_aendert_folgen_und_blockiert_delete() {
         let root = wsg_fixture("delete-ops-live-compat-valid");
@@ -1292,6 +1358,47 @@ mod tests {
             result.is_err(),
             "changed compat consequences must block delete"
         );
+        assert!(target.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn config_replacement_nach_openat_in_prepare_wird_vor_execute_erkannt() {
+        let root = wsg_fixture("delete-ops-config-after-openat");
+        let steam = root.join("steam");
+        let target = steam.join("compatibilitytools.d/GE-Proton9-27");
+        let config = steam.join("config/config.vdf");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+        std::fs::write(
+            &config,
+            "\"InstallConfigStore\" { \"Software\" { \"Valve\" { \"Steam\" { \"CompatToolMapping\" { \"620\" { \"name\" \"Other\" } } } } } }",
+        )
+        .unwrap();
+        let replacement = config.clone();
+        let mut hook = move |stage, _: Option<&mut std::fs::File>| {
+            if stage == crate::commands::steam::DeleteReadStage::ConfigAfterOpen {
+                std::fs::rename(&replacement, replacement.with_extension("bound")).unwrap();
+                std::fs::write(
+                    &replacement,
+                    "\"InstallConfigStore\" { \"Software\" { \"Valve\" { \"Steam\" { \"CompatToolMapping\" { \"620\" { \"name\" \"GE-Proton9-27\" } } } } } }",
+                )
+                .unwrap();
+            }
+        };
+        let request = PrepareDeleteRequest {
+            target_type: "compatTool".to_string(),
+            path: target.to_string_lossy().into_owned(),
+            steam_root: steam.to_string_lossy().into_owned(),
+        };
+
+        let registry = PendingDeleteRegistry::default();
+        let info =
+            prepare_delete_inner_with_hook(&registry, &request, &|_| true, || Ok(false), &mut hook)
+                .unwrap();
+
+        assert!(execute_confirmed(&registry, &info.token, || Ok(false)).is_err());
         assert!(target.exists());
         let _ = std::fs::remove_dir_all(root);
     }

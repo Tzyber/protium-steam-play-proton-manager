@@ -1,6 +1,6 @@
 // localconfig.vdf (pro steam-account): startoptionen lesen/schreiben + aktiven user finden.
 import { paths } from "./paths.js";
-import type { FileSystem, System, WriteResult } from "./ports.js";
+import type { FileSystem } from "./ports.js";
 import { NUMERIC_RE } from "./types.js";
 import { asInt, asNode, getPath, parseVdf } from "./vdf.js";
 import { getVdfValue } from "./vdfpatch.js";
@@ -83,20 +83,4 @@ export async function findActiveUser(
     return { status: "selected", userId: recent, selection: "unique" };
   }
   return { status: "selected", userId: first, selection: "ambiguous" };
-}
-
-export type LaunchWriteResult = WriteResult;
-
-/**
- * setzt die startoptionen eines spiels via Write-Gate.
- * "unchanged" = wert stand schon so drin → kein write, kein backup.
- */
-export async function writeLaunchOptions(
-  ports: { system: System },
-  steamRoot: string,
-  userId: string,
-  appId: number,
-  value: string,
-): Promise<LaunchWriteResult> {
-  return ports.system.saveLaunchOptions(steamRoot, userId, appId, value);
 }

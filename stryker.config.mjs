@@ -21,6 +21,10 @@ const config = {
   reporters: ["clear-text", "html", "json"],
   htmlReporter: { fileName: "reports/mutation/html/index.html" },
   jsonReporter: { fileName: "reports/mutation/mutation-report.json" },
+  // gemessener ist-score am 2026-08-27: 74,45 % (stryker-volltest, 2:53 min).
+  // break 69 bleibt unter dem ist mit puffer für schwankungen; high/low sind
+  // ziel-marken, kein gate.
+  thresholds: { high: 80, low: 60, break: 69 },
 };
 
 export default config;

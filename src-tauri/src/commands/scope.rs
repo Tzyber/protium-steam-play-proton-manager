@@ -634,7 +634,7 @@ pub(crate) fn build_environment_snapshot(
 }
 
 #[tauri::command]
-pub fn discover_steam_environment(
+pub async fn discover_steam_environment(
     app: tauri::AppHandle,
     state: tauri::State<'_, EnvironmentState>,
 ) -> Result<EnvironmentInfo, String> {
@@ -650,7 +650,12 @@ pub fn discover_steam_environment(
         .path()
         .app_config_dir()
         .map_err(|error| format!("app config directory unavailable: {error}"))?;
-    let snapshot = build_environment_snapshot(&home, &app_cache_dir, &app_config_dir)?;
+    // discovery macht blocking io (canonicalize, libraryfolders, app-dirs):
+    // spawn_blocking, sonst friert der main-thread beim start ein (C1-muster).
+    let snapshot = crate::commands::spawn_blocking_io(move || {
+        build_environment_snapshot(&home, &app_cache_dir, &app_config_dir)
+    })
+    .await?;
     state.replace(snapshot);
     Ok(state.current()?.to_info())
 }

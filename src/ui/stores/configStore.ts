@@ -2,7 +2,15 @@ import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
 import { SteamRunningError } from "../../core/configwrite";
 import type { WriteResult } from "../../core/ports";
+import { t } from "../i18n";
 import { useScanStore } from "./scanStore";
+
+/** backend-fehler auf typen mappen; fehlertexte sind keine stabile api
+ *  (sprachgrenze), der steam-läuft-fall ist der einzige, den die ui kennt. */
+function mapWriteError(e: unknown): never {
+  if (String(e).includes("steam is running")) throw new SteamRunningError();
+  throw e instanceof Error ? e : new Error(String(e));
+}
 
 // Einziger Weg von der UI zu Steam-Dateien; das Write-Gate liegt im Backend.
 export const useConfigStore = defineStore("config", {
@@ -10,9 +18,9 @@ export const useConfigStore = defineStore("config", {
     /** wirft (z. B. SteamRunningError), der drawer zeigt die meldung an. */
     async saveLaunchOptions(appId: number, value: string): Promise<WriteResult> {
       const result = useScanStore().result;
-      if (!result) throw new Error("kein scan, bitte zuerst die library scannen.");
+      if (!result) throw new Error(t("errors.noScanResult"));
       if (!result.steamUserId) {
-        throw new Error("kein steam-account gefunden, schreiben nicht möglich.");
+        throw new Error(t("errors.noSteamAccount"));
       }
       try {
         const r = await tauriPorts.system.saveLaunchOptions(
@@ -24,11 +32,7 @@ export const useConfigStore = defineStore("config", {
         useScanStore().applyGameConfig(appId, { launchOptions: value });
         return r;
       } catch (e: unknown) {
-        const msg = String(e);
-        if (msg.includes("steam is running") || msg.includes("SteamRunningError")) {
-          throw new SteamRunningError();
-        }
-        throw e;
+        return mapWriteError(e);
       }
     },
 
@@ -38,17 +42,13 @@ export const useConfigStore = defineStore("config", {
      */
     async saveCompatTool(appId: number, internalName: string | null): Promise<WriteResult> {
       const result = useScanStore().result;
-      if (!result) throw new Error("kein scan, bitte zuerst die library scannen.");
+      if (!result) throw new Error(t("errors.noScanResult"));
       try {
         const r = await tauriPorts.system.saveCompatTool(result.steamRoot, appId, internalName);
         useScanStore().applyGameConfig(appId, { compatTool: internalName ?? "default" });
         return r;
       } catch (e: unknown) {
-        const msg = String(e);
-        if (msg.includes("steam is running") || msg.includes("SteamRunningError")) {
-          throw new SteamRunningError();
-        }
-        throw e;
+        return mapWriteError(e);
       }
     },
   },

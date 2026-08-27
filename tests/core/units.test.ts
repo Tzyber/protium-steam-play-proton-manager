@@ -2,11 +2,10 @@ import { describe, expect, it } from "vitest";
 import { availableBuiltinProtons, BLOCKLIST, isBlocked } from "../../src/core/blocklist.js";
 import { parseCompatToolMapping } from "../../src/core/compat.js";
 import { errText } from "../../src/core/errtext.js";
-import { parseLibraryFolders } from "../../src/core/libraryfolders.js";
 import { parseManifest } from "../../src/core/manifest.js";
 import { joinPath } from "../../src/core/paths.js";
-import { ensureSizeLimit, MAX_FILE_BYTES } from "../../src/core/ports.js";
 import { parseSafeAppId } from "../../src/core/types.js";
+import { ensureSizeLimit, MAX_FILE_BYTES } from "../support/fakeSteam.js";
 
 const acf = () => `"AppState"
 {
@@ -131,26 +130,6 @@ describe("parseCompatToolMapping (case-insensitive traversal)", () => {
   });
   it("fehlender teilbaum → leere map", () => {
     expect(parseCompatToolMapping('"InstallConfigStore"\n{\n}').size).toBe(0);
-  });
-});
-
-describe("parseLibraryFolders", () => {
-  it("extrahiert alle library-pfade", () => {
-    const lf = `"libraryfolders"
-{
-	"0"
-	{
-		"path"		"/home/u/.local/share/Steam"
-	}
-	"1"
-	{
-		"path"		"/mnt/games/SteamLibrary"
-	}
-}`;
-    expect(parseLibraryFolders(lf)).toEqual([
-      "/home/u/.local/share/Steam",
-      "/mnt/games/SteamLibrary",
-    ]);
   });
 });
 

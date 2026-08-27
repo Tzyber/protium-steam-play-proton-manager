@@ -34,11 +34,17 @@ jobs:
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable=v1
         with:
           toolchain: stable
+          components: clippy
 
       - name: Rust cache
         uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: src-tauri
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@a2a5f6e99e1a31540baa0468acfa302cff0f359f # v2.86.4
+        with:
+          tool: cargo-audit
 
       - name: Linux dependencies
         run: |
@@ -59,7 +65,12 @@ jobs:
         run: |
           npm run check
           npm test
+          npm run vite:build
+          npm audit --omit=dev
+          cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+          cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
           cargo test --manifest-path src-tauri/Cargo.toml
+          cargo audit --file src-tauri/Cargo.lock
 
       # appimagetool 1.9.1 gepinnt (identisch zu continuous, gleiche
       # build-id 3431b179) → sha-verifizierbar, M4.5-konform. continuous

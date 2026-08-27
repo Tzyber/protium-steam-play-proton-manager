@@ -244,6 +244,7 @@ export const de = {
     errorShortcutUnreadable: "{type}/{appId}: shortcuts.vdf nicht lesbar, übersprungen",
     errorNowInstalled: "{type}/{appId}: inzwischen installiert, übersprungen",
     noScanResult: "kein scan-ergebnis vorhanden, bitte erst die library scannen",
+    noSteamAccount: "kein steam-account gefunden, schreiben nicht möglich.",
   },
   time: {
     justNow: "gerade eben",

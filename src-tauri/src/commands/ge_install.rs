@@ -193,12 +193,16 @@ pub(super) fn parse_sha512_hash(text: &str, expected_asset: &str) -> Result<Stri
 pub(super) fn verify_file_hash_on_disk(
     file: &mut fs::File,
     expected_hash: &str,
+    cancel: &CancelSignal,
 ) -> Result<(), String> {
     file.seek(SeekFrom::Start(0))
         .map_err(|e| format!("seek downloaded file: {e}"))?;
     let mut hasher = Sha512::new();
     let mut buf = [0u8; 64 * 1024];
     loop {
+        if cancel.is_cancelled() {
+            return Err("cancelled".into());
+        }
         let n = file
             .read(&mut buf)
             .map_err(|e| format!("read downloaded file: {e}"))?;
@@ -414,7 +418,24 @@ pub(super) async fn install_ge_proton_inner(
                 ));
             }
 
-            verify_file_hash_on_disk(&mut downloaded_file, &expected_hash)?;
+            // Der Voll-Read der 1-2-GB-Datei läuft blocking: spawn_blocking,
+            // sonst stallen cancel und phasen-events bis der hash fertig ist.
+            let cancel_for_verify = Arc::clone(&cancel_flag);
+            let verify = move || {
+                let result = verify_file_hash_on_disk(
+                    &mut downloaded_file,
+                    &expected_hash,
+                    &cancel_for_verify,
+                );
+                Ok((result, downloaded_file))
+            };
+            downloaded_file = match crate::commands::spawn_blocking_io(verify).await {
+                Ok((result, file)) => {
+                    result?;
+                    file
+                }
+                Err(error) => return Err(error),
+            };
             InstallGeResult::Verified
         }
         Err(error) if is_missing_checksum_asset(&error) => {
@@ -790,6 +811,7 @@ mod tests {
         let file_path = temp_dir.join("test.bin");
         fs::write(&file_path, b"hello world").unwrap();
         let mut file = fs::File::open(&file_path).unwrap();
+        let cancel = CancelSignal::new();
 
         let mut hasher = Sha512::new();
         hasher.update(b"hello world");
@@ -799,8 +821,33 @@ mod tests {
             .map(|b| format!("{:02x}", b))
             .collect::<String>();
 
-        assert!(verify_file_hash_on_disk(&mut file, &good_hash).is_ok());
-        assert!(verify_file_hash_on_disk(&mut file, &"0".repeat(128)).is_err());
+        assert!(verify_file_hash_on_disk(&mut file, &good_hash, &cancel).is_ok());
+        assert!(verify_file_hash_on_disk(&mut file, &"0".repeat(128), &cancel).is_err());
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn verify_file_hash_on_disk_bricht_bei_cancel_ab() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test-verify-hash-cancel-{}", random_suffix()));
+        fs::create_dir_all(&temp_dir).unwrap();
+        let file_path = temp_dir.join("test.bin");
+        fs::write(&file_path, b"hello world").unwrap();
+        let mut file = fs::File::open(&file_path).unwrap();
+        let cancel = CancelSignal::new();
+
+        let mut hasher = Sha512::new();
+        hasher.update(b"hello world");
+        let good_hash = hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>();
+
+        cancel.cancel();
+        let error = verify_file_hash_on_disk(&mut file, &good_hash, &cancel).unwrap_err();
+        assert_eq!(error, "cancelled");
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
@@ -933,7 +980,8 @@ mod tests {
         let body = &source[start..source.find("#[tauri::command]").unwrap()];
         assert!(!body.contains("File::open(&download_path"));
         assert!(!body.contains("cleanup_download_path"));
-        assert!(body.contains("verify_file_hash_on_disk(&mut downloaded_file"));
+        // der disk-hash läuft über denselben owned-handle, nie über einen pfad
+        assert!(body.contains("verify_file_hash_on_disk("));
         assert!(body.contains("extract_blocking_with_tag("));
         assert!(body.contains("&mut downloaded_file"));
     }

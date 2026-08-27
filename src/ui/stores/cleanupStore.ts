@@ -251,6 +251,10 @@ export const useCleanupStore = defineStore("cleanup", {
             descriptions: pending.consequences.map((c) => c.description),
           });
         } catch (e) {
+          // deleting hier räumen: sonst bleibt die view nach einem
+          // prepare-fehler dauerhaft busy (kein cleanup in onSuccess/onError,
+          // die nur keys aus prepared kennen).
+          this.deleting.delete(k);
           errors.push(`${entry.type}/${entry.appId}: ${errMsg(e)}`);
         }
       }

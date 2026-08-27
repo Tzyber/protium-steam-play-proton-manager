@@ -11,8 +11,6 @@ export async function readCompatMapping(
 ): Promise<{
   mapping: CompatToolMapping;
   compatConfigStatus: CompatConfigStatus;
-  /** rückwärtskompatible Ableitung für bestehende Core-Aufrufer. */
-  mappingUsable: boolean;
   warnings: ScanWarning[];
 }> {
   const warnings: ScanWarning[] = [];
@@ -41,7 +39,6 @@ export async function readCompatMapping(
   return {
     mapping,
     compatConfigStatus,
-    mappingUsable: compatConfigStatus === "available",
     warnings,
   };
 }

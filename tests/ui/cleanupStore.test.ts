@@ -1016,6 +1016,38 @@ describe("cleanupStore, S-02: Pfadbasierte Keys (A-04)", () => {
     mockReadAllShortcutAppIds.mockResolvedValue({ status: "none" });
   });
 
+  it("deleteOrphans: prepare-fehler räumt deleting auf, erneuter versuch möglich", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    mockPrepareDelete.mockRejectedValue(new Error("prepare failed"));
+
+    await store.deleteOrphans([
+      { appId: 999999, type: "compatdata", path: "/fake/wine", library: "/lib" },
+    ]);
+
+    expect(store.error).toContain("prepare failed");
+    expect(store.deleting.size).toBe(0);
+    expect(useConfirmStore().pending).toBeNull();
+
+    // erneuter versuch nach fehlerbehebung läuft durch den dialog
+    mockPrepareDelete.mockResolvedValue({
+      token: "token-1",
+      expiresAt: Date.now() + 60000,
+      targetType: "orphan",
+      targetPath: "/fake/wine",
+      consequences: [],
+    });
+    await store.deleteOrphans([
+      { appId: 999999, type: "compatdata", path: "/fake/wine", library: "/lib" },
+    ]);
+    expect(useConfirmStore().pending).not.toBeNull();
+    expect(store.deleting.size).toBe(1); // während des dialogs belegt
+
+    await useConfirmStore().cancel();
+    expect(store.deleting.size).toBe(0);
+  });
+
   it("key(entry) liefert den vollständigen Pfad", () => {
     const store = useCleanupStore();
     const entry = {

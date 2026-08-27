@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -453,9 +453,32 @@ describe("readAllShortcutAppIds", () => {
 
   it("steam-root ohne userdata → status none", async () => {
     const { root } = await buildFakeSteam();
-    // use lib2 (no userdata dir)
+    const base = nodeFs();
+    const userdata = join(root, "userdata");
+    const fs = {
+      ...base,
+      exists: async (path: string) => (path === userdata ? false : base.exists(path)),
+    };
+    const result = await readAllShortcutAppIds(fs, root);
+    expect(result.status).toBe("none");
+  });
+
+  it("userdata/account vorhanden, config fehlt → status none", async () => {
+    const { root, userId } = await buildFakeSteam();
+    await rm(join(root, "userdata", userId, "config"), { recursive: true, force: true });
+
     const result = await readAllShortcutAppIds(nodeFs(), root);
-    expect(result.status).toBe("ok"); // buildFakeSteam HAS userdata
+
+    expect(result.status).toBe("none");
+  });
+
+  it("config vorhanden, shortcuts.vdf fehlt → status none", async () => {
+    const { root, userId } = await buildFakeSteam();
+    await rm(join(root, "userdata", userId, "config", "shortcuts.vdf"), { force: true });
+
+    const result = await readAllShortcutAppIds(nodeFs(), root);
+
+    expect(result.status).toBe("none");
   });
 
   it("über-limit große shortcuts.vdf → status unreadable statt oom (M4.3)", async () => {
