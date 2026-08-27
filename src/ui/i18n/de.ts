@@ -41,7 +41,6 @@ export const de = {
     noSteamFound: "keine steam-installation an den bekannten pfaden gefunden.",
     errorPrefix: "fehler: {error}",
     scanningState: "scanne…",
-    warningsToggle: "{n} scan-warnungen anzeigen",
     protonDbRemaining: "protondb lädt: {n} offen",
     coverageComplete: "scan vollständig · {libraries} libraries · {games} spiele",
     coverageLimited: "scan eingeschränkt · konfiguration prüfen",

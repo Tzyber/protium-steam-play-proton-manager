@@ -5,8 +5,6 @@ use std::fs;
 use std::io::{Seek, SeekFrom};
 use std::path::{Component, Path, PathBuf};
 
-pub(super) const MAX_EXTRACT_BYTES: u64 = 8 * 1024 * 1024 * 1024;
-
 fn archive_entry_path(
     entry: &tar::Entry<'_, flate2::read::GzDecoder<&mut fs::File>>,
 ) -> Result<PathBuf, String> {

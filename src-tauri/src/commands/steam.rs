@@ -990,7 +990,7 @@ where
                 &[
                     base[0], base[1], base[2], base[3], base[4], base[5], "priority",
                 ],
-                "250",
+                STEAM_COMPAT_PRIORITY,
             )?;
             p
         }
@@ -1277,6 +1277,9 @@ const MAX_BINARY_VDF_DEPTH: usize = 64;
 /// Grössenlimit für shortcuts.vdf-reads im delete-pipeline (analog zu den
 /// 16-MiB-caps der übrigen environment-reads).
 const MAX_SHORTCUTS_VDF_BYTES: u64 = 16 * 1024 * 1024;
+
+/// steam-schreibweise der compat-tool-priority im mapping.
+const STEAM_COMPAT_PRIORITY: &str = "250";
 
 /// Caps für die delete-pipeline-reads: appmanifeste (analog 1-MiB-read im
 /// valve-pfad) und config.vdf. ohne cap könnte eine präparierte datei jeden

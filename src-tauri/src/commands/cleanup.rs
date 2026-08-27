@@ -14,7 +14,7 @@ use crate::commands::spawn_blocking_io;
 /// name des papierkorb-verzeichnisses, existiert genau einmal hier, weil der
 /// Backend-Command den Pfad innerhalb des aktuellen Environment-Snapshots
 /// konstruiert.
-const TRASH_DIR_NAME: &str = ".protium-trash";
+pub(crate) const TRASH_DIR_NAME: &str = ".protium-trash";
 
 /// ein verzeichniseintrag im papierkorb. is_symlink kommt aus file_type() des
 /// read_dir-eintrags, folgt also KEINEM symlink.

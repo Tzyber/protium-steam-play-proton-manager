@@ -2,10 +2,11 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { openExternal } from "../../core/adapters/tauri";
 import { SteamRunningError } from "../../core/configwrite";
+import { errText } from "../../core/errtext";
 import { protonDbAppUrl } from "../../core/protondb";
 import type { Tier } from "../../core/types";
 import { focusFirstFocusable, restoreFocus, trapFocus } from "../a11y";
-import { errMsg, formatBytes } from "../format";
+import { formatBytes } from "../format";
 import { t } from "../i18n";
 import { useConfigStore } from "../stores/configStore";
 import { useScanStore } from "../stores/scanStore";
@@ -38,7 +39,7 @@ const TIER_LABEL = computed<Record<Tier, string>>(() => ({
 // (z. b. schreibrechte) bleiben unverändert, weil sie aus dem system kommen.
 function errorText(e: unknown): string {
   if (e instanceof SteamRunningError) return t("errors.steamRunning");
-  return errMsg(e);
+  return errText(e);
 }
 
 // cover-kandidaten wie in der karte

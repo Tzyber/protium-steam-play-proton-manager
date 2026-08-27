@@ -22,7 +22,7 @@ type DeepStringify<T> = T extends string
     : T;
 export type Dict = DeepStringify<typeof de>;
 
-const tables: Record<Locale, Dict> = { de, en: en as unknown as Dict };
+const tables: Record<Locale, Dict> = { de, en: en as DeepStringify<typeof en> };
 
 function detectLocale(): Locale {
   if (typeof navigator === "undefined") return "en";
@@ -31,9 +31,13 @@ function detectLocale(): Locale {
 
 let activeLocale: Locale = detectLocale();
 
-/** nur für tests, produktion ruft das nie auf. */
+/** nur für tests, produktion ruft das nie auf. hält auch das html-lang
+ *  aktuell, damit screenreader zur laufzeit die richtige sprache lesen. */
 export function setLocale(l: Locale): void {
   activeLocale = l;
+  if (typeof document !== "undefined") {
+    document.documentElement.lang = l;
+  }
 }
 
 export function getLocale(): Locale {

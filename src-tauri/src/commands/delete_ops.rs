@@ -8,10 +8,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+use crate::commands::cleanup::TRASH_DIR_NAME;
 use crate::commands::scope::EnvironmentState;
 use crate::commands::steam::{inspect_deletion_target, DeleteConsequence, DeletionInspection};
 
 pub const DELETE_TOKEN_TTL_SECS: u64 = 60;
+
+/// renameat2-flag: kein überschreiben des ziels (RENAME_NOREPLACE).
+const RENAME_NOREPLACE_FLAG: u32 = 1;
 pub const MAX_PENDING_DELETES: usize = 32;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,7 +181,7 @@ fn renameat2_no_replace(
             source_name.as_ptr(),
             target_dir.as_raw_fd(),
             target_name.as_ptr(),
-            1u32,
+            RENAME_NOREPLACE_FLAG,
         )
     };
     if result < 0 {
@@ -531,7 +535,7 @@ fn execute_delete_pipeline_inner(
                 }
                 "compatdata" => {
                     let lib_str = crate::commands::scope::library_of(&canon_str)?;
-                    let trash_dir = Path::new(lib_str).join("steamapps").join(".protium-trash");
+                    let trash_dir = Path::new(lib_str).join("steamapps").join(TRASH_DIR_NAME);
                     fs::create_dir_all(&trash_dir)
                         .map_err(|e| format!("cannot create trash dir: {e}"))?;
                     let trash_name = format!("compatdata_{app_id_str}_{now_ms}");

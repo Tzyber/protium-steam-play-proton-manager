@@ -653,9 +653,9 @@ const tabLabel = (id: Tab) =>
 .tab:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; border-radius: var(--r-sm); }
 .tab.on { color: var(--fg-0); border-bottom-color: var(--signal); }
 .tab-count {
-  font-family: var(--font-mono); font-size: 0.75rem; font-weight: 400;
+  font-family: var(--font-mono); font-size: 0.8125rem; font-weight: 500;
   color: var(--fg-2); background: var(--bg-2);
-  border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px;
+  border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px;
 }
 .tab.on .tab-count { color: var(--fg-1); border-color: var(--signal-dim); }
 
@@ -797,14 +797,6 @@ position: relative;
 .hint { color: var(--tier-gold); font-family: var(--font-body); font-size: 0.875rem; margin-bottom: 12px; }
 .empty { color: var(--fg-2); font-family: var(--font-body); font-size: 0.875rem; padding: 32px 0; text-align: center; }
 
-.paths { margin: 8px 0 0; padding-left: 18px; color: var(--fg-1); max-height: 160px; overflow-y: auto; }
-.paths li { font-size: 0.75rem; margin: 2px 0; }
-.saveurge {
-  background: color-mix(in srgb, var(--tier-borked) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--tier-borked) 35%, transparent);
-  color: #ff9aa0; border-radius: var(--r-sm);
-  padding: 10px 14px; font-family: var(--font-display); font-size: 0.875rem; font-weight: 600; margin-bottom: 12px;
-}
 .consequences { white-space: pre-line; margin: 0; max-height: 260px; overflow-y: auto; }
 
 </style>

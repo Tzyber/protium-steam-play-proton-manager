@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { errMsg, formatBytes } from "../../src/ui/format";
+import { errText } from "../../src/core/errtext";
+import { formatBytes } from "../../src/ui/format";
 
 describe("formatBytes", () => {
   it("0 und negativ → bindestrich (leer/ungültig ≠ fehlend)", () => {
@@ -23,15 +24,15 @@ describe("formatBytes", () => {
   });
 });
 
-describe("errMsg", () => {
+describe("errText", () => {
   it("string-rejection (rust-command) bleibt erhalten", () => {
-    expect(errMsg("forbidden path")).toBe("forbidden path");
+    expect(errText("forbidden path")).toBe("forbidden path");
   });
   it("Error → message", () => {
-    expect(errMsg(new Error("kaputt"))).toBe("kaputt");
+    expect(errText(new Error("kaputt"))).toBe("kaputt");
   });
   it("sonstiges → String()", () => {
-    expect(errMsg(null)).toBe("null");
-    expect(errMsg(7)).toBe("7");
+    expect(errText(null)).toBe("null");
+    expect(errText(7)).toBe("7");
   });
 });

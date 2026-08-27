@@ -774,4 +774,39 @@ mod tests {
             Some("val".to_string())
         );
     }
+
+    #[test]
+    fn bare_tokens_werden_wie_strings_behandelt() {
+        // unquoted keys (bare tokens) kommen in steam-vdfs vor; navigation und
+        // patch müssen sie wie quoted keys behandeln.
+        let bare = "\"Root\"\n{\n\tKey\t\t\"val\"\n}\n";
+        assert_eq!(
+            get_vdf_value(bare, &["Root", "Key"]).unwrap(),
+            Some("val".to_string())
+        );
+        let patched = set_vdf_value(bare, &["Root", "Key"], "neu").unwrap();
+        assert_eq!(
+            get_vdf_value(&patched, &["Root", "Key"]).unwrap(),
+            Some("neu".to_string())
+        );
+    }
+
+    #[test]
+    fn escaping_roundtrip_quotes_und_backslashes() {
+        // valve escapet nur \" und \\; der roundtrip muss den originalwert
+        // liefern, nicht den escaped-text.
+        let input = "\"Root\"\n{\n\t\"Key\"\t\t\"alt\"\n}\n";
+        let patched =
+            set_vdf_value(input, &["Root", "Key"], "mit \"quotes\" und \\backslash").unwrap();
+        assert_eq!(
+            get_vdf_value(&patched, &["Root", "Key"]).unwrap(),
+            Some("mit \"quotes\" und \\backslash".to_string())
+        );
+        let again =
+            set_vdf_value(&patched, &["Root", "Key"], "mit \"quotes\" und \\backslash").unwrap();
+        assert_eq!(
+            again, patched,
+            "no-op auf bereits escapedem wert bleibt byte-identisch"
+        );
+    }
 }

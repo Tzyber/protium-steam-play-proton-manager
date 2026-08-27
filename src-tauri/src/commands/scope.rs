@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use tauri::Manager;
 
-const MAX_ENVIRONMENT_READ_BYTES: u64 = 16 * 1024 * 1024;
+pub(crate) const MAX_ENVIRONMENT_READ_BYTES: u64 = 16 * 1024 * 1024;
 const ROOT_CANDIDATES: [&str; 5] = [
     ".local/share/Steam",
     ".steam/steam",

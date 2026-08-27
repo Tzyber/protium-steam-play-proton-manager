@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 
 import { mount } from "@vue/test-utils";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { createPinia, setActivePinia } from "pinia";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { nextTick } from "vue";
 import { version as packageVersion } from "../../package.json";
 
 const mockUiState = vi.hoisted(() => ({
@@ -40,10 +42,16 @@ vi.mock("../../src/ui/stores/uiStore", () => ({
 }));
 
 import App from "../../src/ui/App.vue";
+import { useConfirmStore } from "../../src/ui/stores/confirmStore";
+
+beforeEach(() => {
+  setActivePinia(createPinia());
+});
 
 afterEach(() => {
   document.body.innerHTML = "";
   mockScanState.runScan.mockClear();
+  mockUiState.inertMain = true;
 });
 
 describe("App modal background", () => {
@@ -59,5 +67,20 @@ describe("App modal background", () => {
     expect(wrapper.find(".app-background").attributes("inert")).toBeDefined();
     expect(wrapper.find(".shell").attributes("inert")).toBeUndefined();
     expect(wrapper.find(".sidebar").attributes("inert")).toBeUndefined();
+  });
+
+  it("confirm-dialog setzt inert beim öffnen und räumt beim schließen auf", async () => {
+    mockUiState.inertMain = false;
+    const wrapper = mount(App);
+    await nextTick();
+    expect(wrapper.find(".app-background").attributes("inert")).toBeUndefined();
+
+    useConfirmStore().pending = { title: "löschen?" } as never;
+    await nextTick();
+    expect(mockUiState.inertMain).toBe(true);
+
+    useConfirmStore().pending = null;
+    await nextTick();
+    expect(mockUiState.inertMain).toBe(false);
   });
 });

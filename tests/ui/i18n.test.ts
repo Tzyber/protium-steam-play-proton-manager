@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import { afterEach, describe, expect, it } from "vitest";
 import { getLocale, setLocale, t } from "../../src/ui/i18n";
 import { de } from "../../src/ui/i18n/de";
@@ -17,6 +19,13 @@ describe("i18n, locale-erkennung", () => {
     expect(getLocale()).toBe("de");
     setLocale("en");
     expect(getLocale()).toBe("en");
+  });
+
+  it("setLocale aktualisiert document.documentElement.lang (auch zur laufzeit)", () => {
+    setLocale("en");
+    expect(document.documentElement.lang).toBe("en");
+    setLocale("de");
+    expect(document.documentElement.lang).toBe("de");
   });
 });
 

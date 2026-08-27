@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { version as appVersion } from "../../package.json";
 import ProtiumLogo from "./components/ProtiumLogo.vue";
 import { t } from "./i18n";
+import { useConfirmStore } from "./stores/confirmStore";
 import { useScanStore } from "./stores/scanStore";
 import { useUiStore, type ViewId } from "./stores/uiStore";
 import CleanupView from "./views/CleanupView.vue";
@@ -11,7 +12,19 @@ import ProtonManagerView from "./views/ProtonManagerView.vue";
 
 const scan = useScanStore();
 const ui = useUiStore();
+const confirm = useConfirmStore();
 onMounted(() => scan.runScan());
+
+// confirm-dialog sperrt den hintergrund für screenreader + tab (inert), wie
+// der drawer. zentral hier, weil der dialog in zwei views lebt; der dialog
+// selbst liegt per teleport ausserhalb von .app-background und bleibt
+// fokussierbar. beim schliessen (pending → null) räumt der watch auf.
+watch(
+  () => confirm.pending,
+  (pending) => {
+    ui.inertMain = pending !== null;
+  },
+);
 
 // view-wechsel: h1 der neuen view fokussieren, damit screenreader den titel ansagen
 watch(

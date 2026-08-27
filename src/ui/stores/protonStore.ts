@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
+import { errText } from "../../core/errtext";
 import {
   type FetchSource,
   fetchReleases,
@@ -10,7 +11,6 @@ import {
 } from "../../core/geproton";
 import { joinPath, paths } from "../../core/paths";
 import type { CompatTool } from "../../core/types";
-import { errMsg } from "../format";
 import { t } from "../i18n";
 import { useConfirmStore } from "./confirmStore";
 import { useScanStore } from "./scanStore";
@@ -190,7 +190,7 @@ export const useProtonStore = defineStore("proton", {
           pending.clear();
           lifecycle.pending.delete(generation);
           if (!lifecycle.disposed && lifecycle.generation === generation) {
-            useUiStore().showNotification(t("proton.listenerUnavailable", { error: errMsg(e) }));
+            useUiStore().showNotification(t("proton.listenerUnavailable", { error: errText(e) }));
             if (!this.releases.length) void this.loadReleases();
           }
         } finally {
@@ -242,7 +242,7 @@ export const useProtonStore = defineStore("proton", {
           this.loadError = t("proton.noReleases");
         }
       } catch (e) {
-        this.loadError = errMsg(e);
+        this.loadError = errText(e);
       } finally {
         this.loading = false;
       }
@@ -332,7 +332,7 @@ export const useProtonStore = defineStore("proton", {
         }
         delete this.jobs[tag];
       } catch (e) {
-        const msg = errMsg(e);
+        const msg = errText(e);
         if (!/cancel/i.test(msg)) this.loadError = t("proton.installFailed", { tag, msg });
         delete this.jobs[tag];
       } finally {
@@ -377,13 +377,13 @@ export const useProtonStore = defineStore("proton", {
               this.busyRemove = null;
             },
             onError: (e) => {
-              this.loadError = t("proton.removeFailed", { msg: errMsg(e) });
+              this.loadError = t("proton.removeFailed", { msg: errText(e) });
               this.busyRemove = null;
             },
           },
         );
       } catch (e) {
-        this.loadError = t("proton.removeFailed", { msg: errMsg(e) });
+        this.loadError = t("proton.removeFailed", { msg: errText(e) });
         this.busyRemove = null;
       }
     },

@@ -46,7 +46,6 @@ export const en = {
     noSteamFound: "no steam installation found at the known paths.",
     errorPrefix: "error: {error}",
     scanningState: "scanning…",
-    warningsToggle: "show {n} scan warnings",
     protonDbRemaining: "protondb loading: {n} remaining",
     coverageComplete: "scan complete · {libraries} libraries · {games} games",
     coverageLimited: "scan limited · review configuration",

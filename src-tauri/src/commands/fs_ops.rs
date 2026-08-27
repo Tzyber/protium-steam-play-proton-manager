@@ -1,6 +1,6 @@
 #[cfg(test)]
 use crate::commands::path::{canonicalize_safe, is_safe_path, sanitize_path};
-use crate::commands::scope::EnvironmentState;
+use crate::commands::scope::{EnvironmentState, MAX_ENVIRONMENT_READ_BYTES};
 use crate::commands::spawn_blocking_io;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -12,7 +12,6 @@ use tauri::State;
 // Verzeichnisgrößen und Pfadidentität über `(dev, ino)`.
 
 const MAX_BATCH_DIR_SIZE_PATHS: usize = 4096;
-const MAX_ENVIRONMENT_READ_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ENVIRONMENT_DIR_ENTRIES: usize = 8192;
 
 #[derive(Serialize, Debug, PartialEq, Eq, Clone)]

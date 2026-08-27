@@ -16,7 +16,7 @@ use crate::commands::download::{
     CancelRegistry, CancelSignal, DownloadDirectoryBinding, DownloadStorage, Sha512FetchError,
     MAX_DOWNLOAD_BYTES,
 };
-use crate::commands::extract::{extract_blocking_with_tag, MAX_EXTRACT_BYTES};
+use crate::commands::extract::extract_blocking_with_tag;
 use crate::commands::path::{is_descendant_of, random_suffix, sanitize_path};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -484,7 +484,7 @@ pub(super) async fn install_ge_proton_inner(
                 &mut downloaded_file,
                 &tools_dir_str,
                 Some(&install_name),
-                MAX_EXTRACT_BYTES,
+                MAX_DOWNLOAD_BYTES,
                 &|p| p == extract_dest || p == extract_root,
             );
             Ok((result, downloaded_file))

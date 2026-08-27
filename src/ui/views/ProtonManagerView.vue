@@ -194,7 +194,7 @@ const statusLine = computed(() => {
           >
             <span aria-hidden="true">✕</span> {{ t("common.cancel") }}
           </button>
-          <span v-else class="used muted" aria-label="✓">{{ t("proton.installed") }}</span>
+          <span v-else class="used muted">{{ t("proton.installed") }}</span>
         </div>
       </li>
     </ul>
@@ -326,7 +326,5 @@ const statusLine = computed(() => {
   padding: 0;
 }
 .hint-close:hover { opacity: 0.6; }
-.games { margin: 8px 0 0; padding-left: 18px; color: var(--fg-1); }
-.games li { margin: 2px 0; }
 .consequences { white-space: pre-line; margin: 0; max-height: 260px; overflow-y: auto; }
 </style>

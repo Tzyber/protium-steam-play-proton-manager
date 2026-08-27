@@ -40,7 +40,7 @@ pub(super) fn validate_download_url(url: &str) -> Result<(), String> {
         "download",
     ];
     let comps: Vec<&str> = parsed.path().split('/').collect();
-    if comps.len() != 7 || !comps[0].is_empty() || comps[6].is_empty() {
+    if comps.len() != DOWNLOAD_URL_PATH_SEGMENTS || !comps[0].is_empty() || comps[6].is_empty() {
         return Err("download URL must contain exactly one release asset path".into());
     }
     let mut comps = comps.into_iter().skip(1);
@@ -131,6 +131,9 @@ pub struct CancelRegistry(pub Mutex<HashMap<String, Arc<CancelSignal>>>);
 
 /// maximale download-grösse (GE-tarballs ~1 GB, 8 GiB ist reichlich luft).
 pub const MAX_DOWNLOAD_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+
+/// pfadsegmentanzahl der release-asset-urls (owner/repo/releases/download/tag/asset).
+const DOWNLOAD_URL_PATH_SEGMENTS: usize = 7;
 const MAX_DOWNLOAD_ID_BYTES: usize = 128;
 
 pub(super) fn validate_download_id(download_id: &str) -> Result<(), String> {

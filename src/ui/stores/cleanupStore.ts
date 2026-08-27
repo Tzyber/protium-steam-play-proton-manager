@@ -7,6 +7,7 @@ import {
   type IncompleteDeletion,
   type SteamOwnedPrefix,
 } from "../../core/cleanup";
+import { errText } from "../../core/errtext";
 import { readAppName } from "../../core/localconfig";
 import { paths } from "../../core/paths";
 import {
@@ -16,7 +17,6 @@ import {
 } from "../../core/shortcuts";
 import { findTrashEntries, type TrashEntry, type TrashLibraryStatus } from "../../core/trash";
 import type { OrphanEntry, ScanResult } from "../../core/types";
-import { errMsg } from "../format";
 import { t } from "../i18n";
 import { useConfirmStore } from "./confirmStore";
 import { useScanStore } from "./scanStore";
@@ -230,7 +230,7 @@ export const useCleanupStore = defineStore("cleanup", {
         attachSizes(this.orphans, sizes);
         attachSizes(this.steamOwnedPrefixes, sizes);
       } catch (e) {
-        this.error = errMsg(e);
+        this.error = errText(e);
       } finally {
         this.scanning = false;
       }
@@ -308,7 +308,7 @@ export const useCleanupStore = defineStore("cleanup", {
           // prepare-fehler dauerhaft busy (kein cleanup in onSuccess/onError,
           // die nur keys aus prepared kennen).
           this.deleting.delete(k);
-          errors.push(`${entry.type}/${entry.appId}: ${errMsg(e)}`);
+          errors.push(`${entry.type}/${entry.appId}: ${errText(e)}`);
         }
       }
       if (errors.length) this.error = errors.join("; ");
@@ -335,7 +335,7 @@ export const useCleanupStore = defineStore("cleanup", {
                   if (p.type === "compatdata") trashedCompatdata = true;
                 }
               } catch (e) {
-                errors.push(`${p.type}/${p.key}: ${errMsg(e)}`);
+                errors.push(`${p.type}/${p.key}: ${errText(e)}`);
               } finally {
                 this.deleting.delete(p.key);
               }
@@ -352,7 +352,7 @@ export const useCleanupStore = defineStore("cleanup", {
           },
           onError: (e) => {
             for (const p of prepared) this.deleting.delete(p.key);
-            errors.push(errMsg(e));
+            errors.push(errText(e));
             this.error = errors.join("; ");
           },
         },
@@ -428,7 +428,7 @@ export const useCleanupStore = defineStore("cleanup", {
         const sizes = await tauriPorts.system.batchDirSizes(paths);
         attachSizes(this.trash, sizes);
       } catch (e) {
-        this.error = errMsg(e);
+        this.error = errText(e);
       } finally {
         this.trashScanning = false;
       }
@@ -461,7 +461,7 @@ export const useCleanupStore = defineStore("cleanup", {
             descriptions: pending.consequences.map((c) => c.description),
           });
         } catch (e) {
-          prepareErrors.push(`${entry.name}: ${errMsg(e)}`);
+          prepareErrors.push(`${entry.name}: ${errText(e)}`);
         }
       }
 
@@ -492,13 +492,13 @@ export const useCleanupStore = defineStore("cleanup", {
                   this.trash = this.trash.filter((e) => e.path !== p.path);
                 }
               } catch (e) {
-                executeErrors.push(`${p.name}: ${errMsg(e)}`);
+                executeErrors.push(`${p.name}: ${errText(e)}`);
               }
             }
             this.error = formatTrashErrors(prepareErrors, executeErrors);
           },
           onError: (e) => {
-            executeErrors.push(errMsg(e));
+            executeErrors.push(errText(e));
             this.error = formatTrashErrors(prepareErrors, executeErrors);
           },
         },

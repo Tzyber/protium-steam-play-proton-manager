@@ -1,12 +1,12 @@
 import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
 import { recomputeToolUsedBy } from "../../core/compat";
+import { errText, isSteamNotFound } from "../../core/errtext";
 import { deriveProtonCheck } from "../../core/protoncheck";
 import { deriveScanCoverage } from "../../core/scan/coverage";
 import { scanLocal } from "../../core/scan/local";
 import { enrichProtondb } from "../../core/scan/protondb";
 import type { ScanResult } from "../../core/types";
-import { errMsg } from "../format";
 import { t } from "../i18n";
 import { useUiStore } from "./uiStore";
 
@@ -63,7 +63,6 @@ export const useScanStore = defineStore("scan", {
         if (!isCurrent()) return;
         this.result = { steamRoot: environment.steamRoot, ...local };
         const result = this.result;
-        if (result === null) return;
         this.status = "done";
         this.statusText = t("status.ready");
         this.protonDbRemaining = result.games.length;
@@ -76,6 +75,9 @@ export const useScanStore = defineStore("scan", {
             this.protonDbRemaining = Math.max(0, this.protonDbRemaining - 1);
           },
         })
+          // beide pfade: bei fehlern (.catch) und nach abschluss (.then)
+          // zählt der zähler auf 0; ohne .catch bliebe er bei einem
+          // background-reject hängen.
           .catch(() => {
             if (isCurrent(result)) this.protonDbRemaining = 0;
           })
@@ -84,11 +86,11 @@ export const useScanStore = defineStore("scan", {
           });
       } catch (e) {
         if (!isCurrent()) return;
-        if (errMsg(e).includes("steam installation not found")) {
+        if (isSteamNotFound(e)) {
           this.status = "not-found";
           this.statusText = t("status.noSteamInstallation");
         } else {
-          const msg = errMsg(e);
+          const msg = errText(e);
           this.status = "error";
           this.statusText = t("status.error");
           this.error = msg;
