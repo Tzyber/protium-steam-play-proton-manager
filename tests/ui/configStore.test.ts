@@ -1,6 +1,7 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScanResult } from "../../src/core/types";
+import { setLocale } from "../../src/ui/i18n";
 
 // mocks: tauri-adapter system ports
 vi.mock("../../src/core/adapters/tauri", async () => {
@@ -80,11 +81,13 @@ describe("configStore.saveCompatTool", () => {
   });
 
   it("wirft weiter, wenn kein scan vorliegt", async () => {
+    setLocale("de"); // fehlertexte sind jetzt lokalisiert (i18n)
     const config = useConfigStore();
     await expect(config.saveCompatTool(1, "x")).rejects.toThrow(/kein scan/);
   });
 
   it("wirft lokalisiert, wenn kein steam-account vorliegt", async () => {
+    setLocale("de"); // fehlertexte sind jetzt lokalisiert (i18n)
     const scanStore = useScanStore();
     scanStore.result = { ...fakeScanResult(), steamUserId: null };
     const config = useConfigStore();
