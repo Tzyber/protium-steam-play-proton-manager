@@ -1,6 +1,10 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { findIncompleteDeletions, findOrphans } from "../../src/core/cleanup";
+import type {
+  findIncompleteDeletions,
+  findOrphans,
+  findSteamOwnedPrefixes,
+} from "../../src/core/cleanup";
 import type { readAllShortcutAppIds } from "../../src/core/shortcuts";
 import type { findTrashEntries, TrashEntry } from "../../src/core/trash";
 import type { ScanResult } from "../../src/core/types";
@@ -10,6 +14,7 @@ import { setLocale } from "../../src/ui/i18n";
 const {
   mockFindOrphans,
   mockFindIncompleteDeletions,
+  mockFindSteamOwnedPrefixes,
   mockReadAllShortcutAppIds,
   mockFindTrashEntries,
   mockPrepareDelete,
@@ -19,6 +24,7 @@ const {
 } = vi.hoisted(() => ({
   mockFindOrphans: vi.fn<typeof findOrphans>(async () => []),
   mockFindIncompleteDeletions: vi.fn<typeof findIncompleteDeletions>(async () => []),
+  mockFindSteamOwnedPrefixes: vi.fn<typeof findSteamOwnedPrefixes>(async () => []),
   mockReadAllShortcutAppIds: vi.fn<typeof readAllShortcutAppIds>(async () => ({
     status: "none" as const,
   })),
@@ -46,6 +52,7 @@ const {
 vi.mock("../../src/core/cleanup", () => ({
   findOrphans: mockFindOrphans,
   findIncompleteDeletions: mockFindIncompleteDeletions,
+  findSteamOwnedPrefixes: mockFindSteamOwnedPrefixes,
 }));
 vi.mock("../../src/core/shortcuts", () => ({
   readAllShortcutAppIds: mockReadAllShortcutAppIds,
@@ -586,6 +593,46 @@ describe("cleanupStore, batch_dir_sizes NotFound-Skip", () => {
 
     expect(store.orphanNames).toEqual({});
     expect(store.orphans).toHaveLength(1);
+  });
+});
+
+describe("cleanupStore steamOwnedPrefixes", () => {
+  beforeEach(() => {
+    mockFindOrphans.mockResolvedValue([]);
+    mockFindSteamOwnedPrefixes.mockResolvedValue([]);
+  });
+
+  it("übernimmt steam-eigene prefixes und hängt deren größen an", async () => {
+    mockFindSteamOwnedPrefixes.mockResolvedValue([
+      { appId: 4628710, path: "/lib/compatdata/4628710", library: "/lib" },
+    ]);
+    mockBatchDirSizes.mockResolvedValue({ "/lib/compatdata/4628710": 8192 });
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+
+    await store.scanOrphans();
+
+    expect(store.steamOwnedPrefixes).toHaveLength(1);
+    expect(store.steamOwnedPrefixes[0]?.sizeBytes).toBe(8192);
+    expect(store.steamOwnedTotalBytes).toBe(8192);
+    expect(mockBatchDirSizes).toHaveBeenCalledWith(["/lib/compatdata/4628710"]);
+  });
+
+  it("setzt die einträge beim nächsten scan zurück", async () => {
+    mockFindSteamOwnedPrefixes.mockResolvedValue([
+      { appId: 4628710, path: "/lib/compatdata/4628710", library: "/lib" },
+    ]);
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+
+    await store.scanOrphans();
+    expect(store.steamOwnedPrefixes).toHaveLength(1);
+
+    mockFindSteamOwnedPrefixes.mockResolvedValue([]);
+    await store.scanOrphans();
+    expect(store.steamOwnedPrefixes).toEqual([]);
   });
 });
 

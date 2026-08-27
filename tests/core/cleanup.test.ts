@@ -4,6 +4,7 @@ import {
   DELETE_CLAIM_PREFIX,
   findIncompleteDeletions,
   findOrphans,
+  findSteamOwnedPrefixes,
 } from "../../src/core/cleanup.js";
 import { buildFakeSteam, nodeFs } from "../support/fakeSteam";
 
@@ -122,6 +123,74 @@ describe("findOrphans", () => {
 
     const outOfRangePrefix = orphans.find((o) => o.appId === 3641016077);
     expect(outOfRangePrefix).toBeUndefined();
+  });
+});
+
+describe("findSteamOwnedPrefixes", () => {
+  it("findet compatdata-Prefixes blocklisteter AppIDs mit Pfad und appId", async () => {
+    const { root, fs, libraries } = await setup();
+    const blocked = new Set([4628710]);
+    await fs.mkdir(`${root}/steamapps/compatdata/4628710`);
+
+    const found = await findSteamOwnedPrefixes(libraries, blocked, fs);
+
+    expect(found).toEqual([
+      {
+        appId: 4628710,
+        path: `${root}/steamapps/compatdata/4628710`,
+        library: root,
+      },
+    ]);
+  });
+
+  it("durchsucht kein shadercache", async () => {
+    const { root, fs, libraries } = await setup();
+    const blocked = new Set([4628710]);
+    await fs.mkdir(`${root}/steamapps/shadercache/4628710`);
+
+    const found = await findSteamOwnedPrefixes(libraries, blocked, fs);
+
+    expect(found).toEqual([]);
+  });
+
+  it("zählt claim-reste nicht mit", async () => {
+    const { root, fs, libraries } = await setup();
+    const blocked = new Set([4628710]);
+    await fs.mkdir(`${root}/steamapps/compatdata/${DELETE_CLAIM_PREFIX}4628710`);
+
+    const found = await findSteamOwnedPrefixes(libraries, blocked, fs);
+
+    expect(found).toEqual([]);
+  });
+
+  it("liefert eine leere liste statt undefined, wenn nichts gefunden wird", async () => {
+    const { fs, libraries } = await setup();
+
+    const found = await findSteamOwnedPrefixes(libraries, new Set(), fs);
+
+    expect(found).toEqual([]);
+  });
+
+  it("konsistenz: filter und meldung beschreiben dieselbe menge", async () => {
+    const { root, fs, libraries, installedAppIds } = await setup();
+    const blocked = new Set([4628710]);
+    await fs.mkdir(`${root}/steamapps/compatdata/4628710`); // steam-eigen (gefiltert)
+    await fs.mkdir(`${root}/steamapps/compatdata/999999`); // echtes orphan
+
+    const orphans = await findOrphans(libraries, installedAppIds, blocked, fs);
+    const owned = await findSteamOwnedPrefixes(libraries, blocked, fs);
+
+    const orphanPaths = new Set(orphans.map((o) => o.path));
+    const ownedPaths = new Set(owned.map((p) => p.path));
+    for (const path of orphanPaths) {
+      expect(ownedPaths.has(path)).toBe(false);
+    }
+    for (const path of ownedPaths) {
+      expect(orphanPaths.has(path)).toBe(false);
+    }
+    // beide bekannten verzeichnisse müssen in genau einer liste stecken
+    expect(orphanPaths.has(`${root}/steamapps/compatdata/999999`)).toBe(true);
+    expect(ownedPaths.has(`${root}/steamapps/compatdata/4628710`)).toBe(true);
   });
 });
 

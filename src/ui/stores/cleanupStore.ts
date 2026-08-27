@@ -1,6 +1,12 @@
 import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
-import { findIncompleteDeletions, findOrphans, type IncompleteDeletion } from "../../core/cleanup";
+import {
+  findIncompleteDeletions,
+  findOrphans,
+  findSteamOwnedPrefixes,
+  type IncompleteDeletion,
+  type SteamOwnedPrefix,
+} from "../../core/cleanup";
 import { readAppName } from "../../core/localconfig";
 import { paths } from "../../core/paths";
 import {
@@ -69,6 +75,9 @@ export const useCleanupStore = defineStore("cleanup", {
     /** spielnamen je orphan-pfad aus steams localconfig (kosmetik; fehlt der
      *  name, zeigt die view die app-id). */
     orphanNames: {} as Record<string, string>,
+    /** prefixes von steam-eigenen paketen (proton-builtins, runtimes): nur
+     *  gemeldet (zahl + größe), nie als löschkandidaten angeboten. */
+    steamOwnedPrefixes: [] as SteamOwnedPrefix[],
     /** liegengebliebene claim-verzeichnisse aus abgebrochenen löschungen.
      *  werden nur gemeldet, nie als löschkandidaten angeboten (INV-2). */
     incompleteDeletions: [] as IncompleteDeletion[],
@@ -94,6 +103,8 @@ export const useCleanupStore = defineStore("cleanup", {
   getters: {
     compatdataOrphans: (s) => s.orphans.filter((o) => o.type === "compatdata"),
     shadercacheOrphans: (s) => s.orphans.filter((o) => o.type === "shadercache"),
+    steamOwnedTotalBytes: (s) =>
+      s.steamOwnedPrefixes.reduce((sum, p) => sum + (p.sizeBytes ?? 0), 0),
   },
   actions: {
     key(entry: OrphanEntry): string {
@@ -185,6 +196,11 @@ export const useCleanupStore = defineStore("cleanup", {
           tauriPorts.fs,
         );
         this.incompleteDeletions = await findIncompleteDeletions(result.libraries, tauriPorts.fs);
+        this.steamOwnedPrefixes = await findSteamOwnedPrefixes(
+          result.libraries,
+          new Set(result.blockedAppIds),
+          tauriPorts.fs,
+        );
 
         if (this.shortcutUnreadable) {
           // WHY fail-closed: unlesbares shortcuts.vdf → Non-Steam-Shortcuts sind nicht
@@ -202,11 +218,17 @@ export const useCleanupStore = defineStore("cleanup", {
 
         this.orphanNames = await this.readOrphanNames(result);
 
-        if (this.orphans.length === 0) return;
+        // größen für beide listen in einem aufruf; ohne orphans, aber mit
+        // steam-eigenen prefixes darf nicht vorzeitig abgebrochen werden.
+        if (this.orphans.length === 0 && this.steamOwnedPrefixes.length === 0) return;
 
-        const paths = this.orphans.map((o) => o.path);
+        const paths = [
+          ...this.orphans.map((o) => o.path),
+          ...this.steamOwnedPrefixes.map((p) => p.path),
+        ];
         const sizes = await tauriPorts.system.batchDirSizes(paths);
         attachSizes(this.orphans, sizes);
+        attachSizes(this.steamOwnedPrefixes, sizes);
       } catch (e) {
         this.error = errMsg(e);
       } finally {

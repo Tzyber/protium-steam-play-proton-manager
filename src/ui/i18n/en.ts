@@ -153,6 +153,8 @@ export const en = {
       "protium found data from an earlier deletion that did not complete. for safety, protium will not modify it automatically.",
     incompleteDeletionsHint:
       "if another protium instance is currently cleaning up data, wait for it to finish and scan again:",
+    steamOwnedHint:
+      "{n} prefixes belong to steam's own runtimes and proton builtins ({size}) and are not offered: steam recreates them when needed.",
     trashEmpty: "empty trash",
     trashDeleteEntry: "delete entry",
     trashDeleteConfirmTitle: "empty trash?",

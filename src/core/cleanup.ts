@@ -74,6 +74,64 @@ export async function findOrphans(
   return orphans;
 }
 
+/** Prefix eines Steam-eigenen Pakets (Proton-Builtin oder Runtime), das der
+ *  Cleanup nicht anbietet. Wird nur gemeldet, damit belegter Platz nicht
+ *  unsichtbar wird (INV-2: melden, nicht anbieten). */
+export interface SteamOwnedPrefix {
+  path: string;
+  library: string;
+  appId: number;
+  sizeBytes?: number;
+}
+
+/**
+ * Findet compatdata-Prefixes, deren AppID auf der Blocklist steht.
+ *
+ * Die Filterbedingung ist dieselbe wie im findOrphans-Filter: `blockedAppIds`
+ * enthält nur AppIDs, deren Manifest der Scan gesehen hat (Blocklist UND
+ * Manifest vorhanden). Fehlt das Manifest eines Builtins, ist sein Prefix ein
+ * echter Rest und wird als Orphan angeboten — bewusst so. Die Menge hier und
+ * der Filter in findOrphans müssen dieselbe Quelle nutzen, sonst zeigt der
+ * Hinweis eine andere Menge an, als tatsächlich ausgeblendet wurde.
+ *
+ * Nur compatdata: Shader-Caches der Steam-Pakete sind von dem Filter nicht
+ * betroffen.
+ */
+export async function findSteamOwnedPrefixes(
+  libraries: readonly string[],
+  blockedAppIds: ReadonlySet<number>,
+  fs: FileSystem,
+): Promise<SteamOwnedPrefix[]> {
+  const found: SteamOwnedPrefix[] = [];
+
+  for (const lib of libraries) {
+    const dir = paths.compatdataDir(lib);
+
+    let entries: DirEntry[];
+    try {
+      entries = await fs.readDir(dir);
+    } catch {
+      continue; // Fehlende oder nicht lesbare Verzeichnisse überspringen.
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory || entry.isSymlink) continue;
+      if (entry.name.startsWith(DELETE_CLAIM_PREFIX)) continue;
+      const appId = parseSafeAppId(entry.name);
+      if (appId === null) continue;
+      if (!blockedAppIds.has(appId)) continue;
+
+      found.push({
+        appId,
+        path: paths.compatdataPath(lib, entry.name),
+        library: lib,
+      });
+    }
+  }
+
+  return found;
+}
+
 /**
  * Sucht liegengebliebene Claim-Verzeichnisse in compatdata und shadercache.
  *

@@ -381,6 +381,15 @@ const tabLabel = (id: Tab) =>
 
         <p class="moved-note">{{ t("cleanup.winePrefixMovedNote") }}</p>
 
+        <div v-if="cleanup.steamOwnedPrefixes.length" class="blocked" role="status">
+          {{
+            t("cleanup.steamOwnedHint", {
+              n: cleanup.steamOwnedPrefixes.length,
+              size: formatBytes(cleanup.steamOwnedTotalBytes),
+            })
+          }}
+        </div>
+
         <ul v-if="compatdataOrphans.length" class="list">
           <li
             v-for="o in compatdataOrphans"

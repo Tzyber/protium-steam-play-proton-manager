@@ -150,6 +150,8 @@ export const de = {
       "Protium hat daten eines früheren löschvorgangs gefunden, der nicht vollständig abgeschlossen wurde. aus sicherheitsgründen nimmt Protium daran keine automatische änderung vor.",
     incompleteDeletionsHint:
       "falls gerade eine zweite Protium-Instanz eine bereinigung ausführt, warte, bis sie abgeschlossen ist, und scanne erneut:",
+    steamOwnedHint:
+      "{n} prefixes gehören zu steam-eigenen runtimes und proton-builtins ({size}) und werden nicht angeboten: steam legt sie bei bedarf neu an.",
     trashEmpty: "papierkorb leeren",
     trashDeleteEntry: "eintrag löschen",
     trashDeleteConfirmTitle: "papierkorb leeren?",
