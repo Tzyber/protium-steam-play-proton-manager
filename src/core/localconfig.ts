@@ -22,6 +22,22 @@ export function readLaunchOptions(localConfigText: string, appId: number): strin
   return getVdfValue(localConfigText, launchOptionsPath(appId));
 }
 
+/** spielname aus steams localconfig (Apps/<appId>/name). steam pflegt die
+ *  einträge auch für deinstallierte spiele weiter, daher die quelle für
+ *  namen in der cleanup-liste. undefined = kein eintrag. */
+export function readAppName(localConfigText: string, appId: number): string | undefined {
+  const name = getVdfValue(localConfigText, [
+    "UserLocalConfigStore",
+    "Software",
+    "Valve",
+    "Steam",
+    "Apps",
+    String(appId),
+    "name",
+  ]);
+  return name && name.trim() !== "" ? name : undefined;
+}
+
 // steamID64 → accountID (= userdata-ordnername); nur individuelle accounts.
 function accountIdOf(steamId64: string): string | null {
   const BASE = 76561197960265728n;

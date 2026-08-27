@@ -67,6 +67,7 @@ function fakeResult(): ScanResult {
     warnings: [],
     skippedLibraries: [],
     cleanupUnsafeLibraries: [],
+    blockedAppIds: [],
   };
 }
 
@@ -85,6 +86,7 @@ function fakeLocalResult(result = fakeResult()): Awaited<ReturnType<typeof scanL
     warnings: result.warnings,
     skippedLibraries: result.skippedLibraries,
     cleanupUnsafeLibraries: result.cleanupUnsafeLibraries,
+    blockedAppIds: [],
   };
 }
 

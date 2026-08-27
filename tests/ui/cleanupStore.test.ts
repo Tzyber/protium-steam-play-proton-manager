@@ -15,6 +15,7 @@ const {
   mockPrepareDelete,
   mockExecuteDelete,
   mockBatchDirSizes,
+  mockReadLocalConfig,
 } = vi.hoisted(() => ({
   mockFindOrphans: vi.fn<typeof findOrphans>(async () => []),
   mockFindIncompleteDeletions: vi.fn<typeof findIncompleteDeletions>(async () => []),
@@ -39,6 +40,7 @@ const {
     deletedPath: "",
   })),
   mockBatchDirSizes: vi.fn<(paths: string[]) => Promise<Record<string, number>>>(async () => ({})),
+  mockReadLocalConfig: vi.fn(async () => ""),
 }));
 
 vi.mock("../../src/core/cleanup", () => ({
@@ -56,7 +58,9 @@ vi.mock("../../src/core/adapters/tauri", async () => {
   // in-memory cache statt {}, der store persistiert die ignorier-entscheidung
   const cacheStore = new Map<string, string>();
   const tauriPorts = {
-    fs: {},
+    fs: {
+      readTextFile: mockReadLocalConfig,
+    },
     http: {},
     system: {
       isProcessRunning: async () => false,
@@ -97,6 +101,7 @@ function fakeScan(
     warnings: [],
     skippedLibraries: skipped ?? [],
     cleanupUnsafeLibraries: cleanupUnsafeLibraries ?? [],
+    blockedAppIds: [],
   };
 }
 
@@ -548,6 +553,39 @@ describe("cleanupStore, batch_dir_sizes NotFound-Skip", () => {
     expect(renderSize(undefined)).toBe("…");
     expect(renderSize(0)).toBe("-"); // echtes leeres verzeichnis
     expect(renderSize(8192)).toBe(formatBytes(8192));
+  });
+
+  it("reichert orphan-namen aus steams localconfig an, fallback app-id", async () => {
+    mockFindOrphans.mockResolvedValue([
+      { appId: 12345, type: "compatdata", path: "/lib/compatdata/12345", library: "/lib" },
+      { appId: 99999, type: "compatdata", path: "/lib/compatdata/99999", library: "/lib" },
+    ]);
+    mockReadLocalConfig.mockResolvedValue(
+      '"UserLocalConfigStore"\n{\n\t"Software"\n\t{\n\t\t"Valve"\n\t\t{\n\t\t\t"Steam"\n\t\t\t{\n\t\t\t\t"Apps"\n\t\t\t\t{\n\t\t\t\t\t"12345"\n\t\t\t\t\t{\n\t\t\t\t\t\t"name"\t\t"Test Game"\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n',
+    );
+    const scanStore = useScanStore();
+    scanStore.result = { ...fakeScan([]), steamUserId: "123" };
+    const store = useCleanupStore();
+
+    await store.scanOrphans();
+
+    expect(store.orphanNames["/lib/compatdata/12345"]).toBe("Test Game");
+    expect(store.orphanNames["/lib/compatdata/99999"]).toBeUndefined();
+  });
+
+  it("unlesbare localconfig → keine namen, kein crash", async () => {
+    mockFindOrphans.mockResolvedValue([
+      { appId: 12345, type: "compatdata", path: "/lib/compatdata/12345", library: "/lib" },
+    ]);
+    mockReadLocalConfig.mockRejectedValue(new Error("EACCES"));
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+
+    await store.scanOrphans();
+
+    expect(store.orphanNames).toEqual({});
+    expect(store.orphans).toHaveLength(1);
   });
 });
 

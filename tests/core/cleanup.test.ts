@@ -18,7 +18,7 @@ async function setup() {
 describe("findOrphans", () => {
   it("happy path: mix installed/verwaiste, nach Typ getrennt", async () => {
     const { fs, libraries, installedAppIds } = await setup();
-    const orphans = await findOrphans(libraries, installedAppIds, fs);
+    const orphans = await findOrphans(libraries, installedAppIds, new Set(), fs);
 
     const compatdataOrphans = orphans.filter((o) => o.type === "compatdata");
     const shadercacheOrphans = orphans.filter((o) => o.type === "shadercache");
@@ -35,7 +35,7 @@ describe("findOrphans", () => {
 
   it("nicht-numerisch, 0, datei statt ordner werden ignoriert", async () => {
     const { fs, libraries, installedAppIds } = await setup();
-    const orphans = await findOrphans(libraries, installedAppIds, fs);
+    const orphans = await findOrphans(libraries, installedAppIds, new Set(), fs);
 
     const appIds = orphans.map((o) => o.appId);
     expect(appIds).not.toContain(0);
@@ -52,27 +52,37 @@ describe("findOrphans", () => {
     await fs.mkdir(`${lib2}/compatdata`);
     await fs.mkdir(`${lib2}/compatdata/${huge}`);
 
-    const orphans = await findOrphans([lib2], installedAppIds, fs);
+    const orphans = await findOrphans([lib2], installedAppIds, new Set(), fs);
 
     expect(orphans).toEqual([]);
+  });
+
+  it("blocklistete appIDs (proton-builtin etc.) werden nicht als orphan angeboten", async () => {
+    const { fs, libraries, installedAppIds } = await setup();
+    // 999999 hat ein manifest (blocklist-fall wie proton-builtin 4628710):
+    // prefix existiert, aber die app ist kein spiel → kein orphan.
+    const orphans = await findOrphans(libraries, installedAppIds, new Set([999999]), fs);
+
+    expect(orphans.map((o) => o.appId)).not.toContain(999999);
+    expect(orphans.some((o) => o.appId === 888888)).toBe(true);
   });
 
   it("basis-ordner fehlt → kein throw, leeres teilergebnis", async () => {
     const { fs, libraries, installedAppIds } = await setup();
     // lib2 hat keine compatdata/shadercache dirs, sollte nicht crashen
-    const orphans = await findOrphans([libraries[1] as string], installedAppIds, fs);
+    const orphans = await findOrphans([libraries[1] as string], installedAppIds, new Set(), fs);
     expect(orphans).toEqual([]);
   });
 
   it("defekte/nicht lesbare library → skip, kein throw", async () => {
     const { fs, installedAppIds } = await setup();
-    const orphans = await findOrphans(["/nicht/existenter/pfad"], installedAppIds, fs);
+    const orphans = await findOrphans(["/nicht/existenter/pfad"], installedAppIds, new Set(), fs);
     expect(orphans).toEqual([]);
   });
 
   it("gleiche appId in beiden typen → zwei getrennte entries", async () => {
     const { fs, libraries, installedAppIds } = await setup();
-    const orphans = await findOrphans(libraries, installedAppIds, fs);
+    const orphans = await findOrphans(libraries, installedAppIds, new Set(), fs);
 
     // 888888 existiert nur als shadercache, 999999 nur als compatdata
     const byAppId = new Map<number, { compatdata: boolean; shadercache: boolean }>();
@@ -90,7 +100,7 @@ describe("findOrphans", () => {
 
   it("symlink als eintrag → nicht als orphan gemeldet", async () => {
     const { fs, libraries, installedAppIds } = await setup();
-    const orphans = await findOrphans(libraries, installedAppIds, fs);
+    const orphans = await findOrphans(libraries, installedAppIds, new Set(), fs);
 
     const paths = orphans.map((o) => o.path);
     expect(paths.every((p) => !p.includes("symlink"))).toBe(true);
@@ -99,7 +109,7 @@ describe("findOrphans", () => {
   it("shortcut-appId in installedAppIds → prefix nicht als orphan", async () => {
     const { fs, libraries } = await setup();
     const installedWithShortcut = new Set([570, 620, 730, 3641016077]);
-    const orphans = await findOrphans(libraries, installedWithShortcut, fs);
+    const orphans = await findOrphans(libraries, installedWithShortcut, new Set(), fs);
 
     const shortcutPrefix = orphans.find((o) => o.appId === 3641016077);
     expect(shortcutPrefix).toBeUndefined();
@@ -108,7 +118,7 @@ describe("findOrphans", () => {
   it("AppID oberhalb der Rust-Grenze wird nie als orphan angeboten", async () => {
     const { fs, libraries } = await setup();
     const withoutShortcut = new Set([570, 620, 730]);
-    const orphans = await findOrphans(libraries, withoutShortcut, fs);
+    const orphans = await findOrphans(libraries, withoutShortcut, new Set(), fs);
 
     const outOfRangePrefix = orphans.find((o) => o.appId === 3641016077);
     expect(outOfRangePrefix).toBeUndefined();
@@ -136,7 +146,7 @@ describe("findIncompleteDeletions", () => {
     expect(incomplete.find((entry) => entry.path === compatClaim)?.type).toBe("compatdata");
     expect(incomplete.find((entry) => entry.path === shaderClaim)?.type).toBe("shadercache");
 
-    const orphans = await findOrphans(libraries, installedAppIds, fs);
+    const orphans = await findOrphans(libraries, installedAppIds, new Set(), fs);
     expect(orphans.every((entry) => !entry.path.includes(DELETE_CLAIM_PREFIX))).toBe(true);
   });
 

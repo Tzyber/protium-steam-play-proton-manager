@@ -1,6 +1,8 @@
 import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
 import { findIncompleteDeletions, findOrphans, type IncompleteDeletion } from "../../core/cleanup";
+import { readAppName } from "../../core/localconfig";
+import { paths } from "../../core/paths";
 import {
   readAllShortcutAppIds,
   SHORTCUT_ID_THRESHOLD,
@@ -64,6 +66,9 @@ function formatTrashErrors(prepareErrors: string[], executeErrors: string[]): st
 export const useCleanupStore = defineStore("cleanup", {
   state: () => ({
     orphans: [] as OrphanEntry[],
+    /** spielnamen je orphan-pfad aus steams localconfig (kosmetik; fehlt der
+     *  name, zeigt die view die app-id). */
+    orphanNames: {} as Record<string, string>,
     /** liegengebliebene claim-verzeichnisse aus abgebrochenen löschungen.
      *  werden nur gemeldet, nie als löschkandidaten angeboten (INV-2). */
     incompleteDeletions: [] as IncompleteDeletion[],
@@ -93,6 +98,25 @@ export const useCleanupStore = defineStore("cleanup", {
   actions: {
     key(entry: OrphanEntry): string {
       return entry.path;
+    },
+
+    /** spielnamen für die orphan-liste aus steams localconfig; fehler oder
+     *  fehlende einträge → id-fallback in der view. */
+    async readOrphanNames(result: ScanResult): Promise<Record<string, string>> {
+      if (!result.steamUserId) return {};
+      try {
+        const text = await tauriPorts.fs.readTextFile(
+          paths.localConfigVdf(result.steamRoot, result.steamUserId),
+        );
+        const names: Record<string, string> = {};
+        for (const o of this.orphans) {
+          const name = readAppName(text, o.appId);
+          if (name) names[o.path] = name;
+        }
+        return names;
+      } catch {
+        return {};
+      }
     },
 
     async scanOrphans() {
@@ -154,7 +178,12 @@ export const useCleanupStore = defineStore("cleanup", {
 
         const installedAppIds = collectInstalledAppIds(result, shortcutResult);
 
-        this.orphans = await findOrphans(result.libraries, installedAppIds, tauriPorts.fs);
+        this.orphans = await findOrphans(
+          result.libraries,
+          installedAppIds,
+          new Set(result.blockedAppIds),
+          tauriPorts.fs,
+        );
         this.incompleteDeletions = await findIncompleteDeletions(result.libraries, tauriPorts.fs);
 
         if (this.shortcutUnreadable) {
@@ -170,6 +199,8 @@ export const useCleanupStore = defineStore("cleanup", {
         for (const o of this.orphans) {
           if (o.appId >= SHORTCUT_ID_THRESHOLD) o.potentialShortcut = true;
         }
+
+        this.orphanNames = await this.readOrphanNames(result);
 
         if (this.orphans.length === 0) return;
 

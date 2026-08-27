@@ -48,6 +48,7 @@ function result(overrides: Partial<ScanResult> = {}): ScanResult {
     warnings: [],
     skippedLibraries: [],
     cleanupUnsafeLibraries: [],
+    blockedAppIds: [],
     ...overrides,
   };
 }

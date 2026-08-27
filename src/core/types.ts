@@ -106,6 +106,10 @@ export interface ScanResult {
   warnings: ScanWarning[];
   skippedLibraries: SkippedLibrary[];
   cleanupUnsafeLibraries: string[];
+  /** appIDs mit existierendem manifest, die kein spiel sind (blocklist,
+   *  z. b. proton-builtin-pakete). cleanup darf ihre prefixes nie als
+   *  orphans anbieten. */
+  blockedAppIds: number[];
 }
 
 export type SkipReason = "path-missing" | "scope-failed" | "read-failed";

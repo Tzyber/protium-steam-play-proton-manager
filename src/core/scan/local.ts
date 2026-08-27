@@ -58,6 +58,7 @@ export async function scanLocal(
     launchConfigStatus: launchResult.launchConfigStatus,
     manifestCounts: gamesResult.manifestCounts,
     compatToolCounts: toolsResult.compatToolCounts,
+    blockedAppIds: [...gamesResult.blockedAppIds],
     warnings: [
       ...libraryResult.warnings,
       ...mappingResult.warnings,

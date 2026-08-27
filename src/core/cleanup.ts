@@ -26,6 +26,7 @@ function typeDir(library: string, type: OrphanType): string {
 export async function findOrphans(
   libraries: readonly string[],
   installedAppIds: ReadonlySet<number>,
+  blockedAppIds: ReadonlySet<number>,
   fs: FileSystem,
 ): Promise<OrphanEntry[]> {
   const orphans: OrphanEntry[] = [];
@@ -49,7 +50,11 @@ export async function findOrphans(
         if (!NUMERIC_RE.test(entry.name)) continue;
         const appId = parseSafeAppId(entry.name);
         if (appId === null) continue;
-        if (installedAppIds.has(appId)) continue;
+        // blockedAppIds = appIDs, deren manifest existiert, die aber kein
+        // spiel sind (z. B. proton-builtin-pakete). ihr prefix ist kein
+        // verwaister prefix, sonst blockt das backend beim löschen
+        // ("currently installed") und der eintrag bliebe für immer stehen.
+        if (installedAppIds.has(appId) || blockedAppIds.has(appId)) continue;
 
         const orphanPath =
           type === "compatdata"

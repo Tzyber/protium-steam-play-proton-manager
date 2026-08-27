@@ -67,6 +67,12 @@ const bySize = (a: OrphanEntry, b: OrphanEntry) => (b.sizeBytes ?? 0) - (a.sizeB
 const shadercacheOrphans = computed(() => [...cleanup.shadercacheOrphans].sort(bySize));
 const compatdataOrphans = computed(() => [...cleanup.compatdataOrphans].sort(bySize));
 
+/** spielname aus steams localconfig, sonst die app-id (z. B. bei
+ *  non-steam-shortcuts oder fehlendem eintrag). */
+function orphanLabel(o: OrphanEntry): string {
+  return cleanup.orphanNames[o.path] ?? String(o.appId);
+}
+
 const selected = reactive(new Set<string>());
 
 function toggle(key: string) {
@@ -337,7 +343,7 @@ const tabLabel = (id: Tab) =>
               @click="toggle(cleanup.key(o))"
             >
               <span class="box" aria-hidden="true" />
-              <span class="rname mono">{{ o.appId }}</span>
+              <span class="rname mono">{{ orphanLabel(o) }}</span>
               <span class="rpath mono" :title="o.path">{{ shortPath(o.path) }}<span class="sr-only">{{ o.path }}</span></span>
               <span class="rsize mono">{{ o.sizeBytes != null ? formatBytes(o.sizeBytes) : "…" }}</span>
             </button>
@@ -389,7 +395,7 @@ const tabLabel = (id: Tab) =>
             >
               <span class="box" aria-hidden="true" />
               <span class="rname mono">
-                {{ o.appId }}
+                {{ orphanLabel(o) }}
                 <span
                   v-if="o.potentialShortcut"
                   class="sc-warn"

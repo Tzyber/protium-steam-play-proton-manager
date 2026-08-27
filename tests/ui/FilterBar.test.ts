@@ -37,6 +37,7 @@ function result(): ScanResult {
     warnings: [],
     skippedLibraries: [],
     cleanupUnsafeLibraries: [],
+    blockedAppIds: [],
   };
 }
 

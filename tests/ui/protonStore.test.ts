@@ -96,6 +96,7 @@ function fakeScanResult(): ScanResult {
     warnings: [],
     skippedLibraries: [],
     cleanupUnsafeLibraries: [],
+    blockedAppIds: [],
   };
 }
 
@@ -586,6 +587,7 @@ describe("protonStore.remove", () => {
       warnings: [],
       skippedLibraries: [],
       cleanupUnsafeLibraries: [],
+      blockedAppIds: [],
     };
     const store = useProtonStore();
     const { tauriPorts } = await import("../../src/core/adapters/tauri");
@@ -651,6 +653,7 @@ describe("protonStore.remove", () => {
       warnings: [],
       skippedLibraries: [],
       cleanupUnsafeLibraries: [],
+      blockedAppIds: [],
     };
     const store = useProtonStore();
     const { tauriPorts } = await import("../../src/core/adapters/tauri");

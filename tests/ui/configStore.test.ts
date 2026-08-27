@@ -48,6 +48,7 @@ function fakeScanResult(): ScanResult {
     warnings: [],
     skippedLibraries: [],
     cleanupUnsafeLibraries: [],
+    blockedAppIds: [],
   };
 }
 

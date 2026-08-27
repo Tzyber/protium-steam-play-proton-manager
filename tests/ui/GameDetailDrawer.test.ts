@@ -87,6 +87,7 @@ function result(
     warnings: [],
     skippedLibraries: [],
     cleanupUnsafeLibraries: [],
+    blockedAppIds: [],
   };
 }
 

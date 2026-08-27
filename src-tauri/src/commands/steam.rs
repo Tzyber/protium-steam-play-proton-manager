@@ -1088,8 +1088,13 @@ pub(super) fn read_library_folders(steam_root: &Path) -> Result<Vec<PathBuf>, St
 }
 
 /// Prüft alle vorhandenen App-Manifeste und bricht bei unklaren Live-Daten ab.
+/// Some(name) = app installiert (name aus dem manifest, evtl. leer),
+/// None = app in keiner library gefunden.
 #[cfg(test)]
-fn is_app_installed_in_libraries(libraries: &[PathBuf], app_id: u32) -> Result<bool, String> {
+fn is_app_installed_in_libraries(
+    libraries: &[PathBuf],
+    app_id: u32,
+) -> Result<Option<String>, String> {
     #[cfg(target_os = "linux")]
     {
         let mut no_hook = |_: DeleteReadStage, _: Option<&mut std::fs::File>| {};
@@ -1108,7 +1113,7 @@ fn is_app_installed_in_libraries_linux_with_hook<F>(
     libraries: &[PathBuf],
     app_id: u32,
     hook: &mut F,
-) -> Result<bool, String>
+) -> Result<Option<String>, String>
 where
     F: FnMut(DeleteReadStage, Option<&mut std::fs::File>),
 {
@@ -1185,11 +1190,14 @@ where
                 ));
             }
             if internal_id == app_id {
-                return Ok(true);
+                let game_name = vdf_patch::get_vdf_value(&content, &["AppState", "name"])
+                    .map_err(|error| format!("cannot parse manifest name {name_string}: {error}"))?
+                    .unwrap_or_default();
+                return Ok(Some(game_name));
             }
         }
     }
-    Ok(false)
+    Ok(None)
 }
 
 fn validate_trash_target(canon_str: &str, meta: &fs::Metadata) -> Result<(), String> {
@@ -1704,9 +1712,16 @@ where
                 return Err("target library is not listed in libraryfolders.vdf".into());
             }
 
-            if is_app_installed_in_libraries_linux_with_hook(&libraries, app_id, hook)? {
+            if let Some(game_name) =
+                is_app_installed_in_libraries_linux_with_hook(&libraries, app_id, hook)?
+            {
+                let display = if game_name.is_empty() {
+                    app_id.to_string()
+                } else {
+                    game_name
+                };
                 return Err(format!(
-                    "target is not an orphan: app {app_id} is currently installed"
+                    "target is not an orphan: game \"{display}\" ({app_id}) is currently installed"
                 ));
             }
 
@@ -2984,8 +2999,12 @@ mod tests {
         std::fs::write(steamapps.join("appmanifest_570.acf"), manifest).unwrap();
 
         let libraries = vec![lib.clone()];
-        assert!(is_app_installed_in_libraries(&libraries, 570).unwrap());
-        assert!(!is_app_installed_in_libraries(&libraries, 730).unwrap());
+        assert!(is_app_installed_in_libraries(&libraries, 570)
+            .unwrap()
+            .is_some());
+        assert!(is_app_installed_in_libraries(&libraries, 730)
+            .unwrap()
+            .is_none());
 
         // Mismatched filename/internal ID -> fail-closed
         let bad_manifest = "\"AppState\"\n{\n\t\"appid\"\t\t\"999\"\n}\n";
@@ -3004,7 +3023,9 @@ mod tests {
 
         // fehlende steamapps = dort liegen keine manifeste: kein fehler (INV-2).
         let libraries = vec![absent, present.clone()];
-        assert!(!is_app_installed_in_libraries(&libraries, 570).unwrap());
+        assert!(is_app_installed_in_libraries(&libraries, 570)
+            .unwrap()
+            .is_none());
 
         // symlink-steamapps bleibt anomalie -> abgelehnt.
         let symlink_steamapps = root.join("symlinklib");
@@ -3182,6 +3203,7 @@ mod tests {
         assert!(
             is_app_installed_in_libraries_linux_with_hook(&[library], 570, &mut after_open,)
                 .unwrap()
+                .is_some()
         );
 
         let _ = std::fs::remove_dir_all(&root);
@@ -3456,10 +3478,11 @@ mod tests {
             Some(vec![999999])
         );
 
-        // 2. Installiertes Spiel darf nicht als Orphan inspiziert werden
+        // 2. Installiertes Spiel darf nicht als Orphan inspiziert werden;
+        // der fehler nennt den spielnamen aus dem manifest statt nur die id.
         let installed_dir = compatdata.join("570");
         std::fs::create_dir_all(&installed_dir).unwrap();
-        let manifest = "\"AppState\"\n{\n\t\"appid\"\t\t\"570\"\n}\n";
+        let manifest = "\"AppState\"\n{\n\t\"appid\"\t\t\"570\"\n\t\"name\"\t\t\"Dota 2\"\n}\n";
         std::fs::write(steamapps.join("appmanifest_570.acf"), manifest).unwrap();
 
         let err = inspect_deletion_target(
@@ -3470,6 +3493,10 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("currently installed"), "err: {err}");
+        assert!(
+            err.contains("Dota 2"),
+            "fehler muss den spielnamen nennen: {err}"
+        );
 
         // 3. Shortcut-Spiel darf nicht als Orphan inspiziert werden
         let shortcut_dir = compatdata.join("123456");
