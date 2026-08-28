@@ -75,6 +75,20 @@ describe("filterAndSortGames", () => {
       3, 1, 2, 4,
     ]);
   });
+  it("sortiert unbekannte größen unabhängig von der richtung zuletzt", () => {
+    const withUnknown = [
+      ...games,
+      game({ appId: 5, name: "Unknown Asc", sizeBytes: undefined }),
+      game({ appId: 6, name: "Unknown Desc", sizeBytes: undefined }),
+    ];
+
+    expect(
+      ids(filterAndSortGames(withUnknown, { ...base, sortKey: "size", sortDir: "asc" })),
+    ).toEqual([4, 2, 1, 3, 5, 6]);
+    expect(
+      ids(filterAndSortGames(withUnknown, { ...base, sortKey: "size", sortDir: "desc" })),
+    ).toEqual([3, 1, 2, 4, 6, 5]);
+  });
   it("sortiert tier absteigend (platinum zuerst)", () => {
     const r = filterAndSortGames(games, { ...base, sortKey: "tier", sortDir: "desc" });
     expect(r[0]?.appId).toBe(1); // platinum

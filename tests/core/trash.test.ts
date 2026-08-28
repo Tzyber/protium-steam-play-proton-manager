@@ -16,7 +16,7 @@ function fakeSystem(impl: (library: string) => Promise<TrashListing>): System {
     }),
     listTrashEntries: impl,
     isProcessRunning: async () => false,
-    dirSize: async () => 0,
+    dirSize: async () => ({ status: "measured" as const, sizeBytes: 0 }),
     batchDirSizes: async () => ({}),
     pathIdentity: async () => null,
     installGeProton: async () => "verified" as const,

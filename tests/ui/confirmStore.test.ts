@@ -7,6 +7,25 @@ beforeEach(() => {
 });
 
 describe("confirmStore", () => {
+  it("reserviert den gemeinsamen dialog atomar und gibt ihn bei cancel frei", () => {
+    const store = useConfirmStore();
+    const first = store.reserve();
+
+    expect(first).not.toBeNull();
+    expect(store.reserved).toBe(true);
+    expect(store.reserve()).toBeNull();
+    expect(store.ask({ title: "zweite löschung", message: "folge" }, { onSuccess: vi.fn() })).toBe(
+      false,
+    );
+
+    expect(store.ask({ title: "erste löschung", message: "folge" }, {}, first ?? -1)).toBe(true);
+    store.cancel();
+
+    expect(store.pending).toBeNull();
+    expect(store.reserved).toBe(false);
+    expect(store.reserve()).not.toBeNull();
+  });
+
   it("schließt nach execute-fehler und übergibt ihn an onError", async () => {
     const store = useConfirmStore();
     const error = new Error("token expired");
@@ -27,6 +46,7 @@ describe("confirmStore", () => {
     expect(onError).toHaveBeenCalledWith(error);
     expect(store.pending).toBeNull();
     expect(store.busy).toBe(false);
+    expect(store.reserved).toBe(false);
   });
 
   it("ignoriert ask, cancel und confirm während busy", async () => {

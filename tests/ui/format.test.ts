@@ -3,6 +3,9 @@ import { errText } from "../../src/core/errtext";
 import { formatBytes } from "../../src/ui/format";
 
 describe("formatBytes", () => {
+  it("unbekannt → auslassungspunkte", () => {
+    expect(formatBytes(undefined)).toBe("…");
+  });
   it("0 und negativ → bindestrich (leer/ungültig ≠ fehlend)", () => {
     expect(formatBytes(0)).toBe("-");
     expect(formatBytes(-5)).toBe("-");

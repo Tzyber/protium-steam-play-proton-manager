@@ -54,14 +54,18 @@ export interface EnvironmentSnapshot {
   appConfigDir: string;
 }
 
+export type DirectorySize =
+  | { status: "measured"; sizeBytes: number }
+  | { status: "missing" }
+  | { status: "failed"; detail?: string };
+
 export interface System {
   /** Liefert ausschließlich die vom Rust-Backend kompilierte GE-Zielarchitektur. */
   geTargetArch(): Promise<TargetArch>;
   isProcessRunning(name: string): Promise<boolean>;
-  dirSize(path: string): Promise<number>;
-  /** Größen für viele Pfade auf einmal; ein fehlender Map-Eintrag
-   *  bedeutet: pfad wurde übersprungen (z. b. NotFound-race), KEINE größe 0. */
-  batchDirSizes(paths: string[]): Promise<Record<string, number>>;
+  dirSize(path: string): Promise<DirectorySize>;
+  /** Liefert für jeden angeforderten Pfad einen expliziten Status. */
+  batchDirSizes(paths: string[]): Promise<Record<string, DirectorySize>>;
   /** entdeckt und ersetzt den atomaren, backendautorisierten Environment-Snapshot. */
   discoverSteamEnvironment(): Promise<EnvironmentSnapshot>;
   /** `(dev, ino)` zur Library-Deduplizierung; `null`, wenn nicht erreichbar. */

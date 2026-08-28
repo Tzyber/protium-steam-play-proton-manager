@@ -10,6 +10,7 @@ import {
 import { errText } from "../../core/errtext";
 import { readAppName } from "../../core/localconfig";
 import { paths } from "../../core/paths";
+import type { DirectorySize } from "../../core/ports";
 import {
   readAllShortcutAppIds,
   SHORTCUT_ID_THRESHOLD,
@@ -34,17 +35,34 @@ function collectInstalledAppIds(result: ScanResult, shortcutResult: ShortcutResu
   return installedAppIds;
 }
 
-/** größen an einträge hängen. ein fehlender map-eintrag bedeutet, dass
- *  batchDirSizes den pfad übersprungen hat (NotFound-race). sizeBytes bleibt
- *  dann undefined → UI rendert "…", ein leeres verzeichnis (real 0 byte)
- *  rendert "-" via formatBytes. KEIN default auf 0: die 0 für summen/sort
- *  gehört in die rechner (?? 0 dort), nicht in die anzeige. */
+/** übernimmt ausschließlich bestätigte messwerte. */
 function attachSizes(
   entries: { path: string; sizeBytes?: number }[],
-  sizes: Record<string, number>,
+  sizes: Record<string, DirectorySize>,
 ): void {
-  for (const e of entries) {
-    e.sizeBytes = sizes[e.path];
+  const updates: { entry: { path: string; sizeBytes?: number }; sizeBytes?: number }[] = [];
+  for (const entry of entries) {
+    if (!Object.hasOwn(sizes, entry.path)) {
+      throw new Error(`batchDirSizes: ergebnis für pfad fehlt: ${entry.path}`);
+    }
+    const size = sizes[entry.path];
+    if (!size) {
+      throw new Error(`batchDirSizes: ungültiges ergebnis für pfad: ${entry.path}`);
+    }
+    if (size.status === "missing" || size.status === "failed") {
+      updates.push({ entry, sizeBytes: undefined });
+      continue;
+    }
+    if (size.status !== "measured") {
+      throw new Error(`batchDirSizes: ungültiger status für pfad: ${entry.path}`);
+    }
+    if (!Number.isSafeInteger(size.sizeBytes) || size.sizeBytes < 0) {
+      throw new Error(`batchDirSizes: ungültige größe für pfad: ${entry.path}`);
+    }
+    updates.push({ entry, sizeBytes: size.sizeBytes });
+  }
+  for (const update of updates) {
+    update.entry.sizeBytes = update.sizeBytes;
   }
 }
 
@@ -99,12 +117,12 @@ export const useCleanupStore = defineStore("cleanup", {
     trashUnknown: [] as string[],
     trashLibraries: [] as TrashLibraryStatus[],
     trashScanning: false,
+    _orphanScanGeneration: 0,
+    _trashScanGeneration: 0,
   }),
   getters: {
     compatdataOrphans: (s) => s.orphans.filter((o) => o.type === "compatdata"),
     shadercacheOrphans: (s) => s.orphans.filter((o) => o.type === "shadercache"),
-    steamOwnedTotalBytes: (s) =>
-      s.steamOwnedPrefixes.reduce((sum, p) => sum + (p.sizeBytes ?? 0), 0),
   },
   actions: {
     key(entry: OrphanEntry): string {
@@ -131,6 +149,20 @@ export const useCleanupStore = defineStore("cleanup", {
     },
 
     async scanOrphans() {
+      const generation = this._orphanScanGeneration + 1;
+      this._orphanScanGeneration = generation;
+      this.orphans = [];
+      this.orphanNames = {};
+      this.steamOwnedPrefixes = [];
+      this.incompleteDeletions = [];
+      this.blockedBySkipped = false;
+      this.pathMissingLibs = [];
+      this.shortcutUnreadable = false;
+      this.shortcutUnreadablePaths = [];
+      this.shortcutUnreadableDetail = null;
+      this.scanning = false;
+
+      const isCurrent = () => this._orphanScanGeneration === generation;
       const scan = useScanStore();
       const result = scan.result;
       if (!result) {
@@ -162,7 +194,8 @@ export const useCleanupStore = defineStore("cleanup", {
         }
         this.blockedBySkipped = false;
 
-        await this.loadIgnoredMissing();
+        await this.loadIgnoredMissing(isCurrent);
+        if (!isCurrent()) return;
         const missing = skipped.filter((s) => s.reason === "path-missing").map((s) => s.path);
         const unanswered = missing.filter((p) => !this.ignoredMissingLibs.includes(p));
         if (unanswered.length > 0) {
@@ -171,12 +204,15 @@ export const useCleanupStore = defineStore("cleanup", {
         }
         this.pathMissingLibs = [];
 
-        if (await tauriPorts.system.isProcessRunning("steam")) {
+        const steamRunning = await tauriPorts.system.isProcessRunning("steam");
+        if (!isCurrent()) return;
+        if (steamRunning) {
           this.error = t("errors.steamRunningCleanup");
           return;
         }
 
         const shortcutResult = await readAllShortcutAppIds(tauriPorts.fs, result.steamRoot);
+        if (!isCurrent()) return;
         if (shortcutResult.status === "unreadable") {
           this.shortcutUnreadable = true;
           this.shortcutUnreadablePaths = shortcutResult.paths;
@@ -189,18 +225,26 @@ export const useCleanupStore = defineStore("cleanup", {
 
         const installedAppIds = collectInstalledAppIds(result, shortcutResult);
 
-        this.orphans = await findOrphans(
+        const orphans = await findOrphans(
           result.libraries,
           installedAppIds,
           new Set(result.blockedAppIds),
           tauriPorts.fs,
         );
-        this.incompleteDeletions = await findIncompleteDeletions(result.libraries, tauriPorts.fs);
-        this.steamOwnedPrefixes = await findSteamOwnedPrefixes(
+        if (!isCurrent()) return;
+        this.orphans = orphans;
+
+        const incompleteDeletions = await findIncompleteDeletions(result.libraries, tauriPorts.fs);
+        if (!isCurrent()) return;
+        this.incompleteDeletions = incompleteDeletions;
+
+        const steamOwnedPrefixes = await findSteamOwnedPrefixes(
           result.libraries,
           new Set(result.blockedAppIds),
           tauriPorts.fs,
         );
+        if (!isCurrent()) return;
+        this.steamOwnedPrefixes = steamOwnedPrefixes;
 
         if (this.shortcutUnreadable) {
           // WHY fail-closed: unlesbares shortcuts.vdf → Non-Steam-Shortcuts sind nicht
@@ -216,7 +260,9 @@ export const useCleanupStore = defineStore("cleanup", {
           if (o.appId >= SHORTCUT_ID_THRESHOLD) o.potentialShortcut = true;
         }
 
-        this.orphanNames = await this.readOrphanNames(result);
+        const orphanNames = await this.readOrphanNames(result);
+        if (!isCurrent()) return;
+        this.orphanNames = orphanNames;
 
         // größen für beide listen in einem aufruf; ohne orphans, aber mit
         // steam-eigenen prefixes darf nicht vorzeitig abgebrochen werden.
@@ -227,12 +273,13 @@ export const useCleanupStore = defineStore("cleanup", {
           ...this.steamOwnedPrefixes.map((p) => p.path),
         ];
         const sizes = await tauriPorts.system.batchDirSizes(paths);
+        if (!isCurrent()) return;
         attachSizes(this.orphans, sizes);
         attachSizes(this.steamOwnedPrefixes, sizes);
       } catch (e) {
-        this.error = errText(e);
+        if (isCurrent()) this.error = errText(e);
       } finally {
-        this.scanning = false;
+        if (isCurrent()) this.scanning = false;
       }
     },
 
@@ -240,6 +287,8 @@ export const useCleanupStore = defineStore("cleanup", {
       if (this.blockedBySkipped) return;
 
       const scan = useScanStore();
+      const generation = this._orphanScanGeneration;
+      const isCurrent = () => this._orphanScanGeneration === generation;
       const result = scan.result;
       if (!result) {
         this.error = t("errors.noScanResult");
@@ -267,6 +316,9 @@ export const useCleanupStore = defineStore("cleanup", {
 
       const shortcutResult = await readAllShortcutAppIds(tauriPorts.fs, result.steamRoot);
       const installedAppIds = collectInstalledAppIds(result, shortcutResult);
+      const confirm = useConfirmStore();
+      const reservation = confirm.reserve();
+      if (reservation === null) return;
 
       const errors: string[] = [];
       // phase 1: alle einträge vorbereiten; der dialog zeigt die folgen und
@@ -278,6 +330,7 @@ export const useCleanupStore = defineStore("cleanup", {
         descriptions: string[];
       }[] = [];
       for (const entry of entries) {
+        if (!isCurrent()) break;
         if (shortcutResult.status === "unreadable" && entry.type === "compatdata") {
           errors.push(
             t("errors.errorShortcutUnreadable", { type: entry.type, appId: entry.appId }),
@@ -311,11 +364,18 @@ export const useCleanupStore = defineStore("cleanup", {
           errors.push(`${entry.type}/${entry.appId}: ${errText(e)}`);
         }
       }
+      if (!isCurrent()) {
+        for (const p of prepared) this.deleting.delete(p.key);
+        confirm.release(reservation);
+        return;
+      }
       if (errors.length) this.error = errors.join("; ");
-      if (!prepared.length) return;
+      if (!prepared.length) {
+        confirm.release(reservation);
+        return;
+      }
 
-      const confirm = useConfirmStore();
-      confirm.ask(
+      const accepted = confirm.ask(
         {
           title: t("cleanup.deleteConfirmTitle", { n: prepared.length }),
           message: prepared.flatMap((p) => p.descriptions).join("\n"),
@@ -329,13 +389,13 @@ export const useCleanupStore = defineStore("cleanup", {
             for (const p of prepared) {
               try {
                 const res = await tauriPorts.system.executeDelete(p.token);
-                if (res.success) {
+                if (res.success && isCurrent()) {
                   this.orphans = this.orphans.filter((o) => this.key(o) !== p.key);
                   // shadercache wird hart gelöscht, landet nie im papierkorb
                   if (p.type === "compatdata") trashedCompatdata = true;
                 }
               } catch (e) {
-                errors.push(`${p.type}/${p.key}: ${errText(e)}`);
+                if (isCurrent()) errors.push(`${p.type}/${p.key}: ${errText(e)}`);
               } finally {
                 this.deleting.delete(p.key);
               }
@@ -343,27 +403,42 @@ export const useCleanupStore = defineStore("cleanup", {
             // reihenfolge: erst refreshes, dann fehler setzen. scanTrash() und
             // scanOrphans() setzen this.error zurück und würden die löschfehler
             // sonst verschlucken. der rescan gehört hierher, nicht in die view.
-            if (trashedCompatdata) await this.scanTrash();
+            if (!isCurrent()) return;
+            if (trashedCompatdata) {
+              await this.scanTrash();
+              if (!isCurrent()) return;
+            }
+            const refreshGeneration = this._orphanScanGeneration + 1;
             await this.scanOrphans();
-            if (errors.length) this.error = errors.join("; ");
+            if (this._orphanScanGeneration === refreshGeneration && errors.length) {
+              this.error = errors.join("; ");
+            }
           },
           onCancel: () => {
             for (const p of prepared) this.deleting.delete(p.key);
           },
           onError: (e) => {
             for (const p of prepared) this.deleting.delete(p.key);
-            errors.push(errText(e));
-            this.error = errors.join("; ");
+            if (isCurrent()) {
+              errors.push(errText(e));
+              this.error = errors.join("; ");
+            }
           },
         },
+        reservation,
       );
+      if (!accepted) {
+        for (const p of prepared) this.deleting.delete(p.key);
+        confirm.release(reservation);
+      }
     },
 
-    async loadIgnoredMissing() {
+    async loadIgnoredMissing(isCurrent: () => boolean = () => true) {
       if (this.ignoredLoaded) return;
-      this.ignoredLoaded = true;
       try {
         const raw = await tauriPorts.cache.get(IGNORED_MISSING_KEY);
+        if (!isCurrent()) return;
+        this.ignoredLoaded = true;
         if (!raw) return;
         const parsed: unknown = JSON.parse(raw);
         // defensiv: fremder/alter cache-inhalt darf den cleanup nicht kippen
@@ -371,6 +446,7 @@ export const useCleanupStore = defineStore("cleanup", {
           this.ignoredMissingLibs = parsed.filter((p): p is string => typeof p === "string");
         }
       } catch {
+        if (isCurrent()) this.ignoredLoaded = true;
         // Fehlender oder defekter Cache darf keine Einträge ausblenden.
       }
     },
@@ -398,6 +474,14 @@ export const useCleanupStore = defineStore("cleanup", {
     },
 
     async scanTrash() {
+      const generation = this._trashScanGeneration + 1;
+      this._trashScanGeneration = generation;
+      this.trash = [];
+      this.trashUnknown = [];
+      this.trashLibraries = [];
+      this.trashScanning = false;
+
+      const isCurrent = () => this._trashScanGeneration === generation;
       const scan = useScanStore();
       const result = scan.result;
       if (!result) {
@@ -413,6 +497,7 @@ export const useCleanupStore = defineStore("cleanup", {
           result.libraries,
           tauriPorts.system,
         );
+        if (!isCurrent()) return;
         this.trash = entries;
         this.trashUnknown = unknown;
         this.trashLibraries = libraries;
@@ -426,18 +511,24 @@ export const useCleanupStore = defineStore("cleanup", {
 
         const paths = entries.map((e) => e.path);
         const sizes = await tauriPorts.system.batchDirSizes(paths);
+        if (!isCurrent()) return;
         attachSizes(this.trash, sizes);
       } catch (e) {
-        this.error = errText(e);
+        if (isCurrent()) this.error = errText(e);
       } finally {
-        this.trashScanning = false;
+        if (isCurrent()) this.trashScanning = false;
       }
     },
 
     async deleteTrashEntries(entries: TrashEntry[]) {
+      const generation = this._trashScanGeneration;
+      const isCurrent = () => this._trashScanGeneration === generation;
       const scan = useScanStore();
       const steamRoot = scan.result?.steamRoot ?? "";
-      this.error = null;
+      const confirm = useConfirmStore();
+      const reservation = confirm.reserve();
+      if (reservation === null) return;
+      if (isCurrent()) this.error = null;
       const prepareErrors: string[] = [];
       const executeErrors: string[] = [];
       const prepared: {
@@ -448,6 +539,7 @@ export const useCleanupStore = defineStore("cleanup", {
       }[] = [];
 
       for (const entry of entries) {
+        if (!isCurrent()) break;
         try {
           const pending = await tauriPorts.system.prepareDelete({
             targetType: "trash",
@@ -465,15 +557,21 @@ export const useCleanupStore = defineStore("cleanup", {
         }
       }
 
+      if (!isCurrent()) {
+        confirm.release(reservation);
+        return;
+      }
       this.error = formatTrashErrors(prepareErrors, executeErrors);
-      if (!prepared.length) return;
+      if (!prepared.length) {
+        confirm.release(reservation);
+        return;
+      }
 
-      const confirm = useConfirmStore();
       const partialPrepareMessage =
         prepareErrors.length > 0
           ? t("cleanup.trashPrepareWarning", { n: prepareErrors.length })
           : null;
-      confirm.ask(
+      const accepted = confirm.ask(
         {
           title:
             prepared.length === 1
@@ -488,21 +586,25 @@ export const useCleanupStore = defineStore("cleanup", {
             for (const p of prepared) {
               try {
                 const res = await tauriPorts.system.executeDelete(p.token);
-                if (res.success) {
+                if (res.success && isCurrent()) {
                   this.trash = this.trash.filter((e) => e.path !== p.path);
                 }
               } catch (e) {
-                executeErrors.push(`${p.name}: ${errText(e)}`);
+                if (isCurrent()) executeErrors.push(`${p.name}: ${errText(e)}`);
               }
             }
-            this.error = formatTrashErrors(prepareErrors, executeErrors);
+            if (isCurrent()) this.error = formatTrashErrors(prepareErrors, executeErrors);
           },
           onError: (e) => {
-            executeErrors.push(errText(e));
-            this.error = formatTrashErrors(prepareErrors, executeErrors);
+            if (isCurrent()) {
+              executeErrors.push(errText(e));
+              this.error = formatTrashErrors(prepareErrors, executeErrors);
+            }
           },
         },
+        reservation,
       );
+      if (!accepted) confirm.release(reservation);
     },
 
     async deleteTrashEntry(entry: TrashEntry) {

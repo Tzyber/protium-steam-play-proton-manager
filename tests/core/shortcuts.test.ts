@@ -70,6 +70,16 @@ function utf16leBytes(s: string): number[] {
   return bytes;
 }
 
+/** `levels` geschachtelte MAPs mit nicht-numerischem key unter der root. */
+function makeDeepMap(levels: number): Uint8Array {
+  const parts: number[] = [0x00, ...new TextEncoder().encode("shortcuts"), 0x00];
+  for (let i = 0; i < levels; i += 1) {
+    parts.push(0x00, ...new TextEncoder().encode("x"), 0x00);
+  }
+  parts.push(...new Array(levels + 1).fill(0x08));
+  return new Uint8Array(parts);
+}
+
 describe("parseBinaryShortcutIds", () => {
   it("extrahiert appId aus gültigem binary-VDF", () => {
     const buf = makeBinVdf([{ appId: 3641016077, name: "Test" }]);
@@ -438,6 +448,28 @@ describe("parseBinaryShortcutIds", () => {
     // zwei führende bytes voranstellen, dann slicen → byteOffset ≠ 0
     const padded = new Uint8Array([0xff, 0xff, ...full]);
     expect(parseBinaryShortcutIds(padded.subarray(2)).has(42)).toBe(true);
+  });
+
+  it("verschachtelung über dem tiefenlimit (65 > 64) → BinVdfError fail-closed", () => {
+    // dasselbe feste limit wie der rust-parser (MAX_BINARY_VDF_DEPTH=64):
+    // eine künstlich tiefe datei darf den walker nicht den stack überlaufen
+    // lassen, sie bricht kontrolliert ab statt zu raten.
+    expect(() => parseBinaryShortcutIds(makeDeepMap(65))).toThrow(/nesting too deep/);
+  });
+
+  it("verschachtelung exakt am tiefenlimit (64) → kein throw", () => {
+    expect(() => parseBinaryShortcutIds(makeDeepMap(64))).not.toThrow();
+  });
+
+  it("golden-fixture: gemeinsame datei bindet beide parser an dieselben appids", async () => {
+    // tests/fixtures/shortcuts-golden.vdf wird von tests/core/shortcuts.test.ts
+    // und dem rust-test in steam.rs mit derselben erwarteten menge geparst.
+    const { readFile } = await import("node:fs/promises");
+    const buf = await readFile(join(process.cwd(), "tests/fixtures/shortcuts-golden.vdf"));
+    const ids = parseBinaryShortcutIds(new Uint8Array(buf));
+    expect(ids).toEqual(new Set([3641016077, 123456, 42]));
+    // LastPlayTime (0x02, kein "appid"-key) darf nicht landen
+    expect(ids.has(99999)).toBe(false);
   });
 });
 

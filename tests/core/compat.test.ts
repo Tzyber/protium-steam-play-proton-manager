@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { listCompatTools, recomputeToolUsedBy } from "../../src/core/compat.js";
-import type { DirEntry, FileSystem, PathIdentity, System } from "../../src/core/ports.js";
+import type {
+  DirEntry,
+  DirectorySize,
+  FileSystem,
+  PathIdentity,
+  System,
+} from "../../src/core/ports.js";
 
 describe("recomputeToolUsedBy", () => {
   it("rechnet usedBy aus dem spielstand neu (wechsel + entfernen)", () => {
@@ -34,6 +40,55 @@ describe("recomputeToolUsedBy", () => {
 });
 
 describe("listCompatTools", () => {
+  it("übernimmt nur gemessene verzeichnisgrößen und markiert missing als unbekannt", async () => {
+    const entries: DirEntry[] = [
+      { name: "measured", isDirectory: true, isSymlink: false },
+      { name: "missing", isDirectory: true, isSymlink: false },
+    ];
+    const fs: FileSystem = {
+      exists: vi.fn(async () => true),
+      readTextFile: vi.fn(async (path: string) => {
+        const name = path.includes("measured") ? "measured" : "missing";
+        return `"compatibilitytools"
+{
+  "compat_tools"
+  {
+    "${name}"
+    {
+      "display_name" "${name}"
+    }
+  }
+}`;
+      }),
+      readFile: vi.fn(async () => new Uint8Array()),
+      readDir: vi.fn(async () => entries),
+      realpath: vi.fn(async (path: string) => path),
+      writeTextFile: vi.fn(async () => {}),
+      mkdir: vi.fn(async () => {}),
+    };
+    const system = {
+      pathIdentity: vi.fn(async () => ({ realpath: "/compat", dev: "1", ino: "1" })),
+      dirSize: vi.fn(
+        async (path: string): Promise<DirectorySize> =>
+          path.endsWith("/measured")
+            ? { status: "measured", sizeBytes: 12 }
+            : { status: "missing" },
+      ),
+    } as unknown as System;
+
+    const result = await listCompatTools(fs, system, "/fake/steam", new Map(), new Set());
+
+    expect(result.tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ internalName: "measured", sizeBytes: 12 }),
+        expect.objectContaining({ internalName: "missing", sizeBytes: undefined }),
+      ]),
+    );
+    expect(result.warnings).toEqual([
+      expect.objectContaining({ toolName: "missing", reason: "size-unreadable" }),
+    ]);
+  });
+
   it("filtert symlink-einträge aus", async () => {
     /** fake-DirEntry-array für einen kompat-tools-dir-scan. */
     const entries: DirEntry[] = [
@@ -82,8 +137,12 @@ describe("listCompatTools", () => {
         entries: [],
       })),
       isProcessRunning: vi.fn(async () => false),
-      dirSize: vi.fn(async () => 0),
-      batchDirSizes: vi.fn(async () => ({})),
+      dirSize: vi.fn(async () => ({ status: "measured" as const, sizeBytes: 0 })),
+      batchDirSizes: vi.fn(async (paths: string[]) =>
+        Object.fromEntries(
+          paths.map((path) => [path, { status: "measured" as const, sizeBytes: 0 }]),
+        ),
+      ),
       pathIdentity: vi.fn(async () => pi),
       installGeProton: vi.fn(async () => "verified" as const),
       cancelDownload: vi.fn(async () => {}),
@@ -194,7 +253,7 @@ describe("listCompatTools", () => {
     };
     const system = {
       pathIdentity: vi.fn(async () => ({ realpath: "/compat", dev: "1", ino: "1" })),
-      dirSize: vi.fn(async () => 12),
+      dirSize: vi.fn(async () => ({ status: "measured" as const, sizeBytes: 12 })),
     } as unknown as System;
 
     const result = await listCompatTools(fs, system, "/fake/steam", new Map(), new Set());

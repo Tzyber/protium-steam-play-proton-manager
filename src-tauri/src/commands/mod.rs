@@ -1,6 +1,7 @@
 // Rust-Commands für Operationen außerhalb des Webviews.
 
 pub(crate) mod cleanup;
+pub(crate) mod delete_inspect;
 pub(crate) mod delete_ops;
 pub(crate) mod download;
 pub(crate) mod external;
@@ -9,6 +10,7 @@ pub(crate) mod fs_ops;
 pub(crate) mod ge_install;
 pub(crate) mod path;
 pub(crate) mod scope;
+pub(crate) mod shortcuts_bin;
 pub(crate) mod steam;
 pub(crate) mod vdf_patch;
 

@@ -143,7 +143,7 @@ const statusLine = computed(() => {
             v-if="removable(tt)"
             class="rm"
             type="button"
-            :disabled="proton.busyRemove === tt.name"
+            :disabled="proton.busyRemove !== null || confirm.reserved || confirm.busy"
             @click="proton.remove(tt)"
           >
             {{ proton.busyRemove === tt.name ? "…" : t("common.delete") }}

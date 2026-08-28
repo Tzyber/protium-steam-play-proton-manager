@@ -8,6 +8,7 @@ export const de = {
     cancel: "abbrechen",
     confirm: "bestätigen",
     delete: "löschen",
+    notMeasured: "nicht gemessen",
   },
   app: {
     navAria: "Hauptnavigation",
@@ -120,6 +121,7 @@ export const de = {
     winePrefixes: "Wine-Prefixes",
     winePrefixWarn: "Vorsicht, kann lokale Spielstände enthalten!",
     total: "Insgesamt {size}",
+    partialSize: "{size} (teilweise)",
     selectAll: "alle auswählen",
     potentialShortcutTooltip:
       "möglicher Non-Steam-Shortcut, nicht via App-Manifest identifizierbar",

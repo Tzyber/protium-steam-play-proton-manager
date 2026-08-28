@@ -61,6 +61,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: mockListen,
 }));
 
+import { tauriPorts } from "../../src/core/adapters/tauri";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useProtonStore } from "../../src/ui/stores/protonStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
@@ -570,6 +571,105 @@ describe("protonStore warnung (sha512-fetch-fehler)", () => {
 });
 
 describe("protonStore.remove", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    setLocale("de");
+    useScanStore().runScan = vi.fn(async () => {});
+    vi.mocked(tauriPorts.system.prepareDelete).mockReset();
+    vi.mocked(tauriPorts.system.prepareDelete).mockResolvedValue({
+      token: "tok-ge",
+      expiresAt: Date.now() + 60000,
+      targetType: "compatTool",
+      targetPath: "/root/compatibilitytools.d/GE-Proton9-27",
+      consequences: [],
+    });
+    vi.mocked(tauriPorts.system.executeDelete).mockReset();
+    vi.mocked(tauriPorts.system.executeDelete).mockResolvedValue({
+      success: true,
+      deletedPath: "/root/compatibilitytools.d/GE-Proton9-27",
+    });
+  });
+
+  it("reserviert vor prepareDelete und blockiert parallele GE-entfernung", async () => {
+    const scan = useScanStore();
+    scan.result = fakeScanResult();
+    const store = useProtonStore();
+    const { tauriPorts } = await import("../../src/core/adapters/tauri");
+    const prepareSpy = vi.spyOn(tauriPorts.system, "prepareDelete");
+    let resolvePrepare:
+      | ((value: {
+          token: string;
+          expiresAt: number;
+          targetType: "compatTool";
+          targetPath: string;
+          consequences: never[];
+        }) => void)
+      | undefined;
+    prepareSpy.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePrepare = resolve;
+        }),
+    );
+
+    const firstRemove = store.remove({
+      name: "GE-Proton9-27",
+      internalName: "GE-Proton9-27",
+      displayName: "GE-Proton9-27",
+      sizeBytes: 1000,
+      source: "user",
+      usedBy: [],
+    });
+    await vi.waitFor(() => expect(prepareSpy).toHaveBeenCalledTimes(1));
+
+    await store.remove({
+      name: "GE-Proton10-1",
+      internalName: "GE-Proton10-1",
+      displayName: "GE-Proton10-1",
+      sizeBytes: 1000,
+      source: "user",
+      usedBy: [],
+    });
+
+    expect(prepareSpy).toHaveBeenCalledTimes(1);
+    expect(store.busyRemove).toBe("GE-Proton9-27");
+    expect(useConfirmStore().reserved).toBe(true);
+
+    resolvePrepare?.({
+      token: "tok-ge-first",
+      expiresAt: Date.now() + 60000,
+      targetType: "compatTool",
+      targetPath: "/root/compatibilitytools.d/GE-Proton9-27",
+      consequences: [],
+    });
+    await firstRemove;
+    expect(useConfirmStore().pending).not.toBeNull();
+
+    useConfirmStore().cancel();
+    expect(useConfirmStore().reserved).toBe(false);
+    expect(store.busyRemove).toBeNull();
+  });
+
+  it("gibt die reservierung nach einem prepare-fehler frei", async () => {
+    const scan = useScanStore();
+    scan.result = fakeScanResult();
+    vi.mocked(tauriPorts.system.prepareDelete).mockRejectedValueOnce(new Error("prepare kaputt"));
+    const store = useProtonStore();
+
+    await store.remove({
+      name: "GE-Proton9-27",
+      internalName: "GE-Proton9-27",
+      displayName: "GE-Proton9-27",
+      sizeBytes: 1000,
+      source: "user",
+      usedBy: [],
+    });
+
+    expect(useConfirmStore().reserved).toBe(false);
+    expect(store.busyRemove).toBeNull();
+    expect(store.loadError).toContain("prepare kaputt");
+  });
+
   it("löscht nur benutzerdefinierte GE-Proton Tools", async () => {
     const scan = useScanStore();
     scan.result = {

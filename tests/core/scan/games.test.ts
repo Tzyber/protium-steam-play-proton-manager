@@ -145,6 +145,23 @@ describe("scanGames", () => {
     expect(result.cleanupUnsafeLibraries).toEqual([]);
   });
 
+  it("übernimmt unbekannte Manifestgröße nicht als null und behält 0 als bekannten Wert", async () => {
+    const { root } = await buildFakeSteam();
+    await writeFile(
+      join(root, "steamapps/appmanifest_570.acf"),
+      '"AppState"\n{\n\t"appid"\t\t"570"\n\t"name"\t\t"Dota 2"\n}\n',
+    );
+    await writeFile(
+      join(root, "steamapps/appmanifest_571.acf"),
+      '"AppState"\n{\n\t"appid"\t\t"571"\n\t"name"\t\t"Zero Bytes"\n\t"SizeOnDisk"\t\t"0"\n}\n',
+    );
+
+    const result = await scanGames(nodeFs(), fakeSystem(), root, [root], () => "default", null);
+
+    expect(result.games.find((game) => game.appId === 570)?.sizeBytes).toBeUndefined();
+    expect(result.games.find((game) => game.appId === 571)?.sizeBytes).toBe(0);
+  });
+
   it("überspringt Manifest mit AppID-Mismatch und sperrt Library für Cleanup", async () => {
     const { root } = await buildFakeSteam();
     await writeFile(

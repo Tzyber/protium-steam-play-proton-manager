@@ -47,8 +47,15 @@ export function filterAndSortGames(games: readonly Game[], q: LibraryQuery): Gam
   const dir = q.sortDir === "asc" ? 1 : -1;
   filtered.sort((a, b) => {
     let cmp: number;
-    if (q.sortKey === "size") cmp = a.sizeBytes - b.sizeBytes;
-    else if (q.sortKey === "tier")
+    if (q.sortKey === "size") {
+      if (a.sizeBytes === undefined || b.sizeBytes === undefined) {
+        if (a.sizeBytes === undefined && b.sizeBytes !== undefined) return 1;
+        if (a.sizeBytes !== undefined && b.sizeBytes === undefined) return -1;
+        cmp = 0;
+      } else {
+        cmp = a.sizeBytes - b.sizeBytes;
+      }
+    } else if (q.sortKey === "tier")
       cmp = TIER_RANK[a.protonDb?.tier ?? "unknown"] - TIER_RANK[b.protonDb?.tier ?? "unknown"];
     else cmp = a.name.localeCompare(b.name, "en", { sensitivity: "base" });
     // stabiler tie-break über name, damit reihenfolge nie „springt"

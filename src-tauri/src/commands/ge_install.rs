@@ -317,6 +317,25 @@ pub(super) async fn install_ge_proton_inner(
         return Err("steam root outside allowed scope".into());
     }
 
+    // crash-reste früherer extraktionen (SIGKILL/Stromausfall zwischen temp
+    // und rename): sichtbar melden statt automatisch löschen. eigentum und
+    // zustand sind ohne denselben strengebeweis wie bei delete nicht belegt.
+    if let Ok(entries) = fs::read_dir(&tools_dir) {
+        let leftovers: Vec<String> = entries
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                name.starts_with(".protium-extract-").then_some(name)
+            })
+            .collect();
+        if !leftovers.is_empty() {
+            return Err(format!(
+                "incomplete extraction leftovers found: {}; remove them manually",
+                leftovers.join(", ")
+            ));
+        }
+    }
+
     let final_target = tools_dir.join(&identity.install_name);
     if final_target.exists() {
         return Err("ToolAlreadyExists: target directory already exists".into());
@@ -366,14 +385,13 @@ pub(super) async fn install_ge_proton_inner(
         fs::File::open(&downloads_dir).map_err(|e| format!("open downloads directory: {e}"))?;
 
     let cancel_flag_clone = Arc::clone(&cancel_flag);
-    let is_cancelled = move || cancel_flag_clone.is_cancelled();
 
     // Download-Phase
     let stream_hash = match crate::commands::download::download_stream_in_directory(
         download_url,
         &download_path_str,
         |u| validate_redirect_url(u).is_ok(),
-        is_cancelled,
+        &cancel_flag_clone,
         &mut on_progress,
         DownloadStorage {
             max_bytes: MAX_DOWNLOAD_BYTES,
@@ -486,6 +504,7 @@ pub(super) async fn install_ge_proton_inner(
                 Some(&install_name),
                 MAX_DOWNLOAD_BYTES,
                 &|p| p == extract_dest || p == extract_root,
+                &cancel_for_extract,
             );
             Ok((result, downloaded_file))
         })
@@ -1073,6 +1092,44 @@ mod tests {
         );
         assert!(res.unwrap_err().contains("ToolAlreadyExists"));
 
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn install_ge_proton_meldet_extract_crash_reste_und_loescht_nicht() {
+        let temp_dir = std::env::temp_dir().join(format!("test-ge-leftover-{}", random_suffix()));
+        let tools = temp_dir.join("compatibilitytools.d");
+        fs::create_dir_all(&tools).unwrap();
+        let leftover = tools.join(format!(".protium-extract-{}-leftover", std::process::id()));
+        fs::create_dir(&leftover).unwrap();
+        let cache_dir = temp_dir.join("cache");
+
+        let res = install_ge_proton_inner(
+            temp_dir.to_str().unwrap(),
+            TargetArch::X86_64,
+            "GE-Proton9-27",
+            "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton9-27/GE-Proton9-27.tar.gz",
+            "dl-1",
+            &cache_dir,
+            Arc::new(CancelSignal::new()),
+            |_, _| {},
+            |_, _| {},
+            |_| Ok(true),
+            &|_| true,
+            None,
+        )
+        .await;
+
+        let err = res.unwrap_err();
+        assert!(
+            err.contains("incomplete extraction leftovers"),
+            "crash-reste müssen sichtbar gemeldet werden: {err}"
+        );
+        assert!(err.contains(".protium-extract-"), "err: {err}");
+        assert!(
+            leftover.exists(),
+            "crash-rest darf nie automatisch gelöscht werden"
+        );
         let _ = fs::remove_dir_all(&temp_dir);
     }
 

@@ -35,6 +35,16 @@ pub(crate) struct EnvironmentSnapshot {
     pub(crate) app_config_dir: PathBuf,
 }
 
+pub(crate) struct AuthorizedBatchPath {
+    pub(crate) requested: String,
+    pub(crate) real: Option<PathBuf>,
+}
+
+struct AuthorizedPath {
+    real: PathBuf,
+    exists: bool,
+}
+
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct EnvironmentInfo {
@@ -140,12 +150,12 @@ impl EnvironmentState {
             .map_err(|_| "environment snapshot lock poisoned".to_string())
     }
 
-    fn authorize_path_against(
+    fn authorize_path_with_status(
         snapshot: &EnvironmentSnapshot,
         raw: &str,
         label: &str,
         allow_missing: bool,
-    ) -> Result<PathBuf, String> {
+    ) -> Result<AuthorizedPath, String> {
         sanitize_path(raw, label)?;
         let raw_path = Path::new(raw);
         let metadata = match fs::symlink_metadata(raw_path) {
@@ -170,7 +180,19 @@ impl EnvironmentState {
         if !snapshot.authorizes(&canonical) {
             return Err(format!("path outside current environment: {raw}"));
         }
-        Ok(canonical)
+        Ok(AuthorizedPath {
+            real: canonical,
+            exists: metadata.is_some(),
+        })
+    }
+
+    fn authorize_path_against(
+        snapshot: &EnvironmentSnapshot,
+        raw: &str,
+        label: &str,
+        allow_missing: bool,
+    ) -> Result<PathBuf, String> {
+        Ok(Self::authorize_path_with_status(snapshot, raw, label, allow_missing)?.real)
     }
 
     fn with_authorized_path<T, F>(
@@ -203,6 +225,23 @@ impl EnvironmentState {
         F: FnOnce(PathBuf) -> Result<T, String>,
     {
         self.with_authorized_path(raw, label, false, operation)
+    }
+
+    pub(crate) fn with_authorized_optional<T, F>(
+        &self,
+        raw: &str,
+        label: &str,
+        operation: F,
+    ) -> Result<T, String>
+    where
+        F: FnOnce(Option<PathBuf>) -> Result<T, String>,
+    {
+        let current = self.lock_current()?;
+        let snapshot = current
+            .as_ref()
+            .ok_or_else(|| "steam environment has not been discovered".to_string())?;
+        let authorized = Self::authorize_path_with_status(snapshot, raw, label, true)?;
+        operation(authorized.exists.then_some(authorized.real))
     }
 
     pub(crate) fn with_authorized_library<T, F>(&self, raw: &str, operation: F) -> Result<T, String>
@@ -303,7 +342,7 @@ impl EnvironmentState {
         operation: F,
     ) -> Result<T, String>
     where
-        F: FnOnce(Vec<(String, PathBuf)>) -> Result<T, String>,
+        F: FnOnce(Vec<AuthorizedBatchPath>) -> Result<T, String>,
     {
         // Batch-Autorisierung und alle Größenläufe bilden eine Generation.
         let current = self.lock_current()?;
@@ -312,18 +351,12 @@ impl EnvironmentState {
             .ok_or_else(|| "steam environment has not been discovered".to_string())?;
         let mut authorized = Vec::with_capacity(paths.len());
         for path in paths {
-            sanitize_path(path, "batch_dir_sizes")?;
-            let missing = match fs::symlink_metadata(path) {
-                Ok(_) => false,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
-                Err(error) => return Err(format!("batch_dir_sizes: {error}")),
-            };
-            if missing {
-                Self::authorize_path_against(snapshot, path, "batch_dir_sizes", true)?;
-                continue;
-            }
-            let real = Self::authorize_path_against(snapshot, path, "batch_dir_sizes", false)?;
-            authorized.push((path.clone(), real));
+            let authorized_path =
+                Self::authorize_path_with_status(snapshot, path, "batch_dir_sizes", true)?;
+            authorized.push(AuthorizedBatchPath {
+                requested: path.clone(),
+                real: authorized_path.exists.then_some(authorized_path.real),
+            });
         }
         operation(authorized)
     }
@@ -879,6 +912,62 @@ mod tests {
 
         let authorized = state.authorize_for_test(&missing).unwrap();
         assert_eq!(authorized, library);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn authorized_batch_preserves_existing_and_missing_paths() {
+        let root =
+            std::env::temp_dir().join(format!("protium-env-batch-missing-{}", std::process::id()));
+        let library = root.join("library");
+        let existing = library.join("steamapps/compatdata/12345");
+        let missing = library.join("steamapps/compatdata/99999");
+        std::fs::create_dir_all(&existing).unwrap();
+        let state = EnvironmentState::for_test(snapshot(&root, &library));
+        let paths = vec![
+            existing.to_string_lossy().into_owned(),
+            missing.to_string_lossy().into_owned(),
+        ];
+
+        state
+            .with_authorized_batch(&paths, |authorized| {
+                assert_eq!(authorized.len(), 2);
+                assert_eq!(authorized[0].requested, paths[0]);
+                assert!(authorized[0].real.is_some());
+                assert_eq!(authorized[1].requested, paths[1]);
+                assert!(authorized[1].real.is_none());
+                Ok(())
+            })
+            .unwrap();
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn authorized_optional_keeps_authorization_and_existence_observation_consistent() {
+        let root = std::env::temp_dir().join(format!(
+            "protium-env-optional-status-{}",
+            std::process::id()
+        ));
+        let library = root.join("library");
+        let existing = library.join("steamapps/compatdata/12345");
+        let missing = library.join("steamapps/compatdata/99999");
+        std::fs::create_dir_all(&existing).unwrap();
+        let state = EnvironmentState::for_test(snapshot(&root, &library));
+
+        state
+            .with_authorized_optional(&existing.to_string_lossy(), "test", |real| {
+                assert_eq!(real, Some(std::fs::canonicalize(&existing).unwrap()));
+                Ok(())
+            })
+            .unwrap();
+        state
+            .with_authorized_optional(&missing.to_string_lossy(), "test", |real| {
+                assert!(real.is_none());
+                Ok(())
+            })
+            .unwrap();
 
         let _ = std::fs::remove_dir_all(root);
     }

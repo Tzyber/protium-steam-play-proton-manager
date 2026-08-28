@@ -343,10 +343,12 @@ export function fakeSystem(opts?: { environment?: EnvironmentSnapshot }): System
       return false;
     },
     async dirSize() {
-      return 4096;
+      return { status: "measured" as const, sizeBytes: 4096 };
     },
-    async batchDirSizes() {
-      return {};
+    async batchDirSizes(paths) {
+      return Object.fromEntries(
+        paths.map((path) => [path, { status: "measured" as const, sizeBytes: 4096 }]),
+      );
     },
     async pathIdentity(p): Promise<PathIdentity | null> {
       try {

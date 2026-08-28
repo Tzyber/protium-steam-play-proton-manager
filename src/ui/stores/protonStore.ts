@@ -345,6 +345,9 @@ export const useProtonStore = defineStore("proton", {
       const scan = useScanStore();
       const steamRoot = scan.result?.steamRoot;
       if (!steamRoot || tool.source !== "user" || !isManagedGeName(tool.name)) return;
+      const confirm = useConfirmStore();
+      const reservation = confirm.reserve();
+      if (reservation === null) return;
       this.busyRemove = tool.name;
       try {
         // NUR für GE-tools aufrufen (distro-tools gehören dem paketmanager)
@@ -356,8 +359,7 @@ export const useProtonStore = defineStore("proton", {
         });
         // bestätigungsdialog im hauptfenster; erst der klick führt das
         // löschen aus (v0.3.1-look: "{name} löschen?").
-        const confirm = useConfirmStore();
-        confirm.ask(
+        const accepted = confirm.ask(
           {
             title: t("proton.removeConfirmTitle", { name: tool.name }),
             message: pending.consequences.map((c) => c.description).join("\n"),
@@ -381,8 +383,14 @@ export const useProtonStore = defineStore("proton", {
               this.busyRemove = null;
             },
           },
+          reservation,
         );
+        if (!accepted) {
+          confirm.release(reservation);
+          this.busyRemove = null;
+        }
       } catch (e) {
+        confirm.release(reservation);
         this.loadError = t("proton.removeFailed", { msg: errText(e) });
         this.busyRemove = null;
       }

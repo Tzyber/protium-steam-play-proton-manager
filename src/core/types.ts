@@ -69,7 +69,8 @@ export interface Game {
   appId: number;
   name: string;
   library: string;
-  sizeBytes: number;
+  /** Größe aus `SizeOnDisk` im Steam-Appmanifest; undefined bedeutet unbekannt. */
+  sizeBytes?: number;
   compatTool: string; // "GE-Proton9-27" | "proton_experimental" | "default" | "unknown"
   compatToolSource: CompatToolSource;
   protonDb: { tier: Tier; confidence: string } | null;
@@ -82,7 +83,7 @@ export interface CompatTool {
   name: string; // verzeichnisname in compatibilitytools.d (für fs-ops: größe, löschen)
   internalName: string; // key aus compatibilitytool.vdf → steht so in config.vdf-mapping
   displayName: string;
-  /** undefined = größenmessung fehlgeschlagen; tool ist trotzdem erkannt. nie still 0. */
+  /** undefined = Größenmessung fehlt oder fehlgeschlagen; Tool ist trotzdem erkannt. Nie still 0. */
   sizeBytes?: number;
   usedBy: number[]; // appIds, die dieses tool via mapping nutzen
   source: "user" | "system"; // system = distro-dir (/usr/share/…), read-only

@@ -9,8 +9,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::commands::cleanup::TRASH_DIR_NAME;
+use crate::commands::delete_inspect::inspect_deletion_target;
 use crate::commands::scope::EnvironmentState;
-use crate::commands::steam::{inspect_deletion_target, DeleteConsequence, DeletionInspection};
+use crate::commands::steam::{DeleteConsequence, DeletionInspection};
 
 pub const DELETE_TOKEN_TTL_SECS: u64 = 60;
 
@@ -162,7 +163,7 @@ fn os_name(name: &OsStr, label: &str) -> Result<std::ffi::CString, String> {
 }
 
 #[cfg(target_os = "linux")]
-fn renameat2_no_replace(
+pub(super) fn renameat2_no_replace(
     source_dir: &fs::File,
     source_name: &OsStr,
     target_dir: &fs::File,
@@ -191,7 +192,7 @@ fn renameat2_no_replace(
 }
 
 #[cfg(not(target_os = "linux"))]
-fn renameat2_no_replace(
+pub(super) fn renameat2_no_replace(
     _source_dir: &fs::File,
     _source_name: &OsStr,
     _target_dir: &fs::File,
@@ -429,14 +430,14 @@ fn prepare_delete_inner_with_hook<F>(
     hook: &mut F,
 ) -> Result<PendingDeleteInfo, String>
 where
-    F: FnMut(crate::commands::steam::DeleteReadStage, Option<&mut std::fs::File>),
+    F: FnMut(crate::commands::delete_inspect::DeleteReadStage, Option<&mut std::fs::File>),
 {
     let steam_running = is_steam_running_fn()?;
     if request.target_type != "trash" && steam_running {
         return Err("steam is running, deletion refused".into());
     }
 
-    let inspection = crate::commands::steam::inspect_deletion_target_with_test_hook(
+    let inspection = crate::commands::delete_inspect::inspect_deletion_target_with_test_hook(
         &request.steam_root,
         &request.target_type,
         &request.path,
@@ -586,7 +587,7 @@ fn inspect_pending_target(
         .steam_root
         .to_str()
         .ok_or_else(|| "steam root is not valid UTF-8".to_string())?;
-    let inspection = crate::commands::steam::inspect_deletion_target(
+    let inspection = crate::commands::delete_inspect::inspect_deletion_target(
         steam_root,
         &pending.target_type,
         &pending.target_path,
@@ -1284,7 +1285,7 @@ mod tests {
         std::fs::write(&manifest, "\"AppState\" { \"appid\" \"570\" }").unwrap();
         let replacement = manifest.clone();
         let mut hook = move |stage, _: Option<&mut std::fs::File>| {
-            if stage == crate::commands::steam::DeleteReadStage::ManifestAfterOpen {
+            if stage == crate::commands::delete_inspect::DeleteReadStage::ManifestAfterOpen {
                 std::fs::rename(&replacement, replacement.with_extension("bound")).unwrap();
                 std::fs::write(&replacement, "\"AppState\" { \"appid\" \"999999\" }").unwrap();
             }
@@ -1315,7 +1316,7 @@ mod tests {
         write_shortcuts_fixture(&shortcuts, 42);
         let replacement = shortcuts.clone();
         let mut hook = move |stage, _: Option<&mut std::fs::File>| {
-            if stage == crate::commands::steam::DeleteReadStage::ShortcutsAfterOpen {
+            if stage == crate::commands::delete_inspect::DeleteReadStage::ShortcutsAfterOpen {
                 std::fs::rename(&replacement, replacement.with_extension("bound")).unwrap();
                 write_shortcuts_fixture(&replacement, 999999);
             }
@@ -1382,7 +1383,7 @@ mod tests {
         .unwrap();
         let replacement = config.clone();
         let mut hook = move |stage, _: Option<&mut std::fs::File>| {
-            if stage == crate::commands::steam::DeleteReadStage::ConfigAfterOpen {
+            if stage == crate::commands::delete_inspect::DeleteReadStage::ConfigAfterOpen {
                 std::fs::rename(&replacement, replacement.with_extension("bound")).unwrap();
                 std::fs::write(
                     &replacement,

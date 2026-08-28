@@ -1,4 +1,5 @@
-import { symlink } from "node:fs/promises";
+import { symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   DELETE_CLAIM_PREFIX,
@@ -6,7 +7,8 @@ import {
   findOrphans,
   findSteamOwnedPrefixes,
 } from "../../src/core/cleanup.js";
-import { buildFakeSteam, nodeFs } from "../support/fakeSteam";
+import { scanGames } from "../../src/core/scan/games.js";
+import { buildFakeSteam, fakeSystem, nodeFs } from "../support/fakeSteam";
 
 async function setup() {
   const { root, lib2 } = await buildFakeSteam();
@@ -66,6 +68,40 @@ describe("findOrphans", () => {
 
     expect(orphans.map((o) => o.appId)).not.toContain(999999);
     expect(orphans.some((o) => o.appId === 888888)).toBe(true);
+  });
+
+  it("manifestloser blocklist-fall: scan → cleanup bietet den prefix als orphan an (bewusster vertrag)", async () => {
+    // 4628710 (proton-builtin) hat KEIN manifest. der scan kennt die id nur
+    // über manifeste als blockiert, also nicht hier; der prefix ist damit ein
+    // echter rest und wird als orphan angeboten. der filter verlässt sich nie
+    // auf die statische blocklist allein.
+    const { root, fs } = await setup();
+    await fs.mkdir(`${root}/steamapps/compatdata/4628710`);
+
+    const scan = await scanGames(nodeFs(), fakeSystem(), root, [root], () => "default", null);
+    expect(scan.blockedAppIds.has(4628710)).toBe(false);
+
+    const installed = new Set(scan.games.map((game) => game.appId));
+    const orphans = await findOrphans([root], installed, scan.blockedAppIds, fs);
+    expect(orphans.map((o) => o.appId)).toContain(4628710);
+    // die echtes-orphan-fixture bleibt unbeeinflusst
+    expect(orphans.map((o) => o.appId)).toContain(999999);
+  });
+
+  it("blocklist-fall mit manifest: scan → cleanup bietet den prefix nicht als orphan an", async () => {
+    const { root, fs } = await setup();
+    await fs.mkdir(`${root}/steamapps/compatdata/4628710`);
+    await writeFile(
+      join(root, "steamapps/appmanifest_4628710.acf"),
+      `"AppState"\n{\n\t"appid"\t\t"4628710"\n\t"name"\t\t"Proton 11.0"\n}\n`,
+    );
+
+    const scan = await scanGames(nodeFs(), fakeSystem(), root, [root], () => "default", null);
+    expect(scan.blockedAppIds.has(4628710)).toBe(true);
+
+    const installed = new Set(scan.games.map((game) => game.appId));
+    const orphans = await findOrphans([root], installed, scan.blockedAppIds, fs);
+    expect(orphans.map((o) => o.appId)).not.toContain(4628710);
   });
 
   it("basis-ordner fehlt → kein throw, leeres teilergebnis", async () => {

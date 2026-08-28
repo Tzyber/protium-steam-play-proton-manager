@@ -13,6 +13,7 @@ import type {
   Cache,
   DeleteResult,
   DirEntry,
+  DirectorySize,
   EnvironmentSnapshot,
   FileSystem,
   Http,
@@ -29,8 +30,9 @@ const fs: FileSystem = {
   exists: (path) => invoke<boolean>("environment_exists", { path }),
   readTextFile: (path) => invoke<string>("environment_read_text", { path }),
   readFile: async (path) => {
-    const bytes = await invoke<number[] | Uint8Array>("environment_read_binary", { path });
-    return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    // rust liefert eine binäre ipc-response (raw bytes statt json-array)
+    const bytes = await invoke<ArrayBuffer>("environment_read_binary", { path });
+    return new Uint8Array(bytes);
   },
   async readDir(path) {
     const entries = await invoke<{ name: string; isDirectory: boolean; isSymlink: boolean }[]>(
@@ -89,8 +91,8 @@ const system: System = {
   geTargetArch: () => invoke<TargetArch>("ge_target_arch"),
   discoverSteamEnvironment: () => invoke<EnvironmentSnapshot>("discover_steam_environment"),
   isProcessRunning: (name) => invoke<boolean>("is_process_running", { name }),
-  dirSize: (path) => invoke<number>("dir_size", { path }),
-  batchDirSizes: (paths) => invoke<Record<string, number>>("batch_dir_sizes", { paths }),
+  dirSize: (path) => invoke<DirectorySize>("dir_size", { path }),
+  batchDirSizes: (paths) => invoke<Record<string, DirectorySize>>("batch_dir_sizes", { paths }),
   listTrashEntries: async (library) => {
     // rust liefert serde-camelCase (isDir), core kennt nur DirEntry (isDirectory)
     const r = await invoke<{

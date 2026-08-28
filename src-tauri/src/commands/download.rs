@@ -200,7 +200,7 @@ pub(super) async fn download_stream(
     url: &str,
     dest: &str,
     redirect_ok: impl Fn(&str) -> bool + Send + Sync + 'static,
-    is_cancelled: impl Fn() -> bool,
+    cancel: &CancelSignal,
     on_progress: impl FnMut(u64, Option<u64>),
     max_bytes: u64,
 ) -> Result<DownloadedFile, String> {
@@ -208,7 +208,7 @@ pub(super) async fn download_stream(
         url,
         dest,
         redirect_ok,
-        is_cancelled,
+        cancel,
         on_progress,
         DownloadStorage {
             max_bytes,
@@ -224,7 +224,7 @@ pub(super) async fn download_stream_in_directory(
     url: &str,
     dest: &str,
     redirect_ok: impl Fn(&str) -> bool + Send + Sync + 'static,
-    is_cancelled: impl Fn() -> bool,
+    cancel: &CancelSignal,
     mut on_progress: impl FnMut(u64, Option<u64>),
     storage: DownloadStorage<'_>,
 ) -> Result<DownloadedFile, String> {
@@ -265,15 +265,18 @@ pub(super) async fn download_stream_in_directory(
         const STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
         loop {
-            let chunk = tokio::time::timeout(STALL_TIMEOUT, stream.next())
-                .await
-                .map_err(|_| "download stalled".to_string())?;
+            // cancel weckt den body-read auch bei blockiertem stream aktiv auf
+            // (select auf das notify-signal statt nur synchroner flag-check)
+            let chunk = tokio::select! {
+                biased;
+                _ = cancel.cancelled() => return Err("cancelled".into()),
+                result = tokio::time::timeout(STALL_TIMEOUT, stream.next()) => {
+                    result.map_err(|_| "download stalled".to_string())?
+                }
+            };
             match chunk {
                 None => break,
                 Some(chunk) => {
-                    if is_cancelled() {
-                        return Err("cancelled".into());
-                    }
                     let chunk = chunk.map_err(|e| e.to_string())?;
 
                     downloaded += chunk.len() as u64;
@@ -574,7 +577,6 @@ mod tests {
     use futures_util::stream;
     use std::io::{Read, Write};
     use std::net::TcpListener;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::thread;
 
@@ -739,6 +741,24 @@ mod tests {
         format!("http://{addr}/")
     }
 
+    /// HTTP-stub: kündigt `announce` bytes an, sendet nie einen body und hält
+    /// die verbindung offen → der client hängt im body-read.
+    fn serve_stalled(announce: usize) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf); // request ignorieren
+                let header = format!("HTTP/1.1 200 OK\r\nContent-Length: {announce}\r\n\r\n");
+                let _ = stream.write_all(header.as_bytes());
+                // stream bleibt offen, body kommt nie
+                thread::sleep(std::time::Duration::from_secs(30));
+            }
+        });
+        format!("http://{addr}/")
+    }
+
     fn tmp(tag: &str) -> std::path::PathBuf {
         let mut p = std::env::temp_dir();
         p.push(format!("protium-dltest-{tag}-{}", std::process::id()));
@@ -791,12 +811,12 @@ mod tests {
     async fn erfolg_berechnet_hash_und_behaelt_datei() {
         let dest = tmp("ok");
         let url = serve_once(32, 32);
-        let cancel = AtomicBool::new(false);
+        let cancel = CancelSignal::new();
         let res = download_stream(
             &url,
             dest.to_str().unwrap(),
             |_| true,
-            || cancel.load(Ordering::Relaxed),
+            &cancel,
             |_, _| {},
             MAX_DOWNLOAD_BYTES,
         )
@@ -814,12 +834,12 @@ mod tests {
     async fn netzabbruch_raeumt_partielle_datei_auf() {
         let dest = tmp("net");
         let url = serve_once(1_000_000, 4096); // 1MB angekündigt, nur 4KB gesendet
-        let cancel = AtomicBool::new(false);
+        let cancel = CancelSignal::new();
         let res = download_stream(
             &url,
             dest.to_str().unwrap(),
             |_| true,
-            || cancel.load(Ordering::Relaxed),
+            &cancel,
             |_, _| {},
             MAX_DOWNLOAD_BYTES,
         )
@@ -833,12 +853,13 @@ mod tests {
     async fn cancel_stoppt_und_raeumt_auf() {
         let dest = tmp("cancel");
         let url = serve_once(32, 32);
-        let cancel = AtomicBool::new(true); // sofort gesetzt → bricht beim ersten chunk ab
+        let cancel = CancelSignal::new();
+        cancel.cancel(); // sofort gesetzt → bricht beim ersten chunk ab
         let res = download_stream(
             &url,
             dest.to_str().unwrap(),
             |_| true,
-            || cancel.load(Ordering::Relaxed),
+            &cancel,
             |_, _| {},
             MAX_DOWNLOAD_BYTES,
         )
@@ -865,11 +886,12 @@ mod tests {
         symlink(&outside, &dest).unwrap();
 
         let url = serve_once(32, 32);
+        let cancel = CancelSignal::new();
         let res = download_stream(
             &url,
             dest.to_str().unwrap(),
             |_| true,
-            || false,
+            &cancel,
             |_, _| {},
             MAX_DOWNLOAD_BYTES,
         )
@@ -903,11 +925,12 @@ mod tests {
         symlink(&real, &alias).unwrap();
         let dest = alias.join("guessed.tar.gz");
         let url = serve_once(32, 32);
+        let cancel = CancelSignal::new();
         let res = download_stream(
             &url,
             dest.to_str().unwrap(),
             |_| true,
-            || false,
+            &cancel,
             |_, _| {},
             MAX_DOWNLOAD_BYTES,
         )
@@ -937,11 +960,12 @@ mod tests {
             std::fs::write(visible.join("replacement-marker"), b"replacement").unwrap();
         };
         let url = serve_once(32, 32);
+        let cancel = CancelSignal::new();
         let result = super::download_stream_in_directory(
             &url,
             destination.to_str().unwrap(),
             |_| true,
-            || false,
+            &cancel,
             |_, _| {},
             DownloadStorage {
                 max_bytes: MAX_DOWNLOAD_BYTES,
@@ -999,11 +1023,12 @@ mod tests {
             symlink(&foreign, &visible).unwrap();
         };
         let url = serve_once(32, 32);
+        let cancel = CancelSignal::new();
         let mut artifact = super::download_stream_in_directory(
             &url,
             destination.to_str().unwrap(),
             |_| true,
-            || false,
+            &cancel,
             |_, _| {},
             DownloadStorage {
                 max_bytes: MAX_DOWNLOAD_BYTES,
@@ -1044,11 +1069,12 @@ mod tests {
         let dest = root.join("download.tar.gz");
         std::fs::create_dir_all(&root).unwrap();
         let url = serve_once(32, 32);
+        let cancel = CancelSignal::new();
         let mut artifact = download_stream(
             &url,
             dest.to_str().unwrap(),
             |_| true,
-            || false,
+            &cancel,
             |_, _| {},
             MAX_DOWNLOAD_BYTES,
         )
@@ -1147,16 +1173,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancel_weckt_blockierten_body_read_aktiv_auf() {
+        // server kündigt 64 KiB an, sendet aber nie einen body: ohne aktiven
+        // cancel würde der read bis zum 120-s-stall-timeout hängen.
+        let dest = tmp("stall-cancel");
+        let dest_str = dest.to_string_lossy().into_owned();
+        let url = serve_stalled(64 * 1024);
+        let cancel = Arc::new(CancelSignal::new());
+        let cancel_flag = Arc::clone(&cancel);
+        let task = tokio::spawn(async move {
+            download_stream(
+                &url,
+                &dest_str,
+                |_| true,
+                &cancel_flag,
+                |_, _| {},
+                MAX_DOWNLOAD_BYTES,
+            )
+            .await
+        });
+        // warten, bis der client im body-read hängt, dann cancel setzen
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        cancel.cancel();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(2), task)
+            .await
+            .expect("cancel muss den blockierten body-read aktiv aufwecken")
+            .unwrap();
+        assert_eq!(result.unwrap_err(), "cancelled");
+        assert!(!dest.exists(), "abbruch: keine datei zurücklassen");
+        let _ = std::fs::remove_dir_all(dest.parent().unwrap());
+    }
+
+    #[tokio::test]
     async fn cancel_nach_abschluss_startet_zweiten_download_normal() {
         let dest1 = tmp("stale-1");
         let url1 = serve_once(32, 32);
-        let cancel = AtomicBool::new(false);
+        let cancel = CancelSignal::new();
 
         let res = download_stream(
             &url1,
             dest1.to_str().unwrap(),
             |_| true,
-            || cancel.load(Ordering::Relaxed),
+            &cancel,
             |_, _| {},
             MAX_DOWNLOAD_BYTES,
         )
@@ -1174,7 +1232,7 @@ mod tests {
             &url2,
             dest2.to_str().unwrap(),
             |_| true,
-            || cancel.load(Ordering::Relaxed),
+            &cancel,
             |_, _| {},
             MAX_DOWNLOAD_BYTES,
         )
@@ -1193,12 +1251,12 @@ mod tests {
         let dest = tmp("sizecap-cl");
         // stub kündigt 9999 bytes an → über dem test-limit von 100
         let url = serve_once(9999, 0);
-        let cancel = AtomicBool::new(false);
+        let cancel = CancelSignal::new();
         let res = download_stream(
             &url,
             dest.to_str().unwrap(),
             |_| true,
-            || cancel.load(Ordering::Relaxed),
+            &cancel,
             |_, _| {},
             100, // kleines test-limit
         )
@@ -1224,12 +1282,12 @@ mod tests {
         // stub kündigt 16 bytes an, sendet 32, ohne content-length-check
         // greift der byte-counter im streaming-loop (limit = 8)
         let url = serve_once(16, 32);
-        let cancel = AtomicBool::new(false);
+        let cancel = CancelSignal::new();
         let res = download_stream(
             &url,
             dest.to_str().unwrap(),
             |_| true,
-            || cancel.load(Ordering::Relaxed),
+            &cancel,
             |_, _| {},
             8, // kleines test-limit
         )
@@ -1253,12 +1311,12 @@ mod tests {
                 (200, None, Some(body.clone())),
             ]
         });
-        let cancel = AtomicBool::new(false);
+        let cancel = CancelSignal::new();
         let res = download_stream(
             &url,
             dest.to_str().unwrap(),
             |u| u.starts_with("http://127.0.0.1:"),
-            || cancel.load(Ordering::Relaxed),
+            &cancel,
             |_, _| {},
             MAX_DOWNLOAD_BYTES,
         )
@@ -1277,12 +1335,12 @@ mod tests {
         let dest = tmp("redirect-evil");
         let url =
             serve_redirect_chain(|_| vec![(302, Some("https://evil.example/x".to_string()), None)]);
-        let cancel = AtomicBool::new(false);
+        let cancel = CancelSignal::new();
         let res = download_stream(
             &url,
             dest.to_str().unwrap(),
             |u| u.starts_with("http://127.0.0.1:"),
-            || cancel.load(Ordering::Relaxed),
+            &cancel,
             |_, _| {},
             MAX_DOWNLOAD_BYTES,
         )
@@ -1309,12 +1367,12 @@ mod tests {
                 (302, Some(base), None),
             ]
         });
-        let cancel = AtomicBool::new(false);
+        let cancel = CancelSignal::new();
         let res = download_stream(
             &url,
             dest.to_str().unwrap(),
             |_| true,
-            || cancel.load(Ordering::Relaxed),
+            &cancel,
             |_, _| {},
             MAX_DOWNLOAD_BYTES,
         )

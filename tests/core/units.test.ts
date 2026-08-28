@@ -45,6 +45,47 @@ describe("parseManifest", () => {
     expect(m.appId).toBe(570);
   });
 
+  it.each([
+    ["fehlend", undefined],
+    ["leer", '""'],
+    ["negativ", '"-1"'],
+    ["dezimal", '"1.5"'],
+    ["nichtnumerisch", '"abc"'],
+    ["unsicher groß", '"9007199254740992"'],
+  ])("hält SizeOnDisk bei %s unbekannt", (_label, sizeValue) => {
+    const sizeLine = sizeValue === undefined ? "" : `\n\t"SizeOnDisk"\t\t${sizeValue}`;
+    const m = parseManifest(`"AppState"\n{\n\t"appid"\t\t"620"${sizeLine}\n}`);
+    expect(m.sizeBytes).toBeUndefined();
+  });
+
+  it("akzeptiert SizeOnDisk 0 als bekannten Wert", () => {
+    const m = parseManifest('"AppState"\n{\n\t"appid"\t\t"620"\n\t"SizeOnDisk"\t\t"0"\n}');
+    expect(m.sizeBytes).toBe(0);
+  });
+
+  it.each([
+    ["dezimal", "1.5"],
+    ["exponent", "1e3"],
+    ["negativer nullwert", "-0"],
+  ])("hält unquoted SizeOnDisk bei %s lexikalisch unbekannt", (_label, sizeValue) => {
+    const m = parseManifest(`"AppState"\n{\n\t"appid"\t\t"620"\n\t"SizeOnDisk"\t\t${sizeValue}\n}`);
+    expect(m.sizeBytes).toBeUndefined();
+  });
+
+  it("verwendet bei doppeltem SizeOnDisk den letzten gültigen Wert", () => {
+    const m = parseManifest(
+      '"AppState"\n{\n\t"appid"\t\t"620"\n\t"SizeOnDisk"\t\t"10"\n\t"SizeOnDisk"\t\t"20"\n}',
+    );
+    expect(m.sizeBytes).toBe(20);
+  });
+
+  it("macht einen gültigen SizeOnDisk durch einen ungültigen letzten Wert unbekannt", () => {
+    const m = parseManifest(
+      '"AppState"\n{\n\t"appid"\t\t"620"\n\t"SizeOnDisk"\t\t"10"\n\t"SizeOnDisk"\t\t"1e3"\n}',
+    );
+    expect(m.sizeBytes).toBeUndefined();
+  });
+
   it("akzeptiert exakt die obere AppID-Grenze und verwirft den nächsten Wert", () => {
     expect(parseSafeAppId("2147483647")).toBe(2147483647);
     expect(parseSafeAppId("2147483648")).toBeNull();

@@ -13,6 +13,7 @@ export const en = {
     cancel: "cancel",
     confirm: "confirm",
     delete: "delete",
+    notMeasured: "not measured",
   },
   app: {
     navAria: "main navigation",
@@ -125,6 +126,7 @@ export const en = {
     winePrefixes: "Wine-Prefixes",
     winePrefixWarn: "warning, may contain local savegames!",
     total: "total {size}",
+    partialSize: "{size} (partial)",
     selectAll: "select all",
     potentialShortcutTooltip: "possible non-Steam shortcut, not identifiable via app manifest",
     empty: "no orphaned data found",

@@ -5,6 +5,7 @@ import type { OrphanEntry } from "../../core/types";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import { formatBytes } from "../format";
 import { getLocale, t } from "../i18n";
+import { summarizeSizes } from "../sizeSummary";
 import { useCleanupStore } from "../stores/cleanupStore";
 import { useConfirmStore } from "../stores/confirmStore";
 
@@ -63,7 +64,11 @@ function shortPath(p: string): string {
   return `/${parts[0]}/…/${parts.slice(-2).join("/")}`;
 }
 
-const bySize = (a: OrphanEntry, b: OrphanEntry) => (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0);
+const bySize = (a: OrphanEntry, b: OrphanEntry) => {
+  if (a.sizeBytes == null) return b.sizeBytes == null ? 0 : 1;
+  if (b.sizeBytes == null) return -1;
+  return b.sizeBytes - a.sizeBytes;
+};
 const shadercacheOrphans = computed(() => [...cleanup.shadercacheOrphans].sort(bySize));
 const compatdataOrphans = computed(() => [...cleanup.compatdataOrphans].sort(bySize));
 
@@ -80,12 +85,16 @@ function toggle(key: string) {
   else selected.add(key);
 }
 
-const shadercacheTotalBytes = computed(() =>
-  shadercacheOrphans.value.reduce((sum, o) => sum + (o.sizeBytes ?? 0), 0),
-);
-const compatdataTotalBytes = computed(() =>
-  compatdataOrphans.value.reduce((sum, o) => sum + (o.sizeBytes ?? 0), 0),
-);
+function displaySize(entries: readonly { sizeBytes?: number }[]): string {
+  const summary = summarizeSizes(entries);
+  if (summary.unknownCount === 0) return formatBytes(summary.measuredBytes);
+  if (summary.unknownCount === entries.length) return t("common.notMeasured");
+  return t("cleanup.partialSize", { size: formatBytes(summary.measuredBytes) });
+}
+
+const shadercacheTotal = computed(() => displaySize(shadercacheOrphans.value));
+const compatdataTotal = computed(() => displaySize(compatdataOrphans.value));
+const steamOwnedTotal = computed(() => displaySize(cleanup.steamOwnedPrefixes));
 
 const shaderAllSelected = computed(
   () =>
@@ -131,9 +140,7 @@ const selectedCompat = computed(() =>
 const selectedHere = computed(() =>
   tab.value === "shaders" ? selectedShader.value : selectedCompat.value,
 );
-const selectedHereBytes = computed(() =>
-  selectedHere.value.reduce((sum, o) => sum + (o.sizeBytes ?? 0), 0),
-);
+const selectedHereSize = computed(() => displaySize(selectedHere.value));
 
 async function confirmDeleteOrphans() {
   // der rescan läuft IM store (deleteOrphans), ein zweiter hier würde die
@@ -149,11 +156,16 @@ function deleteShadersAll() {
 }
 
 const busy = computed(() => cleanup.scanning || cleanup.deleting.size > 0);
+const destructiveBusy = computed(() => busy.value || confirm.reserved || confirm.busy);
 
 // ---- papierkorb ----
 
 const trashBySize = computed(() =>
-  [...cleanup.trash].sort((a, b) => (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0)),
+  [...cleanup.trash].sort((a, b) => {
+    if (a.sizeBytes == null) return b.sizeBytes == null ? 0 : 1;
+    if (b.sizeBytes == null) return -1;
+    return b.sizeBytes - a.sizeBytes;
+  }),
 );
 
 const trashSelected = reactive(new Set<string>());
@@ -163,14 +175,10 @@ function toggleTrash(path: string) {
   else trashSelected.add(path);
 }
 
-const trashTotalBytes = computed(() =>
-  cleanup.trash.reduce((sum, e) => sum + (e.sizeBytes ?? 0), 0),
-);
+const trashTotal = computed(() => displaySize(cleanup.trash));
 
 const trashSelectedAll = computed(() => cleanup.trash.filter((e) => trashSelected.has(e.path)));
-const trashSelectedBytes = computed(() =>
-  trashSelectedAll.value.reduce((sum, e) => sum + (e.sizeBytes ?? 0), 0),
-);
+const trashSelectedSize = computed(() => displaySize(trashSelectedAll.value));
 
 const trashDeleting = ref(false);
 
@@ -317,7 +325,7 @@ const tabLabel = (id: Tab) =>
       >
         <div class="section-bar">
           <span class="section">
-            <span class="count">{{ t("cleanup.total", { size: formatBytes(shadercacheTotalBytes) }) }}</span>
+            <span class="count" data-testid="shader-total">{{ t("cleanup.total", { size: shadercacheTotal }) }}</span>
           </span>
           <button
             v-if="shadercacheOrphans.length"
@@ -366,7 +374,7 @@ const tabLabel = (id: Tab) =>
         <div class="section-bar">
           <span class="section">
             <span class="warn-label">{{ t("cleanup.winePrefixWarn") }}</span>
-            <span class="count">{{ t("cleanup.total", { size: formatBytes(compatdataTotalBytes) }) }}</span>
+            <span class="count" data-testid="prefix-total">{{ t("cleanup.total", { size: compatdataTotal }) }}</span>
           </span>
           <button
             v-if="compatdataOrphans.length"
@@ -381,11 +389,11 @@ const tabLabel = (id: Tab) =>
 
         <p class="moved-note">{{ t("cleanup.winePrefixMovedNote") }}</p>
 
-        <div v-if="cleanup.steamOwnedPrefixes.length" class="blocked" role="status">
+        <div v-if="cleanup.steamOwnedPrefixes.length" class="blocked" role="status" data-testid="steam-owned-total">
           {{
             t("cleanup.steamOwnedHint", {
               n: cleanup.steamOwnedPrefixes.length,
-              size: formatBytes(cleanup.steamOwnedTotalBytes),
+              size: steamOwnedTotal,
             })
           }}
         </div>
@@ -434,7 +442,7 @@ const tabLabel = (id: Tab) =>
       >
         <div class="section-bar">
           <span class="section">
-            <span class="count">{{ t("cleanup.total", { size: formatBytes(trashTotalBytes) }) }}</span>
+            <span class="count" data-testid="trash-total">{{ t("cleanup.total", { size: trashTotal }) }}</span>
           </span>
           <div class="section-actions">
             <button
@@ -509,15 +517,15 @@ const tabLabel = (id: Tab) =>
     <!-- footer: außerhalb der scroll-fläche, deshalb immer am unteren rand und
          nie über einer listenzeile. bezieht sich nur auf den sichtbaren tab. -->
     <div v-if="tab !== 'trash' && selectedHere.length + tabCount(tab) > 0" class="actionbar">
-      <span class="sel-info" aria-live="polite">
-        {{ t("cleanup.selectedInfo", { n: selectedHere.length, size: formatBytes(selectedHereBytes) }) }}
+      <span class="sel-info" aria-live="polite" data-testid="orphan-selected-info">
+        {{ t("cleanup.selectedInfo", { n: selectedHere.length, size: selectedHereSize }) }}
       </span>
       <div class="actionbar-btns">
         <button
           v-if="tab === 'shaders' && shadercacheOrphans.length"
           class="action"
           type="button"
-          :disabled="busy"
+          :disabled="destructiveBusy"
           @click="deleteShadersAll"
         >
           {{ t("cleanup.cleanAllShaders") }}
@@ -525,7 +533,7 @@ const tabLabel = (id: Tab) =>
         <button
           class="action danger"
           type="button"
-          :disabled="busy || !selectedHere.length"
+          :disabled="destructiveBusy || !selectedHere.length"
           @click="confirmDeleteOrphans"
         >
           {{ t("cleanup.deleteSelected", { n: selectedHere.length }) }}
@@ -534,14 +542,14 @@ const tabLabel = (id: Tab) =>
     </div>
 
     <div v-if="tab === 'trash' && cleanup.trash.length" class="actionbar">
-      <span class="sel-info" aria-live="polite">
-        {{ t("cleanup.selectedInfo", { n: trashSelectedAll.length, size: formatBytes(trashSelectedBytes) }) }}
+      <span class="sel-info" aria-live="polite" data-testid="trash-selected-info">
+        {{ t("cleanup.selectedInfo", { n: trashSelectedAll.length, size: trashSelectedSize }) }}
       </span>
       <div class="actionbar-btns">
         <button
           class="action"
           type="button"
-          :disabled="!trashSelectedAll.length || trashDeleting"
+          :disabled="!trashSelectedAll.length || trashDeleting || confirm.reserved || confirm.busy"
           @click="deleteTrashEntries(false)"
         >
           {{ t("cleanup.trashDeleteEntry") }}
@@ -549,7 +557,7 @@ const tabLabel = (id: Tab) =>
         <button
           class="action danger"
           type="button"
-          :disabled="!cleanup.trash.length || trashDeleting"
+          :disabled="!cleanup.trash.length || trashDeleting || confirm.reserved || confirm.busy"
           @click="deleteTrashEntries(true)"
         >
           {{ t("cleanup.trashEmpty") }}

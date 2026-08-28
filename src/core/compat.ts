@@ -207,9 +207,18 @@ export async function listCompatTools(
 
       let sizeBytes: number | undefined;
       try {
-        sizeBytes = await system.dirSize(joinPath(dir, name));
-        if (!Number.isFinite(sizeBytes) || sizeBytes < 0) {
-          throw new Error(`ungültige größe: ${sizeBytes}`);
+        const size = await system.dirSize(joinPath(dir, name));
+        if (size.status === "measured") {
+          if (!Number.isSafeInteger(size.sizeBytes) || size.sizeBytes < 0) {
+            throw new Error(`ungültige größe: ${size.sizeBytes}`);
+          }
+          sizeBytes = size.sizeBytes;
+        } else {
+          throw new Error(
+            size.status === "failed"
+              ? (size.detail ?? "größenmessung fehlgeschlagen")
+              : "pfad während der größenmessung verschwunden",
+          );
         }
       } catch (e) {
         failedCount += 1;

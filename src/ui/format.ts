@@ -1,4 +1,5 @@
-export function formatBytes(bytes: number): string {
+export function formatBytes(bytes: number | undefined): string {
+  if (bytes === undefined) return "…";
   if (!bytes || bytes < 0) return "-";
   const units = ["B", "KB", "MB", "GB", "TB"];
   let v = bytes;

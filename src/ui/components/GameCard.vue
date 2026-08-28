@@ -25,12 +25,12 @@ const { src, onError } = useCover(() => props.game);
         <img
           v-if="src"
           :src="src"
-          :alt="game.name"
+          alt=""
           loading="lazy"
           decoding="async"
           @error="onError"
         />
-        <div v-else class="cover-fallback">
+        <div v-else class="cover-fallback" aria-hidden="true">
           <span class="fb-name">{{ game.name }}</span>
         </div>
 

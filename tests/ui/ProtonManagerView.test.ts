@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GeRelease } from "../../src/core/geproton";
 import type { CompatTool } from "../../src/core/types";
 
-const { protonState, scanState, uiState } = vi.hoisted(() => ({
+const { protonState, scanState, uiState, confirmState } = vi.hoisted(() => ({
   protonState: {
     installedTools: [] as CompatTool[],
     releases: [] as GeRelease[],
@@ -31,6 +31,15 @@ const { protonState, scanState, uiState } = vi.hoisted(() => ({
     inertMain: false,
     showLibraryForTool: vi.fn(),
   },
+  confirmState: {
+    pending: null,
+    reserved: false,
+    busy: false,
+    error: null,
+    ask: vi.fn(),
+    cancel: vi.fn(),
+    confirm: vi.fn(),
+  },
 }));
 
 vi.mock("../../src/ui/stores/protonStore", () => ({
@@ -43,14 +52,7 @@ vi.mock("../../src/ui/stores/uiStore", () => ({
   useUiStore: () => uiState,
 }));
 vi.mock("../../src/ui/stores/confirmStore", () => ({
-  useConfirmStore: () => ({
-    pending: null,
-    busy: false,
-    error: null,
-    ask: vi.fn(),
-    cancel: vi.fn(),
-    confirm: vi.fn(),
-  }),
+  useConfirmStore: () => confirmState,
 }));
 vi.mock("../../src/ui/i18n", () => ({
   t: (key: string) => key,
@@ -115,5 +117,19 @@ describe("ProtonManagerView release install status", () => {
     expect(releaseRow.text()).toContain(tag);
     expect(releaseRow.find(".tag.ok").exists()).toBe(true);
     expect(releaseRow.find(".install").exists()).toBe(false);
+  });
+
+  it("sperrt alle GE-entfernungen bei einer offenen dialog-reservierung", () => {
+    protonState.installedTools = [
+      makeInstalledTool("GE-Proton9-27"),
+      makeInstalledTool("GE-Proton10-1"),
+    ];
+    confirmState.reserved = true;
+
+    const wrapper = mount(ProtonManagerView);
+    const removeButtons = wrapper.findAll("button.rm");
+
+    expect(removeButtons).toHaveLength(2);
+    expect(removeButtons.every((button) => button.attributes("disabled") !== undefined)).toBe(true);
   });
 });

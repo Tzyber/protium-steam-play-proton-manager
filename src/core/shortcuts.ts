@@ -5,6 +5,12 @@ import { NUMERIC_RE } from "./types.js";
 
 export const SHORTCUT_ID_THRESHOLD = 2_147_483_648; // 2^31
 
+/** dasselbe feste tiefenlimit wie der rust-parser (MAX_BINARY_VDF_DEPTH in
+ *  steam.rs): echte dateien sind flach (shortcut → werte). ohne cap liesse
+ *  eine künstlich tief geschachtelte datei den rekursiven walker den stack
+ *  überlaufen lassen (abort). 65 ebenen werfen, 64 bleiben ok. */
+export const MAX_BINARY_VDF_DEPTH = 64;
+
 export type ShortcutResult =
   | { status: "none" }
   | { status: "ok"; ids: Set<number> }
@@ -51,7 +57,7 @@ function readU32(buf: Uint8Array, pos: number): { value: number; next: number } 
  * überspringt den wert ab `pos` (type-byte wurde bereits konsumiert).
  * rekursiv für type 0x00 (MAP). TYPE-KEY-VALUE-ordnung.
  */
-function skipBinaryValue(buf: Uint8Array, pos: number, type: number): number {
+function skipBinaryValue(buf: Uint8Array, pos: number, type: number, depth: number): number {
   switch (type) {
     case 0x00:
       // map-body ohne regeln: alles überspringen, dieselbe iteration wie
@@ -61,6 +67,7 @@ function skipBinaryValue(buf: Uint8Array, pos: number, type: number): number {
         pos,
         () => "skip",
         () => {},
+        depth,
       );
     case 0x01:
       return readCString(buf, pos).next;
@@ -102,13 +109,17 @@ const entryKind: WalkKindFn = (type, key) =>
  * walkt einen MAP-body (TYPE-KEY-VALUE). `pos` zeigt auf das erste
  * child-typ-byte. "extract" steigt in einen MAP-wert ab, dort gilt das
  * eintrags-regelwerk. "appid" liest einen u32 und meldet ihn über onEntry.
+ * `depth` ist die aktuelle map-verschachtelung; über dem limit bricht der
+ * walker fail-closed ab, statt den stack zu überlaufen.
  */
 function walkMapBody(
   buf: Uint8Array,
   pos: number,
   kindOf: WalkKindFn,
   onEntry: (appId: number) => void,
+  depth: number,
 ): number {
+  if (depth > MAX_BINARY_VDF_DEPTH) throw new BinVdfError("binary vdf nesting too deep");
   while (pos < buf.length) {
     if (buf[pos] === 0x08) return pos + 1; // MAP-ende
     const type = byteAt(buf, pos);
@@ -118,7 +129,7 @@ function walkMapBody(
 
     switch (kindOf(type, key.str)) {
       case "extract":
-        pos = walkMapBody(buf, pos, entryKind, onEntry);
+        pos = walkMapBody(buf, pos, entryKind, onEntry, depth + 1);
         break;
       case "appid": {
         const { value, next } = readU32(buf, pos);
@@ -127,7 +138,7 @@ function walkMapBody(
         break;
       }
       default:
-        pos = skipBinaryValue(buf, pos, type);
+        pos = skipBinaryValue(buf, pos, type, depth + 1);
     }
   }
   throw new BinVdfError("unterminated map body");
@@ -149,7 +160,7 @@ function parseBinaryShortcutIds(buf: Uint8Array): Set<number> {
     throw new BinVdfError(`unexpected root key: ${root.str}`);
 
   // root-body: TYPE-KEY-VALUE kinder. nur 0x00 (MAP) mit numerischem key interessiert uns.
-  walkMapBody(buf, pos, rootKind, (appId) => ids.add(appId));
+  walkMapBody(buf, pos, rootKind, (appId) => ids.add(appId), 0);
   return ids;
 }
 
