@@ -79,6 +79,7 @@ export const de = {
     coverageReasonInvalidContent: "ungültiger inhalt",
     coverageReasonAppIdMismatch: "AppID widerspricht dateinamen",
     coverageReasonDuplicate: "doppeltes manifest",
+    coverageReasonNameHeuristic: "valve-paket-name ohne blocklistete AppID",
     coverageReasonPathIdentity: "pfadidentität nicht lesbar",
     coverageReasonDirectoryUnreadable: "verzeichnis nicht lesbar",
     coverageReasonSymlink: "symlink übersprungen",
@@ -126,10 +127,15 @@ export const de = {
     potentialShortcutTooltip:
       "möglicher Non-Steam-Shortcut, nicht via App-Manifest identifizierbar",
     empty: "keine verwaisten daten gefunden",
+    unavailable: "ergebnis nicht verfügbar (scan fehlgeschlagen oder blockiert)",
     selectedInfo: "{n} ausgewählt · {size}",
     cleanAllShaders: "Alle Shader-Caches bereinigen",
     deleteSelected: "{n} - Ausgewählte löschen",
     deleteConfirmTitle: "{n} verwaiste Einträge löschen?",
+    consequenceMoveToTrash: "Prefix von app {appId} in den Papierkorb verschieben",
+    consequencePermanentShadercache: "Shader-Cache von app {appId} dauerhaft löschen",
+    consequenceTrashEntry: "Papierkorb-Eintrag {name} dauerhaft löschen",
+    consequenceCompatTool: "GE-Proton-Tool {name} dauerhaft löschen",
     winePrefixMovedNote:
       "Wine-Prefixes werden in den papierkorb verschoben, speicherplatz wird erst beim leeren des papierkorbs frei.",
     trash: "papierkorb",

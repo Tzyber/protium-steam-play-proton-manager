@@ -1,4 +1,4 @@
-import { isBlocked } from "../blocklist.js";
+import { blockReason } from "../blocklist.js";
 import { errText } from "../errtext.js";
 import { readLaunchOptions } from "../localconfig.js";
 import { parseManifest } from "../manifest.js";
@@ -186,9 +186,23 @@ export async function scanGames(
       seenManifests.set(data.appId, { library: lib, manifestPath });
       manifestRead += 1;
 
-      if (isBlocked(data.appId, data.name)) {
+      const block = blockReason(data.appId, data.name);
+      if (block === "id") {
         blockedAppIds.add(data.appId);
         continue;
+      }
+      if (block === "name-heuristic") {
+        // namens-präfix ist keine gewissheit: ein echtes spiel (z. b.
+        // "Proton Pulse") darf nicht still aus der library verschwinden.
+        // melden statt filtern; die exakte-id-tabelle bleibt der filter.
+        warnings.push({
+          type: "manifest",
+          library: lib,
+          manifestName: entry.name,
+          appId: data.appId,
+          reason: "name-heuristic",
+          detail: `"${data.name}" trägt einen valve-paket-namen, die appid ist aber nicht blocklistet`,
+        });
       }
       games.push({
         appId: data.appId,

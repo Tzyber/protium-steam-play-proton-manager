@@ -18,6 +18,7 @@ import {
 } from "../../core/shortcuts";
 import { findTrashEntries, type TrashEntry, type TrashLibraryStatus } from "../../core/trash";
 import type { OrphanEntry, ScanResult } from "../../core/types";
+import { localizeConsequences } from "../consequences";
 import { t } from "../i18n";
 import { useConfirmStore } from "./confirmStore";
 import { useScanStore } from "./scanStore";
@@ -234,7 +235,11 @@ export const useCleanupStore = defineStore("cleanup", {
         if (!isCurrent()) return;
         this.orphans = orphans;
 
-        const incompleteDeletions = await findIncompleteDeletions(result.libraries, tauriPorts.fs);
+        const incompleteDeletions = await findIncompleteDeletions(
+          result.libraries,
+          result.steamRoot,
+          tauriPorts.fs,
+        );
         if (!isCurrent()) return;
         this.incompleteDeletions = incompleteDeletions;
 
@@ -354,7 +359,7 @@ export const useCleanupStore = defineStore("cleanup", {
             token: pending.token,
             key: k,
             type: entry.type,
-            descriptions: pending.consequences.map((c) => c.description),
+            descriptions: localizeConsequences(pending),
           });
         } catch (e) {
           // deleting hier räumen: sonst bleibt die view nach einem
@@ -550,7 +555,7 @@ export const useCleanupStore = defineStore("cleanup", {
             token: pending.token,
             path: entry.path,
             name: entry.name,
-            descriptions: pending.consequences.map((c) => c.description),
+            descriptions: localizeConsequences(pending),
           });
         } catch (e) {
           prepareErrors.push(`${entry.name}: ${errText(e)}`);

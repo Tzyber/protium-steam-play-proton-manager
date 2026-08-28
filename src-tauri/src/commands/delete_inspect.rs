@@ -86,6 +86,43 @@ where
     Ok(text)
 }
 
+/// Gedeckelter Text-Read für Steam-Config-Dateien, geteilt von Delete-Pipeline
+/// und Write-Gate: eine präparierte oder aufgeblähte Datei darf keinen
+/// Lösch- oder Speicherversuch in eine Voll-Allokation (OOM) treiben.
+/// Fail-closed: Überschreitung → kontrollierter Fehler vor jeder Mutation.
+#[cfg(target_os = "linux")]
+pub(super) fn read_config_text_bounded(path: &Path, label: &str) -> Result<String, String> {
+    let mut file = std::fs::File::open(path).map_err(|error| format!("{label}: {error}"))?;
+    read_fd_text_with_hook(
+        &mut file,
+        label,
+        MAX_DELETE_CONFIG_BYTES,
+        &mut |_, _| {},
+        DeleteReadStage::ConfigBeforeRead,
+    )
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(super) fn read_config_text_bounded(path: &Path, label: &str) -> Result<String, String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).map_err(|error| format!("{label}: {error}"))?;
+    let length = file
+        .metadata()
+        .map_err(|error| format!("{label}: {error}"))?
+        .len();
+    if length > MAX_DELETE_CONFIG_BYTES {
+        return Err(format!("{label} exceeds read limit"));
+    }
+    let mut text = String::new();
+    file.take(MAX_DELETE_CONFIG_BYTES + 1)
+        .read_to_string(&mut text)
+        .map_err(|error| format!("cannot read {label}: {error}"))?;
+    if text.len() as u64 > MAX_DELETE_CONFIG_BYTES {
+        return Err(format!("{label} exceeds read limit"));
+    }
+    Ok(text)
+}
+
 #[cfg(target_os = "linux")]
 fn read_fd_bytes_with_hook<F>(
     file: &mut std::fs::File,

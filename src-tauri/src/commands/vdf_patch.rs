@@ -416,6 +416,13 @@ pub fn set_vdf_value(text: &str, path: &[&str], value: &str) -> Result<String, S
     if value.contains('\r') || value.contains('\n') {
         return Err("wert darf keine zeilenumbrüche enthalten".into());
     }
+    // Spiegel zur identity-prüfung in parse_compat_tool_vdf (steam.rs): vales
+    // keyvalues-parser liest C-strings, ein NUL oder anderes steuerzeichen im
+    // wert würde die datei für steam unlesbar machen. die webview ist keine
+    // vertrauensgrenze, deshalb lehnt das backend hier ab (INV-1).
+    if value.chars().any(char::is_control) {
+        return Err("wert darf keine steuerzeichen enthalten".into());
+    }
     let tokens = tokenize(text)?;
     set_in_scope(text, &tokens, 0, tokens.len(), path, value)
 }
@@ -623,6 +630,41 @@ mod tests {
     }
 
     #[test]
+    fn set_vdf_value_nul_im_wert_wirft_ohne_patch() {
+        let mut p = LAUNCH_620.to_vec();
+        p.push("LaunchOptions");
+        assert!(set_vdf_value(LOCALCONFIG, &p, "gamemoderun %command%\0evil").is_err());
+        // auch ein führendes NUL darf nicht durchrutschen
+        assert!(set_vdf_value(LOCALCONFIG, &p, "\0").is_err());
+        assert!(set_vdf_value(LOCALCONFIG, &p, "a\0b").is_err());
+    }
+
+    #[test]
+    fn set_vdf_value_steuerzeichen_im_wert_wirft_ohne_patch() {
+        let mut p = LAUNCH_620.to_vec();
+        p.push("LaunchOptions");
+        for evil in ["\u{7}", "\u{1}", "\u{9}"] {
+            assert!(
+                set_vdf_value(LOCALCONFIG, &p, evil).is_err(),
+                "steuerzeichen {evil:?} muss abgelehnt werden"
+            );
+        }
+        // auch DEL (0x7F) und C1 (0x80-0x9F) sind control characters
+        assert!(set_vdf_value(LOCALCONFIG, &p, "a\u{7f}b").is_err());
+        assert!(set_vdf_value(LOCALCONFIG, &p, "a\u{85}b").is_err());
+    }
+
+    #[test]
+    fn set_vdf_value_escaped_zeichen_bleiben_erlaubt() {
+        // \" und \\ sind keine steuerzeichen und müssen weiterhin funktionieren
+        let mut p = LAUNCH_620.to_vec();
+        p.push("LaunchOptions");
+        let evil = r#"MANGOHUD_CONFIG="fps,cpu" PROTON_LOG_DIR=C:\logs %command%"#;
+        let patched = set_vdf_value(LOCALCONFIG, &p, evil).unwrap();
+        assert_eq!(get_vdf_value(&patched, &p).unwrap(), Some(evil.to_string()));
+    }
+
+    #[test]
     fn set_vdf_value_unterminierter_string_wirft() {
         let truncated = "\"InstallConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"name\"\t\t\"wert ohne schlussquote";
         let err =
@@ -808,5 +850,77 @@ mod tests {
             again, patched,
             "no-op auf bereits escapedem wert bleibt byte-identisch"
         );
+    }
+
+    #[test]
+    fn text_vdf_golden_fixture_bindet_gleiche_erwartungen_wie_typescript() {
+        // gemeinsame datei tests/fixtures/text-vdf-golden.vdf; dieselben
+        // get/set/remove-erwartungen wie tests/core/vdfpatch.test.ts
+        // (spiegel zu shortcuts-golden.vdf).
+        let golden = include_str!("../../../tests/fixtures/text-vdf-golden.vdf");
+        let launch_570: Vec<&str> = vec![
+            "UserLocalConfigStore",
+            "Software",
+            "Valve",
+            "Steam",
+            "Apps",
+            "570",
+        ];
+        let mut launch_620 = LAUNCH_620.to_vec();
+        launch_620.push("LaunchOptions");
+
+        // get: escaped launch-options, kommentare, [conditional]-marker, bare tokens
+        assert_eq!(
+            get_vdf_value(golden, &launch_620).unwrap(),
+            Some(r#"MANGOHUD_CONFIG="fps,cpu" PROTON_LOG_DIR=C:\logs %command%"#.to_string())
+        );
+        let mut p570_lo = launch_570.clone();
+        p570_lo.push("LaunchOptions");
+        assert_eq!(
+            get_vdf_value(golden, &p570_lo).unwrap(),
+            Some("-windowed".to_string())
+        );
+        let mut p570_lp = launch_570.clone();
+        p570_lp.push("LastPlayed");
+        assert_eq!(
+            get_vdf_value(golden, &p570_lp).unwrap(),
+            Some("570".to_string())
+        );
+        assert_eq!(
+            get_vdf_value(golden, &["UserLocalConfigStore", "BareKey"]).unwrap(),
+            Some("bare-value".to_string())
+        );
+        assert_eq!(
+            get_vdf_value(golden, &["UserLocalConfigStore", "BareTokenKey"]).unwrap(),
+            Some("token-value".to_string())
+        );
+
+        // set: byte-identische value-span-ersetzung wie im TS-pfad
+        let patched = set_vdf_value(golden, &launch_620, "neu").unwrap();
+        let expected = golden.replace(
+            r#""MANGOHUD_CONFIG=\"fps,cpu\" PROTON_LOG_DIR=C:\\logs %command%""#,
+            "\"neu\"",
+        );
+        assert_eq!(patched, expected);
+        assert_eq!(
+            get_vdf_value(&patched, &launch_620).unwrap(),
+            Some("neu".to_string())
+        );
+
+        // set: no-op bleibt byte-identisch
+        let noop = set_vdf_value(
+            golden,
+            &launch_620,
+            r#"MANGOHUD_CONFIG="fps,cpu" PROTON_LOG_DIR=C:\logs %command%"#,
+        )
+        .unwrap();
+        assert_eq!(noop, golden);
+
+        // remove: 570-block wird exakt entfernt (inkl. [conditional]-zeile)
+        let removed = remove_vdf_entry(golden, &launch_570).unwrap();
+        let block570 = "\t\t\t\t\t\"570\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"LaunchOptions\"\t\t\"-windowed\"\n\t\t\t\t\t\t\"LastPlayed\"\t\t\"570\"\t[linux]\n\t\t\t\t\t}\n";
+        assert_eq!(removed, golden.replace(block570, ""));
+        assert!(removed.contains("\"620\""));
+        assert!(!removed.contains("\"570\""));
     }
 }

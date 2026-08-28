@@ -86,9 +86,11 @@ describe("parseManifest", () => {
     expect(m.sizeBytes).toBeUndefined();
   });
 
-  it("akzeptiert exakt die obere AppID-Grenze und verwirft den nächsten Wert", () => {
+  it("akzeptiert exakt die u32-Obergrenze und verwirft den nächsten Wert", () => {
     expect(parseSafeAppId("2147483647")).toBe(2147483647);
-    expect(parseSafeAppId("2147483648")).toBeNull();
+    expect(parseSafeAppId("2147483648")).toBe(2147483648);
+    expect(parseSafeAppId("4294967295")).toBe(4294967295);
+    expect(parseSafeAppId("4294967296")).toBeNull();
     expect(parseSafeAppId("999999999999999999999999")).toBeNull();
   });
 });

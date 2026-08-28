@@ -152,13 +152,17 @@ describe("findOrphans", () => {
     expect(shortcutPrefix).toBeUndefined();
   });
 
-  it("AppID oberhalb der Rust-Grenze wird nie als orphan angeboten", async () => {
+  it("shortcut-bereich-appId (2^31..2^32-1) wird nach shortcut-entfernung als orphan angeboten", async () => {
     const { fs, libraries } = await setup();
+    // 3641016077 ist NICHT mehr als shortcut installiert: sein prefix ist ein
+    // echter rest und muss angeboten werden (früher still unsichtbar wegen der
+    // 2^31-1-grenze in parseSafeAppId; das rust-backend akzeptiert u32::MAX).
     const withoutShortcut = new Set([570, 620, 730]);
     const orphans = await findOrphans(libraries, withoutShortcut, new Set(), fs);
 
-    const outOfRangePrefix = orphans.find((o) => o.appId === 3641016077);
-    expect(outOfRangePrefix).toBeUndefined();
+    const shortcutPrefix = orphans.find((o) => o.appId === 3641016077);
+    expect(shortcutPrefix).toBeDefined();
+    expect(shortcutPrefix?.type).toBe("compatdata");
   });
 });
 
@@ -243,7 +247,7 @@ describe("findIncompleteDeletions", () => {
     await fs.writeTextFile(fileClaim, "kein verzeichnis");
     await symlink(compatClaim, symlinkClaim, "dir");
 
-    const incomplete = await findIncompleteDeletions(libraries, fs);
+    const incomplete = await findIncompleteDeletions(libraries, root, fs);
     expect(incomplete).toHaveLength(2);
     expect(incomplete.map((entry) => entry.name)).toEqual(
       expect.arrayContaining([`${DELETE_CLAIM_PREFIX}compat`, `${DELETE_CLAIM_PREFIX}shader`]),
@@ -255,9 +259,40 @@ describe("findIncompleteDeletions", () => {
     expect(orphans.every((entry) => !entry.path.includes(DELETE_CLAIM_PREFIX))).toBe(true);
   });
 
+  it("findet Claim-Reste im papierkorb (abgebrochener trash-delete)", async () => {
+    const { root, lib2, fs, libraries } = await setup();
+    const trashClaim = `${root}/steamapps/.protium-trash/${DELETE_CLAIM_PREFIX}trash`;
+    const trashClaim2 = `${lib2}/steamapps/.protium-trash/${DELETE_CLAIM_PREFIX}trash2`;
+    await fs.mkdir(trashClaim);
+    await fs.mkdir(trashClaim2);
+
+    const incomplete = await findIncompleteDeletions(libraries, root, fs);
+
+    const trashRest = incomplete.find((entry) => entry.path === trashClaim);
+    expect(trashRest).toBeDefined();
+    expect(trashRest?.type).toBe("trash");
+    expect(trashRest?.library).toBe(root);
+    expect(incomplete.some((entry) => entry.path === trashClaim2)).toBe(true);
+  });
+
+  it("findet Claim-Reste in compatibilitytools.d (abgebrochener tool-delete)", async () => {
+    const { root, fs, libraries } = await setup();
+    const toolClaim = `${root}/compatibilitytools.d/${DELETE_CLAIM_PREFIX}tool`;
+    await fs.mkdir(toolClaim);
+
+    const incomplete = await findIncompleteDeletions(libraries, root, fs);
+
+    const toolRest = incomplete.find((entry) => entry.path === toolClaim);
+    expect(toolRest).toBeDefined();
+    expect(toolRest?.type).toBe("compat-tool");
+    expect(toolRest?.library).toBe(root);
+  });
+
   it("überspringt fehlende oder nicht lesbare basisordner", async () => {
     const { fs } = await setup();
 
-    await expect(findIncompleteDeletions(["/nicht/existenter/pfad"], fs)).resolves.toEqual([]);
+    await expect(
+      findIncompleteDeletions(["/nicht/existenter/pfad"], "/nicht/steam", fs),
+    ).resolves.toEqual([]);
   });
 });

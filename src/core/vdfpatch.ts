@@ -266,7 +266,10 @@ function removeInScope(
   if (/[^ \t]/.test(between)) {
     throw new VdfPatchError(`"${key}" beginnt nicht auf eigener zeile, strukturbruch`);
   }
-  const lineStart = Math.max(rawLineStart, entry.key.start);
+  // ab zeilenbeginn entfernen (inkl. indent): der indent gehört zur entfernten
+  // zeile, ein whitespace-rest würde vom rust-patchpfad (vdf_patch.rs) nicht
+  // hinterlassen und die golden-fixture würde die abweichung melden.
+  const lineStart = rawLineStart;
   let trailEnd = end;
   while (trailEnd < text.length && " \t\r".includes(text.charAt(trailEnd))) trailEnd++;
   if (trailEnd < text.length && text.charAt(trailEnd) === "\n") trailEnd++;

@@ -161,18 +161,19 @@ describe("findTrashEntries", () => {
     expect(r.unknown).toHaveLength(1);
   });
 
-  it("akzeptiert exakt 2147483647, aber keine größere AppID", async () => {
+  it("akzeptiert bis u32::MAX (inkl. shortcut-bereich), aber keine größere AppID", async () => {
     const sys = fakeSystem(async () =>
       listing("/lib/steamapps/.protium-trash", [
         "compatdata_2147483647_1700000000000",
-        "compatdata_2147483648_1700000000000",
+        "compatdata_4294967295_1700000000000",
+        "compatdata_4294967296_1700000000000",
         "compatdata_999999999999999999999999_1700000000000",
       ]),
     );
 
     const r = await findTrashEntries(["/lib"], sys);
 
-    expect(r.entries.map((entry) => entry.appId)).toEqual([2147483647]);
+    expect(r.entries.map((entry) => entry.appId)).toEqual([2147483647, 4294967295]);
     expect(r.unknown).toHaveLength(2);
   });
 

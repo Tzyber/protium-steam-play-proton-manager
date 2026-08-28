@@ -208,6 +208,12 @@ function formatWarning(warning: ScanWarning): string {
             reason: t("library.coverageReasonDuplicate"),
             detail: warning.detail ?? "",
           });
+        case "name-heuristic":
+          return t("library.coverageWarningManifest", {
+            name: warning.manifestName,
+            reason: t("library.coverageReasonNameHeuristic"),
+            detail: warning.detail ?? "",
+          });
       }
       break;
     case "compat-tool":

@@ -11,6 +11,7 @@ import {
 } from "../../core/geproton";
 import { joinPath, paths } from "../../core/paths";
 import type { CompatTool } from "../../core/types";
+import { localizeConsequences } from "../consequences";
 import { t } from "../i18n";
 import { useConfirmStore } from "./confirmStore";
 import { useScanStore } from "./scanStore";
@@ -362,7 +363,7 @@ export const useProtonStore = defineStore("proton", {
         const accepted = confirm.ask(
           {
             title: t("proton.removeConfirmTitle", { name: tool.name }),
-            message: pending.consequences.map((c) => c.description).join("\n"),
+            message: localizeConsequences(pending).join("\n"),
           },
           {
             onSuccess: async () => {

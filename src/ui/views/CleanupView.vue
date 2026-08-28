@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import type { TrashEntry } from "../../core/trash";
 import type { OrphanEntry } from "../../core/types";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
@@ -8,9 +8,11 @@ import { getLocale, t } from "../i18n";
 import { summarizeSizes } from "../sizeSummary";
 import { useCleanupStore } from "../stores/cleanupStore";
 import { useConfirmStore } from "../stores/confirmStore";
+import { useScanStore } from "../stores/scanStore";
 
 const cleanup = useCleanupStore();
 const confirm = useConfirmStore();
+const scan = useScanStore();
 
 // ---- tabs ----
 // drei listen auf einer seite waren nicht mehr bedienbar: bei 19 prefixes musste
@@ -41,7 +43,13 @@ function onTabKeydown(e: KeyboardEvent, i: number) {
   nextTick(() => tabEls.value[next]?.focus());
 }
 
+/** true, wenn die initialen Cleanup-Scans gegen ein vorhandenes
+ *  Scan-Ergebnis liefen. sonst holt der Watch unter onMounted genau einmal
+ *  nach, sobald der Library-Scan fertig ist. */
+let cleanupScansHadResult = false;
+
 onMounted(async () => {
+  cleanupScansHadResult = scan.result !== null;
   await cleanup.scanOrphans();
   // papierkorb gleich mitladen, nur lesend, und ohne das sieht der nutzer eine
   // leere sektion und hält sie für den echten stand
@@ -52,6 +60,20 @@ onMounted(async () => {
     else if (cleanup.trash.length) tab.value = "trash";
   }
 });
+
+// Wurde die View vor dem ersten Scan-Ergebnis gemountet, liefen scanOrphans/
+// scanTrash einmal ohne result und setzten dauerhaft den noScanResult-Fehler
+// (cleanupStore early-return). Genau einmal nachholen, sobald der Scan ein
+// brauchbares Ergebnis hat; weitere status-übergänge lösen nichts mehr aus.
+watch(
+  () => scan.status,
+  async (status) => {
+    if (status !== "done" || cleanupScansHadResult || !scan.result) return;
+    cleanupScansHadResult = true;
+    await cleanup.scanOrphans();
+    await cleanup.scanTrash();
+  },
+);
 
 // ---- verwaiste daten ----
 
@@ -358,7 +380,8 @@ const tabLabel = (id: Tab) =>
           </li>
         </ul>
         <div v-else-if="cleanup.scanning" class="empty">{{ t("cleanup.searching") }}</div>
-        <div v-else class="empty">{{ t("cleanup.empty") }}</div>
+        <div v-else-if="!cleanup.error && !cleanup.blockedBySkipped" class="empty">{{ t("cleanup.empty") }}</div>
+        <div v-else class="empty">{{ t("cleanup.unavailable") }}</div>
       </div>
 
       <!-- ---- wine-prefixes ---- -->
@@ -427,7 +450,8 @@ const tabLabel = (id: Tab) =>
           </li>
         </ul>
         <div v-else-if="cleanup.scanning" class="empty">{{ t("cleanup.searching") }}</div>
-        <div v-else class="empty">{{ t("cleanup.empty") }}</div>
+        <div v-else-if="!cleanup.error && !cleanup.blockedBySkipped" class="empty">{{ t("cleanup.empty") }}</div>
+        <div v-else class="empty">{{ t("cleanup.unavailable") }}</div>
       </div>
 
       <!-- ---- papierkorb ---- -->
@@ -507,8 +531,11 @@ const tabLabel = (id: Tab) =>
             </button>
           </li>
         </ul>
-        <div v-else-if="!cleanup.trashScanning" class="empty">
+        <div v-else-if="!cleanup.trashScanning && !cleanup.error && !cleanup.blockedBySkipped" class="empty">
           {{ t("cleanup.trashEmptyState") }}
+        </div>
+        <div v-else-if="!cleanup.trashScanning" class="empty">
+          {{ t("cleanup.unavailable") }}
         </div>
       </div>
 

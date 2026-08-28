@@ -27,6 +27,7 @@ export const paths = {
   libraryAppsDir: (libraryPath: string) => join(libraryPath, "steamapps"),
   compatdataDir: (libraryPath: string) => join(libraryPath, "steamapps", "compatdata"),
   shadercacheDir: (libraryPath: string) => join(libraryPath, "steamapps", "shadercache"),
+  trashDir: (libraryPath: string) => join(libraryPath, "steamapps", ".protium-trash"),
   compatdataPath: (libraryPath: string, appId: number | string) =>
     join(libraryPath, "steamapps", "compatdata", String(appId)),
   shadercachePath: (libraryPath: string, appId: number | string) =>

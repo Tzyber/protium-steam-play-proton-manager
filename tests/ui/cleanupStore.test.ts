@@ -246,6 +246,26 @@ describe("cleanupStore gate logic", () => {
     expect(store.orphans).toEqual([]);
   });
 
+  it("markiert shortcut-bereich-orphans (2^31..2^32-1) als potentialShortcut", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan();
+    const store = useCleanupStore();
+
+    mockFindOrphans.mockResolvedValue([
+      {
+        appId: 3641016077,
+        type: "compatdata",
+        path: "/home/u/.steam/steamapps/compatdata/3641016077",
+        library: "/home/u/.steam",
+      },
+    ]);
+
+    await store.scanOrphans();
+
+    expect(store.orphans).toHaveLength(1);
+    expect(store.orphans[0]?.potentialShortcut).toBe(true);
+  });
+
   it("die ignorier-entscheidung überlebt einen erneuten scan (kein wiederkehrender dialog)", async () => {
     const scanStore = useScanStore();
     scanStore.result = fakeScan([{ path: "/gone/lib", reason: "path-missing" }]);

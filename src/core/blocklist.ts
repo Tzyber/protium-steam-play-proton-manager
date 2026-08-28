@@ -61,9 +61,20 @@ const NAME_PREFIXES = [
   "Steamworks Shared",
 ] as const;
 
+/** Warum eine App blocklistet wird: "id" = exakte Tabelle (gewissheit) oder
+ *  "name-heuristic" = nur namens-präfix (unsicherheit). Nur die exakte ID
+ *  darf ein spiel still ausblenden; der präfix-treffer wird gemeldet, nie
+ *  als gewissheit behandelt (keine string-heuristik als fachlicher fakt). */
+export type BlockReason = "id" | "name-heuristic" | null;
+
+export function blockReason(appId: number, name: string): BlockReason {
+  if (BLOCKED_IDS.has(appId)) return "id";
+  if (NAME_PREFIXES.some((p) => name.startsWith(p))) return "name-heuristic";
+  return null;
+}
+
 export function isBlocked(appId: number, name: string): boolean {
-  if (BLOCKED_IDS.has(appId)) return true;
-  return NAME_PREFIXES.some((p) => name.startsWith(p));
+  return blockReason(appId, name) !== null;
 }
 
 /** die built-in protons, deren steam-app im scan als installiert erkannt wurde. */

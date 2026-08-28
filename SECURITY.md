@@ -93,9 +93,11 @@ Originalname inzwischen wieder belegt, schlägt NOREPLACE fehl und nichts wird
 nie vom Restore verdeckt.
 
 Liegengebliebene `.protium-delete-claim-*`-Verzeichnisse werden bei späteren
-Cleanup-Scans als incomplete deletions sichtbar gemacht. Sie sind keine
-normalen Orphans und Protium bietet für sie aktuell keine automatische
-Restore- oder Delete-Aktion an.
+Cleanup-Scans als incomplete deletions sichtbar gemacht — in allen vier
+Parent-Locations der Delete-Pipeline: `compatdata`, `shadercache`,
+`.protium-trash` und `compatibilitytools.d`. Sie sind keine normalen Orphans
+und Protium bietet für sie aktuell keine automatische Restore- oder
+Delete-Aktion an.
 
 Es gibt kein separates Confirm-Fenster, keine `confirm_window_*`-Commands und
 keine dedizierte Confirm-Capability. `tauri-plugin-dialog` bleibt ausschließlich
@@ -172,6 +174,19 @@ reguläre Datei innerhalb des Größenlimits; gelesen und geparst wird aus genau
 diesem geöffneten Descriptor. Nicht-Linux verweigert Custom-Autorität
 fail-closed. Root-, Toolordner- und VDF-Swap-Races autorisieren keinen fremden
 Namen.
+
+Die Config-Reads beider Write-Pfade sind gedeckelt (16 MiB, cap+1-Read,
+identisch zur Delete-Pipeline): eine präparierte oder aufgeblähte Config führt
+zu einem kontrollierten Fehler vor Backup/Temp/Rename, nie zu einer
+Voll-Allokation. Unicode-Control-Characters (NUL, C0, DEL, C1) in
+Startoptionen oder Toolnamen lehnt das Backend ab, bevor irgendein Byte
+geschrieben wird.
+
+Die Write-Sequenz ist crash-durable: Daten-fsync der Temp-Datei vor dem
+atomaren Rename, fsync des Parent-Verzeichnisses danach, Backup ebenfalls
+gefsynct. Nach einem Stromausfall ist damit entweder der alte oder der neue
+vollständige Stand durable — eine leere/verkürzte Config durch den Ausfall
+selbst ist ausgeschlossen.
 
 ### Bekannte Einschränkungen und akzeptierte Restrisiken
 

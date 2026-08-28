@@ -1,0 +1,33 @@
+"UserLocalConfigStore"
+{
+	"Software"
+	{
+		// zeilenkommentar vor dem valve-block
+		"Valve"
+		{
+			"Steam"
+			{
+				"LastPlayed"		"620"
+				"Apps"
+				{
+					"620"
+					{
+						"LaunchOptions"		"MANGOHUD_CONFIG=\"fps,cpu\" PROTON_LOG_DIR=C:\\logs %command%"
+						"CompatToolMapping"
+						{
+							"name"		"proton_experimental"
+						}
+					}
+					"570"
+					{
+						"LaunchOptions"		"-windowed"
+						"LastPlayed"		"570"	[linux]
+					}
+				}
+			}
+		}
+	}
+	"BareKey"		"bare-value"
+	BareTokenKey		"token-value"
+	/* blockkommentar am ende */
+}

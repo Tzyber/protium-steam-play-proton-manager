@@ -9,6 +9,7 @@ import { formatBytes } from "../../src/ui/format";
 import { t } from "../../src/ui/i18n";
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
+import { useScanStore } from "../../src/ui/stores/scanStore";
 import CleanupView from "../../src/ui/views/CleanupView.vue";
 
 describe("CleanupView incomplete deletions", () => {
@@ -235,5 +236,96 @@ describe("CleanupView incomplete deletions", () => {
     expect(text).toContain(".protium-delete-claim-abc");
     expect(text).not.toContain("löschmarkierungen");
     expect(text).not.toContain("leftover deletion claims");
+  });
+
+  it("holt cleanup-scans nach, wenn die view vor dem scan-ergebnis gemountet wurde", async () => {
+    const store = useCleanupStore();
+    const scan = useScanStore();
+    scan.status = "scanning";
+    scan.result = null;
+
+    const calls: string[] = [];
+    vi.spyOn(store, "scanOrphans").mockImplementation(async () => {
+      calls.push("orphans");
+      // spiegelt den store-early-return: ohne ergebnis steht der fehler
+      store.error = scan.result ? null : t("errors.noScanResult");
+    });
+    vi.spyOn(store, "scanTrash").mockImplementation(async () => {
+      calls.push("trash");
+    });
+
+    mount(CleanupView);
+    await vi.waitFor(() => expect(store.error).toBe(t("errors.noScanResult")));
+    expect(calls.filter((c) => c === "orphans")).toHaveLength(1);
+
+    // scan liefert das ergebnis nach: der watch holt genau einmal nach
+    scan.result = {
+      steamRoot: "/steam",
+      libraries: ["/steam"],
+      games: [],
+      compatToolsInstalled: [],
+      builtinProtonsInstalled: [],
+      defaultCompatTool: null,
+      compatConfigStatus: "available",
+      launchConfigStatus: "available",
+      manifestCounts: { read: 0, failed: 0 },
+      compatToolCounts: { read: 0, failed: 0 },
+      steamUserId: null,
+      warnings: [],
+      skippedLibraries: [],
+      cleanupUnsafeLibraries: [],
+      blockedAppIds: [],
+    };
+    scan.status = "done";
+
+    await vi.waitFor(() => expect(store.error).toBeNull());
+    expect(calls.filter((c) => c === "orphans")).toHaveLength(2);
+    expect(calls.filter((c) => c === "trash")).toHaveLength(2);
+
+    // kein endlos-watcher: weitere ticks lösen keinen weiteren scan aus
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls.filter((c) => c === "orphans")).toHaveLength(2);
+  });
+
+  it("leer-zustand erscheint nicht neben fehler (unlesbarer papierkorb)", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    store.error = t("cleanup.trashUnreadable", { paths: "/lib" });
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+    await wrapper.get("#cv-tab-trash").trigger("click");
+
+    expect(wrapper.text()).not.toContain(t("cleanup.trashEmptyState"));
+    expect(wrapper.text()).toContain(t("cleanup.unavailable"));
+  });
+
+  it("leer-zustand erscheint nicht bei blockiertem scan", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    store.blockedBySkipped = true;
+    store.error = t("errors.scanIncomplete", { paths: "/lib" });
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.text()).not.toContain(t("cleanup.empty"));
+    expect(wrapper.text()).toContain(t("cleanup.unavailable"));
+  });
+
+  it("erfolgreicher leerer scan zeigt weiterhin den leer-zustand", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    store.error = null;
+    store.blockedBySkipped = false;
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.text()).toContain(t("cleanup.empty"));
+    expect(wrapper.text()).not.toContain(t("cleanup.unavailable"));
   });
 });

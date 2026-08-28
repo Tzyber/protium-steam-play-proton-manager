@@ -12,7 +12,7 @@ use std::os::unix::ffi::OsStrExt;
 
 use tauri::Manager;
 
-use crate::commands::delete_inspect::STEAM_COMPAT_PRIORITY;
+use crate::commands::delete_inspect::{read_config_text_bounded, STEAM_COMPAT_PRIORITY};
 #[cfg(test)]
 use crate::commands::delete_inspect::{
     MAX_DELETE_CONFIG_BYTES, MAX_DELETE_MANIFEST_BYTES, MAX_SHORTCUTS_VDF_BYTES,
@@ -196,7 +196,7 @@ fn write_backup_no_follow(
         .map_err(|e| format!("backup open (no-follow): {e}"))?;
     if let Err(e) = file
         .write_all(original.as_bytes())
-        .and_then(|()| file.flush())
+        .and_then(|()| file.sync_all())
     {
         drop(file);
         unsafe {
@@ -217,6 +217,25 @@ fn write_backup_no_follow(
     _original: &str,
 ) -> Result<(), String> {
     Err("backup write: no-follow open unsupported on this platform".into())
+}
+
+/// Schreibt die gepatchte Config crash-durable: Daten-fsync vor dem Rename,
+/// fsync des Parent-Verzeichnisses danach. Der Rename ist atomar, aber ohne
+/// fsync wären die Datenblöcke nach einem Stromausfall nicht garantiert
+/// durable (leere/verkürzte Zieldatei möglich); die Write-Gate-Garantie
+/// umfasst beides: atomaren Namenswechsel UND durable Inhalte.
+fn persist_atomic(tmp: &Path, canon: &Path, bytes: &[u8]) -> Result<(), String> {
+    let mut file = fs::File::create(tmp).map_err(|e| format!("atomic write: {e}"))?;
+    file.write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|e| format!("atomic write: {e}"))?;
+    drop(file);
+    fs::rename(tmp, canon).map_err(|e| format!("atomic write: {e}"))?;
+    let parent = canon.parent().ok_or_else(|| "no parent dir".to_string())?;
+    fs::File::open(parent)
+        .and_then(|dir| dir.sync_all())
+        .map_err(|e| format!("atomic write (parent sync): {e}"))?;
+    Ok(())
 }
 
 pub(super) fn save_launch_options_inner<F>(
@@ -254,7 +273,7 @@ where
         return Err("write target is not a steam config file".into());
     }
 
-    let original = fs::read_to_string(&canon).map_err(|e| format!("read target: {e}"))?;
+    let original = read_config_text_bounded(&canon, "read target")?;
     let app_id_str = app_id.to_string();
     let path = [
         "UserLocalConfigStore",
@@ -305,10 +324,10 @@ where
         name.to_string_lossy(),
         random_suffix()
     ));
-    let write_result = fs::write(&tmp, &patched).and_then(|()| fs::rename(&tmp, &canon));
+    let write_result = persist_atomic(&tmp, &canon, patched.as_bytes());
     if let Err(e) = write_result {
         let _ = fs::remove_file(&tmp);
-        return Err(format!("atomic write: {e}"));
+        return Err(e);
     }
 
     Ok(WriteResult::Written)
@@ -856,7 +875,7 @@ where
         return Err("write target is not a steam config file".into());
     }
 
-    let original = fs::read_to_string(&canon).map_err(|e| format!("read target: {e}"))?;
+    let original = read_config_text_bounded(&canon, "read target")?;
     let app_id_str = app_id.to_string();
     let name_path = [
         "InstallConfigStore",
@@ -950,10 +969,10 @@ where
         name.to_string_lossy(),
         random_suffix()
     ));
-    let write_result = fs::write(&tmp, &patched).and_then(|()| fs::rename(&tmp, &canon));
+    let write_result = persist_atomic(&tmp, &canon, patched.as_bytes());
     if let Err(e) = write_result {
         let _ = fs::remove_file(&tmp);
-        return Err(format!("atomic write: {e}"));
+        return Err(e);
     }
 
     Ok(WriteResult::Written)
@@ -1302,6 +1321,200 @@ mod tests {
         )
         .is_err());
         let _ = std::fs::remove_dir_all(home.parent().unwrap());
+    }
+
+    #[test]
+    fn save_launch_options_steuerzeichen_werden_abgelehnt_ohne_seiteneffekt() {
+        let (home, cache, steam) = wsg_env("launch-control");
+        let target = steam.join("userdata/123/config/localconfig.vdf");
+        let before = std::fs::read_to_string(&target).unwrap();
+        let mut reader = || Ok(false);
+
+        for evil in ["gamemoderun %command%\0evil", "\u{7}evil", "\u{1}"] {
+            let res = save_launch_options_inner(
+                steam.to_str().unwrap(),
+                "123",
+                620,
+                evil,
+                &cache,
+                &home,
+                &mut reader,
+            );
+            assert!(res.is_err(), "wert {evil:?} muss abgelehnt werden");
+        }
+
+        // zieldatei byte-identisch, kein backup, keine temp-datei
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), before);
+        assert!(!cache.join("backups").exists());
+        let parent = target.parent().unwrap();
+        let leftovers: Vec<_> = std::fs::read_dir(parent)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "keine temp-datei darf liegenbleiben");
+        let _ = std::fs::remove_dir_all(home.parent().unwrap());
+    }
+
+    #[test]
+    fn save_compat_tool_tool_name_mit_steuerzeichen_abgelehnt() {
+        let (home, cache, steam) = wsg_env("compat-control");
+        let target = steam.join("config/config.vdf");
+        let before = std::fs::read_to_string(&target).unwrap();
+        let mut reader = || Ok(false);
+
+        // tool_name läuft durch is_authorized_compat_tool; ein name mit NUL
+        // ist kein backendgelesener name und muss fail-closed abgelehnt werden
+        let res = save_compat_tool_inner(
+            steam.to_str().unwrap(),
+            620,
+            Some("GE-Proton9-27\0x"),
+            &cache,
+            &home,
+            &mut reader,
+        );
+        assert!(res.is_err());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), before);
+        assert!(!cache.join("backups").exists());
+        let _ = std::fs::remove_dir_all(home.parent().unwrap());
+    }
+
+    #[test]
+    fn save_launch_options_uebergroesse_lehnt_ab_ohne_seiteneffekt() {
+        let (home, cache, steam) = wsg_env("launch-oversize");
+        let target = steam.join("userdata/123/config/localconfig.vdf");
+        std::fs::File::create(&target)
+            .unwrap()
+            .set_len(MAX_DELETE_CONFIG_BYTES + 1)
+            .unwrap();
+        let mut reader = || Ok(false);
+
+        let res = save_launch_options_inner(
+            steam.to_str().unwrap(),
+            "123",
+            620,
+            "-novid",
+            &cache,
+            &home,
+            &mut reader,
+        );
+        let err = res.unwrap_err();
+        assert!(err.contains("read limit"), "unexpected error: {err}");
+        // zieldatei unverändert (länge bleibt), kein backup, keine temp-datei
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().len(),
+            MAX_DELETE_CONFIG_BYTES + 1
+        );
+        assert!(!cache.join("backups").exists());
+        let parent = target.parent().unwrap();
+        let leftovers: Vec<_> = std::fs::read_dir(parent)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "keine temp-datei darf liegenbleiben");
+        let _ = std::fs::remove_dir_all(home.parent().unwrap());
+    }
+
+    #[test]
+    fn save_launch_options_exakt_an_der_lesegrenze_kein_read_limit_fehler() {
+        let (home, cache, steam) = wsg_env("launch-boundary");
+        let target = steam.join("userdata/123/config/localconfig.vdf");
+        std::fs::File::create(&target)
+            .unwrap()
+            .set_len(MAX_DELETE_CONFIG_BYTES)
+            .unwrap();
+        let mut reader = || Ok(false);
+
+        let res = save_launch_options_inner(
+            steam.to_str().unwrap(),
+            "123",
+            620,
+            "-novid",
+            &cache,
+            &home,
+            &mut reader,
+        );
+        // die 16-MiB-grenze selbst ist kein read-limit-fehler (der strukturbruch
+        // durch das nul-padding ist erwartbar und getrennt)
+        let err = res.unwrap_err();
+        assert!(!err.contains("read limit"), "unexpected error: {err}");
+        let _ = std::fs::remove_dir_all(home.parent().unwrap());
+    }
+
+    #[test]
+    fn save_compat_tool_uebergroesse_lehnt_ab_ohne_seiteneffekt() {
+        let (home, cache, steam) = wsg_env("compat-oversize");
+        let target = steam.join("config/config.vdf");
+        std::fs::File::create(&target)
+            .unwrap()
+            .set_len(MAX_DELETE_CONFIG_BYTES + 1)
+            .unwrap();
+        let mut reader = || Ok(false);
+
+        let res = save_compat_tool_inner(
+            steam.to_str().unwrap(),
+            620,
+            Some("GE-Proton9-28"),
+            &cache,
+            &home,
+            &mut reader,
+        );
+        let err = res.unwrap_err();
+        assert!(err.contains("read limit"), "unexpected error: {err}");
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().len(),
+            MAX_DELETE_CONFIG_BYTES + 1
+        );
+        assert!(!cache.join("backups").exists());
+        let _ = std::fs::remove_dir_all(home.parent().unwrap());
+    }
+
+    #[test]
+    fn write_gate_bleibt_crash_durable_gesichert() {
+        // statischer schutz: die dokumentierte write-gate-garantie (atomarer
+        // rename PLUS durable inhalte) darf nicht still auf temp+rename
+        // ohne fsync zurückfallen.
+        let source = include_str!("steam.rs");
+        // der test-import steht als eigenes #[cfg(test)] vor dem modul; erst
+        // die modul-grenze schneidet den test-code ab
+        let production = source
+            .split("#[cfg(test)]\nmod tests {")
+            .next()
+            .expect("test module boundary must exist");
+        let persist_body = production
+            .split("fn persist_atomic")
+            .nth(1)
+            .expect("persist_atomic must exist in production source")
+            .split("pub(super) fn save_launch_options_inner")
+            .next()
+            .expect("persist_atomic must be defined before the write paths");
+
+        let tmp_sync = persist_body.find("file.sync_all()");
+        let rename = persist_body.find("fs::rename");
+        assert!(
+            tmp_sync.is_some() && rename.is_some() && tmp_sync.unwrap() < rename.unwrap(),
+            "temp-sync muss vor dem rename laufen"
+        );
+        let parent_sync = persist_body.find("File::open(parent)");
+        assert!(parent_sync.is_some(), "parent-fsync nach rename fehlt");
+        assert!(
+            persist_body.matches("sync_all()").count() >= 2,
+            "tmp- und parent-sync müssen beide vorhanden sein"
+        );
+        // beide write-pfade nutzen die gemeinsame funktion
+        assert_eq!(
+            production
+                .matches("persist_atomic(&tmp, &canon, patched.as_bytes())")
+                .count(),
+            2,
+            "beide write-pfade müssen persist_atomic nutzen"
+        );
+        // backup ist ebenfalls sync_alled (darf den stromausfall nicht als leere kopie überleben)
+        assert!(
+            production.contains("and_then(|()| file.sync_all())"),
+            "backup-write muss sync_all enthalten"
+        );
     }
 
     #[test]

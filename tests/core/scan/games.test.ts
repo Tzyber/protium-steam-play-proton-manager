@@ -342,4 +342,53 @@ describe("scanGames", () => {
       ),
     ).toBe(false);
   });
+
+  it("namens-heuristik ohne blocklistete appid: spiel bleibt, warnung erscheint (proton-pulse-klasse)", async () => {
+    const { root } = await buildFakeSteam();
+    // 381310 = echtes spiel "Proton Pulse"; der name beginnt mit "Proton ",
+    // die appid ist aber nicht blocklistet → kein stiller filter.
+    await writeFile(
+      join(root, "steamapps/appmanifest_381310.acf"),
+      `"AppState"\n{\n\t"appid"\t\t"381310"\n\t"name"\t\t"Proton Pulse"\n}\n`,
+    );
+
+    const result = await scanGames(nodeFs(), fakeSystem(), root, [root], () => "default", null);
+
+    const game = result.games.find((g) => g.appId === 381310);
+    expect(game).toBeDefined();
+    expect(game?.name).toBe("Proton Pulse");
+    expect(result.blockedAppIds.has(381310)).toBe(false);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "manifest",
+          library: root,
+          manifestName: "appmanifest_381310.acf",
+          appId: 381310,
+          reason: "name-heuristic",
+        }),
+      ]),
+    );
+    // name-heuristic zählt nicht als manifest-fehler: fixture-baseline ist
+    // ein kaputtes manifest, das gelesene 381310 bleibt gezählt.
+    expect(result.manifestCounts).toEqual({ read: 3, failed: 1 });
+  });
+
+  it("exakte blocklistet appid blockt weiterhin still (kein spiel, keine warnung)", async () => {
+    const { root } = await buildFakeSteam();
+    await writeFile(
+      join(root, "steamapps/appmanifest_4628710.acf"),
+      `"AppState"\n{\n\t"appid"\t\t"4628710"\n\t"name"\t\t"Proton 11.0"\n}\n`,
+    );
+
+    const result = await scanGames(nodeFs(), fakeSystem(), root, [root], () => "default", null);
+
+    expect(result.games.some((g) => g.appId === 4628710)).toBe(false);
+    expect(result.blockedAppIds.has(4628710)).toBe(true);
+    expect(
+      result.warnings.some(
+        (w) => w.type === "manifest" && w.appId === 4628710 && w.reason === "name-heuristic",
+      ),
+    ).toBe(false);
+  });
 });

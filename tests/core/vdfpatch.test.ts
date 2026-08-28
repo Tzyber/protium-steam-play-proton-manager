@@ -512,3 +512,50 @@ describe("round-trip-wächter für @node-steam/vdf", () => {
     expect(canonical(parse(stringify(once)))).toEqual(canonical(once));
   });
 });
+
+// Gemeinsame Text-VDF-Golden-Fixture: dieselben Bytes wie der Rust-Tokenizer
+// (vdf_patch.rs) mit identischen get/set/remove-Erwartungen — Spiegel zu
+// shortcuts-golden.vdf. Drift zwischen Anzeige (TS) und Write/Delete (Rust)
+// desselben Config-Werts schlägt hier an.
+describe("text-vdf-golden-fixture (geteilt mit rust)", () => {
+  const LAUNCH_570 = ["UserLocalConfigStore", "Software", "Valve", "Steam", "Apps", "570"];
+  let GOLDEN: string;
+  beforeAll(async () => {
+    const { readFile } = await import("node:fs/promises");
+    GOLDEN = await readFile(`${process.cwd()}/tests/fixtures/text-vdf-golden.vdf`, "utf8");
+  });
+
+  it("get: escaped launch-options, kommentare, [conditional]-marker, bare tokens", () => {
+    expect(getVdfValue(GOLDEN, [...LAUNCH_620, "LaunchOptions"])).toBe(
+      'MANGOHUD_CONFIG="fps,cpu" PROTON_LOG_DIR=C:\\logs %command%',
+    );
+    expect(getVdfValue(GOLDEN, [...LAUNCH_570, "LaunchOptions"])).toBe("-windowed");
+    expect(getVdfValue(GOLDEN, [...LAUNCH_570, "LastPlayed"])).toBe("570");
+    expect(getVdfValue(GOLDEN, ["UserLocalConfigStore", "BareKey"])).toBe("bare-value");
+    expect(getVdfValue(GOLDEN, ["UserLocalConfigStore", "BareTokenKey"])).toBe("token-value");
+  });
+
+  it("set: byte-identische value-span-ersetzung wie im rust-pfad", () => {
+    const patched = setVdfValue(GOLDEN, [...LAUNCH_620, "LaunchOptions"], "neu");
+    const expected = GOLDEN.replace(
+      '"MANGOHUD_CONFIG=\\"fps,cpu\\" PROTON_LOG_DIR=C:\\\\logs %command%"',
+      '"neu"',
+    );
+    expect(patched).toBe(expected);
+    expect(getVdfValue(patched, [...LAUNCH_620, "LaunchOptions"])).toBe("neu");
+  });
+
+  it("set: no-op bleibt byte-identisch", () => {
+    const value = 'MANGOHUD_CONFIG="fps,cpu" PROTON_LOG_DIR=C:\\logs %command%';
+    expect(setVdfValue(GOLDEN, [...LAUNCH_620, "LaunchOptions"], value)).toBe(GOLDEN);
+  });
+
+  it("remove: 570-block wird exakt entfernt (inkl. [conditional]-zeile)", () => {
+    const patched = removeVdfEntry(GOLDEN, LAUNCH_570);
+    const block570 =
+      '\t\t\t\t\t"570"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\t\t"-windowed"\n\t\t\t\t\t\t"LastPlayed"\t\t"570"\t[linux]\n\t\t\t\t\t}\n';
+    expect(patched).toBe(GOLDEN.replace(block570, ""));
+    expect(patched).toContain('"620"');
+    expect(patched).not.toContain('"570"');
+  });
+});

@@ -8,14 +8,21 @@ const ORPHAN_TYPES: OrphanType[] = ["compatdata", "shadercache"];
  *  Mutation gibt. Spiegel zum Rust-Code, beide zusammen pflegen. */
 export const DELETE_CLAIM_PREFIX = ".protium-delete-claim-";
 
+/** Parent-Location eines liegengebliebenen Claims. Der Delete-Pipeline claimt
+ *  Ziele in vier Locations: compatdata/shadercache (Orphans), .protium-trash
+ *  (Papierkorb-Einträge) und compatibilitytools.d (GE-Tools). */
+export type IncompleteDeletionType = OrphanType | "trash" | "compat-tool";
+
 /** Ein Verzeichnis, das Protium zum Löschen umbenannt, aber nicht mehr
  *  abgeschlossen hat (Absturz, SIGKILL, Stromausfall im Fenster zwischen
  *  Umbenennen und Mutation). Steam findet es unter diesem Namen nicht mehr;
  *  bei compatdata steckt darin ein Wine-Prefix samt Spielständen. */
 export interface IncompleteDeletion {
   path: string;
+  /** Library, in der der Rest gefunden wurde; bei compat-tool-Resten der
+   *  Steam-Root, weil compatibilitytools.d dort liegt. */
   library: string;
-  type: OrphanType;
+  type: IncompleteDeletionType;
   name: string;
 }
 
@@ -133,7 +140,10 @@ export async function findSteamOwnedPrefixes(
 }
 
 /**
- * Sucht liegengebliebene Claim-Verzeichnisse in compatdata und shadercache.
+ * Sucht liegengebliebene Claim-Verzeichnisse in allen vier Parent-Locations
+ * der Delete-Pipeline: compatdata, shadercache, .protium-trash (Papierkorb)
+ * und compatibilitytools.d (GE-Tools). Ein Claim-Rest entsteht, wenn die
+ * Mutation nach dem Claim-Rename nicht abgeschlossen wurde.
  *
  * Einschränkung: eine zweite, parallel laufende Protium-Instanz kann im
  * rename-nach-rm-Fenster einer laufenden Löschung kurzzeitig gemeldet werden.
@@ -143,39 +153,40 @@ export async function findSteamOwnedPrefixes(
  * WARUM getrennt von findOrphans: ein Claim-Rest hat keine App-ID und ist kein
  * Löschkandidat — `inspect_deletion_target` im Backend lehnt nicht-numerische
  * Ziele ab. Er wird deshalb nur gemeldet, nicht angeboten (INV-2: lieber
- * sichtbar unbekannt als lautlos weg). Der Papierkorb meldet dieselbe Klasse
- * bereits über `unknown`, `compatibilitytools.d` zeigt sie als Tool ohne VDF.
+ * sichtbar unbekannt als lautlos weg).
  */
 export async function findIncompleteDeletions(
   libraries: readonly string[],
+  steamRoot: string,
   fs: FileSystem,
 ): Promise<IncompleteDeletion[]> {
   const found: IncompleteDeletion[] = [];
 
+  const collect = async (
+    dir: string,
+    library: string,
+    type: IncompleteDeletionType,
+  ): Promise<void> => {
+    let entries: DirEntry[];
+    try {
+      entries = await fs.readDir(dir);
+    } catch {
+      return; // Fehlende oder nicht lesbare Verzeichnisse überspringen.
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory || entry.isSymlink) continue;
+      if (!entry.name.startsWith(DELETE_CLAIM_PREFIX)) continue;
+      found.push({ path: joinPath(dir, entry.name), library, type, name: entry.name });
+    }
+  };
+
   for (const lib of libraries) {
     for (const type of ORPHAN_TYPES) {
-      const dir = typeDir(lib, type);
-
-      let entries: DirEntry[];
-      try {
-        entries = await fs.readDir(dir);
-      } catch {
-        continue; // Fehlende oder nicht lesbare Verzeichnisse überspringen.
-      }
-
-      for (const entry of entries) {
-        if (!entry.isDirectory || entry.isSymlink) continue;
-        if (!entry.name.startsWith(DELETE_CLAIM_PREFIX)) continue;
-
-        found.push({
-          path: joinPath(dir, entry.name),
-          library: lib,
-          type,
-          name: entry.name,
-        });
-      }
+      await collect(typeDir(lib, type), lib, type);
     }
+    await collect(paths.trashDir(lib), lib, "trash");
   }
+  await collect(paths.compatToolsDir(steamRoot), steamRoot, "compat-tool");
 
   return found;
 }
