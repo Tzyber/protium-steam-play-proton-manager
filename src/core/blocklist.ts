@@ -47,6 +47,7 @@ export const BLOCKLIST: readonly BlockEntry[] = [
   { appId: 1070560, category: "runtime", label: "Steam Linux Runtime 1.0 (scout)" },
   { appId: 1391110, category: "runtime", label: "Steam Linux Runtime 2.0 (soldier)" },
   { appId: 1628350, category: "runtime", label: "Steam Linux Runtime 3.0 (sniper)" },
+  { appId: 4183110, category: "runtime", label: "Steam Linux Runtime 4.0" },
   // redistributables
   { appId: 228980, category: "redistributable", label: "Steamworks Common Redistributables" },
 ];

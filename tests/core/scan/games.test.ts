@@ -391,4 +391,17 @@ describe("scanGames", () => {
       ),
     ).toBe(false);
   });
+
+  it("filtert Steam Linux Runtime 4.0 über die exakte AppID", async () => {
+    const { root } = await buildFakeSteam();
+    await writeFile(
+      join(root, "steamapps/appmanifest_4183110.acf"),
+      `"AppState"\n{\n\t"appid"\t\t"4183110"\n\t"name"\t\t"Steam Linux Runtime 4.0"\n}\n`,
+    );
+
+    const result = await scanGames(nodeFs(), fakeSystem(), root, [root], () => "default", null);
+
+    expect(result.games.some((game) => game.appId === 4183110)).toBe(false);
+    expect(result.blockedAppIds.has(4183110)).toBe(true);
+  });
 });
