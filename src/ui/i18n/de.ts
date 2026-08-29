@@ -25,6 +25,9 @@ export const de = {
     copyError: "fehler kopieren",
     copied: "kopiert",
     dismissNotification: "meldung schließen",
+    updateAvailable: "Protium v{version} ist verfügbar.",
+    openRelease: "release öffnen",
+    dismissUpdate: "update-hinweis schließen",
   },
   status: {
     ready: "bereit",

@@ -30,6 +30,9 @@ export const en = {
     copyError: "copy error",
     copied: "copied",
     dismissNotification: "dismiss message",
+    updateAvailable: "Protium v{version} is available.",
+    openRelease: "open release",
+    dismissUpdate: "dismiss update notice",
   },
   status: {
     ready: "ready",
