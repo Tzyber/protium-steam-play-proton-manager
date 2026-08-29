@@ -183,10 +183,15 @@ Startoptionen oder Toolnamen lehnt das Backend ab, bevor irgendein Byte
 geschrieben wird.
 
 Die Write-Sequenz ist crash-durable: Daten-fsync der Temp-Datei vor dem
-atomaren Rename, fsync des Parent-Verzeichnisses danach, Backup ebenfalls
-gefsynct. Nach einem Stromausfall ist damit entweder der alte oder der neue
-vollständige Stand durable — eine leere/verkürzte Config durch den Ausfall
-selbst ist ausgeschlossen.
+atomaren Rename, fsync des Parent-Verzeichnisses danach. Das Backup wird über
+no-follow-Deskriptoren geschrieben; sowohl seine Datei als auch der
+Verzeichniseintrag und neu angelegte Backup-Verzeichnisse werden synchronisiert.
+Bei erfolgreichem Abschluss ist nach einem Stromausfall damit entweder der
+alte oder der neue vollständige Stand durable — eine leere/verkürzte Config
+durch den Ausfall selbst ist ausgeschlossen. Ein Fehler vor dem Rename meldet,
+dass der Write nicht angewendet wurde, und räumt die Temp-Datei auf. Ein
+Fehler beim Parent-fsync nach dem Rename meldet ausdrücklich eine mögliche
+Mutation; er darf nicht als unveränderter Zielstand behandelt werden.
 
 ### Bekannte Einschränkungen und akzeptierte Restrisiken
 

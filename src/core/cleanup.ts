@@ -26,6 +26,13 @@ export interface IncompleteDeletion {
   name: string;
 }
 
+/** Ergebnis der read-only Claim-Suche. Fehlende Parent-Verzeichnisse sind
+ * normal; nur vorhandene, aber nicht lesbare Orte stehen in `unreadable`. */
+export interface IncompleteDeletionScanResult {
+  entries: IncompleteDeletion[];
+  unreadable: string[];
+}
+
 function typeDir(library: string, type: OrphanType): string {
   return type === "compatdata" ? paths.compatdataDir(library) : paths.shadercacheDir(library);
 }
@@ -159,8 +166,17 @@ export async function findIncompleteDeletions(
   libraries: readonly string[],
   steamRoot: string,
   fs: FileSystem,
-): Promise<IncompleteDeletion[]> {
+): Promise<IncompleteDeletionScanResult> {
   const found: IncompleteDeletion[] = [];
+  const unreadable = new Set<string>();
+
+  const isMissingError = (error: unknown): boolean => {
+    const message =
+      error instanceof Error ? error.message : typeof error === "string" ? error : String(error);
+    return /enoent|not found|no such file or directory|nicht gefunden|nicht vorhanden/i.test(
+      message,
+    );
+  };
 
   const collect = async (
     dir: string,
@@ -170,8 +186,20 @@ export async function findIncompleteDeletions(
     let entries: DirEntry[];
     try {
       entries = await fs.readDir(dir);
-    } catch {
-      return; // Fehlende oder nicht lesbare Verzeichnisse überspringen.
+    } catch (error) {
+      // Ein fehlender Parent ist der Normalfall. Bei einem echten Lesefehler
+      // muss der Store ihn sichtbar halten, sonst wird ein unbekannter Claim
+      // als leerer Scan dargestellt (INV-2).
+      let exists: boolean | null = null;
+      try {
+        exists = await fs.exists(dir);
+      } catch {
+        // Der Exists-Check selbst kann wegen fehlender Rechte scheitern.
+      }
+      if (exists === false && isMissingError(error)) return;
+      if (exists === null && isMissingError(error)) return;
+      unreadable.add(dir);
+      return;
     }
     for (const entry of entries) {
       if (!entry.isDirectory || entry.isSymlink) continue;
@@ -188,5 +216,5 @@ export async function findIncompleteDeletions(
   }
   await collect(paths.compatToolsDir(steamRoot), steamRoot, "compat-tool");
 
-  return found;
+  return { entries: found, unreadable: [...unreadable] };
 }

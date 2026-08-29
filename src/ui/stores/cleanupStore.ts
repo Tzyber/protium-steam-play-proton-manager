@@ -88,6 +88,11 @@ function formatTrashErrors(prepareErrors: string[], executeErrors: string[]): st
   return messages.join("; ") || null;
 }
 
+function combineErrors(messages: (string | null)[]): string | null {
+  const present = messages.filter((message): message is string => message !== null);
+  return present.length > 0 ? present.join("; ") : null;
+}
+
 export const useCleanupStore = defineStore("cleanup", {
   state: () => ({
     orphans: [] as OrphanEntry[],
@@ -100,9 +105,14 @@ export const useCleanupStore = defineStore("cleanup", {
     /** liegengebliebene claim-verzeichnisse aus abgebrochenen löschungen.
      *  werden nur gemeldet, nie als löschkandidaten angeboten (INV-2). */
     incompleteDeletions: [] as IncompleteDeletion[],
+    /** claim-parent, die nicht gelesen werden konnten. Eine leere Claim-Liste
+     *  ist mit diesem Zustand kein vollständiger Scan. */
+    incompleteDeletionsUnreadable: [] as string[],
     scanning: false,
     deleting: new Set<string>(),
     error: null as string | null,
+    orphanError: null as string | null,
+    trashError: null as string | null,
     blockedBySkipped: false,
     pathMissingLibs: [] as string[],
     /** vom nutzer dauerhaft ignorierte, nicht existierende library-pfade.
@@ -124,10 +134,100 @@ export const useCleanupStore = defineStore("cleanup", {
   getters: {
     compatdataOrphans: (s) => s.orphans.filter((o) => o.type === "compatdata"),
     shadercacheOrphans: (s) => s.orphans.filter((o) => o.type === "shadercache"),
+    incompleteDeletionsError: (s) =>
+      s.incompleteDeletionsUnreadable.length > 0
+        ? t("errors.incompleteDeletionsUnreadable", {
+            paths: s.incompleteDeletionsUnreadable.join(", "),
+          })
+        : null,
+    shaderUnavailable: (s) => {
+      const legacyError =
+        s.error !== null &&
+        s.orphanError === null &&
+        s.trashError === null &&
+        !s.shortcutUnreadable;
+      return (
+        legacyError ||
+        s.orphanError !== null ||
+        s.blockedBySkipped ||
+        s.pathMissingLibs.length > 0 ||
+        s.incompleteDeletionsUnreadable.length > 0 ||
+        s.incompleteDeletions.some((d) => d.type === "shadercache")
+      );
+    },
+    prefixUnavailable: (s) => {
+      const legacyError =
+        s.error !== null &&
+        s.orphanError === null &&
+        s.trashError === null &&
+        !s.shortcutUnreadable;
+      return (
+        legacyError ||
+        s.orphanError !== null ||
+        s.blockedBySkipped ||
+        s.pathMissingLibs.length > 0 ||
+        s.shortcutUnreadable ||
+        s.incompleteDeletionsUnreadable.length > 0 ||
+        s.incompleteDeletions.some((d) => d.type === "compatdata")
+      );
+    },
+    trashUnavailable: (s) => {
+      const legacyError = s.error !== null && s.orphanError === null && s.trashError === null;
+      return (
+        legacyError ||
+        s.trashError !== null ||
+        s.trashUnknown.length > 0 ||
+        s.trashLibraries.some((library) => library.error !== undefined) ||
+        s.incompleteDeletionsUnreadable.length > 0 ||
+        s.incompleteDeletions.some((d) => d.type === "trash")
+      );
+    },
   },
   actions: {
     key(entry: OrphanEntry): string {
       return entry.path;
+    },
+
+    syncError() {
+      const shortcutError = this.shortcutUnreadable
+        ? this.shortcutUnreadableDetail
+          ? t("errors.userdataUnreadableWithDetail", { detail: this.shortcutUnreadableDetail })
+          : t("errors.shortcutsUnreadable")
+        : null;
+      this.error = combineErrors([this.orphanError, shortcutError, this.trashError]);
+    },
+
+    setOrphanError(message: string | null) {
+      this.orphanError = message;
+      this.syncError();
+    },
+
+    setTrashError(message: string | null) {
+      this.trashError = message;
+      this.syncError();
+    },
+
+    resetForLibraryScan() {
+      this._orphanScanGeneration += 1;
+      this._trashScanGeneration += 1;
+      this.orphans = [];
+      this.orphanNames = {};
+      this.steamOwnedPrefixes = [];
+      this.incompleteDeletions = [];
+      this.incompleteDeletionsUnreadable = [];
+      this.scanning = false;
+      this.orphanError = null;
+      this.blockedBySkipped = false;
+      this.pathMissingLibs = [];
+      this.shortcutUnreadable = false;
+      this.shortcutUnreadablePaths = [];
+      this.shortcutUnreadableDetail = null;
+      this.trash = [];
+      this.trashUnknown = [];
+      this.trashLibraries = [];
+      this.trashScanning = false;
+      this.trashError = null;
+      this.syncError();
     },
 
     /** spielnamen für die orphan-liste aus steams localconfig; fehler oder
@@ -156,41 +256,66 @@ export const useCleanupStore = defineStore("cleanup", {
       this.orphanNames = {};
       this.steamOwnedPrefixes = [];
       this.incompleteDeletions = [];
+      this.incompleteDeletionsUnreadable = [];
       this.blockedBySkipped = false;
       this.pathMissingLibs = [];
       this.shortcutUnreadable = false;
       this.shortcutUnreadablePaths = [];
       this.shortcutUnreadableDetail = null;
       this.scanning = false;
+      this.orphanError = null;
+      this.syncError();
 
-      const isCurrent = () => this._orphanScanGeneration === generation;
       const scan = useScanStore();
-      const result = scan.result;
+      const sourceScanGeneration = scan.scanGeneration;
+      const isCurrent = () =>
+        this._orphanScanGeneration === generation &&
+        scan.scanGeneration === sourceScanGeneration &&
+        (scan.status === "done" || scan.status === "idle");
+      const result = scan.status === "done" || scan.status === "idle" ? scan.result : null;
       if (!result) {
         // gleiches verhalten wie scanTrash: klick vor scan-ende darf nicht
         // lautlos ins leere laufen.
-        this.error = t("errors.noScanResult");
+        this.setOrphanError(t("errors.noScanResult"));
         return;
       }
 
       this.scanning = true;
-      this.error = null;
+      this.setOrphanError(null);
 
       try {
+        // Claims zuerst lesen: Orphan-Gates und der Steam-läuft-Gate dürfen
+        // liegengebliebene Löschreste nicht aus der Anzeige verdrängen.
+        const incompleteDeletions = await findIncompleteDeletions(
+          result.libraries,
+          result.steamRoot,
+          tauriPorts.fs,
+        );
+        if (!isCurrent()) return;
+        this.incompleteDeletions = incompleteDeletions.entries;
+        this.incompleteDeletionsUnreadable = incompleteDeletions.unreadable;
+        if (incompleteDeletions.unreadable.length) {
+          this.setOrphanError(
+            t("errors.incompleteDeletionsUnreadable", {
+              paths: incompleteDeletions.unreadable.join(", "),
+            }),
+          );
+        }
+
         const skipped = result.skippedLibraries;
         const blocking = skipped.filter((s) => s.reason !== "path-missing");
         const unsafe = result.cleanupUnsafeLibraries;
         if (!Array.isArray(unsafe)) {
           this.blockedBySkipped = true;
-          this.error = t("errors.scanIncomplete", { paths: "cleanupUnsafeLibraries fehlt" });
+          this.setOrphanError(
+            t("errors.scanIncomplete", { paths: "cleanupUnsafeLibraries fehlt" }),
+          );
           return;
         }
         if (blocking.length > 0 || unsafe.length > 0) {
           this.blockedBySkipped = true;
           const blockedPaths = [...new Set([...blocking.map((s) => s.path), ...unsafe])];
-          this.error = t("errors.scanIncomplete", {
-            paths: blockedPaths.join(", "),
-          });
+          this.setOrphanError(t("errors.scanIncomplete", { paths: blockedPaths.join(", ") }));
           return;
         }
         this.blockedBySkipped = false;
@@ -208,7 +333,8 @@ export const useCleanupStore = defineStore("cleanup", {
         const steamRunning = await tauriPorts.system.isProcessRunning("steam");
         if (!isCurrent()) return;
         if (steamRunning) {
-          this.error = t("errors.steamRunningCleanup");
+          const steamError = t("errors.steamRunningCleanup");
+          this.setOrphanError(steamError);
           return;
         }
 
@@ -235,14 +361,6 @@ export const useCleanupStore = defineStore("cleanup", {
         if (!isCurrent()) return;
         this.orphans = orphans;
 
-        const incompleteDeletions = await findIncompleteDeletions(
-          result.libraries,
-          result.steamRoot,
-          tauriPorts.fs,
-        );
-        if (!isCurrent()) return;
-        this.incompleteDeletions = incompleteDeletions;
-
         const steamOwnedPrefixes = await findSteamOwnedPrefixes(
           result.libraries,
           new Set(result.blockedAppIds),
@@ -256,9 +374,7 @@ export const useCleanupStore = defineStore("cleanup", {
           // von echten Orphans unterscheidbar. compatdata kann echte Savegames enthalten,
           // deshalb blockieren. shadercache ist regenerierbar und darf bereinigt werden.
           this.orphans = this.orphans.filter((o) => o.type === "shadercache");
-          this.error = this.shortcutUnreadableDetail
-            ? t("errors.userdataUnreadableWithDetail", { detail: this.shortcutUnreadableDetail })
-            : t("errors.shortcutsUnreadable");
+          this.syncError();
         }
 
         for (const o of this.orphans) {
@@ -282,7 +398,7 @@ export const useCleanupStore = defineStore("cleanup", {
         attachSizes(this.orphans, sizes);
         attachSizes(this.steamOwnedPrefixes, sizes);
       } catch (e) {
-        if (isCurrent()) this.error = errText(e);
+        if (isCurrent()) this.setOrphanError(errText(e));
       } finally {
         if (isCurrent()) this.scanning = false;
       }
@@ -293,29 +409,31 @@ export const useCleanupStore = defineStore("cleanup", {
 
       const scan = useScanStore();
       const generation = this._orphanScanGeneration;
-      const isCurrent = () => this._orphanScanGeneration === generation;
-      const result = scan.result;
+      const sourceScanGeneration = scan.scanGeneration;
+      const isCurrent = () =>
+        this._orphanScanGeneration === generation &&
+        scan.scanGeneration === sourceScanGeneration &&
+        (scan.status === "done" || scan.status === "idle");
+      const result = scan.status === "done" || scan.status === "idle" ? scan.result : null;
       if (!result) {
-        this.error = t("errors.noScanResult");
+        this.setOrphanError(t("errors.noScanResult"));
         return;
       }
 
       const unsafe = result.cleanupUnsafeLibraries;
       if (!Array.isArray(unsafe)) {
         this.blockedBySkipped = true;
-        this.error = t("errors.scanIncomplete", { paths: "cleanupUnsafeLibraries fehlt" });
+        this.setOrphanError(t("errors.scanIncomplete", { paths: "cleanupUnsafeLibraries fehlt" }));
         return;
       }
       if (unsafe.length > 0) {
         this.blockedBySkipped = true;
-        this.error = t("errors.scanIncomplete", {
-          paths: unsafe.join(", "),
-        });
+        this.setOrphanError(t("errors.scanIncomplete", { paths: unsafe.join(", ") }));
         return;
       }
 
       if (await tauriPorts.system.isProcessRunning("steam")) {
-        this.error = t("errors.steamRunningCleanup");
+        this.setOrphanError(t("errors.steamRunningCleanup"));
         return;
       }
 
@@ -374,7 +492,7 @@ export const useCleanupStore = defineStore("cleanup", {
         confirm.release(reservation);
         return;
       }
-      if (errors.length) this.error = errors.join("; ");
+      if (errors.length) this.setOrphanError(errors.join("; "));
       if (!prepared.length) {
         confirm.release(reservation);
         return;
@@ -416,7 +534,7 @@ export const useCleanupStore = defineStore("cleanup", {
             const refreshGeneration = this._orphanScanGeneration + 1;
             await this.scanOrphans();
             if (this._orphanScanGeneration === refreshGeneration && errors.length) {
-              this.error = errors.join("; ");
+              this.setOrphanError(errors.join("; "));
             }
           },
           onCancel: () => {
@@ -426,7 +544,7 @@ export const useCleanupStore = defineStore("cleanup", {
             for (const p of prepared) this.deleting.delete(p.key);
             if (isCurrent()) {
               errors.push(errText(e));
-              this.error = errors.join("; ");
+              this.setOrphanError(errors.join("; "));
             }
           },
         },
@@ -485,17 +603,23 @@ export const useCleanupStore = defineStore("cleanup", {
       this.trashUnknown = [];
       this.trashLibraries = [];
       this.trashScanning = false;
+      this.trashError = null;
+      this.syncError();
 
-      const isCurrent = () => this._trashScanGeneration === generation;
       const scan = useScanStore();
-      const result = scan.result;
+      const sourceScanGeneration = scan.scanGeneration;
+      const isCurrent = () =>
+        this._trashScanGeneration === generation &&
+        scan.scanGeneration === sourceScanGeneration &&
+        (scan.status === "done" || scan.status === "idle");
+      const result = scan.status === "done" || scan.status === "idle" ? scan.result : null;
       if (!result) {
-        this.error = t("errors.noScanResult");
+        this.setTrashError(t("errors.noScanResult"));
         return;
       }
 
       this.trashScanning = true;
-      this.error = null;
+      this.setTrashError(null);
 
       try {
         const { entries, unknown, unreadable, libraries } = await findTrashEntries(
@@ -509,7 +633,7 @@ export const useCleanupStore = defineStore("cleanup", {
 
         // ein nicht lesbarer papierkorb darf nicht als "leer" durchgehen
         if (unreadable.length) {
-          this.error = t("cleanup.trashUnreadable", { paths: unreadable.join(", ") });
+          this.setTrashError(t("cleanup.trashUnreadable", { paths: unreadable.join(", ") }));
         }
 
         if (entries.length === 0) return;
@@ -519,7 +643,7 @@ export const useCleanupStore = defineStore("cleanup", {
         if (!isCurrent()) return;
         attachSizes(this.trash, sizes);
       } catch (e) {
-        if (isCurrent()) this.error = errText(e);
+        if (isCurrent()) this.setTrashError(errText(e));
       } finally {
         if (isCurrent()) this.trashScanning = false;
       }
@@ -527,13 +651,18 @@ export const useCleanupStore = defineStore("cleanup", {
 
     async deleteTrashEntries(entries: TrashEntry[]) {
       const generation = this._trashScanGeneration;
-      const isCurrent = () => this._trashScanGeneration === generation;
       const scan = useScanStore();
-      const steamRoot = scan.result?.steamRoot ?? "";
+      const sourceScanGeneration = scan.scanGeneration;
+      const isCurrent = () =>
+        this._trashScanGeneration === generation &&
+        scan.scanGeneration === sourceScanGeneration &&
+        (scan.status === "done" || scan.status === "idle");
+      const result = scan.status === "done" || scan.status === "idle" ? scan.result : null;
+      const steamRoot = result?.steamRoot ?? "";
       const confirm = useConfirmStore();
       const reservation = confirm.reserve();
       if (reservation === null) return;
-      if (isCurrent()) this.error = null;
+      if (isCurrent()) this.setTrashError(null);
       const prepareErrors: string[] = [];
       const executeErrors: string[] = [];
       const prepared: {
@@ -566,7 +695,7 @@ export const useCleanupStore = defineStore("cleanup", {
         confirm.release(reservation);
         return;
       }
-      this.error = formatTrashErrors(prepareErrors, executeErrors);
+      this.setTrashError(formatTrashErrors(prepareErrors, executeErrors));
       if (!prepared.length) {
         confirm.release(reservation);
         return;
@@ -598,12 +727,12 @@ export const useCleanupStore = defineStore("cleanup", {
                 if (isCurrent()) executeErrors.push(`${p.name}: ${errText(e)}`);
               }
             }
-            if (isCurrent()) this.error = formatTrashErrors(prepareErrors, executeErrors);
+            if (isCurrent()) this.setTrashError(formatTrashErrors(prepareErrors, executeErrors));
           },
           onError: (e) => {
             if (isCurrent()) {
               executeErrors.push(errText(e));
-              this.error = formatTrashErrors(prepareErrors, executeErrors);
+              this.setTrashError(formatTrashErrors(prepareErrors, executeErrors));
             }
           },
         },

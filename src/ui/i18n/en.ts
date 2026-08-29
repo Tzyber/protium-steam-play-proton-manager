@@ -252,6 +252,8 @@ export const en = {
       "steam is running, please close steam, then search for orphaned data again.",
     userdataUnreadableWithDetail: "userdata unreadable, Wine-prefix cleanup disabled: {detail}",
     shortcutsUnreadable: "shortcuts.vdf unreadable, Wine-prefix cleanup disabled.",
+    incompleteDeletionsUnreadable:
+      "deletion-claim locations unreadable, listing incomplete: {paths}",
     scanIncomplete: "scan incomplete, libraries skipped: {paths}",
     errorShortcutUnreadable: "{type}/{appId}: shortcuts.vdf unreadable, skipped",
     errorNowInstalled: "{type}/{appId}: now installed, skipped",

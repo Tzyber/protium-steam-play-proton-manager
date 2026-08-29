@@ -248,12 +248,15 @@ describe("findIncompleteDeletions", () => {
     await symlink(compatClaim, symlinkClaim, "dir");
 
     const incomplete = await findIncompleteDeletions(libraries, root, fs);
-    expect(incomplete).toHaveLength(2);
-    expect(incomplete.map((entry) => entry.name)).toEqual(
+    expect(incomplete.entries).toHaveLength(2);
+    expect(incomplete.unreadable).toEqual([]);
+    expect(incomplete.entries.map((entry) => entry.name)).toEqual(
       expect.arrayContaining([`${DELETE_CLAIM_PREFIX}compat`, `${DELETE_CLAIM_PREFIX}shader`]),
     );
-    expect(incomplete.find((entry) => entry.path === compatClaim)?.type).toBe("compatdata");
-    expect(incomplete.find((entry) => entry.path === shaderClaim)?.type).toBe("shadercache");
+    expect(incomplete.entries.find((entry) => entry.path === compatClaim)?.type).toBe("compatdata");
+    expect(incomplete.entries.find((entry) => entry.path === shaderClaim)?.type).toBe(
+      "shadercache",
+    );
 
     const orphans = await findOrphans(libraries, installedAppIds, new Set(), fs);
     expect(orphans.every((entry) => !entry.path.includes(DELETE_CLAIM_PREFIX))).toBe(true);
@@ -268,11 +271,12 @@ describe("findIncompleteDeletions", () => {
 
     const incomplete = await findIncompleteDeletions(libraries, root, fs);
 
-    const trashRest = incomplete.find((entry) => entry.path === trashClaim);
+    const trashRest = incomplete.entries.find((entry) => entry.path === trashClaim);
     expect(trashRest).toBeDefined();
     expect(trashRest?.type).toBe("trash");
     expect(trashRest?.library).toBe(root);
-    expect(incomplete.some((entry) => entry.path === trashClaim2)).toBe(true);
+    expect(incomplete.entries.some((entry) => entry.path === trashClaim2)).toBe(true);
+    expect(incomplete.unreadable).toEqual([]);
   });
 
   it("findet Claim-Reste in compatibilitytools.d (abgebrochener tool-delete)", async () => {
@@ -282,10 +286,11 @@ describe("findIncompleteDeletions", () => {
 
     const incomplete = await findIncompleteDeletions(libraries, root, fs);
 
-    const toolRest = incomplete.find((entry) => entry.path === toolClaim);
+    const toolRest = incomplete.entries.find((entry) => entry.path === toolClaim);
     expect(toolRest).toBeDefined();
     expect(toolRest?.type).toBe("compat-tool");
     expect(toolRest?.library).toBe(root);
+    expect(incomplete.unreadable).toEqual([]);
   });
 
   it("überspringt fehlende oder nicht lesbare basisordner", async () => {
@@ -293,6 +298,46 @@ describe("findIncompleteDeletions", () => {
 
     await expect(
       findIncompleteDeletions(["/nicht/existenter/pfad"], "/nicht/steam", fs),
-    ).resolves.toEqual([]);
+    ).resolves.toEqual({ entries: [], unreadable: [] });
+  });
+
+  it("meldet lesefehler je claim-parent und behält lesbare claims", async () => {
+    const { root, fs, libraries } = await setup();
+    const readableClaim = `${root}/steamapps/compatdata/${DELETE_CLAIM_PREFIX}readable`;
+    await fs.mkdir(readableClaim);
+
+    const originalReadDir = fs.readDir;
+    const unreadableDir = `${root}/steamapps/shadercache`;
+    fs.readDir = async (path) => {
+      if (path === unreadableDir) throw new Error("EACCES: permission denied");
+      return originalReadDir(path);
+    };
+
+    const incomplete = await findIncompleteDeletions(libraries, root, fs);
+
+    expect(incomplete.entries).toEqual([
+      {
+        path: readableClaim,
+        library: root,
+        type: "compatdata",
+        name: `${DELETE_CLAIM_PREFIX}readable`,
+      },
+    ]);
+    expect(incomplete.unreadable).toContain(unreadableDir);
+  });
+
+  it("meldet einen fehlerhaften claim-parent auch ohne claim als unvollständig", async () => {
+    const { root, fs, libraries } = await setup();
+    const unreadableDir = `${root}/compatibilitytools.d`;
+    const originalReadDir = fs.readDir;
+    fs.readDir = async (path) => {
+      if (path === unreadableDir) throw new Error("EIO: input/output error");
+      return originalReadDir(path);
+    };
+
+    const incomplete = await findIncompleteDeletions(libraries, root, fs);
+
+    expect(incomplete.entries).toEqual([]);
+    expect(incomplete.unreadable).toContain(unreadableDir);
   });
 });

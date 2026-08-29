@@ -249,6 +249,7 @@ export const de = {
     userdataUnreadableWithDetail:
       "userdata nicht lesbar, Wine-Prefix-Bereinigung deaktiviert: {detail}",
     shortcutsUnreadable: "shortcuts.vdf nicht lesbar, Wine-Prefix-Bereinigung deaktiviert.",
+    incompleteDeletionsUnreadable: "Claim-Orte nicht lesbar, die Anzeige unvollständig: {paths}",
     scanIncomplete: "Scan unvollständig, Libraries übersprungen: {paths}",
     errorShortcutUnreadable: "{type}/{appId}: shortcuts.vdf nicht lesbar, übersprungen",
     errorNowInstalled: "{type}/{appId}: inzwischen installiert, übersprungen",

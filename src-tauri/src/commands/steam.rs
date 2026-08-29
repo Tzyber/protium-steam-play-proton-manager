@@ -93,6 +93,20 @@ pub(super) fn open_dir_at(parent_fd: RawFd, component: &OsStr) -> io::Result<Own
 }
 
 #[cfg(target_os = "linux")]
+fn sync_dir_fd(fd: RawFd) -> io::Result<()> {
+    loop {
+        let result = unsafe { libc::fsync(fd) };
+        if result == 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
 fn open_or_create_dir_at(parent_fd: RawFd, component: &OsStr) -> io::Result<OwnedFd> {
     match open_dir_at(parent_fd, component) {
         Ok(dir) => Ok(dir),
@@ -105,6 +119,8 @@ fn open_or_create_dir_at(parent_fd: RawFd, component: &OsStr) -> io::Result<Owne
                 if error.kind() != io::ErrorKind::AlreadyExists {
                     return Err(error);
                 }
+            } else {
+                sync_dir_fd(parent_fd)?;
             }
             open_dir_at(parent_fd, component)
         }
@@ -116,6 +132,7 @@ fn open_or_create_dir_at(parent_fd: RawFd, component: &OsStr) -> io::Result<Owne
 extern "C" {
     fn openat(dirfd: RawFd, pathname: *const i8, flags: i32, mode: u32) -> i32;
     fn mkdirat(dirfd: RawFd, pathname: *const i8, mode: u32) -> i32;
+    fn unlinkat(dirfd: RawFd, pathname: *const i8, flags: i32) -> i32;
 }
 
 #[cfg(target_os = "linux")]
@@ -187,11 +204,22 @@ fn open_backup_target_no_follow(
 }
 
 #[cfg(target_os = "linux")]
-fn write_backup_no_follow(
+fn unlink_backup_entry(dir_fd: RawFd, file_name: &CString) {
+    unsafe {
+        let _ = unlinkat(dir_fd, file_name.as_ptr(), 0);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn write_backup_no_follow_with_sync<F>(
     relative: &Path,
     backup_dir: &Path,
     original: &str,
-) -> Result<(), String> {
+    sync_directory: &mut F,
+) -> Result<(), String>
+where
+    F: FnMut(RawFd) -> io::Result<()>,
+{
     let (mut file, dir_fd, file_name) = open_backup_target_no_follow(relative, backup_dir)
         .map_err(|e| format!("backup open (no-follow): {e}"))?;
     if let Err(e) = file
@@ -199,15 +227,27 @@ fn write_backup_no_follow(
         .and_then(|()| file.sync_all())
     {
         drop(file);
-        unsafe {
-            extern "C" {
-                fn unlinkat(dirfd: RawFd, pathname: *const i8, flags: i32) -> i32;
-            }
-            unlinkat(dir_fd.as_raw_fd(), file_name.as_ptr(), 0);
-        }
+        unlink_backup_entry(dir_fd.as_raw_fd(), &file_name);
+        let _ = sync_directory(dir_fd.as_raw_fd());
         return Err(format!("backup write: {e}"));
     }
+    drop(file);
+    if let Err(e) = sync_directory(dir_fd.as_raw_fd()) {
+        unlink_backup_entry(dir_fd.as_raw_fd(), &file_name);
+        let _ = sync_directory(dir_fd.as_raw_fd());
+        return Err(format!("backup directory sync: {e}"));
+    }
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn write_backup_no_follow(
+    relative: &Path,
+    backup_dir: &Path,
+    original: &str,
+) -> Result<(), String> {
+    let mut sync_directory = sync_dir_fd;
+    write_backup_no_follow_with_sync(relative, backup_dir, original, &mut sync_directory)
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -219,23 +259,86 @@ fn write_backup_no_follow(
     Err("backup write: no-follow open unsupported on this platform".into())
 }
 
-/// Schreibt die gepatchte Config crash-durable: Daten-fsync vor dem Rename,
-/// fsync des Parent-Verzeichnisses danach. Der Rename ist atomar, aber ohne
-/// fsync wären die Datenblöcke nach einem Stromausfall nicht garantiert
-/// durable (leere/verkürzte Zieldatei möglich); die Write-Gate-Garantie
-/// umfasst beides: atomaren Namenswechsel UND durable Inhalte.
-fn persist_atomic(tmp: &Path, canon: &Path, bytes: &[u8]) -> Result<(), String> {
-    let mut file = fs::File::create(tmp).map_err(|e| format!("atomic write: {e}"))?;
-    file.write_all(bytes)
-        .and_then(|()| file.sync_all())
-        .map_err(|e| format!("atomic write: {e}"))?;
+#[derive(Debug, PartialEq, Eq)]
+enum PersistAtomicError {
+    BeforeRename(String),
+    AfterRename(String),
+}
+
+impl std::fmt::Display for PersistAtomicError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BeforeRename(error) => write!(formatter, "write not applied: {error}"),
+            Self::AfterRename(error) => {
+                write!(formatter, "write may have been applied: {error}")
+            }
+        }
+    }
+}
+
+fn persist_atomic_with_ops<S, R, D>(
+    tmp: &Path,
+    canon: &Path,
+    bytes: &[u8],
+    sync_file: &mut S,
+    rename: &mut R,
+    sync_parent: &mut D,
+) -> Result<(), PersistAtomicError>
+where
+    S: FnMut(&mut fs::File) -> io::Result<()>,
+    R: FnMut(&Path, &Path) -> io::Result<()>,
+    D: FnMut(&Path) -> io::Result<()>,
+{
+    let parent = canon
+        .parent()
+        .ok_or_else(|| PersistAtomicError::BeforeRename("atomic write: no parent dir".into()))?;
+    let mut file = match fs::File::create(tmp) {
+        Ok(file) => file,
+        Err(error) => {
+            return Err(PersistAtomicError::BeforeRename(format!(
+                "atomic write: {error}"
+            )))
+        }
+    };
+    if let Err(error) = file.write_all(bytes).and_then(|()| sync_file(&mut file)) {
+        drop(file);
+        let _ = fs::remove_file(tmp);
+        return Err(PersistAtomicError::BeforeRename(format!(
+            "atomic write: {error}"
+        )));
+    }
     drop(file);
-    fs::rename(tmp, canon).map_err(|e| format!("atomic write: {e}"))?;
-    let parent = canon.parent().ok_or_else(|| "no parent dir".to_string())?;
-    fs::File::open(parent)
-        .and_then(|dir| dir.sync_all())
-        .map_err(|e| format!("atomic write (parent sync): {e}"))?;
+    if let Err(error) = rename(tmp, canon) {
+        let _ = fs::remove_file(tmp);
+        return Err(PersistAtomicError::BeforeRename(format!(
+            "atomic write: {error}"
+        )));
+    }
+    if let Err(error) = sync_parent(parent) {
+        return Err(PersistAtomicError::AfterRename(format!(
+            "atomic write (parent sync): {error}"
+        )));
+    }
     Ok(())
+}
+
+/// Schreibt die gepatchte Config crash-durable: Daten-fsync vor dem Rename,
+/// fsync des Parent-Verzeichnisses danach. Ein Fehler vor dem Rename lässt
+/// das Ziel unverändert und räumt die Temp-Datei auf. Nach dem Rename wird
+/// ein Parent-fsync-Fehler als mögliche Mutation gemeldet.
+fn persist_atomic(tmp: &Path, canon: &Path, bytes: &[u8]) -> Result<(), PersistAtomicError> {
+    let mut sync_file = |file: &mut fs::File| file.sync_all();
+    let mut rename = |from: &Path, to: &Path| fs::rename(from, to);
+    let mut sync_parent =
+        |parent: &Path| fs::File::open(parent).and_then(|directory| directory.sync_all());
+    persist_atomic_with_ops(
+        tmp,
+        canon,
+        bytes,
+        &mut sync_file,
+        &mut rename,
+        &mut sync_parent,
+    )
 }
 
 pub(super) fn save_launch_options_inner<F>(
@@ -326,8 +429,7 @@ where
     ));
     let write_result = persist_atomic(&tmp, &canon, patched.as_bytes());
     if let Err(e) = write_result {
-        let _ = fs::remove_file(&tmp);
-        return Err(e);
+        return Err(e.to_string());
     }
 
     Ok(WriteResult::Written)
@@ -971,8 +1073,7 @@ where
     ));
     let write_result = persist_atomic(&tmp, &canon, patched.as_bytes());
     if let Err(e) = write_result {
-        let _ = fs::remove_file(&tmp);
-        return Err(e);
+        return Err(e.to_string());
     }
 
     Ok(WriteResult::Written)
@@ -1483,7 +1584,7 @@ mod tests {
             .next()
             .expect("test module boundary must exist");
         let persist_body = production
-            .split("fn persist_atomic")
+            .split("fn persist_atomic(")
             .nth(1)
             .expect("persist_atomic must exist in production source")
             .split("pub(super) fn save_launch_options_inner")
@@ -1515,6 +1616,172 @@ mod tests {
             production.contains("and_then(|()| file.sync_all())"),
             "backup-write muss sync_all enthalten"
         );
+        assert!(
+            production.contains("sync_directory(dir_fd.as_raw_fd())"),
+            "backup-directory-entry muss über den gebundenen descriptor synchronisiert werden"
+        );
+        assert!(
+            production.contains("let mut sync_directory = sync_dir_fd"),
+            "produktiver backup-pfad muss den echten descriptor-fsync verwenden"
+        );
+        assert!(
+            production.contains("sync_dir_fd(parent_fd)"),
+            "neu angelegte backup-verzeichnisse müssen ihren parent synchronisieren"
+        );
+        assert!(
+            production.contains("libc::fsync(fd)"),
+            "directory-fsync darf nicht auf einem pfad-basierten follow-open beruhen"
+        );
+        let backup_call = production
+            .find("write_backup_no_follow(&backup_rel, backup_dir, &original)?;")
+            .expect("backup muss vor dem target-write abgeschlossen werden");
+        let target_call = production
+            .find("let write_result = persist_atomic(&tmp, &canon, patched.as_bytes());")
+            .expect("target-write muss im write-gate vorhanden sein");
+        assert!(
+            backup_call < target_call,
+            "ein backup-fehler darf keinen nachfolgenden target-write erreichen"
+        );
+    }
+
+    #[test]
+    fn persist_atomic_temp_sync_fehler_laesst_ziel_unveraendert_und_raeumt_temp() {
+        let root = wsg_fixture("persist-temp-sync-error");
+        let target = root.join("config.vdf");
+        let temp = root.join(".config.vdf.tmp");
+        std::fs::write(&target, "alt").unwrap();
+
+        let mut sync_file =
+            |_file: &mut std::fs::File| Err(std::io::Error::other("injected temp sync failure"));
+        let mut rename = |_from: &std::path::Path, _to: &std::path::Path| {
+            panic!("rename darf vor temp-sync nicht erreicht werden")
+        };
+        let mut sync_parent =
+            |_parent: &std::path::Path| panic!("parent-sync darf vor rename nicht erreicht werden");
+
+        let error = persist_atomic_with_ops(
+            &temp,
+            &target,
+            b"neu",
+            &mut sync_file,
+            &mut rename,
+            &mut sync_parent,
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, PersistAtomicError::BeforeRename(_)));
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "alt");
+        assert!(!temp.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn persist_atomic_rename_fehler_laesst_ziel_unveraendert_und_raeumt_temp() {
+        let root = wsg_fixture("persist-rename-error");
+        let target = root.join("config.vdf");
+        let temp = root.join(".config.vdf.tmp");
+        std::fs::write(&target, "alt").unwrap();
+
+        let mut sync_file = |file: &mut std::fs::File| file.sync_all();
+        let mut rename = |_from: &std::path::Path, _to: &std::path::Path| {
+            Err(std::io::Error::other("injected rename failure"))
+        };
+        let mut sync_parent = |_parent: &std::path::Path| {
+            panic!("parent-sync darf nach fehlgeschlagenem rename nicht erreicht werden")
+        };
+
+        let error = persist_atomic_with_ops(
+            &temp,
+            &target,
+            b"neu",
+            &mut sync_file,
+            &mut rename,
+            &mut sync_parent,
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, PersistAtomicError::BeforeRename(_)));
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "alt");
+        assert!(!temp.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn persist_atomic_parent_sync_fehler_signalisiert_moegliche_mutation() {
+        let root = wsg_fixture("persist-parent-sync-error");
+        let target = root.join("config.vdf");
+        let temp = root.join(".config.vdf.tmp");
+        std::fs::write(&target, "alt").unwrap();
+
+        let mut sync_file = |file: &mut std::fs::File| file.sync_all();
+        let mut rename = |from: &std::path::Path, to: &std::path::Path| std::fs::rename(from, to);
+        let mut sync_parent =
+            |_parent: &std::path::Path| Err(std::io::Error::other("injected parent sync failure"));
+
+        let error = persist_atomic_with_ops(
+            &temp,
+            &target,
+            b"neu",
+            &mut sync_file,
+            &mut rename,
+            &mut sync_parent,
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, PersistAtomicError::AfterRename(_)));
+        assert!(error.to_string().contains("write may have been applied"));
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "neu");
+        assert!(!temp.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn write_backup_directory_sync_fehler_raeumt_backup_auf() {
+        let root = wsg_fixture("backup-directory-sync-error");
+        let backup_dir = root.join("cache");
+        let backup_path = backup_dir.join("backups/original.vdf");
+        let target = root.join("steam-config.vdf");
+        std::fs::create_dir_all(&backup_dir).unwrap();
+        std::fs::write(&target, "ziel-unveraendert").unwrap();
+
+        let mut sync_calls = 0;
+        let mut sync_directory = |_fd: RawFd| {
+            sync_calls += 1;
+            if sync_calls == 1 {
+                Err(std::io::Error::other(
+                    "injected backup directory sync failure",
+                ))
+            } else {
+                Ok(())
+            }
+        };
+        let error = write_backup_no_follow_with_sync(
+            Path::new("backups/original.vdf"),
+            &backup_dir,
+            "backup-inhalt",
+            &mut sync_directory,
+        )
+        .unwrap_err();
+
+        assert!(error.contains("backup directory sync"));
+        assert_eq!(
+            sync_calls, 2,
+            "cleanup muss den directory-entry erneut syncen"
+        );
+        assert!(!backup_path.exists());
+        assert!(
+            std::fs::read_dir(backup_path.parent().unwrap())
+                .unwrap()
+                .next()
+                .is_none(),
+            "nach einem backup-fsync-fehler darf kein backup-rest liegenbleiben"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "ziel-unveraendert"
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

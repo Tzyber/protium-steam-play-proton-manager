@@ -22,9 +22,13 @@ const {
   mockExecuteDelete,
   mockBatchDirSizes,
   mockReadLocalConfig,
+  mockIsProcessRunning,
 } = vi.hoisted(() => ({
   mockFindOrphans: vi.fn<typeof findOrphans>(async () => []),
-  mockFindIncompleteDeletions: vi.fn<typeof findIncompleteDeletions>(async () => []),
+  mockFindIncompleteDeletions: vi.fn<typeof findIncompleteDeletions>(async () => ({
+    entries: [],
+    unreadable: [],
+  })),
   mockFindSteamOwnedPrefixes: vi.fn<typeof findSteamOwnedPrefixes>(async () => []),
   mockReadAllShortcutAppIds: vi.fn<typeof readAllShortcutAppIds>(async () => ({
     status: "none" as const,
@@ -53,6 +57,7 @@ const {
       Object.fromEntries(paths.map((path) => [path, { status: "missing" as const }])),
   ),
   mockReadLocalConfig: vi.fn(async () => ""),
+  mockIsProcessRunning: vi.fn(async () => false),
 }));
 
 vi.mock("../../src/core/cleanup", () => ({
@@ -76,7 +81,7 @@ vi.mock("../../src/core/adapters/tauri", async () => {
     },
     http: {},
     system: {
-      isProcessRunning: async () => false,
+      isProcessRunning: mockIsProcessRunning,
       batchDirSizes: mockBatchDirSizes,
       prepareDelete: mockPrepareDelete,
       executeDelete: mockExecuteDelete,
@@ -95,6 +100,13 @@ import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useProtonStore } from "../../src/ui/stores/protonStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
+
+beforeEach(() => {
+  mockFindIncompleteDeletions.mockReset();
+  mockFindIncompleteDeletions.mockResolvedValue({ entries: [], unreadable: [] });
+  mockIsProcessRunning.mockReset();
+  mockIsProcessRunning.mockResolvedValue(false);
+});
 
 function fakeScan(
   skipped?: ScanResult["skippedLibraries"],
@@ -150,6 +162,7 @@ describe("cleanupStore gate logic", () => {
     mockFindIncompleteDeletions.mockReset();
     mockReadAllShortcutAppIds.mockReset();
     mockFindTrashEntries.mockReset();
+    mockIsProcessRunning.mockReset();
     mockPrepareDelete.mockReset();
     mockPrepareDelete.mockImplementation(async (req) => ({
       token: `token-${req.path}`,
@@ -165,6 +178,7 @@ describe("cleanupStore gate logic", () => {
       Object.fromEntries(paths.map((path) => [path, { status: "missing" as const }])),
     );
     mockReadAllShortcutAppIds.mockResolvedValue({ status: "none" });
+    mockIsProcessRunning.mockResolvedValue(false);
     mockFindTrashEntries.mockResolvedValue({
       entries: [],
       unknown: [],
@@ -195,6 +209,54 @@ describe("cleanupStore gate logic", () => {
     expect(store.blockedBySkipped).toBe(true);
     expect(store.error).toContain("/ext/lib");
     expect(store.orphans).toEqual([]);
+  });
+
+  it("bewahrt getrennte orphan- und trash-fehler beim jeweils anderen scan", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan();
+    const store = useCleanupStore();
+    mockFindOrphans.mockRejectedValue(new Error("orphan read failed"));
+
+    await store.scanOrphans();
+    expect(store.error).toContain("orphan read failed");
+
+    mockFindTrashEntries.mockResolvedValue({
+      entries: [],
+      unknown: [],
+      unreadable: ["/home/u/.steam"],
+      libraries: [],
+    });
+    await store.scanTrash();
+
+    expect(store.error).toContain("orphan read failed");
+    expect(store.error).toContain("papierkorb");
+  });
+
+  it("verwendet während eines laufenden library-rescans keinen alten snapshot", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan();
+    scanStore.status = "scanning";
+    const store = useCleanupStore();
+    store.orphans = [{ appId: 1, type: "shadercache", path: "/old/shader/1", library: "/old" }];
+    store.trash = [
+      {
+        appId: 2,
+        type: "compatdata",
+        path: "/old/trash/compatdata_2_1000",
+        library: "/old",
+        name: "compatdata_2_1000",
+        trashedAt: 1000,
+      },
+    ];
+
+    await store.scanOrphans();
+    await store.scanTrash();
+
+    expect(mockFindIncompleteDeletions).not.toHaveBeenCalled();
+    expect(mockFindOrphans).not.toHaveBeenCalled();
+    expect(mockFindTrashEntries).not.toHaveBeenCalled();
+    expect(store.orphans).toEqual([]);
+    expect(store.trash).toEqual([]);
   });
 
   it("blockiert wenn scope-failed UND path-missing libraries vorhanden", async () => {
@@ -230,20 +292,65 @@ describe("cleanupStore gate logic", () => {
     scanStore.result = fakeScan();
     const store = useCleanupStore();
 
-    mockFindIncompleteDeletions.mockResolvedValue([
-      {
-        path: "/home/u/.steam/steamapps/compatdata/.protium-delete-claim-123",
-        library: "/home/u/.steam",
-        type: "compatdata",
-        name: ".protium-delete-claim-123",
-      },
-    ]);
+    mockFindIncompleteDeletions.mockResolvedValue({
+      entries: [
+        {
+          path: "/home/u/.steam/steamapps/compatdata/.protium-delete-claim-123",
+          library: "/home/u/.steam",
+          type: "compatdata",
+          name: ".protium-delete-claim-123",
+        },
+      ],
+      unreadable: [],
+    });
 
     await store.scanOrphans();
 
     expect(store.incompleteDeletions).toHaveLength(1);
     expect(store.incompleteDeletions[0]?.type).toBe("compatdata");
     expect(store.orphans).toEqual([]);
+  });
+
+  it("sucht claims vor einem blockierenden library-gate und lässt sie sichtbar", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([{ path: "/ext/lib", reason: "read-failed" }]);
+    const store = useCleanupStore();
+    mockFindIncompleteDeletions.mockResolvedValue({
+      entries: [
+        {
+          path: "/home/u/.steam/steamapps/compatdata/.protium-delete-claim-123",
+          library: "/home/u/.steam",
+          type: "compatdata",
+          name: ".protium-delete-claim-123",
+        },
+      ],
+      unreadable: [],
+    });
+
+    await store.scanOrphans();
+
+    expect(mockFindIncompleteDeletions).toHaveBeenCalledTimes(1);
+    expect(store.incompleteDeletions).toHaveLength(1);
+    expect(store.blockedBySkipped).toBe(true);
+  });
+
+  it("sucht claims auch bei laufendem steam und meldet claim-lesefehler sichtbar", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan();
+    const store = useCleanupStore();
+    mockIsProcessRunning.mockResolvedValue(true);
+    mockFindIncompleteDeletions.mockResolvedValue({
+      entries: [],
+      unreadable: ["/home/u/.steam/steamapps/.protium-trash"],
+    });
+
+    await store.scanOrphans();
+
+    expect(mockFindIncompleteDeletions).toHaveBeenCalledTimes(1);
+    expect(store.incompleteDeletionsUnreadable).toEqual([
+      "/home/u/.steam/steamapps/.protium-trash",
+    ]);
+    expect(store.error).toContain("steam läuft");
   });
 
   it("markiert shortcut-bereich-orphans (2^31..2^32-1) als potentialShortcut", async () => {
@@ -1239,7 +1346,7 @@ describe("cleanupStore, scan-generationen", () => {
       Object.fromEntries(paths.map((path) => [path, { status: "missing" as const }])),
     );
     mockFindOrphans.mockResolvedValue([]);
-    mockFindIncompleteDeletions.mockResolvedValue([]);
+    mockFindIncompleteDeletions.mockResolvedValue({ entries: [], unreadable: [] });
     mockFindSteamOwnedPrefixes.mockResolvedValue([]);
     mockFindTrashEntries.mockResolvedValue({
       entries: [],
@@ -1265,14 +1372,17 @@ describe("cleanupStore, scan-generationen", () => {
     mockFindSteamOwnedPrefixes.mockResolvedValueOnce([
       { appId: 4628710, path: "/lib/compatdata/4628710", library: "/lib", sizeBytes: 4096 },
     ]);
-    mockFindIncompleteDeletions.mockResolvedValueOnce([
-      {
-        path: "/lib/compatdata/.protium-delete-claim-1",
-        library: "/lib",
-        type: "compatdata",
-        name: ".protium-delete-claim-1",
-      },
-    ]);
+    mockFindIncompleteDeletions.mockResolvedValueOnce({
+      entries: [
+        {
+          path: "/lib/compatdata/.protium-delete-claim-1",
+          library: "/lib",
+          type: "compatdata",
+          name: ".protium-delete-claim-1",
+        },
+      ],
+      unreadable: [],
+    });
 
     await store.scanOrphans();
     expect(store.orphans).toHaveLength(1);
@@ -1406,6 +1516,52 @@ describe("cleanupStore, scan-generationen", () => {
     expect(store.trash).toEqual([newEntry]);
     expect(store.trashUnknown).toEqual([]);
     expect(store.trashScanning).toBe(false);
+  });
+
+  it("verwirft cleanup-ergebnisse und fehler nach einem source-scan-race", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    scanStore.status = "done";
+    const store = useCleanupStore();
+    const orphanRead = deferred<Awaited<ReturnType<typeof findOrphans>>>();
+    const trashRead = deferred<Awaited<ReturnType<typeof findTrashEntries>>>();
+    const staleOrphan = {
+      appId: 570,
+      type: "compatdata" as const,
+      path: "/old/compatdata/570",
+      library: "/old",
+    };
+    mockFindOrphans.mockImplementationOnce(() => orphanRead.promise);
+    mockFindTrashEntries.mockImplementationOnce(() => trashRead.promise);
+
+    const orphanScan = store.scanOrphans();
+    await vi.waitFor(() => expect(mockFindOrphans).toHaveBeenCalledTimes(1));
+    const trashScan = store.scanTrash();
+    await vi.waitFor(() => expect(mockFindTrashEntries).toHaveBeenCalledTimes(1));
+
+    scanStore.scanGeneration += 1;
+    scanStore.status = "scanning";
+    const currentOrphan = {
+      appId: 730,
+      type: "shadercache" as const,
+      path: "/current/shadercache/730",
+      library: "/current",
+    };
+    const currentTrash = fakeTrashEntry({ path: "/current/trash/entry" });
+    store.orphans = [currentOrphan];
+    store.trash = [currentTrash];
+    store.error = "aktueller cleanup-fehler";
+    store.scanning = false;
+    store.trashScanning = false;
+
+    orphanRead.resolve([staleOrphan]);
+    trashRead.reject(new Error("stale trash-fehler"));
+    await Promise.all([orphanScan, trashScan]);
+
+    expect(store.orphans).toEqual([currentOrphan]);
+    expect(store.trash).toEqual([currentTrash]);
+    expect(store.error).toBe("aktueller cleanup-fehler");
+    expect(store.error).not.toContain("stale trash-fehler");
   });
 
   it("orphans und trash invalidieren einander nicht", async () => {

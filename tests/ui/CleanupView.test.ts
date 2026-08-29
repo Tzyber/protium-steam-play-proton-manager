@@ -238,6 +238,26 @@ describe("CleanupView incomplete deletions", () => {
     expect(text).not.toContain("leftover deletion claims");
   });
 
+  it("zeigt claim-lesefehler trotz steam-gate und blockiertem leerzustand", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    const unreadablePath = "/steam/steamapps/shadercache";
+    store.incompleteDeletionsUnreadable = [unreadablePath];
+    store.error = t("errors.steamRunningCleanup");
+    store.blockedBySkipped = true;
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.text()).toContain(
+      t("errors.incompleteDeletionsUnreadable", { paths: unreadablePath }),
+    );
+    expect(wrapper.text()).toContain(t("errors.steamRunningCleanup"));
+    expect(wrapper.get("#cv-panel-shaders").text()).toContain(t("cleanup.unavailable"));
+    expect(wrapper.get("#cv-panel-shaders").text()).not.toContain(t("cleanup.empty"));
+  });
+
   it("holt cleanup-scans nach, wenn die view vor dem scan-ergebnis gemountet wurde", async () => {
     const store = useCleanupStore();
     const scan = useScanStore();
@@ -247,16 +267,15 @@ describe("CleanupView incomplete deletions", () => {
     const calls: string[] = [];
     vi.spyOn(store, "scanOrphans").mockImplementation(async () => {
       calls.push("orphans");
-      // spiegelt den store-early-return: ohne ergebnis steht der fehler
-      store.error = scan.result ? null : t("errors.noScanResult");
     });
     vi.spyOn(store, "scanTrash").mockImplementation(async () => {
       calls.push("trash");
     });
 
     mount(CleanupView);
-    await vi.waitFor(() => expect(store.error).toBe(t("errors.noScanResult")));
-    expect(calls.filter((c) => c === "orphans")).toHaveLength(1);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(store.error).toBeNull();
+    expect(calls).toEqual([]);
 
     // scan liefert das ergebnis nach: der watch holt genau einmal nach
     scan.result = {
@@ -278,13 +297,80 @@ describe("CleanupView incomplete deletions", () => {
     };
     scan.status = "done";
 
-    await vi.waitFor(() => expect(store.error).toBeNull());
-    expect(calls.filter((c) => c === "orphans")).toHaveLength(2);
-    expect(calls.filter((c) => c === "trash")).toHaveLength(2);
+    await vi.waitFor(() => expect(calls).toEqual(["orphans", "trash"]));
+    expect(store.error).toBeNull();
 
     // kein endlos-watcher: weitere ticks lösen keinen weiteren scan aus
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(calls.filter((c) => c === "orphans")).toHaveLength(2);
+    expect(calls).toEqual(["orphans", "trash"]);
+  });
+
+  it("verwirft den alten cleanup-snapshot während eines library-rescans und lädt danach einmal nach", async () => {
+    const store = useCleanupStore();
+    const scan = useScanStore();
+    scan.status = "done";
+    scan.scanGeneration = 1;
+    scan.result = {
+      steamRoot: "/old",
+      libraries: ["/old"],
+      games: [],
+      compatToolsInstalled: [],
+      builtinProtonsInstalled: [],
+      defaultCompatTool: null,
+      compatConfigStatus: "available",
+      launchConfigStatus: "available",
+      manifestCounts: { read: 0, failed: 0 },
+      compatToolCounts: { read: 0, failed: 0 },
+      steamUserId: null,
+      warnings: [],
+      skippedLibraries: [],
+      cleanupUnsafeLibraries: [],
+      blockedAppIds: [],
+    };
+    store.orphans = [
+      {
+        appId: 1,
+        type: "shadercache",
+        path: "/old/shadercache/1",
+        library: "/old",
+      },
+    ];
+    store.trash = [
+      {
+        appId: 2,
+        type: "compatdata",
+        path: "/old/.protium-trash/compatdata_2_1000",
+        library: "/old",
+        name: "compatdata_2_1000",
+        trashedAt: 1000,
+      },
+    ];
+    const calls: string[] = [];
+    vi.spyOn(store, "scanOrphans").mockImplementation(async () => {
+      calls.push("orphans");
+    });
+    vi.spyOn(store, "scanTrash").mockImplementation(async () => {
+      calls.push("trash");
+    });
+
+    mount(CleanupView);
+    await vi.waitFor(() => expect(calls).toEqual(["orphans", "trash"]));
+
+    scan.scanGeneration = 2;
+    scan.status = "scanning";
+    await vi.waitFor(() => expect(store.orphans).toEqual([]));
+    expect(store.trash).toEqual([]);
+
+    scan.result = {
+      ...scan.result,
+      steamRoot: "/new",
+      libraries: ["/new"],
+    };
+    scan.status = "done";
+    await vi.waitFor(() => expect(calls).toEqual(["orphans", "trash", "orphans", "trash"]));
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls).toEqual(["orphans", "trash", "orphans", "trash"]);
   });
 
   it("leer-zustand erscheint nicht neben fehler (unlesbarer papierkorb)", async () => {
@@ -313,6 +399,62 @@ describe("CleanupView incomplete deletions", () => {
 
     expect(wrapper.text()).not.toContain(t("cleanup.empty"));
     expect(wrapper.text()).toContain(t("cleanup.unavailable"));
+  });
+
+  it("blockiert leerzustände bei path-missing und shortcutUnreadable passend zur liste", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    store.pathMissingLibs = ["/gone/lib"];
+    store.shortcutUnreadable = true;
+    store.shortcutUnreadablePaths = ["/steam/userdata/1/config/shortcuts.vdf"];
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.get("#cv-panel-shaders").text()).not.toContain(t("cleanup.empty"));
+    expect(wrapper.get("#cv-panel-shaders").text()).toContain(t("cleanup.unavailable"));
+    await wrapper.get("#cv-tab-prefixes").trigger("click");
+    expect(wrapper.get("#cv-panel-prefixes").text()).not.toContain(t("cleanup.empty"));
+    expect(wrapper.get("#cv-panel-prefixes").text()).toContain(t("cleanup.unavailable"));
+
+    await wrapper.get("#cv-tab-trash").trigger("click");
+    expect(wrapper.get("#cv-panel-trash").text()).toContain(t("cleanup.trashEmptyState"));
+  });
+
+  it("blockiert den trash-leerzustand bei unbekannten einträgen", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    store.trashUnknown = ["/steam/.protium-trash/leftover"];
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+    await wrapper.get("#cv-tab-trash").trigger("click");
+
+    expect(wrapper.get("#cv-panel-trash").text()).not.toContain(t("cleanup.trashEmptyState"));
+    expect(wrapper.get("#cv-panel-trash").text()).toContain(t("cleanup.unavailable"));
+  });
+
+  it("blockiert den passenden leerzustand bei einem unvollständigen claim", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    store.incompleteDeletions = [
+      {
+        path: "/steam/.protium-trash/.protium-delete-claim-abc",
+        library: "/steam",
+        type: "trash",
+        name: ".protium-delete-claim-abc",
+      },
+    ];
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+    await wrapper.get("#cv-tab-trash").trigger("click");
+
+    expect(wrapper.get("#cv-panel-trash").text()).not.toContain(t("cleanup.trashEmptyState"));
+    expect(wrapper.get("#cv-panel-trash").text()).toContain(t("cleanup.unavailable"));
   });
 
   it("erfolgreicher leerer scan zeigt weiterhin den leer-zustand", async () => {

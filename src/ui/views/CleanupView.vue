@@ -43,17 +43,31 @@ function onTabKeydown(e: KeyboardEvent, i: number) {
   nextTick(() => tabEls.value[next]?.focus());
 }
 
-/** true, wenn die initialen Cleanup-Scans gegen ein vorhandenes
- *  Scan-Ergebnis liefen. sonst holt der Watch unter onMounted genau einmal
- *  nach, sobald der Library-Scan fertig ist. */
-let cleanupScansHadResult = false;
+/** quelle des aktuell angezeigten cleanup-snapshots. ein neuer library-scan
+ *  verwirft den alten stand sofort und lädt nach seinem erfolgreichen ende
+ *  genau einmal nach. */
+let cleanupScanGeneration: number | null = null;
+
+async function refreshCleanupForScan(generation: number) {
+  await cleanup.scanOrphans();
+  if (scan.status !== "done" || scan.scanGeneration !== generation || scan.result === null) return;
+  await cleanup.scanTrash();
+}
+
+function resetCleanupForLibraryScan() {
+  selected.clear();
+  trashSelected.clear();
+  cleanup.resetForLibraryScan();
+}
 
 onMounted(async () => {
-  cleanupScansHadResult = scan.result !== null;
-  await cleanup.scanOrphans();
-  // papierkorb gleich mitladen, nur lesend, und ohne das sieht der nutzer eine
-  // leere sektion und hält sie für den echten stand
-  await cleanup.scanTrash();
+  if (scan.status !== "done" || scan.result === null) {
+    if (scan.status !== "idle") resetCleanupForLibraryScan();
+    return;
+  }
+
+  cleanupScanGeneration = scan.scanGeneration;
+  await refreshCleanupForScan(cleanupScanGeneration);
   // nicht auf einem leeren tab landen
   if (!shadercacheOrphans.value.length) {
     if (compatdataOrphans.value.length) tab.value = "prefixes";
@@ -61,17 +75,17 @@ onMounted(async () => {
   }
 });
 
-// Wurde die View vor dem ersten Scan-Ergebnis gemountet, liefen scanOrphans/
-// scanTrash einmal ohne result und setzten dauerhaft den noScanResult-Fehler
-// (cleanupStore early-return). Genau einmal nachholen, sobald der Scan ein
-// brauchbares Ergebnis hat; weitere status-übergänge lösen nichts mehr aus.
 watch(
-  () => scan.status,
-  async (status) => {
-    if (status !== "done" || cleanupScansHadResult || !scan.result) return;
-    cleanupScansHadResult = true;
-    await cleanup.scanOrphans();
-    await cleanup.scanTrash();
+  () => [scan.status, scan.scanGeneration, scan.result] as const,
+  async ([status, generation, result]) => {
+    if (status === "scanning") {
+      cleanupScanGeneration = null;
+      resetCleanupForLibraryScan();
+      return;
+    }
+    if (status !== "done" || result === null || cleanupScanGeneration === generation) return;
+    cleanupScanGeneration = generation;
+    await refreshCleanupForScan(generation);
   },
 );
 
@@ -335,6 +349,10 @@ const tabLabel = (id: Tab) =>
         </ul>
       </div>
 
+      <div v-if="cleanup.incompleteDeletionsError" class="blocked" role="alert">
+        {{ cleanup.incompleteDeletionsError }}
+      </div>
+
       <!-- ---- shader-caches ---- -->
       <div
         v-show="tab === 'shaders'"
@@ -380,7 +398,7 @@ const tabLabel = (id: Tab) =>
           </li>
         </ul>
         <div v-else-if="cleanup.scanning" class="empty">{{ t("cleanup.searching") }}</div>
-        <div v-else-if="!cleanup.error && !cleanup.blockedBySkipped" class="empty">{{ t("cleanup.empty") }}</div>
+        <div v-else-if="!cleanup.shaderUnavailable" class="empty">{{ t("cleanup.empty") }}</div>
         <div v-else class="empty">{{ t("cleanup.unavailable") }}</div>
       </div>
 
@@ -450,7 +468,7 @@ const tabLabel = (id: Tab) =>
           </li>
         </ul>
         <div v-else-if="cleanup.scanning" class="empty">{{ t("cleanup.searching") }}</div>
-        <div v-else-if="!cleanup.error && !cleanup.blockedBySkipped" class="empty">{{ t("cleanup.empty") }}</div>
+        <div v-else-if="!cleanup.prefixUnavailable" class="empty">{{ t("cleanup.empty") }}</div>
         <div v-else class="empty">{{ t("cleanup.unavailable") }}</div>
       </div>
 
@@ -531,7 +549,7 @@ const tabLabel = (id: Tab) =>
             </button>
           </li>
         </ul>
-        <div v-else-if="!cleanup.trashScanning && !cleanup.error && !cleanup.blockedBySkipped" class="empty">
+        <div v-else-if="!cleanup.trashScanning && !cleanup.trashUnavailable" class="empty">
           {{ t("cleanup.trashEmptyState") }}
         </div>
         <div v-else-if="!cleanup.trashScanning" class="empty">
