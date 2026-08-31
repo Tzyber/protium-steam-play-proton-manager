@@ -28,4 +28,18 @@ describe("i18n, locale-wechsel per setLocale (regression: englische UI rendert)"
     expect(t("tier.platinum")).toBe("runs perfectly, out of the box");
     expect(t("tier.borked")).toBe("does not run currently");
   });
+
+  it("footprint-texte bleiben in de und en vorhanden", () => {
+    setLocale("de");
+    expect(t("drawer.footprintTitle")).toBe("speicherbedarf");
+    expect(t("drawer.footprintMeasure")).toBe("speicherbedarf messen");
+    expect(t("drawer.footprintSummaryPartial")).toBe("teilweise");
+    expect(t("drawer.footprintCompatdataNotChecked")).toContain("nicht geprüft");
+
+    setLocale("en");
+    expect(t("drawer.footprintTitle")).toBe("known footprint");
+    expect(t("drawer.footprintMeasure")).toBe("measure storage footprint");
+    expect(t("drawer.footprintSummaryPartial")).toBe("partial");
+    expect(t("drawer.footprintCompatdataNotChecked")).toContain("not checked");
+  });
 });

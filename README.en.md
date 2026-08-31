@@ -161,6 +161,8 @@ rules for the implementation: writes to steam files go through the write gate wi
 - [x] v0.5.0: library first, protondb follow-up and proton-check
 - [x] v0.6.0: scan truth with clear coverage and local detail facts
 - [x] v0.6.1: incomplete deletions (claim restore, claim leftovers in cleanup)
+- [x] v0.7.0 scope implemented locally: game footprint in the drawer;
+  version bump, tag and release are still pending
 
 version history lives in the [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 
@@ -168,19 +170,20 @@ version history lives in the [releases](https://github.com/Tzyber/protium-steam-
 
 protium does not need to finish quickly. new versions only belong here when
 they make local Steam data clearer without a daemon or auto-repair. with
-this direction ahead:
+this plan ahead:
 
-- v0.7.0: game footprint in the drawer (known local storage per game,
-  without a full-disk scan)
-- v0.8.0: explainability and a data-minimal diagnostic record (copyable,
-  without private paths, accounts or upload)
-- v0.9.0: GE reference analysis (known explicit game mappings per GE
-  version, without an "unused" claim)
+- before v0.8.0: terminology glossary; separate prefix metadata spike without
+  claiming a runtime result in advance
+- v0.8.0: explainability, a data-minimal diagnostic record, and narrow
+  warning-only launch-option/`PROTON_LOG` hints
+- v0.9.0: honest GE mapping summary and a secure "open prefix folder" workflow
 - v1.0.0: consolidation (consistency, error semantics, security and
   accessibility review)
 
-the order is a direction, not a promise. if something more important comes
-up in between (like v0.6.1 after v0.6.0), the rest shifts.
+the binding internal product plan is `protium-roadmap-v2(1).md`; older roadmap
+documents in the repository are historical. every release still needs its own
+accepted spec; Steam writes and deletions additionally need renewed explicit
+approval.
 
 ## open points
 

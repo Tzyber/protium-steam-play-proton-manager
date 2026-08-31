@@ -1,4 +1,4 @@
-import { parseSafeAppId } from "./types.js";
+import { NUMERIC_RE, parseSafeAppId } from "./types.js";
 import { asString, getKeyInsensitive, parseVdf } from "./vdf.js";
 
 interface ManifestData {
@@ -6,6 +6,8 @@ interface ManifestData {
   name: string;
   /** Größe aus `SizeOnDisk` im Steam-Appmanifest; fehlend oder ungültig = unbekannt. */
   sizeBytes?: number;
+  /** Installationsordner aus `installdir`; fehlend oder unsicher = unbekannt. */
+  installdir?: string;
 }
 
 type RawManifestToken = { kind: "scalar"; value: string } | { kind: "open" } | { kind: "close" };
@@ -83,16 +85,17 @@ function readRawManifestToken(text: string, start: number): RawManifestTokenResu
   };
 }
 
-function rawManifestSize(text: string): RawManifestToken | undefined {
+function rawManifestField(text: string, fieldName: string): RawManifestToken | undefined {
   let cursor = 0;
   let depth = 0;
   let appStateDepth: number | undefined;
   let pendingKey: Extract<RawManifestToken, { kind: "scalar" }> | undefined;
-  let sizeToken: RawManifestToken | undefined;
+  let fieldToken: RawManifestToken | undefined;
+  const normalizedFieldName = fieldName.toLowerCase();
 
   while (cursor < text.length) {
     const result = readRawManifestToken(text, cursor);
-    if (!result) return sizeToken;
+    if (!result) return fieldToken;
     cursor = result.next;
     const token = result.token;
 
@@ -115,9 +118,9 @@ function rawManifestSize(text: string): RawManifestToken | undefined {
       if (
         appStateDepth !== undefined &&
         depth === appStateDepth &&
-        pendingKey.value.toLowerCase() === "sizeondisk"
+        pendingKey.value.toLowerCase() === normalizedFieldName
       ) {
-        sizeToken = token;
+        fieldToken = token;
       }
       pendingKey = undefined;
       continue;
@@ -125,7 +128,7 @@ function rawManifestSize(text: string): RawManifestToken | undefined {
     pendingKey = token;
   }
 
-  return sizeToken;
+  return fieldToken;
 }
 
 function parseManifestSize(raw: RawManifestToken | undefined): number | undefined {
@@ -134,9 +137,17 @@ function parseManifestSize(raw: RawManifestToken | undefined): number | undefine
 
   // Der Parser normalisiert unquoted Dezimal- und Exponentwerte zu Zahlen.
   // Die Rohsyntax bleibt deshalb die Autorität für diesen einzelnen Wert.
-  if (!/^\d+$/.test(value)) return undefined;
+  if (!NUMERIC_RE.test(value)) return undefined;
   const size = Number(value);
   return Number.isSafeInteger(size) ? size : undefined;
+}
+
+function parseManifestInstallDir(value: string | undefined): string | undefined {
+  if (value === undefined || value.length === 0 || value === "." || value === "..") {
+    return undefined;
+  }
+  if (value.includes("/") || value.includes("\\") || value.includes("\0")) return undefined;
+  return value;
 }
 
 // Wirft bei defektem Inhalt oder fehlender App-ID; der Scan meldet eine Warnung.
@@ -152,7 +163,11 @@ export function parseManifest(text: string): ManifestData {
   if (appId === null) throw new Error("appmanifest ohne gültige appid");
 
   const name = asString(getKeyInsensitive(app, "name")) ?? `app ${appId}`;
-  const sizeBytes = parseManifestSize(rawManifestSize(text));
+  const sizeBytes = parseManifestSize(rawManifestField(text, "SizeOnDisk"));
+  const rawInstalldir = rawManifestField(text, "installdir");
+  const installdir = parseManifestInstallDir(
+    rawInstalldir?.kind === "scalar" ? rawInstalldir.value : undefined,
+  );
 
-  return { appId, name, sizeBytes };
+  return { appId, name, sizeBytes, installdir };
 }

@@ -1864,6 +1864,27 @@ describe("cleanupStore, S-02: Pfadbasierte Keys (A-04)", () => {
     expect(store.key(entry1)).not.toBe(store.key(entry2));
   });
 
+  it("Unavailable-Getter teilen nur die Claim-Lesefehler-Basis", () => {
+    const store = useCleanupStore();
+
+    store.incompleteDeletionsUnreadable = ["/lib/steamapps/compatdata"];
+    expect(store.shaderUnavailable).toBe(true);
+    expect(store.prefixUnavailable).toBe(true);
+    expect(store.trashUnavailable).toBe(true);
+
+    store.incompleteDeletionsUnreadable = [];
+    store.blockedBySkipped = true;
+    expect(store.shaderUnavailable).toBe(true);
+    expect(store.prefixUnavailable).toBe(true);
+    expect(store.trashUnavailable).toBe(false);
+
+    store.blockedBySkipped = false;
+    store.orphanError = "orphan-scan failed";
+    expect(store.shaderUnavailable).toBe(true);
+    expect(store.prefixUnavailable).toBe(true);
+    expect(store.trashUnavailable).toBe(false);
+  });
+
   it("Löschen eines Eintrags entfernt nur den betroffenen Pfad", async () => {
     const entry1 = {
       appId: 570,

@@ -93,6 +93,35 @@ function combineErrors(messages: (string | null)[]): string | null {
   return present.length > 0 ? present.join("; ") : null;
 }
 
+function hasUnreadableIncompleteDeletions(state: {
+  incompleteDeletionsUnreadable: string[];
+}): boolean {
+  return state.incompleteDeletionsUnreadable.length > 0;
+}
+
+function hasOrphanUnavailableBase(state: {
+  error: string | null;
+  orphanError: string | null;
+  trashError: string | null;
+  shortcutUnreadable: boolean;
+  blockedBySkipped: boolean;
+  pathMissingLibs: string[];
+  incompleteDeletionsUnreadable: string[];
+}): boolean {
+  const legacyError =
+    state.error !== null &&
+    state.orphanError === null &&
+    state.trashError === null &&
+    !state.shortcutUnreadable;
+  return (
+    legacyError ||
+    state.orphanError !== null ||
+    state.blockedBySkipped ||
+    state.pathMissingLibs.length > 0 ||
+    hasUnreadableIncompleteDeletions(state)
+  );
+}
+
 export const useCleanupStore = defineStore("cleanup", {
   state: () => ({
     orphans: [] as OrphanEntry[],
@@ -140,37 +169,12 @@ export const useCleanupStore = defineStore("cleanup", {
             paths: s.incompleteDeletionsUnreadable.join(", "),
           })
         : null,
-    shaderUnavailable: (s) => {
-      const legacyError =
-        s.error !== null &&
-        s.orphanError === null &&
-        s.trashError === null &&
-        !s.shortcutUnreadable;
-      return (
-        legacyError ||
-        s.orphanError !== null ||
-        s.blockedBySkipped ||
-        s.pathMissingLibs.length > 0 ||
-        s.incompleteDeletionsUnreadable.length > 0 ||
-        s.incompleteDeletions.some((d) => d.type === "shadercache")
-      );
-    },
-    prefixUnavailable: (s) => {
-      const legacyError =
-        s.error !== null &&
-        s.orphanError === null &&
-        s.trashError === null &&
-        !s.shortcutUnreadable;
-      return (
-        legacyError ||
-        s.orphanError !== null ||
-        s.blockedBySkipped ||
-        s.pathMissingLibs.length > 0 ||
-        s.shortcutUnreadable ||
-        s.incompleteDeletionsUnreadable.length > 0 ||
-        s.incompleteDeletions.some((d) => d.type === "compatdata")
-      );
-    },
+    shaderUnavailable: (s) =>
+      hasOrphanUnavailableBase(s) || s.incompleteDeletions.some((d) => d.type === "shadercache"),
+    prefixUnavailable: (s) =>
+      hasOrphanUnavailableBase(s) ||
+      s.shortcutUnreadable ||
+      s.incompleteDeletions.some((d) => d.type === "compatdata"),
     trashUnavailable: (s) => {
       const legacyError = s.error !== null && s.orphanError === null && s.trashError === null;
       return (
@@ -178,7 +182,7 @@ export const useCleanupStore = defineStore("cleanup", {
         s.trashError !== null ||
         s.trashUnknown.length > 0 ||
         s.trashLibraries.some((library) => library.error !== undefined) ||
-        s.incompleteDeletionsUnreadable.length > 0 ||
+        hasUnreadableIncompleteDeletions(s) ||
         s.incompleteDeletions.some((d) => d.type === "trash")
       );
     },

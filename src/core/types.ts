@@ -72,6 +72,8 @@ export interface Game {
   library: string;
   /** Größe aus `SizeOnDisk` im Steam-Appmanifest; undefined bedeutet unbekannt. */
   sizeBytes?: number;
+  /** Installationsordner aus dem Appmanifest; undefined bedeutet unsicher oder unbekannt. */
+  installdir?: string;
   compatTool: string; // "GE-Proton9-27" | "proton_experimental" | "default" | "unknown"
   compatToolSource: CompatToolSource;
   protonDb: { tier: Tier; confidence: string } | null;
@@ -134,6 +136,10 @@ export interface OrphanEntry {
 
 /** Prüft vor `parseSafeAppId`, ob eine App-ID nur Ziffern enthält. */
 export const NUMERIC_RE = /^\d+$/;
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 /** Obergrenze gültiger Steam-App-IDs: u32::MAX. Spiegel zur Rust-Grenze in
  *  `parse_app_id` (scope.rs). Non-Steam-Shortcut-IDs belegen legitim den

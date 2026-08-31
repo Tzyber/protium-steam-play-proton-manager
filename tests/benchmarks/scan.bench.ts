@@ -50,11 +50,9 @@ async function measureScenario(scenario: ScanPerformanceScenario): Promise<void>
     const gamesFixture = await buildScanPerformanceFixture();
     try {
       const gamesFs = nodeFs();
-      const gamesSystem = fakeSystem();
       const gamesStartedAt = performance.now();
       const gamesResult = await scanGames(
         gamesFs,
-        gamesSystem,
         gamesFixture.root,
         [gamesFixture.root],
         () => "default",

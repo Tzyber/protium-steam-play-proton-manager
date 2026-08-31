@@ -231,6 +231,20 @@ describe("findTrashEntries", () => {
     expect(r.unknown[0]).toContain("compatdata_570_0");
   });
 
+  it("unsicherer, aber endlicher zeitstempel → unknown", async () => {
+    const sys = fakeSystem(async () => ({
+      dir: "/lib/steamapps/.protium-trash",
+      present: true,
+      entries: [{ name: "compatdata_570_9007199254740992", isDirectory: true, isSymlink: false }],
+    }));
+
+    const r = await findTrashEntries(["/lib"], sys);
+
+    expect(r.entries).toHaveLength(0);
+    expect(r.unknown).toHaveLength(1);
+    expect(r.unknown[0]).toContain("compatdata_570_9007199254740992");
+  });
+
   it("vollständig verankerte regex: präfix und suffix werden abgelehnt (51:23)", async () => {
     // xcompatdata_1_2 hat ein präfix → kein match
     // compatdata_1_2junk hat ein suffix → kein match

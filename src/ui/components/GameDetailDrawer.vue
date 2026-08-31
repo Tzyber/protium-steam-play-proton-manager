@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
-import { openExternal } from "../../core/adapters/tauri";
+import { openExternal, tauriPorts } from "../../core/adapters/tauri";
 import { SteamRunningError } from "../../core/configwrite";
 import { errText } from "../../core/errtext";
+import {
+  type FootprintPart,
+  type GameFootprint,
+  hasExternalCompatdata,
+  measureGameFootprint,
+} from "../../core/footprint";
 import { protonDbAppUrl } from "../../core/protondb";
-import type { Tier } from "../../core/types";
+import type { LaunchConfigStatus, Tier } from "../../core/types";
 import { focusFirstFocusable, restoreFocus, trapFocus } from "../a11y";
 import { formatBytes } from "../format";
 import { t } from "../i18n";
@@ -22,6 +28,141 @@ const scan = useScanStore();
 // live-auflösung gegen den aktuellen scan-stand: nach einem rescan zeigt der
 // drawer die frischen daten (z. B. direkt nach compat-tool-/startoptionen-write).
 const game = computed(() => scan.result?.games.find((g) => g.appId === ui.selectedAppId) ?? null);
+
+type FootprintUiState = "idle" | "measuring" | "ready";
+
+interface FootprintContext {
+  appId: number;
+  library: string;
+  installdir: string | undefined;
+  launchConfigStatus: LaunchConfigStatus;
+  externalCompatdata: boolean;
+  compatdataNotChecked: boolean;
+}
+
+const footprintContext = computed<FootprintContext | null>(() => {
+  const current = game.value;
+  const result = scan.result;
+  if (!current || !result) return null;
+  const launchConfigStatus = result.launchConfigStatus;
+  return {
+    appId: current.appId,
+    library: current.library,
+    installdir: current.installdir,
+    launchConfigStatus,
+    externalCompatdata:
+      launchConfigStatus === "available" && hasExternalCompatdata(current.launchOptions),
+    compatdataNotChecked: launchConfigStatus !== "available",
+  };
+});
+
+const footprintResult = ref<GameFootprint | null>(null);
+const footprintState = ref<FootprintUiState>("idle");
+let footprintRequestId = 0;
+
+function sameFootprintContext(
+  left: FootprintContext | null,
+  right: FootprintContext | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  return (
+    left.appId === right.appId &&
+    left.library === right.library &&
+    left.installdir === right.installdir &&
+    left.launchConfigStatus === right.launchConfigStatus &&
+    left.externalCompatdata === right.externalCompatdata &&
+    left.compatdataNotChecked === right.compatdataNotChecked
+  );
+}
+
+function invalidateFootprint(): void {
+  footprintRequestId += 1;
+  footprintResult.value = null;
+  footprintState.value = "idle";
+}
+
+watch(
+  footprintContext,
+  (current, previous) => {
+    if (previous === undefined || !sameFootprintContext(current, previous)) {
+      invalidateFootprint();
+    }
+  },
+  { immediate: true },
+);
+
+function failedFootprint(context: FootprintContext): GameFootprint {
+  return {
+    gameInstall: { status: "failed" },
+    compatdata:
+      context.externalCompatdata || context.compatdataNotChecked
+        ? { status: "not-requested" }
+        : { status: "failed" },
+    shadercache: { status: "failed" },
+    summary: { status: "not-measured" },
+    externalCompatdata: context.externalCompatdata,
+    compatdataNotChecked: context.compatdataNotChecked,
+  };
+}
+
+function isCurrentFootprintRequest(requestId: number, context: FootprintContext): boolean {
+  return requestId === footprintRequestId && sameFootprintContext(footprintContext.value, context);
+}
+
+async function measureFootprint(): Promise<void> {
+  const current = game.value;
+  const result = scan.result;
+  const context = footprintContext.value;
+  if (!current || !result || !context || footprintState.value === "measuring") return;
+
+  const requestId = ++footprintRequestId;
+  footprintResult.value = null;
+  footprintState.value = "measuring";
+  try {
+    const measured = await measureGameFootprint(
+      tauriPorts.system,
+      current,
+      result.launchConfigStatus,
+    );
+    if (!isCurrentFootprintRequest(requestId, context)) return;
+    footprintResult.value = measured;
+    footprintState.value = "ready";
+  } catch {
+    if (!isCurrentFootprintRequest(requestId, context)) return;
+    footprintResult.value = failedFootprint(context);
+    footprintState.value = "ready";
+  }
+}
+
+function footprintSizeText(sizeBytes: number | undefined): string {
+  if (typeof sizeBytes !== "number" || !Number.isSafeInteger(sizeBytes) || sizeBytes < 0) {
+    return t("common.notMeasured");
+  }
+  return sizeBytes === 0 ? "0 B" : formatBytes(sizeBytes);
+}
+
+function footprintPartText(part: FootprintPart | undefined): string {
+  if (footprintState.value === "measuring") return t("drawer.footprintLoading");
+  if (!part || part.status === "failed" || part.status === "not-requested") {
+    return t("common.notMeasured");
+  }
+  if (part.status === "missing") return "0 B";
+  return footprintSizeText(part.sizeBytes);
+}
+
+function footprintSummaryLabel(summary: GameFootprint["summary"]): string {
+  if (summary.status === "partial") {
+    return `${t("drawer.footprintSummaryLabel")} (${t("drawer.footprintSummaryPartial")})`;
+  }
+  return t("drawer.footprintSummaryLabel");
+}
+
+function footprintSummaryText(): string {
+  if (footprintState.value === "measuring") return t("drawer.footprintLoading");
+  const summary = footprintResult.value?.summary;
+  if (!summary || summary.status === "not-measured") return t("common.notMeasured");
+  return footprintSizeText(summary.sizeBytes);
+}
 
 // tier-labels: t() in einem object, damit wir pro tier den lokalisierten text haben.
 // (reactive weil t() selbst zustandslos ist, aber für saubere template-usage als
@@ -84,6 +225,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  invalidateFootprint();
   if (toastTimer) clearTimeout(toastTimer);
   ui.inertMain = false;
   restoreFocus(lastFocusedElement);
@@ -276,10 +418,90 @@ watch(errorMessage, (msg) => {
             :confidence="game.protonDb.confidence"
           />
         </div>
-        <p class="meta mono">{{ formatBytes(game.sizeBytes) }} · appid -  {{ game.appId }}</p>
+        <p class="meta mono">{{ formatBytes(game.sizeBytes) }} · appid - {{ game.appId }}</p>
         <p class="meta-tier">{{ TIER_LABEL[game.protonDb?.tier ?? "unknown"] }}</p>
 
         <PlayButton variant="full" :appId="game.appId" :name="game.name" />
+
+        <section
+          class="footprint"
+          data-testid="footprint-section"
+          :aria-busy="footprintState === 'measuring'"
+        >
+          <h3 class="section-label">{{ t("drawer.footprintTitle") }}</h3>
+          <p v-if="footprintState === 'idle'" class="hint">
+            {{ t("drawer.footprintExplanation") }}
+          </p>
+          <button
+            class="save footprint-measure"
+            data-testid="footprint-measure"
+            type="button"
+            :disabled="footprintState === 'measuring'"
+            @click="measureFootprint"
+          >
+            {{
+              footprintState === "measuring"
+                ? t("drawer.footprintMeasuring")
+                : t("drawer.footprintMeasure")
+            }}
+          </button>
+
+          <div v-if="footprintState !== 'idle'" class="footprint-values">
+            <div class="footprint-row" data-testid="footprint-game-install">
+              <span class="k">{{ t("drawer.footprintGameFiles") }}</span>
+              <span data-testid="footprint-game-install-value">{{
+                footprintPartText(footprintResult?.gameInstall)
+              }}</span>
+            </div>
+            <div class="footprint-row" data-testid="footprint-compatdata">
+              <span class="k">{{ t("drawer.footprintCompatdata") }}</span>
+              <span data-testid="footprint-compatdata-value">{{
+                footprintPartText(footprintResult?.compatdata)
+              }}</span>
+            </div>
+            <div class="footprint-row" data-testid="footprint-shadercache">
+              <span class="k">{{ t("drawer.footprintShadercache") }}</span>
+              <span data-testid="footprint-shadercache-value">{{
+                footprintPartText(footprintResult?.shadercache)
+              }}</span>
+            </div>
+
+            <div
+              v-if="footprintState === 'measuring'"
+              class="footprint-row footprint-summary"
+              data-testid="footprint-summary"
+            >
+              <span class="k">{{ t("drawer.footprintSummaryLabel") }}</span>
+              <span>{{ footprintSummaryText() }}</span>
+            </div>
+            <p
+              v-else-if="footprintResult?.summary.status === 'not-measured'"
+              class="hint footprint-summary"
+              data-testid="footprint-summary"
+            >
+              {{ t("common.notMeasured") }}
+            </p>
+            <div v-else class="footprint-row footprint-summary" data-testid="footprint-summary">
+              <span class="k">{{ footprintSummaryLabel(footprintResult?.summary ?? { status: "not-measured" }) }}</span>
+              <span>{{ footprintSummaryText() }}</span>
+            </div>
+
+            <p
+              v-if="footprintResult?.externalCompatdata"
+              class="hint"
+              data-testid="footprint-external-compatdata"
+            >
+              {{ t("drawer.footprintExternalCompatdata") }}
+            </p>
+            <p
+              v-if="footprintResult?.compatdataNotChecked"
+              class="hint"
+              data-testid="footprint-compatdata-not-checked"
+            >
+              {{ t("drawer.footprintCompatdataNotChecked") }}
+            </p>
+          </div>
+        </section>
 
         <div class="divider" />
         <p class="section-label mono">{{ t("drawer.configuration") }}</p>
@@ -393,6 +615,29 @@ watch(errorMessage, (msg) => {
 .meta { margin: 6px 0 2px; color: var(--fg-2); font-size: 0.875rem; }
 .meta-tier { margin: 0 0 20px; color: var(--fg-1); font-size: 0.875rem; line-height: 1.5; }
 
+.footprint { margin-top: 20px; }
+.footprint .section-label { margin-bottom: 10px; }
+.footprint-measure { margin-top: 12px; }
+.footprint-values { margin-top: 18px; }
+.footprint-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 28px;
+  color: var(--fg-0);
+  font-size: 0.8125rem;
+}
+.footprint-row .k { margin: 0; color: var(--fg-1); }
+.footprint-summary {
+  border-top: 1px solid var(--line-soft);
+  margin-top: 8px;
+  padding-top: 10px;
+  font-weight: 600;
+}
+.footprint-summary .k { color: var(--fg-0); }
+.footprint .hint { margin-top: 12px; }
+
 .divider { height: 1px; background: var(--line-soft); margin: 20px 0 16px; }
 .section-label {
   margin: 0 0 14px;
@@ -433,6 +678,10 @@ watch(errorMessage, (msg) => {
 }
 .save:hover:not(:disabled) { background: var(--bg-3); border-color: var(--signal); }
 .save:disabled { opacity: 0.4; cursor: default; }
+.save:focus-visible, .close:focus-visible, .toast-close:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
 
 .hint { margin: 9px 2px 0; color: var(--fg-2); font-size: 0.8125rem; line-height: 1.55; }
 

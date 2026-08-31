@@ -59,7 +59,6 @@ function resolveCompatAssignment(value: CompatAssignment | string): CompatAssign
 
 export async function scanGames(
   fs: Ports["fs"],
-  _system: Ports["system"],
   steamRoot: string,
   libraries: string[],
   compatFor: CompatFor,
@@ -209,6 +208,7 @@ export async function scanGames(
         name: data.name,
         library: lib,
         sizeBytes: data.sizeBytes,
+        installdir: data.installdir,
         ...resolveCompatAssignment(compatFor(data.appId)),
         protonDb: null,
         localHeader: await resolveLocalHeader(fs, steamRoot, data.appId),

@@ -8,7 +8,7 @@ import {
   findSteamOwnedPrefixes,
 } from "../../src/core/cleanup.js";
 import { scanGames } from "../../src/core/scan/games.js";
-import { buildFakeSteam, fakeSystem, nodeFs } from "../support/fakeSteam";
+import { buildFakeSteam, nodeFs } from "../support/fakeSteam";
 
 async function setup() {
   const { root, lib2 } = await buildFakeSteam();
@@ -78,7 +78,7 @@ describe("findOrphans", () => {
     const { root, fs } = await setup();
     await fs.mkdir(`${root}/steamapps/compatdata/4628710`);
 
-    const scan = await scanGames(nodeFs(), fakeSystem(), root, [root], () => "default", null);
+    const scan = await scanGames(nodeFs(), root, [root], () => "default", null);
     expect(scan.blockedAppIds.has(4628710)).toBe(false);
 
     const installed = new Set(scan.games.map((game) => game.appId));
@@ -96,7 +96,7 @@ describe("findOrphans", () => {
       `"AppState"\n{\n\t"appid"\t\t"4628710"\n\t"name"\t\t"Proton 11.0"\n}\n`,
     );
 
-    const scan = await scanGames(nodeFs(), fakeSystem(), root, [root], () => "default", null);
+    const scan = await scanGames(nodeFs(), root, [root], () => "default", null);
     expect(scan.blockedAppIds.has(4628710)).toBe(true);
 
     const installed = new Set(scan.games.map((game) => game.appId));
@@ -338,6 +338,41 @@ describe("findIncompleteDeletions", () => {
     const incomplete = await findIncompleteDeletions(libraries, root, fs);
 
     expect(incomplete.entries).toEqual([]);
+    expect(incomplete.unreadable).toContain(unreadableDir);
+  });
+
+  it("überspringt einen claim-parent nur wenn exists ihn explizit als fehlend bestätigt", async () => {
+    const { root, fs, libraries } = await setup();
+    const missingDir = `${root}/steamapps/shadercache`;
+    const originalReadDir = fs.readDir;
+    const originalExists = fs.exists;
+    fs.readDir = async (path) => {
+      if (path === missingDir) throw new Error("request not found while reading directory");
+      return originalReadDir(path);
+    };
+    fs.exists = async (path) => (path === missingDir ? false : originalExists(path));
+
+    const incomplete = await findIncompleteDeletions(libraries, root, fs);
+
+    expect(incomplete.unreadable).not.toContain(missingDir);
+  });
+
+  it("meldet einen claim-parent bei unspezifischem readDir- oder exists-fehler", async () => {
+    const { root, fs, libraries } = await setup();
+    const unreadableDir = `${root}/steamapps/shadercache`;
+    const originalReadDir = fs.readDir;
+    const originalExists = fs.exists;
+    fs.readDir = async (path) => {
+      if (path === unreadableDir) throw new Error("request not found while reading directory");
+      return originalReadDir(path);
+    };
+    fs.exists = async (path) => {
+      if (path === unreadableDir) throw new Error("EACCES: permission denied");
+      return originalExists(path);
+    };
+
+    const incomplete = await findIncompleteDeletions(libraries, root, fs);
+
     expect(incomplete.unreadable).toContain(unreadableDir);
   });
 });

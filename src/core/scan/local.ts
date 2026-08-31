@@ -31,7 +31,6 @@ export async function scanLocal(
   };
   const gamesResult = await scanGames(
     fs,
-    system,
     steamRoot,
     libraryResult.libraries,
     compatFor,

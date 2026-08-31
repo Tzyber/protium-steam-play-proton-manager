@@ -32,11 +32,10 @@ pub enum WriteResult {
 
 /// Prüft, ob ein kanonischer Pfad eine
 /// der legitimen steam-config-dateien ist: drei canonicalisierte root-
-/// varianten (nativ/flatpak/snap, `.steam/steam` und `.steam/root` sind
-/// symlinks und kollabieren per canonicalize auf die native variante) ×
-/// `config/config.vdf` und `userdata/<digits>/config/localconfig.vdf`.
-/// spiegel zu ROOT_CANDIDATES in src/core/paths.ts (dort 5 kandidaten inkl.
-/// symlink-varianten), beide zusammen pflegen, wie assetProtocol.scope.
+/// varianten (nativ/flatpak/snap). Die fünf Discovery-Kandidaten liegen in
+/// `scope.rs`; `.steam/steam` und `.steam/root` sind Symlinks und kollabieren
+/// per canonicalize auf die native variante. Erlaubt sind `config/config.vdf`
+/// und `userdata/<digits>/config/localconfig.vdf`.
 fn is_steam_config_path(file: &Path, home: &Path) -> bool {
     let roots = [
         home.join(".local/share/Steam"),
@@ -2406,6 +2405,27 @@ mod tests {
             &home.join(".local/share/Steam/userdata/abc/config/localconfig.vdf"),
             &home
         ));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn write_gate_akzeptiert_kanonisierten_steam_symlink_alias() {
+        use std::os::unix::fs::symlink;
+
+        let root = wsg_fixture("symlink-alias");
+        let home = root.join("fakehome");
+        let native_root = home.join(".local/share/Steam");
+        let config = native_root.join("config/config.vdf");
+        std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+        std::fs::write(&config, "\"InstallConfigStore\" {}\n").unwrap();
+        std::fs::create_dir_all(home.join(".steam")).unwrap();
+        let alias = home.join(".steam/steam");
+        symlink(&native_root, &alias).unwrap();
+
+        let canonical = std::fs::canonicalize(alias.join("config/config.vdf")).unwrap();
+        assert!(is_steam_config_path(&canonical, &home));
+
         let _ = std::fs::remove_dir_all(&root);
     }
 

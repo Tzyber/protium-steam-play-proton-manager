@@ -18,7 +18,53 @@ const acf = () => `"AppState"
 describe("parseManifest", () => {
   it("liest felder", () => {
     const m = parseManifest(acf());
-    expect(m).toEqual({ appId: 620, name: "Portal 2", sizeBytes: 12345678 });
+    expect(m).toEqual({
+      appId: 620,
+      name: "Portal 2",
+      sizeBytes: 12345678,
+      installdir: undefined,
+    });
+  });
+  it("liest ein sicheres installdir aus AppState", () => {
+    const m = parseManifest(
+      '"AppState"\n{\n\t"appid"\t\t"620"\n\t"name"\t\t"Portal 2"\n\t"installdir"\t\t"Portal 2"\n}',
+    );
+    expect(m.installdir).toBe("Portal 2");
+  });
+  it.each([
+    ["führende Nullen", '"001"'],
+    ["Exponentenschreibweise", '"1e3"'],
+    ["Dezimalpunkt", '"1.5"'],
+  ])("bewahrt quoted installdir bei %s exakt", (_label, value) => {
+    const m = parseManifest(
+      `"AppState"\n{\n\t"appid"\t\t"620"\n\t"name"\t\t"Portal 2"\n\t"installdir"\t\t${value}\n}`,
+    );
+    expect(m.installdir).toBe(value.slice(1, -1));
+  });
+  it.each(["001", "1e3", "1.5"])("bewahrt unquoted installdir %s exakt", (value) => {
+    const m = parseManifest(
+      `"AppState"\n{\n\t"appid"\t\t"620"\n\t"name"\t\t"Portal 2"\n\t"installdir"\t\t${value}\n}`,
+    );
+    expect(m.installdir).toBe(value);
+  });
+  it.each([
+    ["fehlend", undefined],
+    ["leer", '""'],
+    ["punkt", '"."'],
+    ["parent-segment", '".."'],
+    ["slash", '"Portal/2"'],
+    ["backslash", '"Portal\\\\2"'],
+    ["nul", `"Portal\0 2"`],
+  ])("verwirft unsicheres installdir (%s)", (_label, value) => {
+    const installdirLine = value === undefined ? "" : `\n\t"installdir"\t\t${value}`;
+    const m = parseManifest(
+      `"AppState"\n{\n\t"appid"\t\t"620"\n\t"name"\t\t"Portal 2"${installdirLine}\n}`,
+    );
+    expect(m.installdir).toBeUndefined();
+  });
+  it("leitet installdir nicht aus dem namen ab", () => {
+    const m = parseManifest('"AppState"\n{\n\t"appid"\t\t"620"\n\t"name"\t\t"Portal 2"\n}');
+    expect(m.installdir).toBeUndefined();
   });
   it("wirft bei fehlender appid", () => {
     expect(() => parseManifest('"AppState" { "name" "x" }')).toThrow();

@@ -1,4 +1,5 @@
 import type { Http } from "./ports.js";
+import { isRecord } from "./types.js";
 
 export type UpdateHttp = Pick<Http, "get">;
 
@@ -31,8 +32,8 @@ function isHigher(candidate: [number, number, number], current: [number, number,
 }
 
 function latestStableVersion(value: unknown): string | null {
-  if (!value || typeof value !== "object") return null;
-  const release = value as Record<string, unknown>;
+  if (!isRecord(value)) return null;
+  const release = value;
   if (
     release.draft !== false ||
     release.prerelease !== false ||

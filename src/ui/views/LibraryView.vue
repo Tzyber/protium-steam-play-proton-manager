@@ -493,8 +493,6 @@ function formatWarning(warning: ScanWarning): string {
   font-weight: 600;
 }
 .coverage-context { display: block; margin-top: 2px; color: var(--fg-2); font-size: 0.75rem; }
-.coverage--limited .coverage-summary,
-.coverage--incomplete .coverage-summary,
 .coverage--limited .coverage-action,
 .coverage--incomplete .coverage-action { color: var(--tier-gold); }
 .coverage--limited .coverage-summary,

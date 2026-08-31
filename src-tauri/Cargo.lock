@@ -2494,7 +2494,7 @@ dependencies = [
 
 [[package]]
 name = "protium"
-version = "0.6.11"
+version = "0.7.0"
 dependencies = [
  "flate2",
  "futures-util",

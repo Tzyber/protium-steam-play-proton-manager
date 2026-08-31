@@ -33,22 +33,22 @@ AppImage oder Debian-Paket von der [releases-seite](https://github.com/Tzyber/pr
 laden. die AppImage ausführbar machen und starten:
 
 ```sh
-chmod +x protium_0.6.11_amd64.AppImage
-./protium_0.6.11_amd64.AppImage
+chmod +x protium_0.7.0_amd64.AppImage
+./protium_0.7.0_amd64.AppImage
 ```
 
 die AppImage ist nicht signiert. wer das nicht mag, baut selbst (siehe
 dev-setup). für Debian-basierte systeme liegt zusätzlich ein Debian-paket bei:
 
 ```sh
-sudo apt install ./protium_0.6.11_amd64.deb
+sudo apt install ./protium_0.7.0_amd64.deb
 ```
 
 startet nichts und es kommt keine fehlermeldung, fehlt meist fuse2. dann
 entweder `sudo pacman -S fuse2` oder einmalig ohne fuse starten:
 
 ```sh
-./protium_0.6.11_amd64.AppImage --appimage-extract-and-run
+./protium_0.7.0_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## was es kann
@@ -222,6 +222,8 @@ die app blockieren. was sich nicht zuverlässig bestimmen lässt, heißt in der 
 - [x] v0.5.0: library sofort, protondb im nachlauf und proton-check
 - [x] v0.6.0: scan-wahrheit mit klarer abdeckung und lokalen detailfakten
 - [x] v0.6.1: incomplete deletions (claim-restore, claim-reste im cleanup)
+- [x] v0.7.0-umfang lokal umgesetzt: game-footprint im drawer; version-bump,
+  tag und release stehen noch aus
 
 versionshistorie steht in den [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 
@@ -229,19 +231,21 @@ versionshistorie steht in den [releases](https://github.com/Tzyber/protium-steam
 
 protium muss nicht schnell fertig werden. neue versionen kommen nur dazu,
 wenn sie lokale steam-daten klarer machen, ohne daemon oder autoreparatur.
-als richtung folgen:
+als plan folgen:
 
-- v0.7.0: game-footprint im drawer (bekannter lokaler speicher pro spiel,
-  ohne vollplatten-scan)
-- v0.8.0: explainability und datensparsamer diagnosebeleg (kopierbar, ohne
-  private pfade, accounts oder upload)
-- v0.9.0: GE-reference-analyse (bekannte explizite spielzuordnungen je
-  GE-version, ohne „ungenutzt"-behauptung)
+- vor v0.8.0: terminologie-glossar; separater Prefix-Metadaten-Spike ohne
+  vorweggenommene Runtime-Behauptung
+- v0.8.0: explainability, datensparsamer diagnosebeleg und enge warnende
+  startoptionen-/`PROTON_LOG`-hinweise
+- v0.9.0: ehrliche GE-Zuordnungszusammenfassung und sicherer
+  „Prefix-Ordner öffnen"-Workflow
 - v1.0.0: konsolidierung (konsistenz, fehlersemantik, security- und
   zugänglichkeits-review)
 
-die reihenfolge ist eine richtung, keine zusage. kommt etwas wichtigeres
-dazwischen (wie v0.6.1 nach v0.6.0), verschiebt sich der rest.
+die verbindliche interne produktplanung steht in
+`protium-roadmap-v2(1).md`; ältere roadmap-dateien im repo sind historisch.
+jede version braucht ihre eigene akzeptierte spec; steam-writes und
+löschungen zusätzlich eine erneute ausdrückliche freigabe.
 
 ## offene punkte
 

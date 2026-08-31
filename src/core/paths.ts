@@ -25,6 +25,20 @@ export const paths = {
   shortcutsVdf: (root: string, userId: string) =>
     join(root, "userdata", userId, "config", "shortcuts.vdf"),
   libraryAppsDir: (libraryPath: string) => join(libraryPath, "steamapps"),
+  gameInstallPath: (libraryPath: string, installdir: string) => {
+    if (
+      typeof installdir !== "string" ||
+      installdir.length === 0 ||
+      installdir === "." ||
+      installdir === ".." ||
+      installdir.includes("/") ||
+      installdir.includes("\\") ||
+      installdir.includes("\0")
+    ) {
+      throw new Error("gameInstallPath: unsafe installdir");
+    }
+    return join(libraryPath, "steamapps", "common", installdir);
+  },
   compatdataDir: (libraryPath: string) => join(libraryPath, "steamapps", "compatdata"),
   shadercacheDir: (libraryPath: string) => join(libraryPath, "steamapps", "shadercache"),
   trashDir: (libraryPath: string) => join(libraryPath, "steamapps", ".protium-trash"),

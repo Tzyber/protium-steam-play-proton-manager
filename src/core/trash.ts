@@ -118,7 +118,7 @@ export async function findTrashEntries(
       // nie gültige unix-ms (appId-guard steckt in parseSafeAppId)
       const appId = parseSafeAppId(appIdRaw);
       const trashedAt = Number.parseInt(msRaw, 10);
-      if (appId === null || !Number.isFinite(trashedAt) || trashedAt <= 0) {
+      if (appId === null || !Number.isSafeInteger(trashedAt) || trashedAt <= 0) {
         unknown.push(fullPath);
         continue;
       }

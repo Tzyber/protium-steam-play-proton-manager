@@ -61,7 +61,7 @@ export const useConfirmStore = defineStore("confirm", () => {
       cb.onCancel?.();
       return false;
     }
-    if (token === undefined || reservation.value !== token) {
+    if (token === undefined) {
       cb.onCancel?.();
       return false;
     }

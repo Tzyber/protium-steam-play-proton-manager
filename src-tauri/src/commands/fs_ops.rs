@@ -1,7 +1,3 @@
-#[cfg(test)]
-use crate::commands::path::{
-    canonicalize_nearest_ancestor, canonicalize_safe, is_safe_path, sanitize_path,
-};
 use crate::commands::scope::{EnvironmentState, MAX_ENVIRONMENT_READ_BYTES};
 use crate::commands::spawn_blocking_io;
 #[cfg(target_os = "linux")]
@@ -208,30 +204,6 @@ fn read_environment_dir_with_hook(
     Err(format!("{label}: only supported on linux"))
 }
 
-#[cfg(test)]
-pub(super) fn dir_size_inner(
-    path: &str,
-    scope_ok: &dyn Fn(&Path) -> bool,
-) -> Result<DirectorySize, String> {
-    sanitize_path(path, "dir_size")?;
-    let missing = matches!(
-        fs::symlink_metadata(path),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound
-    );
-    let real = if missing {
-        canonicalize_nearest_ancestor(Path::new(path), "dir_size")?
-    } else {
-        canonicalize_safe(path, "dir_size")?
-    };
-    if !scope_ok(&real) {
-        return Err("path outside allowed scope".into());
-    }
-    if missing {
-        return Ok(DirectorySize::Missing);
-    }
-    measure_directory(&real)
-}
-
 fn checked_size_add(total: u64, next: u64) -> Result<u64, String> {
     let total = total
         .checked_add(next)
@@ -336,43 +308,6 @@ fn measure_directory(path: &Path) -> Result<DirectorySize, String> {
     Err("directory size: only supported on linux".into())
 }
 
-#[cfg(test)]
-pub(super) fn batch_dir_sizes_inner(
-    paths: Vec<String>,
-    scope_ok: &dyn Fn(&Path) -> bool,
-) -> Result<HashMap<String, DirectorySize>, String> {
-    if paths.len() > MAX_BATCH_DIR_SIZE_PATHS {
-        return Err("too many paths for batch_dir_sizes".into());
-    }
-    let mut map = HashMap::new();
-    for p in paths {
-        sanitize_path(&p, "batch_dir_sizes")?;
-        let real = match fs::canonicalize(&p) {
-            Ok(r) => r,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                let ancestor = canonicalize_nearest_ancestor(Path::new(&p), "batch_dir_sizes")?;
-                if !is_safe_path(&ancestor.to_string_lossy()) {
-                    return Err(format!("blocked path: {p}"));
-                }
-                if !scope_ok(&ancestor) {
-                    return Err(format!("path outside allowed scope: {p}"));
-                }
-                map.insert(p, DirectorySize::Missing);
-                continue;
-            }
-            Err(e) => return Err(e.to_string()),
-        };
-        if !is_safe_path(&real.to_string_lossy()) {
-            return Err(format!("blocked path: {p}"));
-        }
-        if !scope_ok(&real) {
-            return Err(format!("path outside allowed scope: {p}"));
-        }
-        map.insert(p, measure_directory(&real)?);
-    }
-    Ok(map)
-}
-
 /// Kanonischer Pfad und `(dev, ino)` zur Library-Deduplizierung.
 #[derive(Serialize, Debug, PartialEq, Eq, Clone)]
 pub(crate) struct PathIdentity {
@@ -457,12 +392,6 @@ pub async fn batch_dir_sizes(
     .await
 }
 
-#[cfg(test)]
-pub(super) fn canonicalize_path_inner(path: &str) -> Result<String, String> {
-    let canonical = canonicalize_safe(path, "canonicalize")?;
-    Ok(canonical.to_string_lossy().into_owned())
-}
-
 /// symlink-auflösung (steam-root-discovery). `..` im input abgelehnt,
 /// auflösungen in blockierte dateisysteme verweigert (info-disclosure).
 /// Nutzt `canonicalize_safe()` (Sanitize + Realpath + Systempfad-Blocklist).
@@ -480,18 +409,6 @@ pub async fn canonicalize_path(
         })
     })
     .await
-}
-
-#[cfg(test)]
-pub(super) fn path_identity_inner(path: &str) -> Result<PathIdentity, String> {
-    use std::os::unix::fs::MetadataExt;
-    let real = canonicalize_safe(path, "path_identity")?;
-    let md = fs::metadata(&real).map_err(|e| e.to_string())?;
-    Ok(PathIdentity {
-        realpath: real.to_string_lossy().into_owned(),
-        dev: md.dev().to_string(),
-        ino: md.ino().to_string(),
-    })
 }
 
 /// Liefert kanonischen Pfad und `(dev, ino)` zur Library-Deduplizierung.
@@ -526,9 +443,8 @@ pub async fn path_identity(
 #[cfg(test)]
 mod tests {
     use super::{
-        batch_dir_sizes_inner, canonicalize_path_inner, dir_size_inner,
-        measure_directory_with_hook, path_identity_inner, read_environment_dir_with_hook,
-        read_environment_file, read_environment_file_with_hook, DirectorySize, MAX_SAFE_JS_INTEGER,
+        measure_directory_with_hook, read_environment_dir_with_hook, read_environment_file,
+        read_environment_file_with_hook, DirectorySize, MAX_SAFE_JS_INTEGER,
     };
     use crate::commands::scope::{EnvironmentSnapshot, EnvironmentState};
     use serde::ser::{self, Impossible, Serialize, SerializeStruct, Serializer};
@@ -833,108 +749,6 @@ mod tests {
         );
     }
 
-    // `dir_size` lehnt blockierte Systempfade ab.
-    #[test]
-    fn dir_size_rejects_blocked_paths() {
-        assert!(dir_size_inner("/etc", &|_| true).is_err());
-        assert!(dir_size_inner("/proc", &|_| true).is_err());
-        assert!(dir_size_inner("/sys", &|_| true).is_err());
-        assert!(dir_size_inner("/dev", &|_| true).is_err());
-    }
-
-    #[test]
-    fn dir_size_rejects_dotdot() {
-        assert!(dir_size_inner("/home/../etc", &|_| true).is_err());
-    }
-
-    #[test]
-    fn dir_size_accepts_normal_paths() {
-        let tmp = std::env::temp_dir();
-        assert!(dir_size_inner(&tmp.to_string_lossy(), &|_| true).is_ok());
-        assert!(dir_size_inner("/tmp", &|_| true).is_ok());
-    }
-
-    #[test]
-    fn dir_size_rejects_unscoped_path() {
-        let tmp = std::env::temp_dir();
-        let res = dir_size_inner(&tmp.to_string_lossy(), &|_| false);
-        assert!(res.is_err());
-        assert!(res.unwrap_err().contains("outside allowed scope"));
-    }
-
-    #[test]
-    fn batch_dir_sizes_preserves_missing_paths_as_statuses() {
-        let mut root = std::env::temp_dir();
-        root.push(format!("protium-batch-partial-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
-
-        let real = root.join("compatdata/12345");
-        std::fs::create_dir_all(&real).unwrap();
-        std::fs::write(real.join("payload"), vec![0u8; 8192]).unwrap();
-        let real_canon = std::fs::canonicalize(&real).unwrap();
-
-        let missing = root.join("compatdata/99999_gone");
-
-        let res = batch_dir_sizes_inner(
-            vec![
-                real_canon.to_string_lossy().into_owned(),
-                missing.to_string_lossy().into_owned(),
-            ],
-            &|_| true,
-        );
-        assert!(
-            res.is_ok(),
-            "batch darf trotz missing-pfad nicht fehlschlagen: {res:?}"
-        );
-        let map = res.unwrap();
-        assert_eq!(map.len(), 2);
-        assert_eq!(
-            map[&real_canon.to_string_lossy().into_owned()],
-            DirectorySize::Measured { size_bytes: 8192 }
-        );
-        assert_eq!(
-            map[&missing.to_string_lossy().into_owned()],
-            DirectorySize::Missing
-        );
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn batch_dir_sizes_propagates_blocked_path() {
-        let tmp = std::env::temp_dir();
-        let res = batch_dir_sizes_inner(
-            vec![tmp.to_string_lossy().into_owned(), "/etc".to_string()],
-            &|_| true,
-        );
-        assert!(res.is_err(), "blockierter pfad muss Err liefern");
-        assert!(
-            res.as_ref().unwrap_err().contains("blocked path"),
-            "fehlermeldung soll den blocklist-grund nennen: {:?}",
-            res
-        );
-    }
-
-    #[test]
-    fn batch_dir_sizes_rejects_unscoped_path() {
-        let tmp = std::env::temp_dir();
-        let res = batch_dir_sizes_inner(vec![tmp.to_string_lossy().into_owned()], &|_| false);
-        assert!(res.is_err());
-        assert!(res.unwrap_err().contains("outside allowed scope"));
-    }
-
-    #[test]
-    fn batch_dir_sizes_begrenzt_die_eingabemenge() {
-        use super::MAX_BATCH_DIR_SIZE_PATHS;
-
-        let res = batch_dir_sizes_inner(
-            vec!["/tmp".to_string(); MAX_BATCH_DIR_SIZE_PATHS + 1],
-            &|_| true,
-        );
-        assert_eq!(res.unwrap_err(), "too many paths for batch_dir_sizes");
-    }
-
     #[test]
     fn dir_size_skipped_symlinks() {
         let mut root = std::env::temp_dir();
@@ -950,7 +764,8 @@ mod tests {
         std::fs::create_dir_all(&via).unwrap();
         unixfs::symlink(&real, via.join("link-to-real")).unwrap();
 
-        let res = dir_size_inner(&via.to_string_lossy(), &|_| true).unwrap();
+        let res = measure_directory_with_hook(&via, &mut |_| Ok(()), &mut || {}, &mut |_| Ok(()))
+            .unwrap();
         assert!(
             matches!(res, DirectorySize::Measured { size_bytes } if size_bytes < 1000),
             "symlink wurde gefolgt, dir_size={res:?} (sollte < 1000 sein)"
@@ -1144,50 +959,6 @@ mod tests {
             super::checked_size_add(MAX_SAFE_JS_INTEGER - 1, 1).unwrap(),
             MAX_SAFE_JS_INTEGER
         );
-    }
-
-    #[test]
-    fn path_identity_rejects_blocked_paths() {
-        assert!(path_identity_inner("/etc/passwd").is_err());
-        assert!(path_identity_inner("/proc/cpuinfo").is_err());
-    }
-
-    #[test]
-    fn path_identity_rejects_dotdot() {
-        assert!(path_identity_inner("/home/../etc/passwd").is_err());
-    }
-
-    #[test]
-    fn path_identity_accepts_normal_paths() {
-        let tmp = std::env::temp_dir();
-        let s = tmp.to_string_lossy().into_owned();
-        assert!(path_identity_inner(&s).is_ok());
-    }
-
-    #[test]
-    fn canonicalize_rejects_etc() {
-        assert!(canonicalize_path_inner("/etc").is_err());
-        assert!(canonicalize_path_inner("/etc/cron.d").is_err());
-    }
-
-    #[test]
-    fn canonicalize_rejects_all_blocked() {
-        for blocked in &[
-            "/",
-            "/etc",
-            "/etc/cron.d",
-            "/proc",
-            "/proc/cpuinfo",
-            "/sys",
-            "/sys/class",
-            "/dev",
-            "/dev/null",
-        ] {
-            assert!(
-                canonicalize_path_inner(blocked).is_err(),
-                "canonicalize_path should reject {blocked}"
-            );
-        }
     }
 
     #[test]

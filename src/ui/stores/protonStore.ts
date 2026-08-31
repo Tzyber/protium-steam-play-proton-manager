@@ -282,8 +282,10 @@ export const useProtonStore = defineStore("proton", {
         // beide wege enden im wurf von installRelease() → pump()-catch entfernt
         // den job.
         const job = this.jobs[tag];
-        if (job) job.cancelRequested = true;
-        if (job) await tauriPorts.system.cancelDownload(job.downloadId).catch(() => {});
+        if (job) {
+          job.cancelRequested = true;
+          await tauriPorts.system.cancelDownload(job.downloadId).catch(() => {});
+        }
       }
     },
 

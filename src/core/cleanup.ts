@@ -170,14 +170,6 @@ export async function findIncompleteDeletions(
   const found: IncompleteDeletion[] = [];
   const unreadable = new Set<string>();
 
-  const isMissingError = (error: unknown): boolean => {
-    const message =
-      error instanceof Error ? error.message : typeof error === "string" ? error : String(error);
-    return /enoent|not found|no such file or directory|nicht gefunden|nicht vorhanden/i.test(
-      message,
-    );
-  };
-
   const collect = async (
     dir: string,
     library: string,
@@ -186,18 +178,15 @@ export async function findIncompleteDeletions(
     let entries: DirEntry[];
     try {
       entries = await fs.readDir(dir);
-    } catch (error) {
+    } catch {
       // Ein fehlender Parent ist der Normalfall. Bei einem echten Lesefehler
       // muss der Store ihn sichtbar halten, sonst wird ein unbekannter Claim
       // als leerer Scan dargestellt (INV-2).
-      let exists: boolean | null = null;
       try {
-        exists = await fs.exists(dir);
+        if (!(await fs.exists(dir))) return;
       } catch {
-        // Der Exists-Check selbst kann wegen fehlender Rechte scheitern.
+        // Ein fehlgeschlagener Exists-Check bestätigt kein fehlendes Ziel.
       }
-      if (exists === false && isMissingError(error)) return;
-      if (exists === null && isMissingError(error)) return;
       unreadable.add(dir);
       return;
     }
