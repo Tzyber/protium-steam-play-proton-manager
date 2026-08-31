@@ -242,11 +242,6 @@ als plan folgen:
 - v1.0.0: konsolidierung (konsistenz, fehlersemantik, security- und
   zugänglichkeits-review)
 
-die verbindliche interne produktplanung steht in
-`protium-roadmap-v2(1).md`; ältere roadmap-dateien im repo sind historisch.
-jede version braucht ihre eigene akzeptierte spec; steam-writes und
-löschungen zusätzlich eine erneute ausdrückliche freigabe.
-
 ## offene punkte
 
 offene wartungspunkte. sicherheitsgrenzen werden separat und vor Refactors
