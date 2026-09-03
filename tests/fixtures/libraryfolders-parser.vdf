@@ -1,0 +1,20 @@
+"LiBrArYfOlDeRs"
+{
+	"10"
+	{
+		"PaTh"		"/fixture/library-ten"
+	}
+	"2"
+	{
+		"path"		"/fixture/library-two"
+	}
+	"1"
+	{
+		"PATH"		"/fixture/library-ten"
+	}
+	"default"
+	{
+		"path"		"/fixture/non-numeric"
+	}
+	"3"		"/fixture/scalar-numeric"
+}

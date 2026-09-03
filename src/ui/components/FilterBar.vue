@@ -145,8 +145,8 @@ function libShort(path: string): string {
   flex: 1 1 200px;
   min-width: 160px;
 }
-.search:focus-within { border-color: var(--signal-dim); }
-.search .ico { color: var(--fg-2); font-size: 1rem; }
+.search:focus-within { border-color: var(--signal); }
+.search .ico { color: var(--fg-2); font-size: 1.125rem; }
 .search input {
   flex: 1;
   background: transparent;
@@ -156,8 +156,21 @@ function libShort(path: string): string {
   font-size: 1rem;
   padding: 8px 0;
 }
-.search input:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
-.search .clear { background: none; border: none; color: var(--fg-2); cursor: pointer; font-size: 0.875rem; min-width: 24px; min-height: 24px; display: grid; place-items: center; }
+.search input:focus-visible,
+.search .clear:focus-visible { outline: none; }
+.search .clear {
+  align-self: stretch;
+  background: none;
+  border: none;
+  color: var(--fg-2);
+  cursor: pointer;
+  display: grid;
+  font-size: 0.9375rem;
+  min-height: 36px;
+  min-width: 36px;
+  margin: 0 -8px 0 0;
+  place-items: center;
+}
 
 .group { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 

@@ -25,21 +25,23 @@ it came into being because this exact tool did not exist. protonup-qt only manag
 
 grab the AppImage or Debian package from the [releases page](https://github.com/Tzyber/protium-steam-play-proton-manager/releases). make the AppImage executable and run it:
 
+current version: `v0.7.1`.
+
 ```sh
-chmod +x protium_0.6.7_amd64.AppImage
-./protium_0.6.7_amd64.AppImage
+chmod +x protium_0.7.1_amd64.AppImage
+./protium_0.7.1_amd64.AppImage
 ```
 
 the AppImage is not signed. if you don't like that, build it yourself (see dev setup). Debian-based systems can install the accompanying Debian package:
 
 ```sh
-sudo apt install ./protium_0.6.7_amd64.deb
+sudo apt install ./protium_0.7.1_amd64.deb
 ```
 
 if nothing starts and no error message appears, fuse2 is usually missing. then either `sudo pacman -S fuse2` or run it once without fuse:
 
 ```sh
-./protium_0.6.7_amd64.AppImage --appimage-extract-and-run
+./protium_0.7.1_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## what it does
@@ -161,8 +163,9 @@ rules for the implementation: writes to steam files go through the write gate wi
 - [x] v0.5.0: library first, protondb follow-up and proton-check
 - [x] v0.6.0: scan truth with clear coverage and local detail facts
 - [x] v0.6.1: incomplete deletions (claim restore, claim leftovers in cleanup)
-- [x] v0.7.0 scope implemented locally: game footprint in the drawer;
-  version bump, tag and release are still pending
+- [x] v0.7.0: game footprint in the drawer
+- [x] v0.7.1: refactored Rust layer, larger cleanup in manageable steps,
+  clearer search and trash handling
 
 version history lives in the [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 
@@ -172,8 +175,9 @@ protium does not need to finish quickly. new versions only belong here when
 they make local Steam data clearer without a daemon or auto-repair. with
 this plan ahead:
 
-- before v0.8.0: terminology glossary; separate prefix metadata spike without
-  claiming a runtime result in advance
+- [x] before v0.8.0: [terminology glossary](docs/glossar.md)
+- before v0.8.0: separate prefix metadata spike remains open and independent,
+  without claiming a runtime result in advance
 - v0.8.0: explainability, a data-minimal diagnostic record, and narrow
   warning-only launch-option/`PROTON_LOG` hints
 - v0.9.0: honest GE mapping summary and a secure "open prefix folder" workflow

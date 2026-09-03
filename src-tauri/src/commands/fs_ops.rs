@@ -1,7 +1,7 @@
+#[cfg(target_os = "linux")]
+use crate::commands::fd::{ensure_regular_fd, open_bound_root_fd, open_dir_at, open_file_at};
 use crate::commands::scope::{EnvironmentState, MAX_ENVIRONMENT_READ_BYTES};
 use crate::commands::spawn_blocking_io;
-#[cfg(target_os = "linux")]
-use crate::commands::steam::{ensure_regular_fd, open_bound_root_fd, open_dir_at, open_file_at};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;

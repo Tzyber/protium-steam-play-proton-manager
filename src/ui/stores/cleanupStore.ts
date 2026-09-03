@@ -26,6 +26,8 @@ import { useScanStore } from "./scanStore";
 /** cache-key für die dauerhaft ignorierten toten library-pfade */
 const IGNORED_MISSING_KEY = "cleanup:ignored-missing-libs";
 
+export const MAX_PENDING_DELETES = 32;
+
 // Baut den aktuellen Installationsstatus aus Spielen und Shortcuts statt auf einen
 // veralteten scan-stand zu vertrauen, der cleanup-race-schutz lebt hier.
 function collectInstalledAppIds(result: ScanResult, shortcutResult: ShortcutResult): Set<number> {
@@ -409,6 +411,12 @@ export const useCleanupStore = defineStore("cleanup", {
     },
 
     async deleteOrphans(entries: OrphanEntry[]) {
+      if (entries.length > MAX_PENDING_DELETES) {
+        this.setOrphanError(
+          t("errors.deleteBatchTooLarge", { n: entries.length, max: MAX_PENDING_DELETES }),
+        );
+        return;
+      }
       if (this.blockedBySkipped) return;
 
       const scan = useScanStore();
@@ -654,6 +662,12 @@ export const useCleanupStore = defineStore("cleanup", {
     },
 
     async deleteTrashEntries(entries: TrashEntry[]) {
+      if (entries.length > MAX_PENDING_DELETES) {
+        this.setTrashError(
+          t("errors.deleteBatchTooLarge", { n: entries.length, max: MAX_PENDING_DELETES }),
+        );
+        return;
+      }
       const generation = this._trashScanGeneration;
       const scan = useScanStore();
       const sourceScanGeneration = scan.scanGeneration;
@@ -713,8 +727,8 @@ export const useCleanupStore = defineStore("cleanup", {
         {
           title:
             prepared.length === 1
-              ? t("cleanup.trashDeleteConfirmSingle")
-              : t("cleanup.trashDeleteConfirmTitle"),
+              ? t("cleanup.trashDeleteConfirmSingle", { n: prepared.length })
+              : t("cleanup.trashDeleteConfirmTitle", { n: prepared.length }),
           message: [partialPrepareMessage, ...prepared.flatMap((p) => p.descriptions)]
             .filter((line): line is string => line !== null)
             .join("\n"),
@@ -750,7 +764,7 @@ export const useCleanupStore = defineStore("cleanup", {
     },
 
     async emptyTrash() {
-      await this.deleteTrashEntries([...this.trash]);
+      await this.deleteTrashEntries(this.trash.slice(0, MAX_PENDING_DELETES));
     },
   },
 });

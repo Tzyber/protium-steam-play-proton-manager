@@ -6,8 +6,6 @@ use std::path::Path;
 use serde::Serialize;
 use tauri::State;
 
-#[cfg(test)]
-use crate::commands::scope::validate_library_scope;
 use crate::commands::scope::EnvironmentState;
 use crate::commands::spawn_blocking_io;
 
@@ -37,19 +35,6 @@ pub(crate) struct TrashListing {
     pub dir: String,
     pub present: bool,
     pub entries: Vec<TrashDirEntry>,
-}
-
-#[cfg(test)]
-pub(super) fn list_trash_entries_inner(
-    library: &str,
-    scope_ok: &dyn Fn(&Path) -> bool,
-) -> Result<TrashListing, String> {
-    let real = validate_library_scope(library)?;
-    if !scope_ok(&real) {
-        return Err("library outside allowed scope".into());
-    }
-
-    list_trash_entries_at(&real)
 }
 
 fn list_trash_entries_at(real: &Path) -> Result<TrashListing, String> {
@@ -118,24 +103,4 @@ pub async fn list_trash_entries(
         state.with_authorized_library(&library, |real| list_trash_entries_at(&real))
     })
     .await
-}
-
-#[cfg(test)]
-mod tests {
-    use super::list_trash_entries_inner;
-    use crate::commands::test_util::trash_fixture;
-
-    #[test]
-    fn trash_list_unscoped_library_abgelehnt() {
-        let root = trash_fixture("list-unscoped");
-        let library = root.join("library");
-        std::fs::create_dir_all(library.join("steamapps/.protium-trash")).unwrap();
-
-        match list_trash_entries_inner(library.to_str().unwrap(), &|_| false) {
-            Err(error) => assert_eq!(error, "library outside allowed scope"),
-            Ok(_) => panic!("unscoped library must be rejected"),
-        }
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
 }

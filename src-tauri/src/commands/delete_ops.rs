@@ -10,10 +10,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::commands::cleanup::TRASH_DIR_NAME;
 use crate::commands::delete_inspect::inspect_deletion_target;
+use crate::commands::delete_inspect::{DeleteConsequence, DeletionInspection};
 use crate::commands::scope::EnvironmentState;
-use crate::commands::steam::{DeleteConsequence, DeletionInspection};
 
-pub const DELETE_TOKEN_TTL_SECS: u64 = 60;
+pub const DELETE_TOKEN_TTL_SECS: u64 = 300;
 
 /// renameat2-flag: kein überschreiben des ziels (RENAME_NOREPLACE).
 const RENAME_NOREPLACE_FLAG: u32 = 1;

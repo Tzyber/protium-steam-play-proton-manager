@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::future::Future;
 use std::io;
+#[cfg(test)]
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -204,15 +205,23 @@ pub(super) async fn download_stream(
     on_progress: impl FnMut(u64, Option<u64>),
     max_bytes: u64,
 ) -> Result<DownloadedFile, String> {
+    let parent = Path::new(dest)
+        .parent()
+        .ok_or_else(|| "download path has no parent".to_string())?;
+    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let directory = fs::File::open(parent).map_err(|e| e.to_string())?;
+    let identity = file_identity(&directory).map_err(|e| e.to_string())?;
     download_stream_in_directory(
         url,
-        dest,
         redirect_ok,
         cancel,
         on_progress,
         DownloadStorage {
             max_bytes,
-            directory: None,
+            directory: DownloadDirectoryBinding {
+                file: &directory,
+                identity,
+            },
             #[cfg(test)]
             before_open: None,
         },
@@ -222,7 +231,6 @@ pub(super) async fn download_stream(
 
 pub(super) async fn download_stream_in_directory(
     url: &str,
-    dest: &str,
     redirect_ok: impl Fn(&str) -> bool + Send + Sync + 'static,
     cancel: &CancelSignal,
     mut on_progress: impl FnMut(u64, Option<u64>),
@@ -243,13 +251,7 @@ pub(super) async fn download_stream_in_directory(
             }
         }
 
-        if storage.directory.is_none() {
-            if let Some(parent) = Path::new(dest).parent() {
-                let _ = tokio::fs::create_dir_all(parent).await;
-            }
-        }
         let std_file = open_anonymous_download_file(
-            Path::new(dest),
             storage.directory,
             #[cfg(test)]
             storage.before_open,
@@ -320,79 +322,34 @@ pub(super) struct DownloadDirectoryBinding<'a> {
 
 pub(super) struct DownloadStorage<'a> {
     pub(super) max_bytes: u64,
-    pub(super) directory: Option<DownloadDirectoryBinding<'a>>,
+    pub(super) directory: DownloadDirectoryBinding<'a>,
     #[cfg(test)]
     pub(super) before_open: Option<&'a (dyn Fn() + Send + Sync)>,
 }
 
 #[cfg(target_os = "linux")]
 fn open_anonymous_download_file(
-    path: &Path,
-    bound_directory: Option<DownloadDirectoryBinding<'_>>,
+    bound_directory: DownloadDirectoryBinding<'_>,
     #[cfg(test)] before_open: Option<&(dyn Fn() + Send + Sync)>,
 ) -> io::Result<fs::File> {
-    use std::os::fd::{FromRawFd, OwnedFd};
-    use std::os::unix::ffi::OsStrExt;
-
-    if let Some(binding) = bound_directory {
-        let directory = binding.file;
-        if !directory.metadata()?.is_dir() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "bound download directory is not real",
-            ));
-        }
-        if binding.identity != file_identity(directory)? {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "bound download directory identity changed",
-            ));
-        }
-        #[cfg(test)]
-        if let Some(before_open) = before_open {
-            before_open();
-        }
-        return open_anonymous_at(directory);
-    }
-
-    let parent = path.parent().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "download path has no parent")
-    })?;
-    let parent_metadata = fs::symlink_metadata(parent)?;
-    if parent_metadata.file_type().is_symlink() || !parent_metadata.is_dir() {
+    let directory = bound_directory.file;
+    if !directory.metadata()?.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "download directory is not a real directory",
+            "bound download directory is not real",
         ));
     }
-    let canonical_parent = fs::canonicalize(parent)?;
-    let canonical_metadata = fs::metadata(&canonical_parent)?;
+    if bound_directory.identity != file_identity(directory)? {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "bound download directory identity changed",
+        ));
+    }
     #[cfg(test)]
     if let Some(before_open) = before_open {
         before_open();
     }
-    let mut parent_bytes = canonical_parent.as_os_str().as_bytes().to_vec();
-    parent_bytes.push(0);
-    let dir_raw = unsafe {
-        libc::open(
-            parent_bytes.as_ptr().cast(),
-            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
-        )
-    };
-    if dir_raw < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let directory = unsafe { fs::File::from(OwnedFd::from_raw_fd(dir_raw)) };
-    if !directory.metadata()?.is_dir()
-        || Some(file_identity(&directory)?) != metadata_identity(&canonical_metadata)
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "download directory identity changed",
-        ));
-    }
-
-    open_anonymous_at(&directory)
+    open_anonymous_at(directory)
 }
 
 #[cfg(target_os = "linux")]
@@ -423,8 +380,7 @@ fn open_anonymous_at(directory: &fs::File) -> io::Result<fs::File> {
 
 #[cfg(not(target_os = "linux"))]
 fn open_anonymous_download_file(
-    _path: &Path,
-    _bound_directory: Option<DownloadDirectoryBinding<'_>>,
+    _bound_directory: DownloadDirectoryBinding<'_>,
     #[cfg(test)] _before_open: Option<&(dyn Fn() + Send + Sync)>,
 ) -> io::Result<fs::File> {
     Err(io::Error::new(
@@ -911,65 +867,39 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[tokio::test]
-    async fn cache_dir_symlink_wird_fail_closed_abgelehnt() {
-        use std::os::unix::fs::symlink;
+    async fn falsche_directory_identity_scheitert_vor_tmpfile_und_pfad_bleibt_unsichtbar() {
+        use std::sync::atomic::{AtomicBool, Ordering};
 
         let root = std::env::temp_dir().join(format!(
-            "protium-dltest-cache-symlink-{}-{}",
-            std::process::id(),
-            random_suffix()
-        ));
-        let real = root.join("real");
-        let alias = root.join("alias");
-        std::fs::create_dir_all(&real).unwrap();
-        symlink(&real, &alias).unwrap();
-        let dest = alias.join("guessed.tar.gz");
-        let url = serve_once(32, 32);
-        let cancel = CancelSignal::new();
-        let res = download_stream(
-            &url,
-            dest.to_str().unwrap(),
-            |_| true,
-            &cancel,
-            |_, _| {},
-            MAX_DOWNLOAD_BYTES,
-        )
-        .await;
-        assert!(res.is_err(), "symlink-cache-dir muss fail-closed bleiben");
-        assert!(!real.join("guessed.tar.gz").exists());
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[tokio::test]
-    async fn directory_swap_zwischen_identity_capture_und_open_scheitert_vor_tmpfile() {
-        let root = std::env::temp_dir().join(format!(
-            "protium-dltest-directory-swap-{}-{}",
+            "protium-dltest-wrong-identity-{}-{}",
             std::process::id(),
             random_suffix()
         ));
         let visible = root.join("downloads");
-        let moved = root.join("moved");
         let destination = visible.join("download.tar.gz");
         std::fs::create_dir_all(&visible).unwrap();
-        std::fs::write(visible.join("original-marker"), b"original").unwrap();
-
-        let hook = || {
-            std::fs::rename(&visible, &moved).unwrap();
-            std::fs::create_dir(&visible).unwrap();
-            std::fs::write(visible.join("replacement-marker"), b"replacement").unwrap();
+        std::fs::write(visible.join("marker"), b"untouched").unwrap();
+        let directory = std::fs::File::open(&visible).unwrap();
+        let identity = super::file_identity(&directory).unwrap();
+        let opened = Arc::new(AtomicBool::new(false));
+        let opened_for_hook = Arc::clone(&opened);
+        let hook = move || {
+            opened_for_hook.store(true, Ordering::Release);
         };
+
         let url = serve_once(32, 32);
         let cancel = CancelSignal::new();
         let result = super::download_stream_in_directory(
             &url,
-            destination.to_str().unwrap(),
             |_| true,
             &cancel,
             |_, _| {},
             DownloadStorage {
                 max_bytes: MAX_DOWNLOAD_BYTES,
-                directory: None,
+                directory: DownloadDirectoryBinding {
+                    file: &directory,
+                    identity: (identity.0 ^ 1, identity.1),
+                },
                 before_open: Some(&hook),
             },
         )
@@ -979,21 +909,15 @@ mod tests {
             result
                 .as_ref()
                 .unwrap_err()
-                .contains("download directory identity changed"),
-            "directory swap muss vor O_TMPFILE fail-closed abbrechen: {result:?}"
+                .contains("bound download directory identity changed"),
+            "falsche binding-identität muss vor O_TMPFILE scheitern: {result:?}"
         );
-        assert_eq!(
-            std::fs::read(moved.join("original-marker")).unwrap(),
-            b"original"
-        );
-        assert_eq!(
-            std::fs::read(visible.join("replacement-marker")).unwrap(),
-            b"replacement"
-        );
+        assert!(!opened.load(Ordering::Acquire));
         assert!(
             !destination.exists(),
-            "fremder sichtbarer pfad darf leer bleiben"
+            "sichtbarer zielpfad darf nicht entstehen"
         );
+        assert_eq!(std::fs::read(visible.join("marker")).unwrap(), b"untouched");
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -1026,16 +950,15 @@ mod tests {
         let cancel = CancelSignal::new();
         let mut artifact = super::download_stream_in_directory(
             &url,
-            destination.to_str().unwrap(),
             |_| true,
             &cancel,
             |_, _| {},
             DownloadStorage {
                 max_bytes: MAX_DOWNLOAD_BYTES,
-                directory: Some(DownloadDirectoryBinding {
+                directory: DownloadDirectoryBinding {
                     file: &directory,
                     identity,
-                }),
+                },
                 before_open: Some(&hook),
             },
         )

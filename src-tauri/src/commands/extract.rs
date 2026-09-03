@@ -234,7 +234,7 @@ fn extract_archive_into_bound_parent(
     before_rename: &mut dyn FnMut(),
 ) -> Result<(), String> {
     use crate::commands::delete_ops::renameat2_no_replace;
-    use crate::commands::steam::open_bound_root_fd;
+    use crate::commands::fd::open_bound_root_fd;
     use flate2::read::GzDecoder;
     use std::os::fd::AsRawFd;
     use std::os::unix::ffi::OsStrExt;

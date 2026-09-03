@@ -64,6 +64,24 @@ describe("FilterBar proton-check", () => {
     expect(useLibraryStore().protonCheck).toBe(true);
   });
 
+  it("zeigt die beschriftete suche und leert sie über den clear-button", async () => {
+    const lib = useLibraryStore();
+    const wrapper = mount(FilterBar);
+    const input = wrapper.get("input#library-search");
+
+    expect(wrapper.get('label[for="library-search"]').text()).toBe(t("filter.search"));
+
+    await input.setValue("test");
+
+    const clear = wrapper.get("button.clear");
+    expect(clear.attributes("aria-label")).toBe(t("filter.searchClear"));
+
+    await clear.trigger("click");
+
+    expect(lib.search).toBe("");
+    expect(wrapper.find("button.clear").exists()).toBe(false);
+  });
+
   it("reset setzt den aktiven proton-check zurück", async () => {
     const lib = useLibraryStore();
     lib.protonCheck = true;

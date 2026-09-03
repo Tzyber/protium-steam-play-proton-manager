@@ -8,7 +8,7 @@ import type {
 import type { DirectorySize, PendingDeleteInfo, PrepareDeleteRequest } from "../../src/core/ports";
 import type { readAllShortcutAppIds } from "../../src/core/shortcuts";
 import type { findTrashEntries, TrashEntry } from "../../src/core/trash";
-import type { ScanResult } from "../../src/core/types";
+import type { OrphanEntry, ScanResult } from "../../src/core/types";
 import { formatBytes } from "../../src/ui/format";
 import { setLocale } from "../../src/ui/i18n";
 
@@ -642,6 +642,46 @@ describe("cleanupStore, S-05 + shortcuts", () => {
     expect(store.error).toContain("scan-ergebnis");
     expect(store.orphans).toEqual([]);
   });
+
+  it("lehnt mehr als 32 orphan-einträge vor allen gates ab", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = null;
+    const store = useCleanupStore();
+    const existing = fakeOrphanEntry(0);
+    store.orphans = [existing];
+    store.blockedBySkipped = true;
+
+    await store.deleteOrphans(Array.from({ length: 33 }, (_, index) => fakeOrphanEntry(index + 1)));
+
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
+    expect(mockExecuteDelete).not.toHaveBeenCalled();
+    expect(mockReadAllShortcutAppIds).not.toHaveBeenCalled();
+    expect(mockIsProcessRunning).not.toHaveBeenCalled();
+    expect(useConfirmStore().pending).toBeNull();
+    expect(useConfirmStore().reserved).toBe(false);
+    expect(store.deleting.size).toBe(0);
+    expect(store.orphans).toEqual([existing]);
+    expect(store.error).toContain("33");
+    expect(store.error).toContain("32");
+  });
+
+  it("bereitet und führt exakt 32 orphan-einträge in einem dialog aus", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    mockFindOrphans.mockResolvedValue([]);
+    const store = useCleanupStore();
+    const entries = Array.from({ length: 32 }, (_, index) => fakeOrphanEntry(index));
+    store.orphans = [...entries];
+
+    await store.deleteOrphans(entries);
+
+    expect(mockPrepareDelete).toHaveBeenCalledTimes(32);
+    expect(useConfirmStore().pending?.title).toContain("32");
+    await useConfirmStore().confirm();
+
+    expect(mockExecuteDelete).toHaveBeenCalledTimes(32);
+    expect(store.deleting.size).toBe(0);
+  });
 });
 
 describe("cleanupStore, gemeinsame confirm-reservierung", () => {
@@ -1011,6 +1051,25 @@ function fakeTrashEntry(overrides?: Partial<TrashEntry>): TrashEntry {
   };
 }
 
+function fakeOrphanEntry(index: number): OrphanEntry {
+  return {
+    appId: 900000 + index,
+    type: "shadercache",
+    path: `/lib/steamapps/shadercache/${900000 + index}`,
+    library: "/lib",
+  };
+}
+
+function fakeTrashEntries(count: number): TrashEntry[] {
+  return Array.from({ length: count }, (_, index) =>
+    fakeTrashEntry({
+      path: `/lib/steamapps/.protium-trash/compatdata_${1000000 + index}_100`,
+      name: `compatdata_${1000000 + index}_100`,
+      appId: 1000000 + index,
+    }),
+  );
+}
+
 describe("cleanupStore, trash", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
@@ -1101,37 +1160,6 @@ describe("cleanupStore, trash", () => {
     expect(store.trashLibraries[0]?.error).toContain("EACCES");
   });
 
-  it("emptyTrash löscht alle einträge", async () => {
-    const e1 = fakeTrashEntry();
-    const e2 = fakeTrashEntry({
-      path: "/lib/steamapps/.protium-trash/compatdata_570_100",
-      name: "compatdata_570_100",
-      appId: 570,
-    });
-    // direkt setzen statt über scanTrash
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
-    const store = useCleanupStore();
-    store.trash = [e1, e2];
-
-    await store.emptyTrash();
-    await useConfirmStore().confirm();
-
-    expect(store.trash).toHaveLength(0);
-    expect(mockPrepareDelete).toHaveBeenCalledTimes(2);
-    expect(mockPrepareDelete).toHaveBeenCalledWith({
-      targetType: "trash",
-      path: e1.path,
-      steamRoot: "/home/u/.steam",
-    });
-    expect(mockPrepareDelete).toHaveBeenCalledWith({
-      targetType: "trash",
-      path: e2.path,
-      steamRoot: "/home/u/.steam",
-    });
-    expect(mockExecuteDelete).toHaveBeenCalledTimes(2);
-  });
-
   it("deleteTrashEntries bündelt eine auswahl in einem dialog", async () => {
     const e1 = fakeTrashEntry();
     const e2 = fakeTrashEntry({
@@ -1145,7 +1173,7 @@ describe("cleanupStore, trash", () => {
     store.trash = [e1, e2];
 
     await store.deleteTrashEntries([e1, e2]);
-    expect(useConfirmStore().pending?.title).toBe("papierkorb leeren?");
+    expect(useConfirmStore().pending?.title).toBe("2 papierkorb-einträge leeren?");
     await useConfirmStore().confirm();
 
     expect(mockPrepareDelete).toHaveBeenCalledTimes(2);
@@ -1182,10 +1210,47 @@ describe("cleanupStore, trash", () => {
     expect(useConfirmStore().pending?.message).toContain(
       "nicht vorbereitete Einträge (1) bleiben unverändert.",
     );
+    expect(useConfirmStore().pending?.title).toContain("1");
     await useConfirmStore().confirm();
 
     expect(mockExecuteDelete).toHaveBeenCalledTimes(1);
     expect(store.trash).toEqual([e2]);
+  });
+
+  it("lehnt mehr als 32 direkte trash-einträge vor allen gates ab", async () => {
+    setLocale("en");
+    const scanStore = useScanStore();
+    scanStore.result = null;
+    const store = useCleanupStore();
+    const existing = fakeTrashEntry({ path: "/existing/trash-entry" });
+    store.trash = [existing];
+
+    await store.deleteTrashEntries(fakeTrashEntries(33));
+
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
+    expect(mockExecuteDelete).not.toHaveBeenCalled();
+    expect(useConfirmStore().pending).toBeNull();
+    expect(useConfirmStore().reserved).toBe(false);
+    expect(store.trash).toEqual([existing]);
+    expect(store.error).toContain("33");
+    expect(store.error).toContain("32");
+  });
+
+  it("bereitet und führt exakt 32 trash-einträge in einem dialog aus", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    const entries = fakeTrashEntries(32);
+    store.trash = [...entries];
+
+    await store.deleteTrashEntries(entries);
+
+    expect(mockPrepareDelete).toHaveBeenCalledTimes(32);
+    expect(useConfirmStore().pending?.title).toContain("32");
+    await useConfirmStore().confirm();
+
+    expect(mockExecuteDelete).toHaveBeenCalledTimes(32);
+    expect(store.trash).toEqual([]);
   });
 
   it("ohne erfolgreiches prepare gibt es keinen dialog und kein execute", async () => {
@@ -1221,6 +1286,28 @@ describe("cleanupStore, trash", () => {
     const snapshot = deleteSpy.mock.calls[0]?.[0];
     expect(snapshot).toEqual([e1, e2]);
     expect(snapshot).not.toBe(store.trash);
+  });
+
+  it("emptyTrash verarbeitet nur die ersten 32 snapshot-einträge", async () => {
+    const entries = fakeTrashEntries(33);
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    store.trash = [...entries];
+
+    await store.emptyTrash();
+
+    expect(mockPrepareDelete).toHaveBeenCalledTimes(32);
+    expect(mockPrepareDelete).not.toHaveBeenCalledWith({
+      targetType: "trash",
+      path: entries[32]?.path,
+      steamRoot: "/home/u/.steam",
+    });
+    expect(useConfirmStore().pending?.title).toContain("32");
+    await useConfirmStore().confirm();
+
+    expect(mockExecuteDelete).toHaveBeenCalledTimes(32);
+    expect(store.trash).toEqual([entries[32]]);
   });
 
   it("emptyTrash mit fehlschlag in der mitte, rest wird trotzdem gelöscht", async () => {

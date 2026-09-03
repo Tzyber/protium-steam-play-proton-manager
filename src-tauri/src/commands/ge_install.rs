@@ -17,7 +17,7 @@ use crate::commands::download::{
     MAX_DOWNLOAD_BYTES,
 };
 use crate::commands::extract::extract_blocking_with_tag;
-use crate::commands::path::{is_descendant_of, random_suffix, sanitize_path};
+use crate::commands::path::{is_descendant_of, sanitize_path};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -359,9 +359,6 @@ pub(super) async fn install_ge_proton_inner(
     let expected_downloads_identity =
         crate::commands::download::metadata_identity(&downloads_metadata)
             .ok_or_else(|| "canonical downloads directory has no identity".to_string())?;
-    let download_file_name = format!("{}-{}.tar.gz", download_id, random_suffix());
-    let download_path = downloads_dir.join(&download_file_name);
-    let download_path_str = download_path.to_string_lossy().to_string();
     #[cfg(target_os = "linux")]
     let downloads_directory = {
         let mut bytes = downloads_dir.as_os_str().as_bytes().to_vec();
@@ -389,16 +386,15 @@ pub(super) async fn install_ge_proton_inner(
     // Download-Phase
     let stream_hash = match crate::commands::download::download_stream_in_directory(
         download_url,
-        &download_path_str,
         |u| validate_redirect_url(u).is_ok(),
         &cancel_flag_clone,
         &mut on_progress,
         DownloadStorage {
             max_bytes: MAX_DOWNLOAD_BYTES,
-            directory: Some(DownloadDirectoryBinding {
+            directory: DownloadDirectoryBinding {
                 file: &downloads_directory,
                 identity: expected_downloads_identity,
-            }),
+            },
             #[cfg(test)]
             before_open: None,
         },
@@ -631,6 +627,7 @@ pub async fn install_ge_proton(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::path::random_suffix;
     use crate::commands::scope::{EnvironmentSnapshot, EnvironmentState};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Barrier};
@@ -999,6 +996,9 @@ mod tests {
         let body = &source[start..source.find("#[tauri::command]").unwrap()];
         assert!(!body.contains("File::open(&download_path"));
         assert!(!body.contains("cleanup_download_path"));
+        assert!(!body.contains("download_file_name"));
+        assert!(!body.contains("download_path"));
+        assert!(!body.contains("download_path_str"));
         // der disk-hash läuft über denselben owned-handle, nie über einen pfad
         assert!(body.contains("verify_file_hash_on_disk("));
         assert!(body.contains("extract_blocking_with_tag("));

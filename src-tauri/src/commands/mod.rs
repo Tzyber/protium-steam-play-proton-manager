@@ -1,11 +1,13 @@
 // Rust-Commands für Operationen außerhalb des Webviews.
 
 pub(crate) mod cleanup;
+pub(crate) mod compat_auth;
 pub(crate) mod delete_inspect;
 pub(crate) mod delete_ops;
 pub(crate) mod download;
 pub(crate) mod external;
 pub(crate) mod extract;
+pub(crate) mod fd;
 pub(crate) mod fs_ops;
 pub(crate) mod ge_install;
 pub(crate) mod path;
@@ -35,10 +37,6 @@ pub(crate) mod test_util {
         let _ = std::fs::remove_dir_all(&p);
         std::fs::create_dir_all(&p).unwrap();
         p
-    }
-
-    pub(super) fn trash_fixture(tag: &str) -> std::path::PathBuf {
-        fixture_dir("trash", tag)
     }
 
     pub(super) fn wsg_fixture(tag: &str) -> std::path::PathBuf {
