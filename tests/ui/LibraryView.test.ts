@@ -324,21 +324,23 @@ describe("LibraryView Coverage-Erklärung", () => {
       await trigger.trigger("click");
       await nextTick();
 
-      const dialog = wrapper.get("[role='dialog']");
-      expect(dialog.text()).toContain(t("explain.topics.scanCoverage.source"));
-      expect(dialog.text()).toContain(t("explain.topics.scanCoverage.meaning"));
-      expect(dialog.text()).toContain(t("explain.topics.scanCoverage.limit"));
-      expect(dialog.attributes("aria-labelledby")).toMatch(/^explain-dialog-title-/);
-      expect(dialog.attributes("aria-describedby")).toMatch(/^explain-dialog-description-/);
+      const dialog = document.body.querySelector("[role='dialog']");
+      expect(dialog).not.toBeNull();
+      if (!dialog) return;
+      expect(dialog.textContent).toContain(t("explain.topics.scanCoverage.source"));
+      expect(dialog.textContent).toContain(t("explain.topics.scanCoverage.meaning"));
+      expect(dialog.textContent).toContain(t("explain.topics.scanCoverage.limit"));
+      expect(dialog.getAttribute("aria-labelledby")).toMatch(/^explain-dialog-title-/);
+      expect(dialog.getAttribute("aria-describedby")).toMatch(/^explain-dialog-description-/);
 
       const escapeEvent = new KeyboardEvent("keydown", {
         key: "Escape",
         bubbles: true,
         cancelable: true,
       });
-      dialog.element.dispatchEvent(escapeEvent);
+      dialog.dispatchEvent(escapeEvent);
       await nextTick();
-      expect(wrapper.find("[role='dialog']").exists()).toBe(false);
+      expect(document.body.querySelector("[role='dialog']")).toBeNull();
       expect(document.activeElement).toBe(trigger.element);
     },
   );

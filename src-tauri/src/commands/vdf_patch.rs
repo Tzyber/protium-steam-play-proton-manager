@@ -923,4 +923,144 @@ mod tests {
         assert!(removed.contains("\"620\""));
         assert!(!removed.contains("\"570\""));
     }
+
+    const COMPAT_GESCHWISTER: &str = r#""InstallConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"CompatToolMapping"
+				{
+					"620"
+					{
+						"name"		"GE-Proton9-27"
+						"config"		"noesync"
+					}
+					"730"
+					{
+						"name"		"proton_experimental"
+						"config"		""
+					}
+				}
+			}
+		}
+	}
+}
+"#;
+
+    #[test]
+    fn set_vdf_value_legt_neuen_appid_block_neben_geschwistern_an() {
+        // häufigster realer schreibfall: erstes compat-tool für ein spiel, das
+        // noch keinen eigenen block hat, während nachbarblöcke schon existieren.
+        let path = &[
+            "InstallConfigStore",
+            "Software",
+            "Valve",
+            "Steam",
+            "CompatToolMapping",
+            "1091500",
+            "name",
+        ];
+        let patched = set_vdf_value(COMPAT_GESCHWISTER, path, "proton-cachyos-slr").unwrap();
+
+        // der neue block landet als letztes geschwister vor der schließenden
+        // klammer von CompatToolMapping, der rest bleibt byte-identisch.
+        let expected = COMPAT_GESCHWISTER.replace(
+            "\t\t\t\t\t\t\"config\"\t\t\"\"\n\t\t\t\t\t}\n\t\t\t\t}\n",
+            "\t\t\t\t\t\t\"config\"\t\t\"\"\n\t\t\t\t\t}\n\t\t\t\t\t\"1091500\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"name\"\t\t\"proton-cachyos-slr\"\n\t\t\t\t\t}\n\t\t\t\t}\n",
+        );
+        assert_ne!(expected, COMPAT_GESCHWISTER, "replace-anker muss greifen");
+        assert_eq!(patched, expected);
+
+        let block_620 = "\t\t\t\t\t\"620\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"name\"\t\t\"GE-Proton9-27\"\n\t\t\t\t\t\t\"config\"\t\t\"noesync\"\n\t\t\t\t\t}\n";
+        let block_730 = "\t\t\t\t\t\"730\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"name\"\t\t\"proton_experimental\"\n\t\t\t\t\t\t\"config\"\t\t\"\"\n\t\t\t\t\t}\n";
+        let block_neu = "\t\t\t\t\t\"1091500\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"name\"\t\t\"proton-cachyos-slr\"\n\t\t\t\t\t}\n";
+        let pos_620 = patched.find(block_620).expect("620-block unverändert");
+        let pos_730 = patched.find(block_730).expect("730-block unverändert");
+        let pos_neu = patched.find(block_neu).expect("neuer block im nachbarstil");
+        assert!(pos_620 < pos_730 && pos_730 < pos_neu, "reihenfolge stabil");
+        assert_eq!(patched.matches(block_620).count(), 1);
+        assert_eq!(patched.matches(block_730).count(), 1);
+
+        // einrückung und quoting des neuen blocks entsprechen den geschwistern
+        assert_eq!(
+            patched[pos_neu..].lines().next().unwrap(),
+            patched[pos_730..]
+                .lines()
+                .next()
+                .unwrap()
+                .replace("730", "1091500"),
+        );
+
+        let mut p_620 = path.to_vec();
+        p_620[5] = "620";
+        assert_eq!(
+            get_vdf_value(&patched, &p_620).unwrap(),
+            Some("GE-Proton9-27".to_string())
+        );
+        assert_eq!(
+            get_vdf_value(&patched, path).unwrap(),
+            Some("proton-cachyos-slr".to_string())
+        );
+    }
+
+    const CROSS_APPS: &[&str] = &["UserLocalConfigStore", "Software", "Valve", "Steam", "Apps"];
+    const CROSS_620_LAUNCH: &str =
+        r#"PROTON_LOG=1 MANGOHUD_CONFIG="fps,gpu,ram" %command% --skip-launcher"#;
+    const CROSS_NEU_LAUNCH: &str =
+        r#"WINEDLLOVERRIDES="dinput8=n,b" PROTON_LOG_DIR=Z:\home\logs gamemoderun %command%"#;
+
+    fn cross_parser_pfad<'a>(app_id: &'a str, key: &'a str) -> Vec<&'a str> {
+        let mut p: Vec<&'a str> = CROSS_APPS.to_vec();
+        p.push(app_id);
+        p.push(key);
+        p
+    }
+
+    fn cross_parser_output(input: &str) -> String {
+        let out = set_vdf_value(
+            input,
+            &cross_parser_pfad("620", "LaunchOptions"),
+            CROSS_620_LAUNCH,
+        )
+        .unwrap();
+        let out = remove_vdf_entry(&out, &cross_parser_pfad("620", "LastPlayed")).unwrap();
+        set_vdf_value(
+            &out,
+            &cross_parser_pfad("1091500", "LaunchOptions"),
+            CROSS_NEU_LAUNCH,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn cross_parser_erwartungsdatei_ist_echter_rust_output() {
+        // vertragstest Rust -> @node-steam/vdf: die erwartungsdatei ist der
+        // byte-genaue Rust-output; tests/core/vdf.test.ts liest genau diese
+        // datei mit dem parser zurück, mit dem die app real liest.
+        let input = include_str!("../../../tests/fixtures/cross-parser-input.vdf");
+        let expected = include_str!("../../../tests/fixtures/cross-parser-expected.vdf");
+        let produced = cross_parser_output(input);
+        assert_eq!(produced, expected);
+
+        assert_eq!(
+            get_vdf_value(expected, &cross_parser_pfad("620", "LaunchOptions")).unwrap(),
+            Some(CROSS_620_LAUNCH.to_string())
+        );
+        assert_eq!(
+            get_vdf_value(expected, &cross_parser_pfad("620", "LastPlayed")).unwrap(),
+            None
+        );
+        assert_eq!(
+            get_vdf_value(expected, &cross_parser_pfad("730", "LaunchOptions")).unwrap(),
+            Some("-novid -high".to_string())
+        );
+        assert_eq!(
+            get_vdf_value(expected, &cross_parser_pfad("1091500", "LaunchOptions")).unwrap(),
+            Some(CROSS_NEU_LAUNCH.to_string())
+        );
+    }
 }

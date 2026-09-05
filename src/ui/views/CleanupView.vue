@@ -343,7 +343,11 @@ const tabLabel = (id: Tab) =>
 
       <div v-if="cleanup.incompleteDeletions.length" class="blocked">
         <strong>{{ t("cleanup.incompleteDeletionsTitle") }}</strong>
-        <ExplainInfo class="explain-inline" topic="incomplete-deletion" />
+        <ExplainInfo
+          class="explain-inline"
+          :label="t('explain.topics.incompleteDeletion.title')"
+          :topics="['incomplete-deletion']"
+        />
         <p class="pm-note">{{ t("cleanup.incompleteDeletionsBody") }}</p>
         <p class="pm-note">{{ t("cleanup.incompleteDeletionsHint") }}</p>
         <ul class="pm-list">
@@ -402,7 +406,11 @@ const tabLabel = (id: Tab) =>
         <div v-else-if="cleanup.scanning" class="empty">{{ t("cleanup.searching") }}</div>
         <div v-else-if="!cleanup.shaderUnavailable" class="empty">{{ t("cleanup.empty") }}</div>
         <div v-else class="empty">
-          {{ t("cleanup.unavailable") }}<ExplainInfo class="explain-inline" topic="cleanup-blocked" />
+          {{ t("cleanup.unavailable") }}<ExplainInfo
+            class="explain-inline"
+            :label="t('explain.topics.cleanupBlocked.title')"
+            :topics="['cleanup-blocked']"
+          />
         </div>
       </div>
 
@@ -441,7 +449,11 @@ const tabLabel = (id: Tab) =>
               size: steamOwnedTotal,
             })
           }}
-          <ExplainInfo class="explain-inline" topic="steam-owned" />
+          <ExplainInfo
+            class="explain-inline"
+            :label="t('explain.topics.steamOwned.title')"
+            :topics="['steam-owned']"
+          />
         </div>
 
         <ul v-if="compatdataOrphans.length" class="list">
@@ -475,7 +487,11 @@ const tabLabel = (id: Tab) =>
         <div v-else-if="cleanup.scanning" class="empty">{{ t("cleanup.searching") }}</div>
         <div v-else-if="!cleanup.prefixUnavailable" class="empty">{{ t("cleanup.empty") }}</div>
         <div v-else class="empty">
-          {{ t("cleanup.unavailable") }}<ExplainInfo class="explain-inline" topic="cleanup-blocked" />
+          {{ t("cleanup.unavailable") }}<ExplainInfo
+            class="explain-inline"
+            :label="t('explain.topics.cleanupBlocked.title')"
+            :topics="['cleanup-blocked']"
+          />
         </div>
       </div>
 
@@ -560,7 +576,11 @@ const tabLabel = (id: Tab) =>
           {{ t("cleanup.trashEmptyState") }}
         </div>
         <div v-else-if="!cleanup.trashScanning" class="empty">
-          {{ t("cleanup.unavailable") }}<ExplainInfo class="explain-inline" topic="cleanup-blocked" />
+          {{ t("cleanup.unavailable") }}<ExplainInfo
+            class="explain-inline"
+            :label="t('explain.topics.cleanupBlocked.title')"
+            :topics="['cleanup-blocked']"
+          />
         </div>
       </div>
 

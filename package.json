@@ -1,6 +1,6 @@
 {
   "name": "protium",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "steam/proton library manager",
   "directories": {
     "test": "tests"

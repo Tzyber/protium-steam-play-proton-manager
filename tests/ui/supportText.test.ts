@@ -130,7 +130,7 @@ describe("formatSupportFacts", () => {
     });
 
     const text = formatSupportFacts(facts, "0.7.1");
-    expect(text).toContain("Kompatibilitäts-Config: fehlend");
+    expect(text).toContain("Kompatibilitäts-Config: nicht gefunden");
     expect(text).toContain("Startoptionen-Quelle: mehrdeutig");
     expect(text).toContain("Zugeordnetes Tool: unbekannt");
     expect(text).toContain("Tool verfügbar: unbekannt");
@@ -141,6 +141,46 @@ describe("formatSupportFacts", () => {
     expect(text).toContain("Bereinigungsfreigabe: unbekannt");
     expect(text).not.toContain("kein externer Pfad");
     expect(text).not.toContain("0 Byte");
+  });
+
+  it.each([
+    ["de", "Scan-Abdeckung: unvollständig", "Scan-Abdeckung: eingeschränkt"],
+    ["en", "Scan coverage: incomplete", "Scan coverage: limited"],
+  ] as const)(
+    "exportiert einen unvollständigen Scan als unvollständig in %s",
+    (locale, incomplete, limited) => {
+      setLocale(locale);
+      const currentGame = game();
+      const facts = projectSupportFacts({
+        game: currentGame,
+        result: result({
+          games: [currentGame],
+          skippedLibraries: [{ path: "/steam/second", reason: "path-missing" }],
+        }),
+        cleanup: {},
+      });
+
+      expect(facts.scanCoverage).toBe("incomplete");
+      const text = formatSupportFacts(facts, "0.7.1");
+      expect(text).toContain(incomplete);
+      expect(text).not.toContain(limited);
+    },
+  );
+
+  it.each([
+    ["de", "Scan-Abdeckung: eingeschränkt"],
+    ["en", "Scan coverage: limited"],
+  ] as const)("exportiert eine fehlende Config als eingeschränkt in %s", (locale, limited) => {
+    setLocale(locale);
+    const currentGame = game();
+    const facts = projectSupportFacts({
+      game: currentGame,
+      result: result({ games: [currentGame], compatConfigStatus: "missing" }),
+      cleanup: {},
+    });
+
+    expect(facts.scanCoverage).toBe("limited");
+    expect(formatSupportFacts(facts, "0.7.1")).toContain(limited);
   });
 
   it.each(["de", "en"] as const)(

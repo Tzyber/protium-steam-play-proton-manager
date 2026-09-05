@@ -520,7 +520,9 @@ describe("CleanupView Erklärungen", () => {
     const wrapperEl = trigger as HTMLElement;
     wrapperEl.click();
     await wrapper.vm.$nextTick();
-    expect(wrapper.get("[role='dialog']").text()).toContain(t("explain.topics.steamOwned.meaning"));
+    expect(document.body.querySelector("[role='dialog']")?.textContent).toContain(
+      t("explain.topics.steamOwned.meaning"),
+    );
   });
 
   it("erklärt abgebrochene Löschungen an der Claim-Anzeige", async () => {
@@ -579,7 +581,7 @@ describe("CleanupView Erklärungen", () => {
     expect(wrapper.findAll("[data-testid='explain-trigger']")).toHaveLength(0);
   });
 
-  it("öffnet die Erklärung zum blockierten Bereich per Enter", async () => {
+  it("öffnet die Erklärung zum blockierten Bereich über den nativen Button", async () => {
     const wrapper = mountView((store) => {
       store.blockedBySkipped = true;
       store.error = t("errors.scanIncomplete", { paths: "/lib" });
@@ -587,15 +589,19 @@ describe("CleanupView Erklärungen", () => {
     const topic = t("explain.open", { topic: t("explain.topics.cleanupBlocked.title") });
     const trigger = topicTriggers(wrapper).get(topic);
     expect(trigger).toBeDefined();
-    const button = trigger as HTMLElement;
+    const button = trigger as HTMLButtonElement;
 
-    button.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
-    );
+    // Enter und Leertaste kommen aus der nativen Button-Semantik; ein eigener
+    // Keydown-Handler waere Doppelung.
+    expect(button.tagName).toBe("BUTTON");
+    expect(button.type).toBe("button");
+
+    button.click();
     await wrapper.vm.$nextTick();
-    const dialog = wrapper.get("[role='dialog']");
-    expect(dialog.text()).toContain(t("explain.topics.cleanupBlocked.meaning"));
-    expect(dialog.text()).toContain(t("explain.topics.cleanupBlocked.limit"));
-    expect(dialog.attributes("aria-modal")).toBe("true");
+    const dialog = document.body.querySelector("[role='dialog']");
+    expect(dialog).not.toBeNull();
+    expect(dialog?.textContent).toContain(t("explain.topics.cleanupBlocked.meaning"));
+    expect(dialog?.textContent).toContain(t("explain.topics.cleanupBlocked.limit"));
+    expect(dialog?.getAttribute("aria-modal")).toBe("true");
   });
 });

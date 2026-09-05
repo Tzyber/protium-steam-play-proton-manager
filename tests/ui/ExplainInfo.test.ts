@@ -17,16 +17,32 @@ const ParentTrap = defineComponent({
       parentEvents.keydown += 1;
       trapFocus(event, parentRef.value);
     }
-    return { parentRef, onKeydown };
+    return { parentRef, onKeydown, label: t("explain.topics.compatTool.title") };
   },
   template: `
     <div ref="parentRef" data-testid="parent-trap" @keydown="onKeydown">
       <button data-testid="outside-before" type="button">before</button>
-      <ExplainInfo topic="compat-tool" />
+      <ExplainInfo :label="label" :topics="['compat-tool']" />
       <button data-testid="outside-after" type="button">after</button>
     </div>
   `,
 });
+
+function dialog(): HTMLElement | null {
+  return document.body.querySelector("[role='dialog']");
+}
+
+function openDialog(): HTMLElement {
+  const found = dialog();
+  if (!found) throw new Error("kein offener Explain-Dialog");
+  return found;
+}
+
+function query(selector: string): HTMLElement {
+  const element = openDialog().querySelector<HTMLElement>(selector);
+  if (!element) throw new Error(`nicht gefunden: ${selector}`);
+  return element;
+}
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -38,15 +54,14 @@ describe("ExplainInfo", () => {
   it("rendert einen kontextuellen trigger mit eindeutigen ARIA-Referenzen", () => {
     const wrapper = mount(ParentTrap, { attachTo: document.body });
     const trigger = wrapper.get("[data-testid='explain-trigger']");
-    const controls = trigger.attributes("aria-controls");
 
     expect(trigger.attributes("type")).toBe("button");
     expect(trigger.attributes("aria-label")).toBe(
       t("explain.open", { topic: t("explain.topics.compatTool.title") }),
     );
     expect(trigger.attributes("aria-expanded")).toBe("false");
-    expect(controls).toMatch(/^explain-dialog-/);
-    expect(wrapper.find(`#${controls}`).exists()).toBe(false);
+    expect(trigger.attributes("aria-controls")).toMatch(/^explain-dialog-/);
+    expect(dialog()).toBeNull();
   });
 
   it.each(["de", "en"] as const)(
@@ -58,53 +73,62 @@ describe("ExplainInfo", () => {
       await trigger.trigger("click");
       await nextTick();
 
-      const dialog = wrapper.get("[role='dialog']");
-      const titleId = dialog.attributes("aria-labelledby");
-      const descriptionId = dialog.attributes("aria-describedby");
-      expect(wrapper.element.contains(dialog.element)).toBe(true);
-      expect(dialog.attributes("aria-modal")).toBe("true");
-      expect(wrapper.find(`#${titleId}`).exists()).toBe(true);
-      expect(wrapper.find(`#${descriptionId}`).exists()).toBe(true);
-      expect(dialog.text()).toContain(t("explain.sourceLabel"));
-      expect(dialog.text()).toContain(t("explain.meaningLabel"));
-      expect(dialog.text()).toContain(t("explain.limitLabel"));
-      expect(dialog.text()).toContain(t("explain.topics.compatTool.source"));
-      expect(dialog.text()).toContain(t("explain.topics.compatTool.meaning"));
-      expect(dialog.text()).toContain(t("explain.topics.compatTool.limit"));
+      const panel = openDialog();
+      expect(panel.id).toBe(trigger.attributes("aria-controls"));
+      expect(panel.getAttribute("aria-modal")).toBe("true");
+      expect(document.getElementById(panel.getAttribute("aria-labelledby") ?? "")).not.toBeNull();
+      expect(document.getElementById(panel.getAttribute("aria-describedby") ?? "")).not.toBeNull();
+      expect(panel.textContent).toContain(t("explain.sourceLabel"));
+      expect(panel.textContent).toContain(t("explain.meaningLabel"));
+      expect(panel.textContent).toContain(t("explain.limitLabel"));
+      expect(panel.textContent).toContain(t("explain.topics.compatTool.source"));
+      expect(panel.textContent).toContain(t("explain.topics.compatTool.meaning"));
+      expect(panel.textContent).toContain(t("explain.topics.compatTool.limit"));
       expect(trigger.attributes("aria-expanded")).toBe("true");
-      expect(document.activeElement).toBe(dialog.get("[data-testid='explain-close']").element);
+      expect(document.activeElement).toBe(query("[data-testid='explain-close']"));
     },
   );
 
-  it.each(["Enter", " "])("öffnet auch per %s und isoliert inneres Tab/Escape", async (key) => {
+  it("listet jedes Topic des Abschnitts mit eigener Überschrift", async () => {
+    const wrapper = mount(ExplainInfo, {
+      attachTo: document.body,
+      props: { label: "Konfiguration", topics: ["compat-tool", "global-default"] },
+    });
+    await wrapper.get("[data-testid='explain-trigger']").trigger("click");
+    await nextTick();
+
+    const panel = openDialog();
+    expect(panel.textContent).toContain("Konfiguration");
+    expect(panel.textContent).toContain(t("explain.topics.compatTool.title"));
+    expect(panel.textContent).toContain(t("explain.topics.globalDefault.title"));
+    expect(panel.textContent).toContain(t("explain.topics.globalDefault.limit"));
+    expect(panel.querySelectorAll("dl")).toHaveLength(2);
+  });
+
+  it("isoliert Tab und Escape gegen die umgebende UI und gibt den Fokus zurück", async () => {
     const wrapper = mount(ParentTrap, { attachTo: document.body });
     const trigger = wrapper.get("[data-testid='explain-trigger']");
-    await trigger.trigger("keydown", { key });
+    await trigger.trigger("click");
     await nextTick();
     parentEvents.keydown = 0;
 
-    const dialog = wrapper.get("[role='dialog']");
-    const close = dialog.get("[data-testid='explain-close']");
-    const tabEvent = new KeyboardEvent("keydown", {
-      key: "Tab",
-      bubbles: true,
-      cancelable: true,
-    });
-    close.element.dispatchEvent(tabEvent);
+    const close = query("[data-testid='explain-close']");
+    const tabEvent = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    close.dispatchEvent(tabEvent);
     expect(tabEvent.defaultPrevented).toBe(true);
     expect(parentEvents.keydown).toBe(0);
-    expect(document.activeElement).toBe(close.element);
+    expect(document.activeElement).toBe(close);
 
     const escapeEvent = new KeyboardEvent("keydown", {
       key: "Escape",
       bubbles: true,
       cancelable: true,
     });
-    close.element.dispatchEvent(escapeEvent);
+    close.dispatchEvent(escapeEvent);
     await nextTick();
     expect(escapeEvent.defaultPrevented).toBe(true);
     expect(parentEvents.keydown).toBe(0);
-    expect(wrapper.find("[role='dialog']").exists()).toBe(false);
+    expect(dialog()).toBeNull();
     expect(document.activeElement).toBe(trigger.element);
 
     trigger.element.dispatchEvent(
@@ -113,18 +137,48 @@ describe("ExplainInfo", () => {
     expect(parentEvents.keydown).toBe(1);
   });
 
-  it("schließt bei Kontextwechsel ohne inneren Fokus-Restore und unmountet ohne Fokusklau", async () => {
+  it("schließt per Klick auf den Hintergrund", async () => {
+    const wrapper = mount(ParentTrap, { attachTo: document.body });
+    const trigger = wrapper.get("[data-testid='explain-trigger']");
+    await trigger.trigger("click");
+    await nextTick();
+
+    const backdrop = document.body.querySelector(".explain-backdrop");
+    backdrop?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await nextTick();
+    expect(dialog()).toBeNull();
+    expect(document.activeElement).toBe(trigger.element);
+  });
+
+  it("bleibt offen, wenn sich nur die Topic-Liste des Abschnitts ändert", async () => {
     const wrapper = mount(ExplainInfo, {
       attachTo: document.body,
-      props: { topic: "compat-tool", contextKey: 620 },
+      props: { label: "Speicherbedarf", topics: ["footprint"], contextKey: 620 },
     });
     await wrapper.get("[data-testid='explain-trigger']").trigger("click");
     await nextTick();
-    expect(wrapper.find("[role='dialog']").exists()).toBe(true);
+    const close = query("[data-testid='explain-close']");
+
+    await wrapper.setProps({ topics: ["footprint", "external-compatdata"] });
+    await nextTick();
+
+    const panel = openDialog();
+    expect(panel.textContent).toContain(t("explain.topics.externalCompatdata.title"));
+    expect(document.activeElement).toBe(close);
+  });
+
+  it("schließt bei Kontextwechsel ohne inneren Fokus-Restore und unmountet ohne Fokusklau", async () => {
+    const wrapper = mount(ExplainInfo, {
+      attachTo: document.body,
+      props: { label: "Tool", topics: ["compat-tool"], contextKey: 620 },
+    });
+    await wrapper.get("[data-testid='explain-trigger']").trigger("click");
+    await nextTick();
+    expect(dialog()).not.toBeNull();
 
     await wrapper.setProps({ contextKey: 621 });
     await nextTick();
-    expect(wrapper.find("[role='dialog']").exists()).toBe(false);
+    expect(dialog()).toBeNull();
     expect(document.activeElement).not.toBe(wrapper.get("[data-testid='explain-trigger']").element);
 
     const parentFocus = document.createElement("button");

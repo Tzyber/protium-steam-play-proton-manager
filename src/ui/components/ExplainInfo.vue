@@ -1,30 +1,24 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref, useId, watch } from "vue";
 import { focusFirstFocusable, restoreFocus, trapFocus } from "../a11y";
-import { type ExplainTopic, getExplainDefinition } from "../explain";
+import { EXPLAIN_TOPICS, type ExplainTopic } from "../explain";
 import { t } from "../i18n";
 
-let instanceCount = 0;
-
 const props = defineProps<{
-  topic: ExplainTopic;
+  label: string;
+  topics: readonly ExplainTopic[];
   contextKey?: number | string;
 }>();
 
-const definition = () => getExplainDefinition(props.topic);
 const open = ref(false);
 const triggerRef = ref<HTMLButtonElement | null>(null);
 const dialogRef = ref<HTMLElement | null>(null);
-const instanceId = ++instanceCount;
-const dialogId = `explain-dialog-${instanceId}`;
-const titleId = `explain-dialog-title-${instanceId}`;
-const descriptionId = `explain-dialog-description-${instanceId}`;
+const uid = useId();
+const dialogId = `explain-dialog-${uid}`;
+const titleId = `explain-dialog-title-${uid}`;
+const descriptionId = `explain-dialog-description-${uid}`;
+const entries = computed(() => props.topics.map((topic) => EXPLAIN_TOPICS[topic]));
 let opener: HTMLElement | null = null;
-
-function closeWithoutRestore(): void {
-  open.value = false;
-  opener = null;
-}
 
 function openExplanation(): void {
   if (open.value) return;
@@ -35,17 +29,11 @@ function openExplanation(): void {
   });
 }
 
-function closeExplanation(): void {
+function closeExplanation(restore = true): void {
   if (!open.value) return;
   open.value = false;
-  restoreFocus(opener ?? triggerRef.value);
+  if (restore) restoreFocus(opener ?? triggerRef.value);
   opener = null;
-}
-
-function onTriggerKeydown(event: KeyboardEvent): void {
-  if (event.key !== "Enter" && event.key !== " ") return;
-  event.preventDefault();
-  openExplanation();
 }
 
 function onDialogKeydown(event: KeyboardEvent): void {
@@ -62,13 +50,12 @@ function onDialogKeydown(event: KeyboardEvent): void {
   }
 }
 
+// nur ein kontextwechsel (anderes spiel) schliesst das offene panel. eine
+// geaenderte topics-liste aktualisiert nur den inhalt: sonst verschwindet das
+// panel unter dem nutzer, sobald eine laufende messung ein topic ergaenzt.
 watch(
-  () => [props.topic, props.contextKey] as const,
-  ([topic, contextKey], previous) => {
-    if (previous && (topic !== previous[0] || contextKey !== previous[1])) {
-      closeWithoutRestore();
-    }
-  },
+  () => props.contextKey,
+  () => closeExplanation(false),
 );
 </script>
 
@@ -79,75 +66,75 @@ watch(
       class="explain-trigger"
       data-testid="explain-trigger"
       type="button"
-      :aria-label="t('explain.open', { topic: t(definition().titleKey) })"
+      :aria-label="t('explain.open', { topic: label })"
       :aria-expanded="open"
       :aria-controls="dialogId"
       @click="openExplanation"
-      @keydown="onTriggerKeydown"
     >
-      <span aria-hidden="true" />
+      ?
     </button>
 
-    <section
-      v-if="open"
-      :id="dialogId"
-      ref="dialogRef"
-      class="explain-dialog"
-      role="dialog"
-      aria-modal="true"
-      :aria-labelledby="titleId"
-      :aria-describedby="descriptionId"
-      tabindex="-1"
-      @keydown="onDialogKeydown"
-    >
-      <div class="explain-heading">
-        <h3 :id="titleId">{{ t(definition().titleKey) }}</h3>
-        <button
-          class="explain-close"
-          data-testid="explain-close"
-          type="button"
-          :aria-label="t('explain.close')"
-          @click="closeExplanation"
+    <Teleport to="body">
+      <div v-if="open" class="explain-backdrop" @click.self="closeExplanation()">
+        <section
+          :id="dialogId"
+          ref="dialogRef"
+          class="explain-dialog"
+          role="dialog"
+          aria-modal="true"
+          :aria-labelledby="titleId"
+          :aria-describedby="descriptionId"
+          tabindex="-1"
+          @keydown="onDialogKeydown"
         >
-          {{ t("explain.close") }}
-        </button>
+          <div class="explain-heading">
+            <h3 :id="titleId">{{ label }}</h3>
+            <button
+              class="explain-close"
+              data-testid="explain-close"
+              type="button"
+              @click="closeExplanation()"
+            >
+              {{ t("explain.close") }}
+            </button>
+          </div>
+          <div :id="descriptionId" class="explain-entries">
+            <section v-for="entry in entries" :key="entry.titleKey">
+              <h4>{{ t(entry.titleKey) }}</h4>
+              <dl>
+                <dt>{{ t("explain.sourceLabel") }}</dt>
+                <dd>{{ t(entry.sourceKey) }}</dd>
+                <dt>{{ t("explain.meaningLabel") }}</dt>
+                <dd>{{ t(entry.meaningKey) }}</dd>
+                <dt>{{ t("explain.limitLabel") }}</dt>
+                <dd>{{ t(entry.limitKey) }}</dd>
+              </dl>
+            </section>
+          </div>
+        </section>
       </div>
-      <dl :id="descriptionId" class="explain-details">
-        <div>
-          <dt>{{ t("explain.sourceLabel") }}</dt>
-          <dd>{{ t(definition().sourceKey) }}</dd>
-        </div>
-        <div>
-          <dt>{{ t("explain.meaningLabel") }}</dt>
-          <dd>{{ t(definition().meaningKey) }}</dd>
-        </div>
-        <div>
-          <dt>{{ t("explain.limitLabel") }}</dt>
-          <dd>{{ t(definition().limitKey) }}</dd>
-        </div>
-      </dl>
-    </section>
+    </Teleport>
   </span>
 </template>
 
 <style scoped>
 .explain-info {
-  position: relative;
-  display: inline-block;
+  display: inline-flex;
   vertical-align: middle;
 }
 
 .explain-trigger {
   display: inline-grid;
   place-items: center;
-  width: 1.45rem;
-  height: 1.45rem;
+  width: 1.5rem;
+  height: 1.5rem;
   padding: 0;
   border: 1px solid var(--signal-dim);
   border-radius: 50%;
   background: transparent;
   color: var(--signal-bright);
   font: 600 0.8rem var(--font-body);
+  line-height: 1;
   cursor: pointer;
 }
 
@@ -157,22 +144,27 @@ watch(
   background: var(--signal-glow);
 }
 
-.explain-trigger::before {
-  content: "?";
+.explain-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 5, 9, 0.6);
+  backdrop-filter: blur(2px);
 }
 
 .explain-dialog {
-  position: absolute;
-  z-index: 10;
-  top: calc(100% + 8px);
-  left: 0;
-  width: min(380px, 80vw);
-  padding: 14px;
+  width: min(440px, 92vw);
+  max-height: 80vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 20px;
   border: 1px solid var(--line);
-  border-radius: var(--r-md);
+  border-radius: var(--r-lg);
   background: var(--bg-1);
   color: var(--fg-0);
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.7);
 }
 
 .explain-heading {
@@ -185,13 +177,13 @@ watch(
 h3 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 0.95rem;
+  font-size: 1.0625rem;
   font-weight: 600;
 }
 
 .explain-close {
   flex: 0 0 auto;
-  padding: 3px 7px;
+  padding: 4px 9px;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background: transparent;
@@ -206,19 +198,27 @@ h3 {
   color: var(--fg-0);
 }
 
-.explain-details {
+.explain-entries {
   display: grid;
-  gap: 9px;
-  margin: 14px 0 0;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.explain-entries h4 {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.explain-entries dl {
+  display: grid;
+  gap: 2px 10px;
+  margin: 0;
   font-size: 0.78rem;
 }
 
-.explain-details div {
-  display: grid;
-  gap: 2px;
-}
-
-.explain-details dt {
+.explain-entries dt {
   color: var(--fg-2);
   font-family: var(--font-mono);
   font-size: 0.68rem;
@@ -226,8 +226,12 @@ h3 {
   text-transform: uppercase;
 }
 
-.explain-details dd {
-  margin: 0;
+.explain-entries dd {
+  margin: 0 0 6px;
   color: var(--fg-1);
+}
+
+.explain-entries dd:last-child {
+  margin-bottom: 0;
 }
 </style>

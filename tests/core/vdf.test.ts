@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
+import { parse } from "@node-steam/vdf";
 import { describe, expect, it } from "vitest";
-import { getPath, parseVdf } from "../../src/core/vdf";
+import { asNode, getPath, parseVdf, type VdfNode, type VdfValue } from "../../src/core/vdf";
+import { getVdfValue } from "../../src/core/vdfpatch.js";
 
 describe("parseVdf prototype-safety", () => {
   it("neutralisiert __proto__-keys: keine globale prototype-pollution", () => {
@@ -99,5 +102,59 @@ describe("parseVdf prototype-safety", () => {
 \t}
 }`);
     expect(getPath(parsed, "a", "b", "c")).toBe(1);
+  });
+});
+
+// vertragstest Rust -> @node-steam/vdf: die datei ist der byte-genaue output
+// von set_vdf_value/remove_vdf_entry (erzeugt in
+// src-tauri/src/commands/vdf_patch.rs, test
+// cross_parser_erwartungsdatei_ist_echter_rust_output). schlägt hier etwas
+// fehl, ist von Rust geschriebenes VDF für die lesende seite kaputt.
+describe("cross-parser-vertrag Rust -> @node-steam/vdf", () => {
+  const RUST_OUTPUT = readFileSync(
+    `${process.cwd()}/tests/fixtures/cross-parser-expected.vdf`,
+    "utf8",
+  );
+  const APPS = ["UserLocalConfigStore", "Software", "Valve", "Steam", "Apps"];
+
+  it("parst den rust-output ohne strukturverlust", () => {
+    const parsed = parseVdf(RUST_OUTPUT);
+    const apps = asNode(getPath(parsed, ...APPS));
+    expect(apps).toBeDefined();
+    expect(Object.keys(apps as VdfNode)).toEqual(["620", "730", "1091500"]);
+
+    // neu angelegter block ist da
+    expect(getPath(parsed, ...APPS, "1091500", "LaunchOptions")).toBeDefined();
+    // entfernter scalar ist weg, sein geschwister im selben block bleibt
+    expect(getPath(parsed, ...APPS, "620", "LastPlayed")).toBeUndefined();
+    expect(getPath(parsed, ...APPS, "620", "LaunchOptions")).toBeDefined();
+    // unbeteiligter nachbarblock unverändert
+    expect(getPath(parsed, ...APPS, "730", "LaunchOptions")).toBe("-novid -high");
+  });
+
+  it("liefert werte mit quotes und backslashes escaped zurück", () => {
+    // @node-steam/vdf entfernt die valve-escapes NICHT. deshalb liest die app
+    // escaping-relevante werte über getVdfValue und nicht über parseVdf.
+    const parsed = parseVdf(RUST_OUTPUT);
+    expect(getPath(parsed, ...APPS, "620", "LaunchOptions")).toBe(
+      'PROTON_LOG=1 MANGOHUD_CONFIG=\\"fps,gpu,ram\\" %command% --skip-launcher',
+    );
+    expect(getPath(parsed, ...APPS, "1091500", "LaunchOptions")).toBe(
+      'WINEDLLOVERRIDES=\\"dinput8=n,b\\" PROTON_LOG_DIR=Z:\\\\home\\\\logs gamemoderun %command%',
+    );
+    // direkt gegen den rohen parser, den vdf.ts kapselt
+    const raw = parse(RUST_OUTPUT) as Record<string, VdfValue>;
+    expect(getPath(raw as VdfNode, ...APPS, "730", "LaunchOptions")).toBe("-novid -high");
+  });
+
+  it("gibt über getVdfValue exakt die von rust gesetzten werte zurück", () => {
+    expect(getVdfValue(RUST_OUTPUT, [...APPS, "620", "LaunchOptions"])).toBe(
+      'PROTON_LOG=1 MANGOHUD_CONFIG="fps,gpu,ram" %command% --skip-launcher',
+    );
+    expect(getVdfValue(RUST_OUTPUT, [...APPS, "1091500", "LaunchOptions"])).toBe(
+      'WINEDLLOVERRIDES="dinput8=n,b" PROTON_LOG_DIR=Z:\\home\\logs gamemoderun %command%',
+    );
+    expect(getVdfValue(RUST_OUTPUT, [...APPS, "620", "LastPlayed"])).toBeUndefined();
+    expect(getVdfValue(RUST_OUTPUT, [...APPS, "730", "LaunchOptions"])).toBe("-novid -high");
   });
 });

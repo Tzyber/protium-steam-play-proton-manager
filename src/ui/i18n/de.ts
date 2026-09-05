@@ -271,7 +271,7 @@ export const de = {
     close: "Erklärung schließen",
     sourceLabel: "Quelle",
     meaningLabel: "Bedeutung",
-    limitLabel: "Grenze",
+    limitLabel: "Bedeutet nicht",
     topics: {
       compatTool: {
         title: "Kompatibilitäts-Tool",
@@ -302,7 +302,7 @@ export const de = {
         title: "ProtonDB-Tier",
         source: "vorhandener ProtonDB-Community-Befund",
         meaning: "aggregierter Community-Befund",
-        limit: "kein lokaler Test",
+        limit: "ein lokaler Test",
       },
       scanCoverage: {
         title: "Scan-Abdeckung",
@@ -358,8 +358,8 @@ export const de = {
     coverageComplete: "vollständig",
     coverageIncomplete: "unvollständig",
     coverageLimited: "eingeschränkt",
-    statusMissing: "fehlend",
-    statusUnreadable: "nicht lesbar",
+    statusMissing: "nicht gefunden",
+    statusUnreadable: "unlesbar",
     statusAmbiguous: "mehrdeutig",
     config: "Kompatibilitäts-Config: {status} (Quelle: Config)",
     launchConfig: "Startoptionen-Quelle: {status} (Quelle: Config)",

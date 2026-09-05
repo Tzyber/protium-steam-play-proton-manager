@@ -275,7 +275,7 @@ export const en = {
     close: "close explanation",
     sourceLabel: "Source",
     meaningLabel: "Meaning",
-    limitLabel: "Limit",
+    limitLabel: "Does not mean",
     topics: {
       compatTool: {
         title: "Compatibility tool",
@@ -361,7 +361,7 @@ export const en = {
     coverageComplete: "complete",
     coverageIncomplete: "incomplete",
     coverageLimited: "limited",
-    statusMissing: "missing",
+    statusMissing: "not found",
     statusUnreadable: "unreadable",
     statusAmbiguous: "ambiguous",
     config: "Compatibility config: {status} (source: config)",
@@ -371,7 +371,7 @@ export const en = {
     assignmentDefault: "global default",
     assignmentUnavailable: "not available",
     assignedTool: "Assigned tool: {tool}",
-    toolAvailability: "Tool availability: {status} (source: local scan)",
+    toolAvailability: "Tool available: {status} (source: local scan)",
     toolAvailable: "available",
     toolNotRecognized: "not recognized",
     protonDb: "ProtonDB tier: {tier} (source: existing community finding)",

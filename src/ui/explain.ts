@@ -148,7 +148,3 @@ export const EXPLAIN_TOPICS = {
     ],
   },
 } as const satisfies Readonly<Record<ExplainTopic, ExplainTopicDefinition>>;
-
-export function getExplainDefinition(topic: ExplainTopic): ExplainTopicDefinition {
-  return EXPLAIN_TOPICS[topic];
-}

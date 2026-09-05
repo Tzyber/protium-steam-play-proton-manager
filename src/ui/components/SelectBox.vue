@@ -170,6 +170,8 @@ onBeforeUnmount(() => {
 	z-index: 50;
 	max-height: 240px;
 	overflow-y: auto;
+	/* sonst scrollt am listenende der drawer dahinter weiter */
+	overscroll-behavior: contain;
 	margin: 0;
 	padding: 4px;
 	list-style: none;

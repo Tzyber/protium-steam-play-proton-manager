@@ -1,7 +1,6 @@
 const MAX_DRAFT_LENGTH = 8192;
 const COMMAND_MARKER = "%command%";
 const ASSIGNMENT_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_./:+,@%-]*$/;
-const ARGUMENT_PATTERN = /^[A-Za-z0-9_./:+,@%=~-]+$/;
 const DISALLOWED_CHARACTER = /[^A-Za-z0-9_./:+,@%=~\- \t]/;
 
 export type LaunchHint =
@@ -52,20 +51,14 @@ function parseAssignment(token: string): Assignment | undefined {
   };
 }
 
-function isSimpleArgument(token: string): boolean {
-  return ARGUMENT_PATTERN.test(token);
-}
-
 function analyzeWithoutMarker(tokens: readonly string[]): LaunchHint[] {
   if (tokens[0] !== "gamemoderun") return [];
-  if (!tokens.slice(1).every(isSimpleArgument)) return [];
   return ["gamemode-missing-command"];
 }
 
 function analyzeWithMarker(tokens: readonly string[], markerIndex: number): LaunchHint[] {
   const prefix = tokens.slice(0, markerIndex);
   const suffix = tokens.slice(markerIndex + 1);
-  if (!suffix.every(isSimpleArgument)) return [];
 
   const assignments: Assignment[] = [];
   let cursor = 0;
@@ -120,7 +113,8 @@ export function analyzeLaunchOptions(draft: string): LaunchHint[] {
   if (tokens.length === 0) return [];
   if (markerPosition === undefined) return analyzeWithoutMarker(tokens);
 
+  // der marker ist hier belegt ein eigenes token; der guard haelt die annahme
+  // lokal, falls DISALLOWED_CHARACTER je weitere trennzeichen zulaesst.
   const markerIndex = tokens.indexOf(COMMAND_MARKER);
-  if (markerIndex < 0) return [];
-  return analyzeWithMarker(tokens, markerIndex);
+  return markerIndex < 0 ? [] : analyzeWithMarker(tokens, markerIndex);
 }

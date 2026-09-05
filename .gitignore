@@ -84,3 +84,6 @@ docs/protium-roadmap-post-v0.5.md
 docs/Protium-Scan-v0.7.0-2026-08-31.md
 docs/protium-v0.6.2-sdd-truth-deletion-hardening.md
 docs/Protium-Backend-Audit-vor-v0.8-2026-09-03.md
+
+# release-anweisung fuer den release-agenten, gehoert nicht ins release
+RELEASE-HANDOFF-*.md

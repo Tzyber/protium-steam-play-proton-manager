@@ -15,6 +15,7 @@ import { protonDbAppUrl } from "../../core/protondb";
 import { projectSupportFacts } from "../../core/support";
 import type { LaunchConfigStatus, Tier } from "../../core/types";
 import { focusFirstFocusable, restoreFocus, trapFocus } from "../a11y";
+import type { ExplainTopic } from "../explain";
 import { formatBytes } from "../format";
 import { t } from "../i18n";
 import { useCleanupStore } from "../stores/cleanupStore";
@@ -330,6 +331,21 @@ const compatToolUnrecognized = computed(() =>
   ),
 );
 
+const configTopics = computed<ExplainTopic[]>(() => {
+  const topics: ExplainTopic[] = ["compat-tool", "compat-source"];
+  const status = scan.result?.compatConfigStatus;
+  if (status === "missing" || status === "unreadable") topics.push("config-unavailable");
+  if (game.value?.compatToolSource === "default" && scan.result?.defaultCompatTool) {
+    topics.push("global-default");
+  }
+  if (compatToolUnrecognized.value) topics.push("tool-unrecognized");
+  return topics;
+});
+
+const footprintTopics = computed<ExplainTopic[]>(() =>
+  footprintResult.value?.externalCompatdata ? ["footprint", "external-compatdata"] : ["footprint"],
+);
+
 const compatOptions = computed(() => {
   const builtIns = scan.result?.builtinProtonsInstalled ?? [];
   const tools = scan.result?.compatToolsInstalled ?? [];
@@ -546,7 +562,11 @@ watch(errorMessage, (msg) => {
         <p class="meta mono">{{ formatBytes(game.sizeBytes) }} · appid - {{ game.appId }}</p>
         <p class="meta-tier">
           {{ TIER_LABEL[game.protonDb?.tier ?? "unknown"] }}
-          <ExplainInfo topic="protondb" :context-key="game.appId" />
+          <ExplainInfo
+            :label="t('explain.topics.protondb.title')"
+            :topics="['protondb']"
+            :context-key="game.appId"
+          />
         </p>
 
         <PlayButton variant="full" :appId="game.appId" :name="game.name" />
@@ -591,7 +611,14 @@ watch(errorMessage, (msg) => {
           data-testid="footprint-section"
           :aria-busy="footprintState === 'measuring'"
         >
-          <h3 class="section-label">{{ t("drawer.footprintTitle") }}</h3>
+          <div class="section-label-explained">
+            <h3 class="section-label">{{ t("drawer.footprintTitle") }}</h3>
+            <ExplainInfo
+              :label="t('drawer.footprintTitle')"
+              :topics="footprintTopics"
+              :context-key="game.appId"
+            />
+          </div>
           <p v-if="footprintState === 'idle'" class="hint">
             {{ t("drawer.footprintExplanation") }}
           </p>
@@ -608,7 +635,6 @@ watch(errorMessage, (msg) => {
                 : t("drawer.footprintMeasure")
             }}
           </button>
-          <span class="footprint-explain"><ExplainInfo topic="footprint" :context-key="game.appId" /></span>
 
           <div v-if="footprintState !== 'idle'" class="footprint-values">
             <div class="footprint-row" data-testid="footprint-game-install">
@@ -656,7 +682,6 @@ watch(errorMessage, (msg) => {
               data-testid="footprint-external-compatdata"
             >
               {{ t("drawer.footprintExternalCompatdata") }}
-              <ExplainInfo topic="external-compatdata" :context-key="game.appId" />
             </p>
             <p
               v-if="footprintResult?.compatdataNotChecked"
@@ -669,13 +694,17 @@ watch(errorMessage, (msg) => {
         </section>
 
         <div class="divider" />
-        <p class="section-label mono">{{ t("drawer.configuration") }}</p>
+        <div class="section-label-explained">
+          <p class="section-label mono">{{ t("drawer.configuration") }}</p>
+          <ExplainInfo
+            :label="t('drawer.configuration')"
+            :topics="configTopics"
+            :context-key="game.appId"
+          />
+        </div>
 
         <div class="field">
-          <label class="k" for="compat-tool">
-            {{ t("drawer.compatToolLabel") }}
-            <ExplainInfo topic="compat-tool" :context-key="game.appId" />
-          </label>
+          <label class="k" for="compat-tool">{{ t("drawer.compatToolLabel") }}</label>
           <div class="field-row">
             <SelectBox id="compat-tool" v-model="compatSelected" :options="compatOptions" />
             <button
@@ -689,21 +718,9 @@ watch(errorMessage, (msg) => {
           </div>
           <p class="hint" data-testid="compat-provenance">
             {{ compatProvenance }}
-            <ExplainInfo topic="compat-source" :context-key="game.appId" />
-            <ExplainInfo
-              v-if="scan.result?.compatConfigStatus === 'missing' || scan.result?.compatConfigStatus === 'unreadable'"
-              topic="config-unavailable"
-              :context-key="game.appId"
-            />
-            <ExplainInfo
-              v-if="game.compatToolSource === 'default' && scan.result?.defaultCompatTool"
-              topic="global-default"
-              :context-key="game.appId"
-            />
           </p>
           <p v-if="compatToolUnrecognized" class="hint" data-testid="compat-unrecognized">
             {{ t("drawer.compatToolUnrecognized") }}
-            <ExplainInfo topic="tool-unrecognized" :context-key="game.appId" />
           </p>
         </div>
 
@@ -776,6 +793,7 @@ watch(errorMessage, (msg) => {
   box-shadow: -24px 0 60px -20px rgba(0, 0, 0, 0.6);
   padding: 20px 22px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .close {
@@ -831,6 +849,18 @@ watch(errorMessage, (msg) => {
 }
 .footprint-summary .k { color: var(--fg-0); }
 .footprint .hint { margin-top: 12px; }
+
+.section-label-explained {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.section-label-explained .section-label {
+  margin-bottom: 0;
+}
 
 .divider { height: 1px; background: var(--line-soft); margin: 20px 0 16px; }
 .section-label {

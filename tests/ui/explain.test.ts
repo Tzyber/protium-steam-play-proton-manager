@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { EXPLAIN_TOPICS, type ExplainTopic, getExplainDefinition } from "../../src/ui/explain.js";
+import { EXPLAIN_TOPICS, type ExplainTopic } from "../../src/ui/explain.js";
 import { setLocale, t } from "../../src/ui/i18n/index.js";
 
 const GLOSSARY = readFileSync(resolve(process.cwd(), "docs/glossar.md"), "utf8");
@@ -27,8 +27,7 @@ describe("Explain-Registry", () => {
 
   it("bindet jedes Topic an de/en-Texte und vorhandene Glossarzeilen", () => {
     for (const topic of TOPICS) {
-      const definition = getExplainDefinition(topic);
-      expect(definition).toBe(EXPLAIN_TOPICS[topic]);
+      const definition = EXPLAIN_TOPICS[topic];
 
       for (const locale of ["de", "en"] as const) {
         setLocale(locale);

@@ -1,0 +1,27 @@
+"UserLocalConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"Apps"
+				{
+					"620"
+					{
+						"LaunchOptions"		"PROTON_LOG=1 MANGOHUD_CONFIG=\"fps,gpu,ram\" %command% --skip-launcher"
+					}
+					"730"
+					{
+						"LaunchOptions"		"-novid -high"
+					}
+					"1091500"
+					{
+						"LaunchOptions"		"WINEDLLOVERRIDES=\"dinput8=n,b\" PROTON_LOG_DIR=Z:\\home\\logs gamemoderun %command%"
+					}
+				}
+			}
+		}
+	}
+}

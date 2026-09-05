@@ -1,0 +1,24 @@
+"UserLocalConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"Apps"
+				{
+					"620"
+					{
+						"LaunchOptions"		"MANGOHUD_CONFIG=\"fps,cpu\" PROTON_LOG_DIR=C:\\logs %command%"
+						"LastPlayed"		"1757000000"
+					}
+					"730"
+					{
+						"LaunchOptions"		"-novid -high"
+					}
+				}
+			}
+		}
+	}
+}

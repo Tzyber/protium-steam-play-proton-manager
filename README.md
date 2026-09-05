@@ -4,26 +4,47 @@
 
 [![CI](https://github.com/Tzyber/protium-steam-play-proton-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/Tzyber/protium-steam-play-proton-manager/actions/workflows/ci.yml)
 
-> ein proton. ein elektron. das simpelste atom im universum, und ungefähr so viel overhead soll auch dieses tool haben.
+**beim allerersten scan sah ich, dass für ein spiel eine ganz andere
+proton-version eingestellt war als die, die ich eingestellt zu haben glaubte.**
+genau dafür gibt es protium.
 
-aufmachen, spiel starten oder startoptionen setzen, verwaiste prefixes löschen,
-proton-versionen nachladen. so viel, und trotzdem an einem ort.
+protium zeigt dir, was steam auf deinem rechner wirklich eingestellt hat. und
+es sagt dir dazu, wie sicher es sich ist. an den wichtigen stellen sitzt ein
+fragezeichen. dahinter steht, woher ein wert kommt, was er bedeutet und was er
+eben nicht bedeutet. weiß protium etwas nicht, schreibt es das hin, statt zu
+raten.
 
-protium zeigt dir, was auf deinem system wirklich los ist: welchen spielen
-steam in seiner konfiguration welche proton-version zuordnet, wie die auf
-protondb bewertet sind, welche
-GE-proton-versionen bekannte explizite spielzuordnungen besitzen und welche
-prefixes von längst deinstallierten spielen noch gigabytes belegen.
+was du machen kannst: spiele starten, startoptionen setzen, neue
+proton-versionen installieren, sehen wie gut ein spiel laut protondb läuft und
+alte datenreste von längst gelöschten spielen finden und wegräumen. alles in
+einem fenster.
 
 entstanden, weil es genau dieses tool nicht gab. protonup-qt managt nur
 versionen. protontricks ist ein winetricks-wrapper. steamtinkerlaunch kann
-alles und ist genau deshalb unübersichtlich. der erste scan mit protium zeigte
-sofort einen unterschied zwischen der proton-version, die ich eingestellt
-glaubte, und der, die in steams konfiguration zugeordnet war.
+alles und ist genau deshalb unübersichtlich.
+
+> ein proton. ein elektron. das simpelste atom im universum, und ungefähr so viel overhead soll auch dieses tool haben.
+
+### was du siehst
+
+jeder wert, der etwas behauptet, kann sich erklären. quelle, bedeutung, und
+ausdrücklich das, was er eben nicht bedeutet:
+
+![erklär-fenster im spiel-drawer mit quelle, bedeutung und der zeile "bedeutet nicht"](docs/screenshots/explain_dialog.png)
+
+die bibliothek zeigt deine spiele mit ihrer protondb-bewertung und dem tool,
+das steam ihnen tatsächlich zuordnet. filtern kannst du danach auch:
 
 ![library-ansicht: cover-grid mit protondb-tiers, proton-zuordnung und filtern](docs/screenshots/main_page.png)
 
+im proton-bereich siehst du, welche versionen installiert sind und welche
+spiele daran hängen. neue GE-versionen lädst du direkt von github:
+
 ![proton-manager: installierte versionen mit spielzuordnungen, GE-releases zum installieren](docs/screenshots/proton_page.png)
+
+beim aufräumen findest du shader-caches, wine-prefixes von längst gelöschten
+spielen und den papierkorb, jeweils mit größe. gelöscht wird nur nach
+rückfrage und nur, wenn protium sich sicher ist:
 
 ![cleanup-ansicht: tabs für shader-caches, wine-prefixes und papierkorb](docs/screenshots/cleanup_view.png)
 
@@ -32,25 +53,25 @@ glaubte, und der, die in steams konfiguration zugeordnet war.
 AppImage oder Debian-Paket von der [releases-seite](https://github.com/Tzyber/protium-steam-play-proton-manager/releases)
 laden. die AppImage ausführbar machen und starten:
 
-aktuelle version: `v0.7.1`.
+aktuelle version: `v0.8.0`.
 
 ```sh
-chmod +x protium_0.7.1_amd64.AppImage
-./protium_0.7.1_amd64.AppImage
+chmod +x protium_0.8.0_amd64.AppImage
+./protium_0.8.0_amd64.AppImage
 ```
 
 die AppImage ist nicht signiert. wer das nicht mag, baut selbst (siehe
 dev-setup). für Debian-basierte systeme liegt zusätzlich ein Debian-paket bei:
 
 ```sh
-sudo apt install ./protium_0.7.1_amd64.deb
+sudo apt install ./protium_0.8.0_amd64.deb
 ```
 
 startet nichts und es kommt keine fehlermeldung, fehlt meist fuse2. dann
 entweder `sudo pacman -S fuse2` oder einmalig ohne fuse starten:
 
 ```sh
-./protium_0.7.1_amd64.AppImage --appimage-extract-and-run
+./protium_0.8.0_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## was es kann
@@ -96,7 +117,8 @@ passieren würde. wo es geht, gibt es einen rückweg.
 **erklärungen und diagnosebeleg.** ein Fragezeichen-Button erklärt technische
 werte direkt an der stelle (config-zustände, tool-quelle, scan-abdeckung,
 footprint, protondb, cleanup-blockaden, abgebrochene löschungen) mit quelle,
-bedeutung und grenze; die begriffe folgen dem [glossar](docs/glossar.md).
+bedeutung und dem, was der wert ausdrücklich nicht bedeutet; die begriffe
+folgen dem [glossar](docs/glossar.md).
 „technische infos kopieren" legt einen datensparsamen beleg in die
 zwischenablage: nur feste labels, statuswerte, validierte zahlen und
 berichtsbezogene aliasse, nie namen, pfade oder config-inhalte. konservative
@@ -240,8 +262,7 @@ die app blockieren. was sich nicht zuverlässig bestimmen lässt, heißt in der 
   überschaubaren schritten, suche und papierkorb verständlicher
 - [x] v0.8.0: explainability (erklär-Buttons mit quelle, bedeutung und
   grenze), datensparsamer diagnosebeleg zum kopieren und konservative
-  startoptionen-/`PROTON_LOG`-hinweise (für v0.8.0 umgesetzt; versionierung
-  und veröffentlichung folgen als eigener release-schritt)
+  startoptionen-/`PROTON_LOG`-hinweise
 
 versionshistorie steht in den [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 

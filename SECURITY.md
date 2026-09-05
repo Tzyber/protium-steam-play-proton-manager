@@ -7,7 +7,7 @@ not receive a blanket support commitment.
 
 | Version | Supported |
 |---------|-----------|
-| latest (aktuell `v0.7.1`) | ✅ |
+| latest (aktuell `v0.8.0`) | ✅ |
 | ältere versionen | ❌ keine pauschale supportzusage |
 
 ## Reporting a Vulnerability

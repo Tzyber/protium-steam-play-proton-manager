@@ -313,7 +313,9 @@ describe("GameDetailDrawer Speicherbedarf", () => {
     const section = wrapper.find("[data-testid='footprint-section']");
     expect(section.exists()).toBe(true);
     expect(section.find("h3").text()).toBe(t("drawer.footprintTitle"));
-    expect(section.find("button").text()).toBe(t("drawer.footprintMeasure"));
+    expect(section.find("[data-testid='footprint-measure']").text()).toBe(
+      t("drawer.footprintMeasure"),
+    );
     expect(wrapper.find(".meta-tier").element.compareDocumentPosition(section.element)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
@@ -895,38 +897,43 @@ describe("GameDetailDrawer Erklärungen", () => {
       await nextTick();
 
       const triggers = wrapper.findAll("[data-testid='explain-trigger']");
-      expect(triggers).toHaveLength(8);
-      const expectedTitles = [
-        "explain.topics.protondb.title",
-        "explain.topics.footprint.title",
-        "explain.topics.externalCompatdata.title",
+      expect(triggers).toHaveLength(3);
+      expect(triggers.map((trigger) => trigger.attributes("aria-label"))).toEqual([
+        t("explain.open", { topic: t("explain.topics.protondb.title") }),
+        t("explain.open", { topic: t("drawer.footprintTitle") }),
+        t("explain.open", { topic: t("drawer.configuration") }),
+      ]);
+
+      const configTrigger = triggers[2];
+      expect(configTrigger).toBeDefined();
+      if (!configTrigger) return;
+      await configTrigger.trigger("click");
+      await nextTick();
+      const dialog = document.body.querySelector(".explain-dialog");
+      expect(dialog).not.toBeNull();
+      if (!dialog) return;
+      const close = dialog.querySelector<HTMLElement>("[data-testid='explain-close']");
+      expect(close).not.toBeNull();
+      if (!close) return;
+      expect(dialog.textContent).toContain(t("explain.sourceLabel"));
+      expect(dialog.textContent).toContain(t("explain.meaningLabel"));
+      expect(dialog.textContent).toContain(t("explain.limitLabel"));
+      for (const title of [
         "explain.topics.compatTool.title",
         "explain.topics.compatSource.title",
         "explain.topics.configUnavailable.title",
         "explain.topics.globalDefault.title",
         "explain.topics.toolUnrecognized.title",
-      ] as const;
-      const labels = triggers.map((trigger) => trigger.attributes("aria-label"));
-      for (const title of expectedTitles) {
-        expect(labels).toContain(t("explain.open", { topic: t(title) }));
+      ] as const) {
+        expect(dialog.textContent).toContain(t(title));
       }
-
-      const trigger = triggers[0];
-      expect(trigger).toBeDefined();
-      if (!trigger) return;
-      await trigger.trigger("click");
-      await nextTick();
-      const dialog = wrapper.get(".explain-dialog");
-      expect(dialog.text()).toContain(t("explain.sourceLabel"));
-      expect(dialog.text()).toContain(t("explain.meaningLabel"));
-      expect(dialog.text()).toContain(t("explain.limitLabel"));
 
       const tabEvent = new KeyboardEvent("keydown", {
         key: "Tab",
         bubbles: true,
         cancelable: true,
       });
-      dialog.get("[data-testid='explain-close']").element.dispatchEvent(tabEvent);
+      close.dispatchEvent(tabEvent);
       expect(tabEvent.defaultPrevented).toBe(true);
       expect(uiState.closeGame).not.toHaveBeenCalled();
 
@@ -935,19 +942,19 @@ describe("GameDetailDrawer Erklärungen", () => {
         bubbles: true,
         cancelable: true,
       });
-      dialog.get("[data-testid='explain-close']").element.dispatchEvent(escapeEvent);
+      close.dispatchEvent(escapeEvent);
       await nextTick();
       expect(escapeEvent.defaultPrevented).toBe(true);
       expect(uiState.closeGame).not.toHaveBeenCalled();
-      expect(wrapper.find(".explain-dialog").exists()).toBe(false);
-      expect(document.activeElement).toBe(trigger.element);
+      expect(document.body.querySelector(".explain-dialog")).toBeNull();
+      expect(document.activeElement).toBe(configTrigger.element);
 
-      await trigger.trigger("click");
+      await configTrigger.trigger("click");
       await nextTick();
       scanState.result = result("available", "default", "default", null, { appId: 43 });
       uiState.selectedAppId = 43;
       await nextTick();
-      expect(wrapper.find(".explain-dialog").exists()).toBe(false);
+      expect(document.body.querySelector(".explain-dialog")).toBeNull();
     },
   );
 });

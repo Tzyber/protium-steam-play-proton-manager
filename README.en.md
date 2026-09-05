@@ -4,20 +4,44 @@
 
 [![CI](https://github.com/Tzyber/protium-steam-play-proton-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/Tzyber/protium-steam-play-proton-manager/actions/workflows/ci.yml)
 
+**on my very first scan I saw that a game was set to a completely different
+proton version than the one I thought I had set.** that is what protium is for.
+
+protium shows you what Steam has actually set up on your machine, and it tells
+you how sure it is. there is a question mark at the places that matter. behind
+it you find where a value comes from, what it means, and what it does not mean.
+when protium does not know something, it says so instead of guessing.
+
+what you can do: start games, set launch options, install new proton versions,
+see how well a game runs according to protondb, and find and clear out leftover
+data from games you deleted long ago. all in one window.
+
+it came into being because this exact tool did not exist. protonup-qt only
+manages versions. protontricks is a winetricks wrapper. steamtinkerlaunch does
+everything and is unwieldy for exactly that reason.
+
 > one proton. one electron. the simplest atom in the universe, and roughly the amount of overhead this tool is meant to have.
 
-open it, start a game or set launch options, delete orphaned prefixes, pull down proton versions. that much, and still in one place.
+### what you get to see
 
-protium shows you what is actually going on on your system: which proton
-version Steam assigns to each game in its configuration, how those are rated
-on protondb, which GE-proton versions have known explicit game mappings, and
-which prefixes from long-uninstalled games still occupy gigabytes.
+every value that claims something can explain itself. where it comes from,
+what it means, and explicitly what it does not mean:
 
-it came into being because this exact tool did not exist. protonup-qt only manages versions. protontricks is a winetricks wrapper. steamtinkerlaunch does everything and is unwieldy for exactly that reason. the first scan with protium immediately revealed a difference between the proton version I thought I had set and the one assigned in Steam's configuration.
+![explanation window in the game drawer with source, meaning and a "does not mean" line](docs/screenshots/explain_dialog.png)
+
+the library shows your games with their protondb rating and the tool Steam
+actually assigns to them. you can filter by that too:
 
 ![library view: cover grid with protondb tiers, proton assignment and filters](docs/screenshots/main_page.png)
 
+the proton section shows which versions are installed and which games depend
+on them. new GE versions come straight from github:
+
 ![proton manager: installed versions with game mappings, GE releases to install](docs/screenshots/proton_page.png)
+
+cleanup finds shader caches, wine prefixes from games you deleted long ago and
+the trash, each with its size. nothing gets deleted without asking, and only
+when protium is sure:
 
 ![cleanup view: tabs for shader caches, wine prefixes and trash](docs/screenshots/cleanup_view.png)
 
@@ -25,23 +49,23 @@ it came into being because this exact tool did not exist. protonup-qt only manag
 
 grab the AppImage or Debian package from the [releases page](https://github.com/Tzyber/protium-steam-play-proton-manager/releases). make the AppImage executable and run it:
 
-current version: `v0.7.1`.
+current version: `v0.8.0`.
 
 ```sh
-chmod +x protium_0.7.1_amd64.AppImage
-./protium_0.7.1_amd64.AppImage
+chmod +x protium_0.8.0_amd64.AppImage
+./protium_0.8.0_amd64.AppImage
 ```
 
 the AppImage is not signed. if you don't like that, build it yourself (see dev setup). Debian-based systems can install the accompanying Debian package:
 
 ```sh
-sudo apt install ./protium_0.7.1_amd64.deb
+sudo apt install ./protium_0.8.0_amd64.deb
 ```
 
 if nothing starts and no error message appears, fuse2 is usually missing. then either `sudo pacman -S fuse2` or run it once without fuse:
 
 ```sh
-./protium_0.7.1_amd64.AppImage --appimage-extract-and-run
+./protium_0.8.0_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## what it does
@@ -67,7 +91,7 @@ itself is deliberately not a tamper-proof security boundary.
 
 **failure cases.** what is unreadable is shown as unreadable, not as an empty value. destructive actions ask beforehand and show concretely what would happen. where possible, there is a way back.
 
-**explanations and diagnostic evidence.** a question-mark button explains technical values right where they appear (config states, tool source, scan coverage, footprint, protondb, cleanup blockades, incomplete deletions) with source, meaning and limit; the terms follow the [glossary](docs/glossar.md). "copy technical information" puts a privacy-conscious report into the clipboard: fixed labels, status values, validated numbers and report-local aliases only, never names, paths or config contents. conservative hints in the launch-options draft warn about gamemoderun without `%command%`, an assignment behind `%command%` and an enabled `PROTON_LOG=1` assignment.
+**explanations and diagnostic evidence.** a question-mark button explains technical values right where they appear (config states, tool source, scan coverage, footprint, protondb, cleanup blockades, incomplete deletions) with source, meaning and what the value explicitly does not mean; the terms follow the [glossary](docs/glossar.md). "copy technical information" puts a privacy-conscious report into the clipboard: fixed labels, status values, validated numbers and report-local aliases only, never names, paths or config contents. conservative hints in the launch-options draft warn about gamemoderun without `%command%`, an assignment behind `%command%` and an enabled `PROTON_LOG=1` assignment.
 
 **accessibility.** fully keyboard operable, visible focus states, tabs following the WAI-ARIA pattern (arrow keys, roving tabindex), contrasts checked against WCAG AA, `prefers-reduced-motion` respected globally. font sizes in `rem` so the app scales with the system font size. interface in german and english, key parity guarded by a test.
 
@@ -170,8 +194,7 @@ rules for the implementation: writes to steam files go through the write gate wi
   clearer search and trash handling
 - [x] v0.8.0: explainability (explanation buttons with source, meaning and
   limit), a data-minimal diagnostic record for copying and conservative
-  launch-option/`PROTON_LOG` hints (implemented for v0.8.0; versioning and
-  release follow as a separate step)
+  launch-option/`PROTON_LOG` hints
 
 version history lives in the [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 

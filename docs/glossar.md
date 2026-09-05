@@ -34,9 +34,9 @@ ohne sie zu verstärken.
 | Startoptionen-Hinweis | launch options hint | Ein enges statisches Muster ist auffällig | dass die Startoption sicher falsch ist |
 | Proton-Logging im Entwurf aktiv | Proton logging enabled in draft | der aktuelle Startoptionen-Entwurf enthält ein eng erkanntes `PROTON_LOG=1` vor `%command%` | dass der Entwurf gespeichert ist, eine Logdatei existiert oder weiter wächst |
 | Prefix-Formatstand | prefix format state | interner Wert aus einer belegten Prefix-Metadatei | welches Tool zuletzt gestartet wurde |
-| ProtonDB-Tier | ProtonDB tier | aggregierter Community-Befund | kein lokaler Test |
-| vollständig | complete | alle vorgesehenen Scanquellen dieses Laufs verarbeitet | keine Vollsystem-Garantie |
-| eingeschränkt | limited | fehlende oder mehrdeutig gewählte Config bei sonst auswertbaren Quellen | nicht identisch mit Lesefehlern |
+| ProtonDB-Tier | ProtonDB tier | aggregierter Community-Befund | ein lokaler Test |
+| vollständig | complete | alle vorgesehenen Scanquellen dieses Laufs verarbeitet | eine Vollsystem-Garantie |
+| eingeschränkt | limited | fehlende oder mehrdeutig gewählte Config bei sonst auswertbaren Quellen | dasselbe wie ein Lesefehler |
 | vorhandener Anzeigestand | existing displayed state | gespeicherte UI-Beobachtungen ohne zugesicherte Aktualität oder vollständige Prüfung | dass die Beobachtung im aktuellen Scan bestätigt wurde |
 | gemessen | measured | Größenwert aus einer abgeschlossenen lokalen Größenmessung | dass der Wert nach späteren Dateisystemänderungen noch aktuell ist |
 | Existenzprüfung | existence check | eine vorgesehene lokale Prüfung hat Existenz oder Fehlen eines Objekts am autorisierten Ort belegt | dass bei vorhandenem Objekt seine Größe gemessen wurde |
@@ -45,6 +45,8 @@ ohne sie zu verstärken.
 | mehrdeutig | ambiguous | die gelesenen Quellen erlauben keine eindeutige Auswahl der Launch-Config | dass eine bestimmte Config gewählt oder ihr Inhalt analysiert wurde |
 | verfügbar | available | die vorgesehene Quelle konnte im aktuellen Scan bereitgestellt und ausgewertet werden | dass sie beim letzten Spielstart wirksam war |
 | teilweise | partial | die angezeigte Summe enthält nur die sicher belegten Teilwerte | dass fehlende Teilwerte 0 Byte sind |
+| Claim-Prüfung | claim check | die Prüfung der Orte, an denen Protium abgebrochene Löschungen erkennt | eine Aussage darüber, ob abgebrochene Löschungen vorliegen |
+| Bereinigungsfreigabe | cleanup clearance | im vorhandenen Anzeigestand ist für keinen Bereich eine Blockade vermerkt | dass eine Bereinigung geprüft und als sicher belegt wurde |
 
 ## Änderungsvertrag
 

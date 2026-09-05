@@ -311,7 +311,11 @@ function formatWarning(warning: ScanWarning): string {
             <span class="coverage-chevron" aria-hidden="true">{{ showWarnings ? "⌃" : "⌄" }}</span>
           </span>
         </button>
-        <ExplainInfo class="coverage-explain" topic="scan-coverage" />
+        <ExplainInfo
+          class="coverage-explain"
+          :label="t('explain.topics.scanCoverage.title')"
+          :topics="['scan-coverage']"
+        />
       </div>
 
       <transition name="fade">
@@ -454,8 +458,6 @@ function formatWarning(warning: ScanWarning): string {
 
 .coverage {
   margin: 0 0 18px;
-  /* kein overflow: hidden: der erklär-dialog des scan-coverage-triggers
-     positioniert absolut und würde sonst an der section abgeschnitten. */
   background: var(--bg-1);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
