@@ -34,6 +34,17 @@ ohne sie zu verstärken.
 | Startoptionen-Hinweis | launch options hint | Ein enges statisches Muster ist auffällig | dass die Startoption sicher falsch ist |
 | Proton-Logging im Entwurf aktiv | Proton logging enabled in draft | der aktuelle Startoptionen-Entwurf enthält ein eng erkanntes `PROTON_LOG=1` vor `%command%` | dass der Entwurf gespeichert ist, eine Logdatei existiert oder weiter wächst |
 | Prefix-Formatstand | prefix format state | interner Wert aus einer belegten Prefix-Metadatei | welches Tool zuletzt gestartet wurde |
+| ProtonDB-Tier | ProtonDB tier | aggregierter Community-Befund | kein lokaler Test |
+| vollständig | complete | alle vorgesehenen Scanquellen dieses Laufs verarbeitet | keine Vollsystem-Garantie |
+| eingeschränkt | limited | fehlende oder mehrdeutig gewählte Config bei sonst auswertbaren Quellen | nicht identisch mit Lesefehlern |
+| vorhandener Anzeigestand | existing displayed state | gespeicherte UI-Beobachtungen ohne zugesicherte Aktualität oder vollständige Prüfung | dass die Beobachtung im aktuellen Scan bestätigt wurde |
+| gemessen | measured | Größenwert aus einer abgeschlossenen lokalen Größenmessung | dass der Wert nach späteren Dateisystemänderungen noch aktuell ist |
+| Existenzprüfung | existence check | eine vorgesehene lokale Prüfung hat Existenz oder Fehlen eines Objekts am autorisierten Ort belegt | dass bei vorhandenem Objekt seine Größe gemessen wurde |
+| lokale Messung und Existenzprüfung | local measurement and existence check | die Speicherzusammenfassung verwendet gemessene Werte und gegebenenfalls belegtes Fehlen mit 0 Byte | dass alle Spielbestandteile bekannt oder gemessen sind |
+| Prüfung läuft | check in progress | die angeforderte lokale Prüfung ist noch nicht abgeschlossen | dass ein bereits sichtbares Teilergebnis vollständig ist |
+| mehrdeutig | ambiguous | die gelesenen Quellen erlauben keine eindeutige Auswahl der Launch-Config | dass eine bestimmte Config gewählt oder ihr Inhalt analysiert wurde |
+| verfügbar | available | die vorgesehene Quelle konnte im aktuellen Scan bereitgestellt und ausgewertet werden | dass sie beim letzten Spielstart wirksam war |
+| teilweise | partial | die angezeigte Summe enthält nur die sicher belegten Teilwerte | dass fehlende Teilwerte 0 Byte sind |
 
 ## Änderungsvertrag
 

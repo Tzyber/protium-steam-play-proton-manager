@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { version as appVersion } from "../../../package.json";
 import { openExternal, tauriPorts } from "../../core/adapters/tauri";
 import { SteamRunningError } from "../../core/configwrite";
 import { errText } from "../../core/errtext";
@@ -9,15 +10,20 @@ import {
   hasExternalCompatdata,
   measureGameFootprint,
 } from "../../core/footprint";
+import { analyzeLaunchOptions, type LaunchHint } from "../../core/launchHints";
 import { protonDbAppUrl } from "../../core/protondb";
+import { projectSupportFacts } from "../../core/support";
 import type { LaunchConfigStatus, Tier } from "../../core/types";
 import { focusFirstFocusable, restoreFocus, trapFocus } from "../a11y";
 import { formatBytes } from "../format";
 import { t } from "../i18n";
+import { useCleanupStore } from "../stores/cleanupStore";
 import { useConfigStore } from "../stores/configStore";
 import { useScanStore } from "../stores/scanStore";
 import { useUiStore } from "../stores/uiStore";
+import { formatSupportFacts } from "../supportText";
 import { useCover } from "../useCover";
+import ExplainInfo from "./ExplainInfo.vue";
 import PlayButton from "./PlayButton.vue";
 import SelectBox from "./SelectBox.vue";
 import TierBadge from "./TierBadge.vue";
@@ -25,6 +31,7 @@ import TierBadge from "./TierBadge.vue";
 const ui = useUiStore();
 const config = useConfigStore();
 const scan = useScanStore();
+const cleanup = useCleanupStore();
 // live-auflösung gegen den aktuellen scan-stand: nach einem rescan zeigt der
 // drawer die frischen daten (z. B. direkt nach compat-tool-/startoptionen-write).
 const game = computed(() => scan.result?.games.find((g) => g.appId === ui.selectedAppId) ?? null);
@@ -33,6 +40,7 @@ type FootprintUiState = "idle" | "measuring" | "ready";
 
 interface FootprintContext {
   appId: number;
+  scanGeneration: number;
   library: string;
   installdir: string | undefined;
   launchConfigStatus: LaunchConfigStatus;
@@ -47,6 +55,7 @@ const footprintContext = computed<FootprintContext | null>(() => {
   const launchConfigStatus = result.launchConfigStatus;
   return {
     appId: current.appId,
+    scanGeneration: scan.scanGeneration,
     library: current.library,
     installdir: current.installdir,
     launchConfigStatus,
@@ -67,6 +76,7 @@ function sameFootprintContext(
   if (left === null || right === null) return left === right;
   return (
     left.appId === right.appId &&
+    left.scanGeneration === right.scanGeneration &&
     left.library === right.library &&
     left.installdir === right.installdir &&
     left.launchConfigStatus === right.launchConfigStatus &&
@@ -226,6 +236,7 @@ watch(
 
 onBeforeUnmount(() => {
   invalidateFootprint();
+  invalidateSupportCopy();
   if (toastTimer) clearTimeout(toastTimer);
   ui.inertMain = false;
   restoreFocus(lastFocusedElement);
@@ -255,6 +266,26 @@ watch(
 );
 watch(launchInput, () => {
   if (launchState.value === "saved") launchState.value = "idle";
+});
+
+function launchHintText(hint: LaunchHint): string {
+  switch (hint) {
+    case "gamemode-missing-command":
+      return t("drawer.launchHintGamemodeMissingCommand");
+    case "assignment-after-command":
+      return t("drawer.launchHintAssignmentAfterCommand");
+    case "proton-log-enabled":
+      return t("drawer.launchHintProtonLogEnabled");
+  }
+}
+
+const launchHints = computed(() => {
+  const current = game.value;
+  const result = scan.result;
+  if (!current || !result || scan.status !== "done" || result.launchConfigStatus !== "available") {
+    return [];
+  }
+  return analyzeLaunchOptions(launchInput.value).map(launchHintText);
 });
 
 async function saveLaunch() {
@@ -366,6 +397,100 @@ async function saveCompat() {
   }
 }
 
+type SupportCopyState = "idle" | "copying" | "copied" | "failed";
+
+interface SupportCopyContext {
+  appId: number;
+  scanGeneration: number;
+}
+
+const supportCopyState = ref<SupportCopyState>("idle");
+let supportCopyRequestId = 0;
+
+const supportCopyContext = computed<SupportCopyContext | null>(() => {
+  const current = game.value;
+  const result = scan.result;
+  if (!current || !result || scan.status !== "done") return null;
+  return { appId: current.appId, scanGeneration: scan.scanGeneration };
+});
+
+function sameSupportCopyContext(
+  left: SupportCopyContext | null,
+  right: SupportCopyContext | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  return left.appId === right.appId && left.scanGeneration === right.scanGeneration;
+}
+
+function invalidateSupportCopy(): void {
+  supportCopyRequestId += 1;
+  supportCopyState.value = "idle";
+}
+
+watch(
+  supportCopyContext,
+  (current, previous) => {
+    if (previous === undefined || !sameSupportCopyContext(current, previous)) {
+      invalidateSupportCopy();
+    }
+  },
+  { immediate: true },
+);
+
+const canCopySupport = computed(
+  () =>
+    supportCopyContext.value !== null &&
+    launchState.value !== "saving" &&
+    compatState.value !== "saving" &&
+    supportCopyState.value !== "copying",
+);
+
+function isCurrentSupportCopy(requestId: number, context: SupportCopyContext): boolean {
+  return (
+    requestId === supportCopyRequestId && sameSupportCopyContext(supportCopyContext.value, context)
+  );
+}
+
+async function copySupport(): Promise<void> {
+  const current = game.value;
+  const result = scan.result;
+  const context = supportCopyContext.value;
+  if (!current || !result || !context || !canCopySupport.value) return;
+
+  const snapshot = formatSupportFacts(
+    projectSupportFacts({
+      game: current,
+      result,
+      footprint: footprintResult.value,
+      cleanup: {
+        scanning: cleanup.scanning,
+        trashScanning: cleanup.trashScanning,
+        prefixUnavailable: cleanup.prefixUnavailable,
+        shaderUnavailable: cleanup.shaderUnavailable,
+        trashUnavailable: cleanup.trashUnavailable,
+        incompleteDeletionsCount: cleanup.incompleteDeletions.length,
+        incompleteDeletionsUnreadable: cleanup.incompleteDeletionsUnreadable.length > 0,
+      },
+    }),
+    appVersion,
+  );
+  const requestId = ++supportCopyRequestId;
+  supportCopyState.value = "copying";
+
+  const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard;
+  if (!clipboard || typeof clipboard.writeText !== "function") {
+    if (isCurrentSupportCopy(requestId, context)) supportCopyState.value = "failed";
+    return;
+  }
+
+  try {
+    await clipboard.writeText(snapshot);
+    if (isCurrentSupportCopy(requestId, context)) supportCopyState.value = "copied";
+  } catch {
+    if (isCurrentSupportCopy(requestId, context)) supportCopyState.value = "failed";
+  }
+}
+
 // fehler-toast: der state ist entweder ein bekanntes schlagwort oder die fehlermeldung.
 function stateError(s: string): string | null {
   return s === "idle" || s === "saving" || s === "saved" ? null : s;
@@ -419,9 +544,47 @@ watch(errorMessage, (msg) => {
           />
         </div>
         <p class="meta mono">{{ formatBytes(game.sizeBytes) }} · appid - {{ game.appId }}</p>
-        <p class="meta-tier">{{ TIER_LABEL[game.protonDb?.tier ?? "unknown"] }}</p>
+        <p class="meta-tier">
+          {{ TIER_LABEL[game.protonDb?.tier ?? "unknown"] }}
+          <ExplainInfo topic="protondb" :context-key="game.appId" />
+        </p>
 
         <PlayButton variant="full" :appId="game.appId" :name="game.name" />
+
+        <div class="support-actions">
+          <button
+            class="save"
+            data-testid="support-copy"
+            type="button"
+            :disabled="!canCopySupport"
+            @click="copySupport"
+          >
+            {{
+              supportCopyState === "copying"
+                ? t("drawer.supportCopying")
+                : supportCopyState === "copied"
+                  ? t("drawer.supportCopied")
+                  : t("drawer.supportCopy")
+            }}
+          </button>
+          <p
+            v-if="supportCopyState === 'copied'"
+            class="hint support-copy-status"
+            data-testid="support-copy-status"
+            role="status"
+            aria-live="polite"
+          >
+            {{ t("drawer.supportCopied") }}
+          </p>
+          <p
+            v-else-if="supportCopyState === 'failed'"
+            class="hint support-copy-status"
+            data-testid="support-copy-error"
+            role="alert"
+          >
+            {{ t("drawer.supportCopyError") }}
+          </p>
+        </div>
 
         <section
           class="footprint"
@@ -445,6 +608,7 @@ watch(errorMessage, (msg) => {
                 : t("drawer.footprintMeasure")
             }}
           </button>
+          <span class="footprint-explain"><ExplainInfo topic="footprint" :context-key="game.appId" /></span>
 
           <div v-if="footprintState !== 'idle'" class="footprint-values">
             <div class="footprint-row" data-testid="footprint-game-install">
@@ -492,6 +656,7 @@ watch(errorMessage, (msg) => {
               data-testid="footprint-external-compatdata"
             >
               {{ t("drawer.footprintExternalCompatdata") }}
+              <ExplainInfo topic="external-compatdata" :context-key="game.appId" />
             </p>
             <p
               v-if="footprintResult?.compatdataNotChecked"
@@ -507,7 +672,10 @@ watch(errorMessage, (msg) => {
         <p class="section-label mono">{{ t("drawer.configuration") }}</p>
 
         <div class="field">
-          <label class="k" for="compat-tool">{{ t("drawer.compatToolLabel") }}</label>
+          <label class="k" for="compat-tool">
+            {{ t("drawer.compatToolLabel") }}
+            <ExplainInfo topic="compat-tool" :context-key="game.appId" />
+          </label>
           <div class="field-row">
             <SelectBox id="compat-tool" v-model="compatSelected" :options="compatOptions" />
             <button
@@ -519,9 +687,23 @@ watch(errorMessage, (msg) => {
               {{ compatState === "saving" ? "…" : compatState === "saved" ? t("drawer.saved") : t("drawer.save") }}
             </button>
           </div>
-          <p class="hint" data-testid="compat-provenance">{{ compatProvenance }}</p>
+          <p class="hint" data-testid="compat-provenance">
+            {{ compatProvenance }}
+            <ExplainInfo topic="compat-source" :context-key="game.appId" />
+            <ExplainInfo
+              v-if="scan.result?.compatConfigStatus === 'missing' || scan.result?.compatConfigStatus === 'unreadable'"
+              topic="config-unavailable"
+              :context-key="game.appId"
+            />
+            <ExplainInfo
+              v-if="game.compatToolSource === 'default' && scan.result?.defaultCompatTool"
+              topic="global-default"
+              :context-key="game.appId"
+            />
+          </p>
           <p v-if="compatToolUnrecognized" class="hint" data-testid="compat-unrecognized">
             {{ t("drawer.compatToolUnrecognized") }}
+            <ExplainInfo topic="tool-unrecognized" :context-key="game.appId" />
           </p>
         </div>
 
@@ -547,6 +729,16 @@ watch(errorMessage, (msg) => {
             </button>
           </div>
           <p class="hint">{{ t("drawer.launchOptionsHint") }}</p>
+          <ul
+            v-if="launchHints.length"
+            class="launch-hints"
+            data-testid="launch-hints"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <li v-for="hint in launchHints" :key="hint">{{ hint }}</li>
+          </ul>
         </div>
 
         <div class="divider" />
@@ -614,6 +806,8 @@ watch(errorMessage, (msg) => {
 .head :deep(*) { flex-shrink: 0; }
 .meta { margin: 6px 0 2px; color: var(--fg-2); font-size: 0.875rem; }
 .meta-tier { margin: 0 0 20px; color: var(--fg-1); font-size: 0.875rem; line-height: 1.5; }
+.support-actions { margin-top: 16px; }
+.support-copy-status { margin-bottom: 0; }
 
 .footprint { margin-top: 20px; }
 .footprint .section-label { margin-bottom: 10px; }
@@ -684,6 +878,13 @@ watch(errorMessage, (msg) => {
 }
 
 .hint { margin: 9px 2px 0; color: var(--fg-2); font-size: 0.8125rem; line-height: 1.55; }
+.launch-hints {
+  margin: 9px 2px 0;
+  padding-left: 18px;
+  color: var(--fg-2);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
 
 .pdb-link {
   display: inline-block;

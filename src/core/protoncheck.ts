@@ -12,6 +12,29 @@ type ProtonCheckInput = Pick<
   "games" | "compatToolsInstalled" | "builtinProtonsInstalled" | "warnings"
 >;
 
+type ToolInventory = Pick<ScanResult, "compatToolsInstalled" | "builtinProtonsInstalled">;
+
+function toolPresenceSets(result: ToolInventory): {
+  customNames: Set<string>;
+  builtinNames: Set<string>;
+} {
+  const customNames = new Set<string>();
+  for (const tool of result.compatToolsInstalled) {
+    customNames.add(tool.internalName);
+    customNames.add(tool.name);
+  }
+  return {
+    customNames,
+    builtinNames: new Set(result.builtinProtonsInstalled.map((tool) => tool.internalName)),
+  };
+}
+
+/** Prüft nur positive Präsenz im vorhandenen Custom-/Builtin-Inventar. */
+export function isCompatToolPresent(result: ToolInventory, compatTool: string): boolean {
+  const { customNames, builtinNames } = toolPresenceSets(result);
+  return customNames.has(compatTool) || builtinNames.has(compatTool);
+}
+
 /** true, wenn der Tool-Scan die Abwesenheit von `compatTool` nicht sicher
  *  beweisen kann. Nur strukturierte ScanWarning-Daten, keine Text-Heuristik.
  *  size-unreadable unterdrückt nie: das Tool bleibt im Inventar (Präsenz
@@ -35,12 +58,7 @@ function toolAbsenceUncertain(warnings: ScanWarning[], compatTool: string): bool
 }
 
 export function deriveProtonCheck(result: ProtonCheckInput): ProtonCheck[] {
-  const customNames = new Set<string>();
-  for (const tool of result.compatToolsInstalled) {
-    customNames.add(tool.internalName);
-    customNames.add(tool.name);
-  }
-  const builtinNames = new Set(result.builtinProtonsInstalled.map((tool) => tool.internalName));
+  const { customNames, builtinNames } = toolPresenceSets(result);
 
   return result.games.flatMap((game) => {
     const reasons: ProtonCheckReason[] = [];

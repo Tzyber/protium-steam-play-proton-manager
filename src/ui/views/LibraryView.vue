@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { ScanWarning, SkipReason } from "../../core/types";
+import ExplainInfo from "../components/ExplainInfo.vue";
 import FilterBar from "../components/FilterBar.vue";
 import GameCard from "../components/GameCard.vue";
 import GameDetailDrawer from "../components/GameDetailDrawer.vue";
@@ -290,25 +291,28 @@ function formatWarning(warning: ScanWarning): string {
       <span v-if="coverageNeedsAttention" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {{ coverageLabel }}. {{ t("library.coverageLocalOnly") }}
       </span>
-      <button
-        class="coverage-toggle"
-        type="button"
-        :aria-expanded="showWarnings"
-        :aria-controls="coverageDetailsId"
-        @click="showWarnings = !showWarnings"
-      >
-        <span class="coverage-heading">
-          <span v-if="coverageNeedsAttention" class="coverage-alert" aria-hidden="true">!</span>
-          <span>
-            <span :id="coverageTitleId" class="coverage-summary">{{ coverageLabel }}</span>
-            <span v-if="coverageNeedsAttention" class="coverage-context">{{ t("library.coverageLocalOnly") }}</span>
+      <div class="coverage-head">
+        <button
+          class="coverage-toggle"
+          type="button"
+          :aria-expanded="showWarnings"
+          :aria-controls="coverageDetailsId"
+          @click="showWarnings = !showWarnings"
+        >
+          <span class="coverage-heading">
+            <span v-if="coverageNeedsAttention" class="coverage-alert" aria-hidden="true">!</span>
+            <span>
+              <span :id="coverageTitleId" class="coverage-summary">{{ coverageLabel }}</span>
+              <span v-if="coverageNeedsAttention" class="coverage-context">{{ t("library.coverageLocalOnly") }}</span>
+            </span>
           </span>
-        </span>
-        <span class="coverage-action">
-          {{ showWarnings ? t("library.coverageDetailsClose") : t("library.coverageDetailsOpen") }}
-          <span class="coverage-chevron" aria-hidden="true">{{ showWarnings ? "⌃" : "⌄" }}</span>
-        </span>
-      </button>
+          <span class="coverage-action">
+            {{ showWarnings ? t("library.coverageDetailsClose") : t("library.coverageDetailsOpen") }}
+            <span class="coverage-chevron" aria-hidden="true">{{ showWarnings ? "⌃" : "⌄" }}</span>
+          </span>
+        </button>
+        <ExplainInfo class="coverage-explain" topic="scan-coverage" />
+      </div>
 
       <transition name="fade">
         <div
@@ -450,7 +454,8 @@ function formatWarning(warning: ScanWarning): string {
 
 .coverage {
   margin: 0 0 18px;
-  overflow: hidden;
+  /* kein overflow: hidden: der erklär-dialog des scan-coverage-triggers
+     positioniert absolut und würde sonst an der section abgeschnitten. */
   background: var(--bg-1);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
@@ -459,9 +464,18 @@ function formatWarning(warning: ScanWarning): string {
 .coverage--incomplete {
   border-color: color-mix(in srgb, var(--tier-gold) 40%, var(--line));
 }
+.coverage-head {
+  display: flex;
+  align-items: center;
+}
+.coverage-explain {
+  flex: 0 0 auto;
+  margin: 0 14px 0 10px;
+}
 .coverage-toggle {
   display: flex;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
   gap: 16px;

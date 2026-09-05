@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import type { TrashEntry } from "../../core/trash";
 import type { OrphanEntry } from "../../core/types";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
+import ExplainInfo from "../components/ExplainInfo.vue";
 import { formatBytes } from "../format";
 import { getLocale, t } from "../i18n";
 import { summarizeSizes } from "../sizeSummary";
@@ -342,6 +343,7 @@ const tabLabel = (id: Tab) =>
 
       <div v-if="cleanup.incompleteDeletions.length" class="blocked">
         <strong>{{ t("cleanup.incompleteDeletionsTitle") }}</strong>
+        <ExplainInfo class="explain-inline" topic="incomplete-deletion" />
         <p class="pm-note">{{ t("cleanup.incompleteDeletionsBody") }}</p>
         <p class="pm-note">{{ t("cleanup.incompleteDeletionsHint") }}</p>
         <ul class="pm-list">
@@ -399,7 +401,9 @@ const tabLabel = (id: Tab) =>
         </ul>
         <div v-else-if="cleanup.scanning" class="empty">{{ t("cleanup.searching") }}</div>
         <div v-else-if="!cleanup.shaderUnavailable" class="empty">{{ t("cleanup.empty") }}</div>
-        <div v-else class="empty">{{ t("cleanup.unavailable") }}</div>
+        <div v-else class="empty">
+          {{ t("cleanup.unavailable") }}<ExplainInfo class="explain-inline" topic="cleanup-blocked" />
+        </div>
       </div>
 
       <!-- ---- wine-prefixes ---- -->
@@ -437,6 +441,7 @@ const tabLabel = (id: Tab) =>
               size: steamOwnedTotal,
             })
           }}
+          <ExplainInfo class="explain-inline" topic="steam-owned" />
         </div>
 
         <ul v-if="compatdataOrphans.length" class="list">
@@ -469,7 +474,9 @@ const tabLabel = (id: Tab) =>
         </ul>
         <div v-else-if="cleanup.scanning" class="empty">{{ t("cleanup.searching") }}</div>
         <div v-else-if="!cleanup.prefixUnavailable" class="empty">{{ t("cleanup.empty") }}</div>
-        <div v-else class="empty">{{ t("cleanup.unavailable") }}</div>
+        <div v-else class="empty">
+          {{ t("cleanup.unavailable") }}<ExplainInfo class="explain-inline" topic="cleanup-blocked" />
+        </div>
       </div>
 
       <!-- ---- papierkorb ---- -->
@@ -553,7 +560,7 @@ const tabLabel = (id: Tab) =>
           {{ t("cleanup.trashEmptyState") }}
         </div>
         <div v-else-if="!cleanup.trashScanning" class="empty">
-          {{ t("cleanup.unavailable") }}
+          {{ t("cleanup.unavailable") }}<ExplainInfo class="explain-inline" topic="cleanup-blocked" />
         </div>
       </div>
 
@@ -848,6 +855,7 @@ position: relative;
 .action.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--tier-borked) 30%, transparent); }
 
 .hint { color: var(--tier-gold); font-family: var(--font-body); font-size: 0.875rem; margin-bottom: 12px; }
+.explain-inline { margin-left: 7px; vertical-align: middle; }
 .empty { color: var(--fg-2); font-family: var(--font-body); font-size: 0.875rem; padding: 32px 0; text-align: center; }
 
 .consequences { white-space: pre-line; margin: 0; max-height: 260px; overflow-y: auto; }

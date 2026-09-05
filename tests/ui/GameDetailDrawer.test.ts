@@ -2,7 +2,7 @@
 
 import { mount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { reactive } from "vue";
+import { nextTick, reactive } from "vue";
 import type { FootprintPart, GameFootprint } from "../../src/core/footprint";
 import type { ProtonCheck } from "../../src/core/protoncheck";
 import type { ScanResult } from "../../src/core/types";
@@ -11,11 +11,14 @@ const {
   scanState: rawScanState,
   uiState: rawUiState,
   configState,
+  cleanupState: rawCleanupState,
   measureGameFootprintMock,
 } = vi.hoisted(() => ({
   scanState: {
     result: null as ScanResult | null,
     protonChecks: [] as ProtonCheck[],
+    status: "done" as "idle" | "scanning" | "done" | "not-found" | "error",
+    scanGeneration: 1,
   },
   uiState: {
     selectedAppId: 42 as number | null,
@@ -27,10 +30,20 @@ const {
     saveLaunchOptions: vi.fn(async () => ({ changed: false })),
     saveCompatTool: vi.fn(async () => ({ changed: false })),
   },
+  cleanupState: {
+    scanning: false,
+    trashScanning: false,
+    prefixUnavailable: false,
+    shaderUnavailable: false,
+    trashUnavailable: false,
+    incompleteDeletions: [] as { type: string }[],
+    incompleteDeletionsUnreadable: [] as string[],
+  },
   measureGameFootprintMock: vi.fn(),
 }));
 const scanState = reactive(rawScanState);
 const uiState = reactive(rawUiState);
+const cleanupState = reactive(rawCleanupState);
 
 vi.mock("../../src/core/adapters/tauri", () => ({
   openExternal: vi.fn(async () => {}),
@@ -51,6 +64,9 @@ vi.mock("../../src/ui/stores/uiStore", () => ({
 }));
 vi.mock("../../src/ui/stores/configStore", () => ({
   useConfigStore: () => configState,
+}));
+vi.mock("../../src/ui/stores/cleanupStore", () => ({
+  useCleanupStore: () => cleanupState,
 }));
 vi.mock("../../src/ui/useCover", () => ({
   useCover: () => ({ src: null, onError: vi.fn() }),
@@ -154,7 +170,10 @@ function result(
 function mountDrawer(scanResult: ScanResult, reasons: ProtonCheck["reasons"] = []) {
   scanState.result = scanResult;
   scanState.protonChecks = [{ appId: scanResult.games[0]?.appId ?? 42, reasons }];
-  return mount(GameDetailDrawer, { global: { stubs: { Teleport: true } } });
+  return mount(GameDetailDrawer, {
+    attachTo: document.body,
+    global: { stubs: { Teleport: true } },
+  });
 }
 
 describe("GameDetailDrawer Config-Provenienz", () => {
@@ -164,6 +183,15 @@ describe("GameDetailDrawer Config-Provenienz", () => {
     uiState.inertMain = false;
     scanState.result = null;
     scanState.protonChecks = [];
+    scanState.status = "done";
+    scanState.scanGeneration = 1;
+    cleanupState.scanning = false;
+    cleanupState.trashScanning = false;
+    cleanupState.prefixUnavailable = false;
+    cleanupState.shaderUnavailable = false;
+    cleanupState.trashUnavailable = false;
+    cleanupState.incompleteDeletions = [];
+    cleanupState.incompleteDeletionsUnreadable = [];
     measureGameFootprintMock.mockReset();
   });
 
@@ -262,6 +290,15 @@ describe("GameDetailDrawer Speicherbedarf", () => {
     uiState.inertMain = false;
     scanState.result = null;
     scanState.protonChecks = [];
+    scanState.status = "done";
+    scanState.scanGeneration = 1;
+    cleanupState.scanning = false;
+    cleanupState.trashScanning = false;
+    cleanupState.prefixUnavailable = false;
+    cleanupState.shaderUnavailable = false;
+    cleanupState.trashUnavailable = false;
+    cleanupState.incompleteDeletions = [];
+    cleanupState.incompleteDeletionsUnreadable = [];
     measureGameFootprintMock.mockReset();
   });
 
@@ -592,6 +629,49 @@ describe("GameDetailDrawer Speicherbedarf", () => {
     expect(wrapper.find("[data-testid='footprint-measure']").exists()).toBe(true);
   });
 
+  it("verwirft eine fertige Messung bei einem Rescan mit identischen Spielwerten", async () => {
+    measureGameFootprintMock.mockResolvedValueOnce(
+      footprint({ summary: { status: "complete", sizeBytes: 111 } }),
+    );
+    const wrapper = mountDrawer(result("available", "default", "default", null));
+
+    await wrapper.find("[data-testid='footprint-measure']").trigger("click");
+    await wrapper.vm.$nextTick();
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find("[data-testid='footprint-summary']").text()).toContain("111 B");
+
+    scanState.status = "scanning";
+    scanState.scanGeneration = 2;
+    await wrapper.vm.$nextTick();
+    scanState.result = result("available", "default", "default", null);
+    scanState.status = "done";
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find("[data-testid='footprint-summary']").exists()).toBe(false);
+  });
+
+  it("verwirft eine deferred Messung bei einem Rescan mit identischen Spielwerten", async () => {
+    const pending = deferred<GameFootprint>();
+    measureGameFootprintMock.mockReturnValueOnce(pending.promise);
+    const wrapper = mountDrawer(result("available", "default", "default", null));
+
+    await wrapper.find("[data-testid='footprint-measure']").trigger("click");
+    await wrapper.vm.$nextTick();
+    scanState.status = "scanning";
+    scanState.scanGeneration = 2;
+    await wrapper.vm.$nextTick();
+    scanState.result = result("available", "default", "default", null);
+    scanState.status = "done";
+    await wrapper.vm.$nextTick();
+
+    pending.resolve(footprint({ summary: { status: "complete", sizeBytes: 111 } }));
+    await wrapper.vm.$nextTick();
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.text()).not.toContain("111 B");
+    expect(wrapper.find("[data-testid='footprint-summary']").exists()).toBe(false);
+  });
+
   it.each([
     { label: "library", options: { library: "/mnt/secondary" } },
     { label: "installdir", options: { installdir: "changed-dir" } },
@@ -646,4 +726,228 @@ describe("GameDetailDrawer Speicherbedarf", () => {
     expect(wrapper.find("[data-testid='footprint-summary']").text()).toContain("222 B");
     expect(wrapper.find("[data-testid='footprint-summary']").text()).not.toContain("111 B");
   });
+});
+
+describe("GameDetailDrawer Startoptionen-Hinweise", () => {
+  beforeEach(() => {
+    setLocale("de");
+    uiState.selectedAppId = 42;
+    uiState.inertMain = false;
+    scanState.result = null;
+    scanState.protonChecks = [];
+    scanState.status = "done";
+    scanState.scanGeneration = 1;
+    cleanupState.scanning = false;
+    cleanupState.trashScanning = false;
+    cleanupState.prefixUnavailable = false;
+    cleanupState.shaderUnavailable = false;
+    cleanupState.trashUnavailable = false;
+    cleanupState.incompleteDeletions = [];
+    cleanupState.incompleteDeletionsUnreadable = [];
+    configState.saveLaunchOptions.mockReset();
+    configState.saveCompatTool.mockReset();
+    configState.saveLaunchOptions.mockResolvedValue({ changed: true });
+    configState.saveCompatTool.mockResolvedValue({ changed: true });
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+    setLocale("en");
+  });
+
+  it.each([
+    {
+      draft: "gamemoderun",
+      expected: "gamemoderun steht ohne %command%-Marker im Entwurf.",
+    },
+    {
+      draft: "%command% A=1",
+      expected: "Ein Assignment folgt auf %command% im Entwurf.",
+    },
+    {
+      draft: "PROTON_LOG=1 %command%",
+      expected: "Proton-Logging im Entwurf aktiv",
+    },
+  ])("zeigt die konservative Warnung für $draft", async ({ draft, expected }) => {
+    const wrapper = mountDrawer(
+      result("available", "default", "default", null, { launchOptions: draft }),
+    );
+
+    const hints = wrapper.find("[data-testid='launch-hints']");
+    expect(hints.attributes("role")).toBe("status");
+    expect(hints.text()).toContain(expected);
+    expect(hints.classes()).not.toContain("error");
+  });
+
+  it("zeigt mehrere Codes in stabiler Reihenfolge und lässt Speichern aktiv", async () => {
+    const wrapper = mountDrawer(
+      result("available", "default", "default", null, {
+        launchOptions: "%command%",
+      }),
+    );
+
+    const input = wrapper.get("#launch-options");
+    await input.setValue("PROTON_LOG=1 gamemoderun %command% A=1");
+    const save = input.element.parentElement?.querySelector<HTMLButtonElement>("button");
+    const hints = wrapper.get("[data-testid='launch-hints']");
+    expect(hints.text()).toContain("Ein Assignment folgt auf %command% im Entwurf.");
+    expect(hints.text()).toContain("Proton-Logging im Entwurf aktiv");
+    expect(hints.element.textContent?.indexOf("Ein Assignment")).toBeLessThan(
+      hints.element.textContent?.indexOf("Proton-Logging") ?? 0,
+    );
+    expect(save?.disabled).toBe(false);
+
+    await input.setValue("%command%");
+    expect(wrapper.find("[data-testid='launch-hints']").exists()).toBe(false);
+    expect(save?.disabled).toBe(true);
+    expect(configState.saveLaunchOptions).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: "scan läuft", status: "scanning" as const, launchConfigStatus: "available" as const },
+    { label: "config fehlt", status: "done" as const, launchConfigStatus: "missing" as const },
+    {
+      label: "config nicht lesbar",
+      status: "done" as const,
+      launchConfigStatus: "unreadable" as const,
+    },
+    {
+      label: "config mehrdeutig",
+      status: "done" as const,
+      launchConfigStatus: "ambiguous" as const,
+    },
+  ])("analysiert bei $label keine Entwurfs-Hinweise", ({ status, launchConfigStatus }) => {
+    scanState.status = status;
+    const wrapper = mountDrawer(
+      result("available", "default", "default", null, {
+        launchConfigStatus,
+        launchOptions: "gamemoderun",
+      }),
+    );
+
+    expect(wrapper.find("[data-testid='launch-hints']").exists()).toBe(false);
+  });
+
+  it("ändert weder Eingabewert noch Save-Gate durch die Analyse", async () => {
+    const wrapper = mountDrawer(
+      result("available", "default", "default", null, { launchOptions: "gamemoderun" }),
+    );
+    const input = wrapper.get<HTMLInputElement>("#launch-options");
+    expect(input.element.value).toBe("gamemoderun");
+
+    await input.setValue("gamemoderun %command%");
+    expect(input.element.value).toBe("gamemoderun %command%");
+    expect(input.element.parentElement?.querySelector("button")?.hasAttribute("disabled")).toBe(
+      false,
+    );
+  });
+});
+
+describe("GameDetailDrawer Erklärungen", () => {
+  beforeEach(() => {
+    setLocale("de");
+    uiState.selectedAppId = 42;
+    uiState.inertMain = false;
+    uiState.closeGame.mockReset();
+    scanState.result = null;
+    scanState.protonChecks = [];
+    scanState.status = "done";
+    scanState.scanGeneration = 1;
+    cleanupState.scanning = false;
+    cleanupState.trashScanning = false;
+    cleanupState.prefixUnavailable = false;
+    cleanupState.shaderUnavailable = false;
+    cleanupState.trashUnavailable = false;
+    cleanupState.incompleteDeletions = [];
+    cleanupState.incompleteDeletionsUnreadable = [];
+    measureGameFootprintMock.mockReset();
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+    setLocale("en");
+  });
+
+  it.each(["de", "en"] as const)(
+    "rendert alle kontextuellen Drawer-Erklärungen und isoliert den Parent-Trap in %s",
+    async (locale) => {
+      setLocale(locale);
+      const opener = document.createElement("button");
+      opener.type = "button";
+      document.body.appendChild(opener);
+      opener.focus();
+      measureGameFootprintMock.mockResolvedValueOnce(
+        footprint({
+          compatdata: { status: "not-requested" },
+          summary: { status: "partial", sizeBytes: 40 },
+          externalCompatdata: true,
+        }),
+      );
+      const wrapper = mountDrawer(
+        result("missing", "default", "default", "proton_experimental", {
+          launchOptions: "STEAM_COMPAT_DATA_PATH=/secret/user/prefix",
+        }),
+        ["tool-not-recognized"],
+      );
+
+      await wrapper.get("[data-testid='footprint-measure']").trigger("click");
+      await nextTick();
+      await nextTick();
+
+      const triggers = wrapper.findAll("[data-testid='explain-trigger']");
+      expect(triggers).toHaveLength(8);
+      const expectedTitles = [
+        "explain.topics.protondb.title",
+        "explain.topics.footprint.title",
+        "explain.topics.externalCompatdata.title",
+        "explain.topics.compatTool.title",
+        "explain.topics.compatSource.title",
+        "explain.topics.configUnavailable.title",
+        "explain.topics.globalDefault.title",
+        "explain.topics.toolUnrecognized.title",
+      ] as const;
+      const labels = triggers.map((trigger) => trigger.attributes("aria-label"));
+      for (const title of expectedTitles) {
+        expect(labels).toContain(t("explain.open", { topic: t(title) }));
+      }
+
+      const trigger = triggers[0];
+      expect(trigger).toBeDefined();
+      if (!trigger) return;
+      await trigger.trigger("click");
+      await nextTick();
+      const dialog = wrapper.get(".explain-dialog");
+      expect(dialog.text()).toContain(t("explain.sourceLabel"));
+      expect(dialog.text()).toContain(t("explain.meaningLabel"));
+      expect(dialog.text()).toContain(t("explain.limitLabel"));
+
+      const tabEvent = new KeyboardEvent("keydown", {
+        key: "Tab",
+        bubbles: true,
+        cancelable: true,
+      });
+      dialog.get("[data-testid='explain-close']").element.dispatchEvent(tabEvent);
+      expect(tabEvent.defaultPrevented).toBe(true);
+      expect(uiState.closeGame).not.toHaveBeenCalled();
+
+      const escapeEvent = new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      });
+      dialog.get("[data-testid='explain-close']").element.dispatchEvent(escapeEvent);
+      await nextTick();
+      expect(escapeEvent.defaultPrevented).toBe(true);
+      expect(uiState.closeGame).not.toHaveBeenCalled();
+      expect(wrapper.find(".explain-dialog").exists()).toBe(false);
+      expect(document.activeElement).toBe(trigger.element);
+
+      await trigger.trigger("click");
+      await nextTick();
+      scanState.result = result("available", "default", "default", null, { appId: 43 });
+      uiState.selectedAppId = 43;
+      await nextTick();
+      expect(wrapper.find(".explain-dialog").exists()).toBe(false);
+    },
+  );
 });

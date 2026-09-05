@@ -279,3 +279,86 @@ describe("LibraryView proton-check und ProtonDB-Nachlauf", () => {
     expect(wrapper.find(".coverage-toggle").exists()).toBe(false);
   });
 });
+
+describe("LibraryView Coverage-Erklärung", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    setLocale("en");
+    const scan = useScanStore();
+    scan.result = result();
+    scan.status = "done";
+    scan.statusText = t("status.ready");
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+    setLocale("en");
+  });
+
+  it.each(["de", "en"] as const)(
+    "bindet den scan-coverage-topic als eigenen Trigger neben der Coverage-Zeile in %s",
+    async (locale) => {
+      setLocale(locale);
+      const wrapper = mount(LibraryView, { attachTo: document.body });
+      const trigger = wrapper.get("[data-testid='explain-trigger']");
+      const toggle = wrapper.get(".coverage-toggle");
+      const head = wrapper.get(".coverage-head");
+
+      expect(trigger.attributes("aria-label")).toBe(
+        t("explain.open", { topic: t("explain.topics.scanCoverage.title") }),
+      );
+      expect(head.element.contains(trigger.element)).toBe(true);
+      expect(toggle.element.contains(trigger.element)).toBe(false);
+      expect(toggle.element.compareDocumentPosition(trigger.element)).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    },
+  );
+
+  it.each(["de", "en"] as const)(
+    "öffnet Quelle, Bedeutung und Grenze und schließt per Escape mit Fokusrückkehr in %s",
+    async (locale) => {
+      setLocale(locale);
+      const wrapper = mount(LibraryView, { attachTo: document.body });
+      const trigger = wrapper.get("[data-testid='explain-trigger']");
+      await trigger.trigger("click");
+      await nextTick();
+
+      const dialog = wrapper.get("[role='dialog']");
+      expect(dialog.text()).toContain(t("explain.topics.scanCoverage.source"));
+      expect(dialog.text()).toContain(t("explain.topics.scanCoverage.meaning"));
+      expect(dialog.text()).toContain(t("explain.topics.scanCoverage.limit"));
+      expect(dialog.attributes("aria-labelledby")).toMatch(/^explain-dialog-title-/);
+      expect(dialog.attributes("aria-describedby")).toMatch(/^explain-dialog-description-/);
+
+      const escapeEvent = new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      });
+      dialog.element.dispatchEvent(escapeEvent);
+      await nextTick();
+      expect(wrapper.find("[role='dialog']").exists()).toBe(false);
+      expect(document.activeElement).toBe(trigger.element);
+    },
+  );
+
+  it("zeigt ohne Coverage keinen Erklär-Trigger", () => {
+    const scan = useScanStore();
+    scan.status = "scanning";
+    const wrapper = mount(LibraryView);
+
+    expect(wrapper.find("[data-testid='explain-trigger']").exists()).toBe(false);
+  });
+
+  it("lässt die Detail-Umschaltung unverändert neben dem Trigger funktionieren", async () => {
+    const wrapper = mount(LibraryView);
+    const toggle = wrapper.get(".coverage-toggle");
+
+    await toggle.trigger("click");
+    expect(toggle.attributes("aria-expanded")).toBe("true");
+    expect(wrapper.findAll(".coverage-card")).toHaveLength(4);
+    await toggle.trigger("click");
+    expect(toggle.attributes("aria-expanded")).toBe("false");
+  });
+});

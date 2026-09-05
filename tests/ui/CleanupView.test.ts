@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrashEntry } from "../../src/core/trash";
 import type { OrphanEntry } from "../../src/core/types";
 import { formatBytes } from "../../src/ui/format";
-import { t } from "../../src/ui/i18n";
+import { setLocale, t } from "../../src/ui/i18n";
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
@@ -469,5 +469,133 @@ describe("CleanupView incomplete deletions", () => {
 
     expect(wrapper.text()).toContain(t("cleanup.empty"));
     expect(wrapper.text()).not.toContain(t("cleanup.unavailable"));
+  });
+});
+
+describe("CleanupView Erklärungen", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    setLocale("en");
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+    setLocale("en");
+  });
+
+  function mountView(seed: (store: ReturnType<typeof useCleanupStore>) => void) {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    seed(store);
+    return mount(CleanupView, { attachTo: document.body });
+  }
+
+  function topicTriggers(wrapper: ReturnType<typeof mountView>): Map<string, Element> {
+    const byLabel = new Map<string, Element>();
+    for (const trigger of wrapper.findAll("[data-testid='explain-trigger']")) {
+      const topic = trigger.attributes("aria-label") ?? "";
+      byLabel.set(topic, trigger.element);
+    }
+    return byLabel;
+  }
+
+  it("erklärt steam-eigene Daten an der bestehenden Prefix-Zusammenfassung", async () => {
+    const wrapper = mountView((store) => {
+      store.steamOwnedPrefixes = [
+        { appId: 5, path: "/lib/compatdata/5", library: "/lib", sizeBytes: 1024 },
+      ];
+      store.trashLibraries = [{ library: "/lib", dir: "/lib/trash", present: true, count: 0 }];
+    });
+    await wrapper.get("#cv-tab-prefixes").trigger("click");
+    await wrapper.vm.$nextTick();
+
+    const triggers = topicTriggers(wrapper);
+    const topic = t("explain.open", { topic: t("explain.topics.steamOwned.title") });
+    const trigger = triggers.get(topic);
+    expect(trigger).toBeDefined();
+    if (!trigger) return;
+    expect(wrapper.get("[data-testid='steam-owned-total']").element.contains(trigger)).toBe(true);
+
+    const wrapperEl = trigger as HTMLElement;
+    wrapperEl.click();
+    await wrapper.vm.$nextTick();
+    expect(wrapper.get("[role='dialog']").text()).toContain(t("explain.topics.steamOwned.meaning"));
+  });
+
+  it("erklärt abgebrochene Löschungen an der Claim-Anzeige", async () => {
+    const wrapper = mountView((store) => {
+      store.incompleteDeletions = [
+        {
+          path: "/steam/steamapps/compatdata/.protium-delete-claim-abc",
+          library: "/steam",
+          type: "compatdata",
+          name: ".protium-delete-claim-abc",
+        },
+      ];
+    });
+    await vi.waitFor(() => expect(wrapper.text()).toContain(t("cleanup.incompleteDeletionsTitle")));
+
+    const triggers = topicTriggers(wrapper);
+    const topic = t("explain.open", { topic: t("explain.topics.incompleteDeletion.title") });
+    expect(triggers.get(topic)).toBeDefined();
+    expect(wrapper.get("#cv-panel-shaders").text()).not.toContain(t("cleanup.unavailable"));
+
+    await wrapper.get("#cv-tab-prefixes").trigger("click");
+    await wrapper.vm.$nextTick();
+    expect(topicTriggers(wrapper).has(topic)).toBe(true);
+    expect(wrapper.get("#cv-panel-prefixes").text()).toContain(t("cleanup.unavailable"));
+  });
+
+  it.each(["de", "en"] as const)(
+    "zeigt den cleanup-blocked-topic je blockiertem Bereich in %s",
+    async (locale) => {
+      setLocale(locale);
+      const wrapper = mountView((store) => {
+        store.blockedBySkipped = true;
+        store.error = t("errors.scanIncomplete", { paths: "/lib" });
+      });
+
+      const topic = t("explain.open", { topic: t("explain.topics.cleanupBlocked.title") });
+      expect(wrapper.get("#cv-panel-shaders").text()).toContain(t("cleanup.unavailable"));
+      expect(topicTriggers(wrapper).get(topic)).toBeDefined();
+
+      await wrapper.get("#cv-tab-prefixes").trigger("click");
+      expect(topicTriggers(wrapper).get(topic)).toBeDefined();
+      await wrapper.get("#cv-tab-trash").trigger("click");
+      await wrapper.vm.$nextTick();
+      expect(topicTriggers(wrapper).get(topic)).toBeDefined();
+      expect(wrapper.get("#cv-panel-trash").text()).toContain(t("cleanup.unavailable"));
+    },
+  );
+
+  it("zeigt ohne Blockade oder Befund keinen Erklär-Trigger", async () => {
+    const wrapper = mountView(() => {
+      // leerer, erfolgreicher zustand
+    });
+    await wrapper.vm.$nextTick();
+    await wrapper.get("#cv-tab-trash").trigger("click");
+
+    expect(wrapper.findAll("[data-testid='explain-trigger']")).toHaveLength(0);
+  });
+
+  it("öffnet die Erklärung zum blockierten Bereich per Enter", async () => {
+    const wrapper = mountView((store) => {
+      store.blockedBySkipped = true;
+      store.error = t("errors.scanIncomplete", { paths: "/lib" });
+    });
+    const topic = t("explain.open", { topic: t("explain.topics.cleanupBlocked.title") });
+    const trigger = topicTriggers(wrapper).get(topic);
+    expect(trigger).toBeDefined();
+    const button = trigger as HTMLElement;
+
+    button.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    await wrapper.vm.$nextTick();
+    const dialog = wrapper.get("[role='dialog']");
+    expect(dialog.text()).toContain(t("explain.topics.cleanupBlocked.meaning"));
+    expect(dialog.text()).toContain(t("explain.topics.cleanupBlocked.limit"));
+    expect(dialog.attributes("aria-modal")).toBe("true");
   });
 });
