@@ -47,10 +47,6 @@ const fs: FileSystem = {
       }),
     );
   },
-  // canonicalisierung läuft gegen den aktuellen backend-snapshot.
-  realpath: (path) => invoke<string>("canonicalize_path", { path }),
-  writeTextFile: (path, content) => writeTextFile(path, content),
-  mkdir: (path) => mkdir(path, { recursive: true }),
 };
 
 // plugin-http kennt nur connectTimeout, keinen read-timeout: ein server, der

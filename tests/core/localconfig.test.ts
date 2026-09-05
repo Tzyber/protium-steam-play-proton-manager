@@ -1,11 +1,9 @@
-import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { findActiveUser, readLaunchOptions } from "../../src/core/localconfig.js";
-import { paths } from "../../src/core/paths.js";
-import { getVdfValue } from "../../src/core/vdfpatch.js";
-import { buildFakeSteam, fakeSystem, nodeFs } from "../support/fakeSteam.js";
+import { buildFakeSteam, nodeFs } from "../support/fakeSteam.js";
 
 describe("findActiveUser", () => {
   it("findet den einzigen account mit localconfig.vdf", async () => {
@@ -66,62 +64,9 @@ describe("findActiveUser", () => {
   });
 });
 
-describe("writeLaunchOptions", () => {
-  it("setzt startoptionen: appId-block wird angelegt, backup da, nachbar unberührt", async () => {
-    const { root, userId } = await buildFakeSteam();
-    const backupDir = join(root, "backups");
-
-    const r = await fakeSystem().saveLaunchOptions(root, userId, 730, "MANGOHUD=1 %command%");
-    expect(r).toBe("written");
-
-    const text = await readFile(paths.localConfigVdf(root, userId), "utf8");
-    expect(readLaunchOptions(text, 730)).toBe("MANGOHUD=1 %command%");
-    expect(readLaunchOptions(text, 620)).toBe("gamemoderun %command%");
-
-    const backups = await readdir(backupDir);
-    expect(backups).toHaveLength(1);
-    const backupFile = backups[0];
-    if (!backupFile) throw new Error("backup fehlt");
-    const backupText = await readFile(join(backupDir, backupFile), "utf8");
-    expect(readLaunchOptions(backupText, 730)).toBeUndefined();
-    expect(readLaunchOptions(backupText, 620)).toBe("gamemoderun %command%");
-  });
-
-  it("no-op → unchanged: kein write, kein backup", async () => {
-    const { root, userId } = await buildFakeSteam();
-    const fs = nodeFs();
-    const backupDir = join(root, "backups");
-
-    const r = await fakeSystem().saveLaunchOptions(root, userId, 620, "gamemoderun %command%");
-    expect(r).toBe("unchanged");
-    expect(await fs.exists(backupDir)).toBe(false);
-  });
-
-  it("steam läuft → wirft, datei unangetastet", async () => {
-    const { root, userId } = await buildFakeSteam();
-    const system = { ...fakeSystem(), isProcessRunning: async () => true };
-    const before = await readFile(paths.localConfigVdf(root, userId), "utf8");
-
-    await expect(system.saveLaunchOptions(root, userId, 620, "x")).rejects.toThrow(
-      "steam is running",
-    );
-    expect(await readFile(paths.localConfigVdf(root, userId), "utf8")).toBe(before);
-  });
-});
-
-it("geschriebene datei parst mit @node-steam/vdf und enthält den wert", async () => {
+it("liest launch-options direkt aus localconfig.vdf", async () => {
   const { root, userId } = await buildFakeSteam();
-  await fakeSystem().saveLaunchOptions(root, userId, 620, 'MANGOHUD_CONFIG="fps" %command%');
-  const text = await readFile(paths.localConfigVdf(root, userId), "utf8");
-  expect(
-    getVdfValue(text, [
-      "UserLocalConfigStore",
-      "Software",
-      "Valve",
-      "Steam",
-      "Apps",
-      "620",
-      "LaunchOptions",
-    ]),
-  ).toBe('MANGOHUD_CONFIG="fps" %command%');
+  const text = await readFile(join(root, "userdata", userId, "config", "localconfig.vdf"), "utf8");
+  expect(readLaunchOptions(text, 620)).toBe("gamemoderun %command%");
+  expect(readLaunchOptions(text, 730)).toBeUndefined();
 });

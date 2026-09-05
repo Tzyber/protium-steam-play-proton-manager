@@ -62,9 +62,6 @@ describe("listCompatTools", () => {
       }),
       readFile: vi.fn(async () => new Uint8Array()),
       readDir: vi.fn(async () => entries),
-      realpath: vi.fn(async (path: string) => path),
-      writeTextFile: vi.fn(async () => {}),
-      mkdir: vi.fn(async () => {}),
     };
     const system = {
       pathIdentity: vi.fn(async () => ({ realpath: "/compat", dev: "1", ino: "1" })),
@@ -114,9 +111,6 @@ describe("listCompatTools", () => {
       }),
       readFile: vi.fn(async () => new Uint8Array()),
       readDir: vi.fn(async () => entries),
-      realpath: vi.fn(async (p: string) => p),
-      writeTextFile: vi.fn(async () => {}),
-      mkdir: vi.fn(async () => {}),
     };
 
     const pi: PathIdentity = { realpath: "/compat", dev: "1", ino: "1" };
@@ -185,9 +179,6 @@ describe("listCompatTools", () => {
       readTextFile: vi.fn(async () => ""),
       readFile: vi.fn(async () => new Uint8Array()),
       readDir: vi.fn(async () => []),
-      realpath: vi.fn(async (p: string) => p),
-      writeTextFile: vi.fn(async () => {}),
-      mkdir: vi.fn(async () => {}),
     };
     const system = { pathIdentity: vi.fn(async () => null) } as unknown as System;
 
@@ -205,9 +196,6 @@ describe("listCompatTools", () => {
       readDir: vi.fn(async () => {
         throw new Error("directory denied");
       }),
-      realpath: vi.fn(async (p: string) => p),
-      writeTextFile: vi.fn(async () => {}),
-      mkdir: vi.fn(async () => {}),
     };
     const system = {
       pathIdentity: vi.fn(async () => ({ realpath: "/compat", dev: "1", ino: "1" })),
@@ -247,9 +235,6 @@ describe("listCompatTools", () => {
         { name: "first", isDirectory: true, isSymlink: false },
         { name: "second", isDirectory: true, isSymlink: false },
       ]),
-      realpath: vi.fn(async (p: string) => p),
-      writeTextFile: vi.fn(async () => {}),
-      mkdir: vi.fn(async () => {}),
     };
     const system = {
       pathIdentity: vi.fn(async () => ({ realpath: "/compat", dev: "1", ino: "1" })),
@@ -287,9 +272,6 @@ describe("listCompatTools", () => {
       }),
       readFile: vi.fn(async () => new Uint8Array()),
       readDir: vi.fn(async () => entries),
-      realpath: vi.fn(async (p: string) => p),
-      writeTextFile: vi.fn(async () => {}),
-      mkdir: vi.fn(async () => {}),
     };
     let identityCalls = 0;
     const system = {

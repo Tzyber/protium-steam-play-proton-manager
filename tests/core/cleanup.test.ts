@@ -1,4 +1,4 @@
-import { symlink, writeFile } from "node:fs/promises";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -52,8 +52,8 @@ describe("findOrphans", () => {
   it("parseInt-overflow (254 ziffern, NAME_MAX) → kein orphan", async () => {
     const { lib2, fs, installedAppIds } = await setup();
     const huge = "9".repeat(254); // max möglicher verzeichnisname
-    await fs.mkdir(`${lib2}/compatdata`);
-    await fs.mkdir(`${lib2}/compatdata/${huge}`);
+    await mkdir(`${lib2}/compatdata`, { recursive: true });
+    await mkdir(`${lib2}/compatdata/${huge}`, { recursive: true });
 
     const orphans = await findOrphans([lib2], installedAppIds, new Set(), fs);
 
@@ -76,7 +76,7 @@ describe("findOrphans", () => {
     // echter rest und wird als orphan angeboten. der filter verlässt sich nie
     // auf die statische blocklist allein.
     const { root, fs } = await setup();
-    await fs.mkdir(`${root}/steamapps/compatdata/4628710`);
+    await mkdir(`${root}/steamapps/compatdata/4628710`, { recursive: true });
 
     const scan = await scanGames(nodeFs(), root, [root], () => "default", null);
     expect(scan.blockedAppIds.has(4628710)).toBe(false);
@@ -90,7 +90,7 @@ describe("findOrphans", () => {
 
   it("blocklist-fall mit manifest: scan → cleanup bietet den prefix nicht als orphan an", async () => {
     const { root, fs } = await setup();
-    await fs.mkdir(`${root}/steamapps/compatdata/4628710`);
+    await mkdir(`${root}/steamapps/compatdata/4628710`, { recursive: true });
     await writeFile(
       join(root, "steamapps/appmanifest_4628710.acf"),
       `"AppState"\n{\n\t"appid"\t\t"4628710"\n\t"name"\t\t"Proton 11.0"\n}\n`,
@@ -170,7 +170,7 @@ describe("findSteamOwnedPrefixes", () => {
   it("findet compatdata-Prefixes blocklisteter AppIDs mit Pfad und appId", async () => {
     const { root, fs, libraries } = await setup();
     const blocked = new Set([4628710]);
-    await fs.mkdir(`${root}/steamapps/compatdata/4628710`);
+    await mkdir(`${root}/steamapps/compatdata/4628710`, { recursive: true });
 
     const found = await findSteamOwnedPrefixes(libraries, blocked, fs);
 
@@ -186,7 +186,7 @@ describe("findSteamOwnedPrefixes", () => {
   it("durchsucht kein shadercache", async () => {
     const { root, fs, libraries } = await setup();
     const blocked = new Set([4628710]);
-    await fs.mkdir(`${root}/steamapps/shadercache/4628710`);
+    await mkdir(`${root}/steamapps/shadercache/4628710`, { recursive: true });
 
     const found = await findSteamOwnedPrefixes(libraries, blocked, fs);
 
@@ -196,7 +196,9 @@ describe("findSteamOwnedPrefixes", () => {
   it("zählt claim-reste nicht mit", async () => {
     const { root, fs, libraries } = await setup();
     const blocked = new Set([4628710]);
-    await fs.mkdir(`${root}/steamapps/compatdata/${DELETE_CLAIM_PREFIX}4628710`);
+    await mkdir(`${root}/steamapps/compatdata/${DELETE_CLAIM_PREFIX}4628710`, {
+      recursive: true,
+    });
 
     const found = await findSteamOwnedPrefixes(libraries, blocked, fs);
 
@@ -214,8 +216,8 @@ describe("findSteamOwnedPrefixes", () => {
   it("konsistenz: filter und meldung beschreiben dieselbe menge", async () => {
     const { root, fs, libraries, installedAppIds } = await setup();
     const blocked = new Set([4628710]);
-    await fs.mkdir(`${root}/steamapps/compatdata/4628710`); // steam-eigen (gefiltert)
-    await fs.mkdir(`${root}/steamapps/compatdata/999999`); // echtes orphan
+    await mkdir(`${root}/steamapps/compatdata/4628710`, { recursive: true }); // steam-eigen (gefiltert)
+    await mkdir(`${root}/steamapps/compatdata/999999`, { recursive: true }); // echtes orphan
 
     const orphans = await findOrphans(libraries, installedAppIds, blocked, fs);
     const owned = await findSteamOwnedPrefixes(libraries, blocked, fs);
@@ -242,9 +244,9 @@ describe("findIncompleteDeletions", () => {
     const fileClaim = `${root}/steamapps/compatdata/${DELETE_CLAIM_PREFIX}file`;
     const symlinkClaim = `${root}/steamapps/compatdata/${DELETE_CLAIM_PREFIX}symlink`;
 
-    await fs.mkdir(compatClaim);
-    await fs.mkdir(shaderClaim);
-    await fs.writeTextFile(fileClaim, "kein verzeichnis");
+    await mkdir(compatClaim, { recursive: true });
+    await mkdir(shaderClaim, { recursive: true });
+    await writeFile(fileClaim, "kein verzeichnis");
     await symlink(compatClaim, symlinkClaim, "dir");
 
     const incomplete = await findIncompleteDeletions(libraries, root, fs);
@@ -266,8 +268,8 @@ describe("findIncompleteDeletions", () => {
     const { root, lib2, fs, libraries } = await setup();
     const trashClaim = `${root}/steamapps/.protium-trash/${DELETE_CLAIM_PREFIX}trash`;
     const trashClaim2 = `${lib2}/steamapps/.protium-trash/${DELETE_CLAIM_PREFIX}trash2`;
-    await fs.mkdir(trashClaim);
-    await fs.mkdir(trashClaim2);
+    await mkdir(trashClaim, { recursive: true });
+    await mkdir(trashClaim2, { recursive: true });
 
     const incomplete = await findIncompleteDeletions(libraries, root, fs);
 
@@ -282,7 +284,7 @@ describe("findIncompleteDeletions", () => {
   it("findet Claim-Reste in compatibilitytools.d (abgebrochener tool-delete)", async () => {
     const { root, fs, libraries } = await setup();
     const toolClaim = `${root}/compatibilitytools.d/${DELETE_CLAIM_PREFIX}tool`;
-    await fs.mkdir(toolClaim);
+    await mkdir(toolClaim, { recursive: true });
 
     const incomplete = await findIncompleteDeletions(libraries, root, fs);
 
@@ -304,7 +306,7 @@ describe("findIncompleteDeletions", () => {
   it("meldet lesefehler je claim-parent und behält lesbare claims", async () => {
     const { root, fs, libraries } = await setup();
     const readableClaim = `${root}/steamapps/compatdata/${DELETE_CLAIM_PREFIX}readable`;
-    await fs.mkdir(readableClaim);
+    await mkdir(readableClaim, { recursive: true });
 
     const originalReadDir = fs.readDir;
     const unreadableDir = `${root}/steamapps/shadercache`;

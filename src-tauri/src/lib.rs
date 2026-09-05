@@ -52,7 +52,6 @@ pub fn run() {
             commands::fs_ops::environment_read_binary,
             commands::fs_ops::environment_read_dir,
             commands::scope::discover_steam_environment,
-            commands::fs_ops::canonicalize_path,
             commands::fs_ops::path_identity,
             commands::ge_install::ge_target_arch,
             commands::ge_install::install_ge_proton,

@@ -5,7 +5,6 @@ import {
   readdir,
   readFile,
   realpath,
-  rename,
   rm,
   stat,
   symlink,
@@ -23,7 +22,6 @@ import type {
   PathIdentity,
   System,
 } from "../../src/core/ports.js";
-import { getVdfValue, removeVdfEntry, setVdfValue } from "../../src/core/vdfpatch.js";
 
 /** größenlimit, das der fake wie das rust-backend (16-MiB-caps) durchsetzt. */
 export const MAX_FILE_BYTES = 16 * 1024 * 1024;
@@ -307,11 +305,6 @@ export function nodeFs(): FileSystem {
         }),
       );
     },
-    realpath: (p) => realpath(p),
-    writeTextFile: (p, content) => writeFile(p, content, "utf8"),
-    async mkdir(p) {
-      await mkdir(p, { recursive: true });
-    },
   };
 }
 
@@ -388,109 +381,11 @@ export function fakeSystem(opts?: { environment?: EnvironmentSnapshot }): System
       } catch {}
       return { success: true, deletedPath: path };
     },
-    // Bildet das Rust-Write-Gate nach: Steam läuft, Abbruch,
-    // fail-closed bei fehlender datei, backup + atomarer temp+rename.
-    async saveLaunchOptions(steamRoot, accountId, appId, launchOptions) {
-      if (await this.isProcessRunning("steam")) {
-        throw new Error("steam is running, write refused");
-      }
-      const file = `${steamRoot}/userdata/${accountId}/config/localconfig.vdf`;
-      try {
-        await lstat(file);
-      } catch {
-        throw new Error("write target canonicalize: not found");
-      }
-      const original = await readFile(file, "utf8");
-      const path = [
-        "UserLocalConfigStore",
-        "Software",
-        "Valve",
-        "Steam",
-        "Apps",
-        String(appId),
-        "LaunchOptions",
-      ];
-      const currentVal = getVdfValue(original, path);
-      if (launchOptions.trim() === "") {
-        if (currentVal === undefined) return "unchanged";
-        const patched = removeVdfEntry(original, path);
-        const backup = `${steamRoot}/backups/localconfig-${accountId}-${Date.now()}.vdf`;
-        await mkdir(`${steamRoot}/backups`, { recursive: true });
-        await writeFile(backup, original, "utf8");
-        const tmp = `${file}.protium-tmp`;
-        await writeFile(tmp, patched, "utf8");
-        await rename(tmp, file);
-        return "written";
-      }
-      if (currentVal === launchOptions) return "unchanged";
-      const patched = setVdfValue(original, path, launchOptions);
-      const backup = `${steamRoot}/backups/localconfig-${accountId}-${Date.now()}.vdf`;
-      await mkdir(`${steamRoot}/backups`, { recursive: true });
-      await writeFile(backup, original, "utf8");
-      const tmp = `${file}.protium-tmp`;
-      await writeFile(tmp, patched, "utf8");
-      await rename(tmp, file);
-      return "written";
+    async saveLaunchOptions() {
+      throw new Error("write gate unavailable in test fixture");
     },
-    async saveCompatTool(steamRoot, appId, toolName) {
-      if (await this.isProcessRunning("steam")) {
-        throw new Error("steam is running, write refused");
-      }
-      const file = `${steamRoot}/config/config.vdf`;
-      try {
-        await lstat(file);
-      } catch {
-        throw new Error("write target canonicalize: not found");
-      }
-      const original = await readFile(file, "utf8");
-      const namePath = [
-        "InstallConfigStore",
-        "Software",
-        "Valve",
-        "Steam",
-        "CompatToolMapping",
-        String(appId),
-        "name",
-      ];
-      const currentName = getVdfValue(original, namePath);
-      if (toolName === null || toolName === "default" || toolName === "") {
-        if (currentName === undefined) return "unchanged";
-        const blockPath = [
-          "InstallConfigStore",
-          "Software",
-          "Valve",
-          "Steam",
-          "CompatToolMapping",
-          String(appId),
-        ];
-        const patched = removeVdfEntry(original, blockPath);
-        const backup = `${steamRoot}/backups/config-${appId}-${Date.now()}.vdf`;
-        await mkdir(`${steamRoot}/backups`, { recursive: true });
-        await writeFile(backup, original, "utf8");
-        const tmp = `${file}.protium-tmp`;
-        await writeFile(tmp, patched, "utf8");
-        await rename(tmp, file);
-        return "written";
-      }
-      if (currentName === toolName) return "unchanged";
-      const basePath = [
-        "InstallConfigStore",
-        "Software",
-        "Valve",
-        "Steam",
-        "CompatToolMapping",
-        String(appId),
-      ];
-      let p = setVdfValue(original, [...basePath, "name"], toolName);
-      p = setVdfValue(p, [...basePath, "config"], "");
-      p = setVdfValue(p, [...basePath, "priority"], "250");
-      const backup = `${steamRoot}/backups/config-${appId}-${Date.now()}.vdf`;
-      await mkdir(`${steamRoot}/backups`, { recursive: true });
-      await writeFile(backup, original, "utf8");
-      const tmp = `${file}.protium-tmp`;
-      await writeFile(tmp, p, "utf8");
-      await rename(tmp, file);
-      return "written";
+    async saveCompatTool() {
+      throw new Error("write gate unavailable in test fixture");
     },
   };
 }

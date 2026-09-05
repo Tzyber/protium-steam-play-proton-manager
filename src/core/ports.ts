@@ -19,11 +19,6 @@ export interface FileSystem {
   readTextFile(path: string): Promise<string>;
   readFile(path: string): Promise<Uint8Array>;
   readDir(path: string): Promise<DirEntry[]>;
-  /** symlinks aufgelöst. */
-  realpath(path: string): Promise<string>;
-  writeTextFile(path: string, content: string): Promise<void>;
-  /** recursive, fehlende eltern werden mit angelegt. */
-  mkdir(path: string): Promise<void>;
 }
 
 export interface HttpResponse {

@@ -392,25 +392,6 @@ pub async fn batch_dir_sizes(
     .await
 }
 
-/// symlink-auflösung (steam-root-discovery). `..` im input abgelehnt,
-/// auflösungen in blockierte dateisysteme verweigert (info-disclosure).
-/// Nutzt `canonicalize_safe()` (Sanitize + Realpath + Systempfad-Blocklist).
-/// async + spawn_blocking: canonicalize ist Dateisystem-I/O und darf keinen
-/// Command-Thread blockieren.
-#[tauri::command]
-pub async fn canonicalize_path(
-    state: State<'_, EnvironmentState>,
-    path: String,
-) -> Result<String, String> {
-    let state = state.inner().clone();
-    spawn_blocking_io(move || {
-        state.with_authorized_existing(&path, "canonicalize", |real| {
-            Ok(real.to_string_lossy().into_owned())
-        })
-    })
-    .await
-}
-
 /// Liefert kanonischen Pfad und `(dev, ino)` zur Library-Deduplizierung.
 /// Nutzt `canonicalize_safe()` (Sanitize + Realpath + Systempfad-Blocklist).
 /// async + spawn_blocking: metadata ist Dateisystem-I/O und darf keinen
