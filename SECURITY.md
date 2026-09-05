@@ -193,6 +193,26 @@ dass der Write nicht angewendet wurde, und räumt die Temp-Datei auf. Ein
 Fehler beim Parent-fsync nach dem Rename meldet ausdrücklich eine mögliche
 Mutation; er darf nicht als unveränderter Zielstand behandelt werden.
 
+### Export-Allowlist und Zwischenablage
+
+„Technische infos kopieren" exportiert ausschließlich eine feste Allowlist:
+feste Labels, Status-Enums, validierte nichtnegative Zahlen, die Paketversion
+und berichtsbezogene Aliase (`<steam-library-N>`, `<compat-tool-1>`).
+Untrusted Freitext — Spiel-, Tool- und Manifestnamen, Pfade,
+Config-Inhalte/Startoptionen, Warning-/Error-Details, Confidence und
+Bilder-URLs — erreicht weder den Beleg noch die Zwischenablage; es gibt
+keinen Rohdatenexport über IPC und keinen Clipboard-Lesezugriff. Der Write
+läuft über das vorhandene Browser-`writeText` ohne neue Capability oder
+Plugin. Ungültige Werte erscheinen als „unbekannt", nie als 0, NaN oder
+Infinity.
+
+Abbruchgrenze: Ein einmal gestarteter Clipboard-Write ist nicht rückholbar.
+Die Zwischenablage kann den beim Klick gebildeten, bereits anonymisierten
+Beleg enthalten; es gibt kein Rollback, keine Wiederholung und keine
+automatische Löschung der Zwischenablage. Fehlende Clipboard-API und
+Write-Fehler zeigen ausschließlich eine generische lokalisierte Meldung, nie
+eine rohe Exception.
+
 ### Bekannte Einschränkungen und akzeptierte Restrisiken
 
 - **File-Locking & TOCTOU Steam-Start:**

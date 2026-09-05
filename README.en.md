@@ -67,6 +67,8 @@ itself is deliberately not a tamper-proof security boundary.
 
 **failure cases.** what is unreadable is shown as unreadable, not as an empty value. destructive actions ask beforehand and show concretely what would happen. where possible, there is a way back.
 
+**explanations and diagnostic evidence.** a question-mark button explains technical values right where they appear (config states, tool source, scan coverage, footprint, protondb, cleanup blockades, incomplete deletions) with source, meaning and limit; the terms follow the [glossary](docs/glossar.md). "copy technical information" puts a privacy-conscious report into the clipboard: fixed labels, status values, validated numbers and report-local aliases only, never names, paths or config contents. conservative hints in the launch-options draft warn about gamemoderun without `%command%`, an assignment behind `%command%` and an enabled `PROTON_LOG=1` assignment.
+
 **accessibility.** fully keyboard operable, visible focus states, tabs following the WAI-ARIA pattern (arrow keys, roving tabindex), contrasts checked against WCAG AA, `prefers-reduced-motion` respected globally. font sizes in `rem` so the app scales with the system font size. interface in german and english, key parity guarded by a test.
 
 ### supported steam installations
@@ -166,6 +168,10 @@ rules for the implementation: writes to steam files go through the write gate wi
 - [x] v0.7.0: game footprint in the drawer
 - [x] v0.7.1: refactored Rust layer, larger cleanup in manageable steps,
   clearer search and trash handling
+- [x] v0.8.0: explainability (explanation buttons with source, meaning and
+  limit), a data-minimal diagnostic record for copying and conservative
+  launch-option/`PROTON_LOG` hints (implemented for v0.8.0; versioning and
+  release follow as a separate step)
 
 version history lives in the [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 
@@ -176,10 +182,8 @@ they make local Steam data clearer without a daemon or auto-repair. with
 this plan ahead:
 
 - [x] before v0.8.0: [terminology glossary](docs/glossar.md)
-- before v0.8.0: separate prefix metadata spike remains open and independent,
-  without claiming a runtime result in advance
-- v0.8.0: explainability, a data-minimal diagnostic record, and narrow
-  warning-only launch-option/`PROTON_LOG` hints
+- a separate prefix metadata spike remains open and independent, without
+  claiming a runtime result in advance
 - v0.9.0: honest GE mapping summary and a secure "open prefix folder" workflow
 - v1.0.0: consolidation (consistency, error semantics, security and
   accessibility review)

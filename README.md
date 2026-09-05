@@ -93,6 +93,17 @@ keine prozess-überwachung.
 leerer wert. destruktive aktionen fragen vorher und zeigen konkret, was
 passieren würde. wo es geht, gibt es einen rückweg.
 
+**erklärungen und diagnosebeleg.** ein Fragezeichen-Button erklärt technische
+werte direkt an der stelle (config-zustände, tool-quelle, scan-abdeckung,
+footprint, protondb, cleanup-blockaden, abgebrochene löschungen) mit quelle,
+bedeutung und grenze; die begriffe folgen dem [glossar](docs/glossar.md).
+„technische infos kopieren" legt einen datensparsamen beleg in die
+zwischenablage: nur feste labels, statuswerte, validierte zahlen und
+berichtsbezogene aliasse, nie namen, pfade oder config-inhalte. konservative
+hinweise im startoptionen-entwurf warnen vor gamemoderun ohne `%command%`,
+einem assignment hinter `%command%` und einem aktivierten
+`PROTON_LOG=1`-assignment.
+
 **bedienbarkeit.** vollständig mit der tastatur bedienbar, sichtbare
 focus-states, tabs nach WAI-ARIA-pattern (pfeiltasten, roving tabindex),
 kontraste auf WCAG-AA geprüft, `prefers-reduced-motion` global respektiert.
@@ -227,6 +238,10 @@ die app blockieren. was sich nicht zuverlässig bestimmen lässt, heißt in der 
 - [x] v0.7.0: game-footprint im drawer
 - [x] v0.7.1: rust-schicht refaktoriert, größere bereinigungen in
   überschaubaren schritten, suche und papierkorb verständlicher
+- [x] v0.8.0: explainability (erklär-Buttons mit quelle, bedeutung und
+  grenze), datensparsamer diagnosebeleg zum kopieren und konservative
+  startoptionen-/`PROTON_LOG`-hinweise (für v0.8.0 umgesetzt; versionierung
+  und veröffentlichung folgen als eigener release-schritt)
 
 versionshistorie steht in den [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 
@@ -237,10 +252,8 @@ wenn sie lokale steam-daten klarer machen, ohne daemon oder autoreparatur.
 als plan folgen:
 
 - [x] vor v0.8.0: [terminologie-glossar](docs/glossar.md)
-- vor v0.8.0: separater Prefix-Metadaten-Spike bleibt offen und unabhängig,
-  ohne vorweggenommene Runtime-Behauptung
-- v0.8.0: explainability, datensparsamer diagnosebeleg und enge warnende
-  startoptionen-/`PROTON_LOG`-hinweise
+- separater Prefix-Metadaten-Spike bleibt offen und unabhängig, ohne
+  vorweggenommene Runtime-Behauptung
 - v0.9.0: ehrliche GE-Zuordnungszusammenfassung und sicherer
   „Prefix-Ordner öffnen"-Workflow
 - v1.0.0: konsolidierung (konsistenz, fehlersemantik, security- und
