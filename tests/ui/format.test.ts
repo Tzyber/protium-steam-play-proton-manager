@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { errText } from "../../src/core/errtext";
-import { formatBytes } from "../../src/ui/format";
+import { formatBytes, formatKnownBytes } from "../../src/ui/format";
 
 describe("formatBytes", () => {
   it("unbekannt → auslassungspunkte", () => {
@@ -24,6 +24,13 @@ describe("formatBytes", () => {
   });
   it("deckel bei TB", () => {
     expect(formatBytes(5 * 1024 ** 4)).toBe("5.0 TB");
+  });
+});
+
+describe("formatKnownBytes", () => {
+  it("belegte 0 → 0 B, sonst wie formatBytes", () => {
+    expect(formatKnownBytes(0)).toBe("0 B");
+    expect(formatKnownBytes(1536)).toBe("1.5 KB");
   });
 });
 

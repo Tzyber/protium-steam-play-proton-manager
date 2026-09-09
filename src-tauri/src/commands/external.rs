@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::process::{Command, Stdio};
 
 // Externe URLs für Browser und Steam-Handler.
@@ -113,9 +114,25 @@ pub(super) fn env_overrides(
 /// je klick ein zombie stehen. endet protium zuerst, läuft das kind als
 /// waise weiter.
 pub(super) fn spawn_detached(program: &str, args: &[&str], url: &str) -> std::io::Result<()> {
+    spawn_detached_os(program, args, OsStr::new(url))
+}
+
+pub(super) fn spawn_detached_os(
+    program: &str,
+    args: &[&str],
+    target: &OsStr,
+) -> std::io::Result<()> {
+    let mut child = detached_command(program, args, target).spawn()?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
+fn detached_command(program: &str, args: &[&str], target: &OsStr) -> Command {
     let mut cmd = Command::new(program);
     cmd.args(args)
-        .arg(url)
+        .arg(target)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -135,11 +152,7 @@ pub(super) fn spawn_detached(program: &str, args: &[&str], url: &str) -> std::io
         }
     }
 
-    let mut child = cmd.spawn()?;
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
-    Ok(())
+    cmd
 }
 
 /// Öffnet eine URL im System-Browser oder Steam-Handler.
@@ -269,5 +282,24 @@ mod tests {
         assert!(out
             .iter()
             .any(|(k, v)| k == "LD_LIBRARY_PATH" && v.is_none()));
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod detached_command_tests {
+    use super::*;
+    use std::os::unix::ffi::OsStrExt;
+
+    #[test]
+    fn preserves_non_utf8_argument_and_removes_loader_environment() {
+        let target = std::ffi::OsStr::from_bytes(b"/library/\xff/pfx");
+        let command = detached_command("gio", &["open"], target);
+        let arguments: Vec<_> = command.get_args().collect();
+        assert_eq!(arguments, vec![std::ffi::OsStr::new("open"), target]);
+        for name in ENV_ALWAYS_DROP {
+            assert!(command
+                .get_envs()
+                .any(|(key, value)| key == name && value.is_none()));
+        }
     }
 }

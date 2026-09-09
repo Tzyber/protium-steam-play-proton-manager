@@ -15,7 +15,8 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
   writeTextFile: vi.fn(),
 }));
 
-import { tauriPorts } from "../../../src/core/adapters/tauri";
+import { invoke } from "@tauri-apps/api/core";
+import { openPrefixFolder, tauriPorts } from "../../../src/core/adapters/tauri";
 
 describe("http.get", () => {
   beforeEach(() => {
@@ -50,5 +51,17 @@ describe("http.get", () => {
     const assertion = expect(promise).rejects.toThrow("HTTP request timed out");
     await vi.advanceTimersByTimeAsync(30_000);
     await assertion;
+  });
+});
+
+describe("Prefix-Öffnen-IPC", () => {
+  it("übergibt genau Library und AppID als String, keinen Zielpfad", async () => {
+    vi.mocked(invoke).mockClear();
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
+    await openPrefixFolder("/library", 620);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("open_prefix_folder", {
+      library: "/library",
+      appId: "620",
+    });
   });
 });

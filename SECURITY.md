@@ -60,6 +60,31 @@ release-relevant ist, wird sie mit einem neuen sicherheits- oder
 wartungsrelease veröffentlicht. backports für ältere versionen sind nicht
 zugesagt.
 
+### Prefix-Ordner im Dateimanager öffnen
+
+`open_prefix_folder` nimmt genau `library` und `appId`, keinen Zielpfad. Die
+Library muss zum kanonischen Environment-Snapshot gehören, der bis zum
+Handlerstart gesperrt bleibt; die Identität des geöffneten Library-Deskriptors
+muss zum vorher erfassten Gerät/Inode passen. Manifest und Prefix-Kette laufen
+über denselben `steamapps`-Deskriptor; `compatdata`, AppID und `pfx` werden mit
+`O_NOFOLLOW` geöffnet. Der Name des Prefix-Deskriptors wird aus `/proc/self/fd`
+zurückgelesen und muss absolut, NUL-frei, unterhalb der Library und ohne
+` (deleted)`-Suffix sein. Erst dann erhält `xdg-open`, ersatzweise `gio open`,
+den Namen als einzelnes `OsStr`-Argument ohne Shell. Keine neue Capability.
+
+Das Backend antwortet nur mit `blocked`, `not-found`, `unreadable` oder
+`handler-unavailable`; die UI ergänzt `external-target` und `unchecked` und
+zeigt feste de/en-Texte, nie Pfade oder Rohtext. Die UI sperrt bei nicht
+eindeutig verfügbaren Startoptionen, laufendem Scan und jedem Vorkommen von
+`STEAM_COMPAT_DATA_PATH`; das Gatter ist konservativ, keine Backend-Autorität.
+
+**Verbleibende Grenze:** Der Dateimanager erhält einen Pfad und löst ihn selbst
+erneut auf. Ein Prozess mit Schreibrecht auf eine Pfadkomponente kann sie
+zwischen Prüfung und Auflösung austauschen; ein Test hält diese Grenze fest,
+ohne sie zu schließen. Protium schreibt, verschiebt oder löscht dabei nichts.
+Der gestartete Dateimanager läuft mit Nutzerrechten weiter und kann selbst
+Daten verändern. „Dateimanager gestartet“ bestätigt nur den Prozessstart.
+
 ### Löschautorisierung
 
 Destruktive Cleanup-Aktionen verwenden eine einmalige backendgebundene
@@ -195,19 +220,31 @@ Mutation; er darf nicht als unveränderter Zielstand behandelt werden.
 
 ### Export-Allowlist und Zwischenablage
 
-„Technische infos kopieren" exportiert ausschließlich eine feste Allowlist:
-feste Labels, Status-Enums, validierte nichtnegative Zahlen, die Paketversion
-und berichtsbezogene Aliase (`<steam-library-N>`, `<compat-tool-1>`).
-Untrusted Freitext — Spiel-, Tool- und Manifestnamen, Pfade,
-Config-Inhalte/Startoptionen, Warning-/Error-Details, Confidence und
-Bilder-URLs — erreicht weder den Beleg noch die Zwischenablage; es gibt
-keinen Rohdatenexport über IPC und keinen Clipboard-Lesezugriff. Der Write
-läuft über das vorhandene Browser-`writeText` ohne neue Capability oder
-Plugin. Ungültige Werte erscheinen als „unbekannt", nie als 0, NaN oder
+„Technische infos kopieren" exportiert feste Labels, Status-Enums, validierte
+nichtnegative Zahlen, die Paketversion und berichtsbezogene Aliase
+(`<steam-library-N>`, `<compat-tool-1>`). Zugeordnete Toolnamen werden im Core
+über zwei lokale Regeln freigegeben:
+
+- `BLOCKLIST` in `src/core/blocklist.ts`: Der erste Eintrag der Kategorie
+  `proton-builtin` mit exakt passendem internem `toolName` liefert sein festes
+  `label`. `proton_11` ergibt „Proton 11.0“, ohne Architekturannahme.
+- `MANAGED_GE_NAME_RE` in `src/core/geproton.ts`: Ein vollständiger Treffer
+  erlaubt den GE-Namen unverändert. Das Muster begrenzt die Form, belegt aber
+  weder Herkunft, veröffentlichtes Release noch Installation. Auch selbst
+  benannte Tools und Kennungen innerhalb der Ziffernsegmente können passen;
+  der Beleg ist deshalb datensparsam, nicht garantiert anonym.
+
+Übrige gültige Toolnamen erscheinen als `<compat-tool-1>`, unbekannte
+Zuordnungen bleiben unbekannt. Gelesene Anzeigenamen sind keine Ausgabequelle.
+Spiel- und Manifestnamen, Pfade, Config-Inhalte/Startoptionen, Warning-/Error-
+Details, Confidence und Bilder-URLs werden nicht in den Beleg übernommen.
+Es gibt keinen Rohdatenexport über IPC und keinen Clipboard-Lesezugriff.
+Der Write läuft über das vorhandene Browser-`writeText` ohne neue Capability
+oder Plugin. Ungültige Werte erscheinen als „unbekannt", nie als 0, NaN oder
 Infinity.
 
 Abbruchgrenze: Ein einmal gestarteter Clipboard-Write ist nicht rückholbar.
-Die Zwischenablage kann den beim Klick gebildeten, bereits anonymisierten
+Die Zwischenablage kann den beim Klick gebildeten, datensparsamen
 Beleg enthalten; es gibt kein Rollback, keine Wiederholung und keine
 automatische Löschung der Zwischenablage. Fehlende Clipboard-API und
 Write-Fehler zeigen ausschließlich eine generische lokalisierte Meldung, nie

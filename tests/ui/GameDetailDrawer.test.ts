@@ -47,6 +47,7 @@ const cleanupState = reactive(rawCleanupState);
 
 vi.mock("../../src/core/adapters/tauri", () => ({
   openExternal: vi.fn(async () => {}),
+  openPrefixFolder: vi.fn(async () => {}),
   tauriPorts: { system: {} },
 }));
 vi.mock("../../src/core/footprint", async (importOriginal) => {

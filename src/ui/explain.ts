@@ -12,7 +12,9 @@ export type ExplainTopic =
   | "external-compatdata"
   | "cleanup-blocked"
   | "steam-owned"
-  | "incomplete-deletion";
+  | "incomplete-deletion"
+  | "explicit-mapping-count"
+  | "ge-delete-scope";
 
 export interface ExplainGlossaryAnchor {
   readonly de: string;
@@ -28,6 +30,27 @@ export interface ExplainTopicDefinition {
 }
 
 export const EXPLAIN_TOPICS = {
+  "explicit-mapping-count": {
+    titleKey: "explain.topics.explicitMappingCount.title",
+    sourceKey: "explain.topics.explicitMappingCount.source",
+    meaningKey: "explain.topics.explicitMappingCount.meaning",
+    limitKey: "explain.topics.explicitMappingCount.limit",
+    glossary: [
+      { de: "explizite Zuordnung", en: "explicit mapping" },
+      { de: "globaler Standard", en: "global default" },
+      { de: "keine bekannte Zuordnung", en: "no known explicit mapping" },
+    ],
+  },
+  "ge-delete-scope": {
+    titleKey: "explain.topics.geDeleteScope.title",
+    sourceKey: "explain.topics.geDeleteScope.source",
+    meaningKey: "explain.topics.geDeleteScope.meaning",
+    limitKey: "explain.topics.geDeleteScope.limit",
+    glossary: [
+      { de: "Löschumfang einer Compat-Tool-Entfernung", en: "compat tool removal scope" },
+      { de: "Prefix-Ordner", en: "prefix folder" },
+    ],
+  },
   "compat-tool": {
     titleKey: "explain.topics.compatTool.title",
     sourceKey: "explain.topics.compatTool.source",

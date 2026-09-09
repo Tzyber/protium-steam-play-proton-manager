@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { type FootprintPart, measureGameFootprint } from "../../src/core/footprint.js";
+import {
+  type FootprintPart,
+  hasExternalCompatdata,
+  measureGameFootprint,
+} from "../../src/core/footprint.js";
 import { paths } from "../../src/core/paths.js";
 import type { DirectorySize, System } from "../../src/core/ports.js";
 import type { Game, LaunchConfigStatus } from "../../src/core/types.js";
@@ -210,6 +214,7 @@ describe("measureGameFootprint", () => {
   it.each([
     ["direkte Zuweisung", "  STEAM_COMPAT_DATA_PATH=/secret/user/prefix  "],
     ["env-Zuweisung", "env\tSTEAM_COMPAT_DATA_PATH=/secret/user/prefix %command%"],
+    ["indirekte Zuweisung", "FOO=1 STEAM_COMPAT_DATA_PATH=/secret/user/prefix"],
   ])("erkennt eine %s, ohne den Wert zu extrahieren", async (_label, launchOptions) => {
     const currentGame = game({ launchOptions });
     const requested: string[][] = [];
@@ -232,31 +237,6 @@ describe("measureGameFootprint", () => {
     expect(result.externalCompatdata).toBe(true);
     expect(result.compatdata).toEqual(part("not-requested"));
     expect(result.summary).toEqual({ status: "partial", sizeBytes: 30 });
-  });
-
-  it.each([
-    "echo STEAM_COMPAT_DATA_PATH=/secret/user/prefix",
-    "XSTEAM_COMPAT_DATA_PATH=/secret/user/prefix",
-    "STEAM_COMPAT_DATA_PATHX=/secret/user/prefix",
-    "export STEAM_COMPAT_DATA_PATH=/secret/user/prefix",
-    "FOO=1 STEAM_COMPAT_DATA_PATH=/secret/user/prefix",
-    "env FOO=1 STEAM_COMPAT_DATA_PATH=/secret/user/prefix",
-    "env -i STEAM_COMPAT_DATA_PATH=/secret/user/prefix",
-  ])("ignoriert nicht direkte Startoptions-Konstruktion: %s", async (launchOptions) => {
-    const currentGame = game({ launchOptions });
-    const requested: string[][] = [];
-    const result = await measureGameFootprint(
-      systemWith((requestedPaths: string[]) => {
-        requested.push(requestedPaths);
-        return sizes(requestedPaths);
-      }),
-      currentGame,
-      "available",
-    );
-
-    expect(requested[0]).toEqual(expectedPaths(currentGame));
-    expect(result.externalCompatdata).toBe(false);
-    expect(result.compatdata.status).toBe("measured");
   });
 
   it.each(["missing", "unreadable", "ambiguous"] as const)(
@@ -409,4 +389,21 @@ describe("measureGameFootprint", () => {
 
     expect(result.summary).toEqual({ status: "not-measured" });
   });
+});
+
+describe("hasExternalCompatdata", () => {
+  it.each([
+    "echo STEAM_COMPAT_DATA_PATH=/secret/user/prefix",
+    "export STEAM_COMPAT_DATA_PATH=/secret/user/prefix",
+    "env -i STEAM_COMPAT_DATA_PATH=/secret/user/prefix",
+    "  env\tSTEAM_COMPAT_DATA_PATH=/secret %command%",
+  ])("erkennt jedes Vorkommen der Zielkennung: %s", (options) => {
+    expect(hasExternalCompatdata(options)).toBe(true);
+  });
+  it.each([undefined, "", "%command%", "PROTON_LOG=1 %command%", "STEAM_COMPAT_DATA=/x"])(
+    "lässt Optionen ohne Zielkennung zu: %s",
+    (options) => {
+      expect(hasExternalCompatdata(options)).toBe(false);
+    },
+  );
 });

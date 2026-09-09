@@ -47,6 +47,9 @@ ohne sie zu verstärken.
 | teilweise | partial | die angezeigte Summe enthält nur die sicher belegten Teilwerte | dass fehlende Teilwerte 0 Byte sind |
 | Claim-Prüfung | claim check | die Prüfung der Orte, an denen Protium abgebrochene Löschungen erkennt | eine Aussage darüber, ob abgebrochene Löschungen vorliegen |
 | Bereinigungsfreigabe | cleanup clearance | im vorhandenen Anzeigestand ist für keinen Bereich eine Blockade vermerkt | dass eine Bereinigung geprüft und als sicher belegt wurde |
+| Prefix-Ordner | prefix folder | der von Steam angelegte Wine-Prefix eines Spiels unter `compatdata/<AppID>/pfx` | dass Protium ihn gelesen, verändert oder repariert hat |
+| Löschumfang einer Compat-Tool-Entfernung | compat tool removal scope | entfernt wird das Tool-Verzeichnis | dass compatdata-Prefixes der Spiele mit entfernt werden oder deren Platz frei wird |
+| Dateimanager gestartet | file manager launched | Protium hat den Systemhandler mit dem geprüften Ordner gestartet | dass ein Fenster erschienen ist oder der Ordner angezeigt wird |
 
 ## Änderungsvertrag
 

@@ -16,7 +16,7 @@ import { projectSupportFacts } from "../../core/support";
 import type { LaunchConfigStatus, Tier } from "../../core/types";
 import { focusFirstFocusable, restoreFocus, trapFocus } from "../a11y";
 import type { ExplainTopic } from "../explain";
-import { formatBytes } from "../format";
+import { formatBytes, formatKnownBytes } from "../format";
 import { t } from "../i18n";
 import { useCleanupStore } from "../stores/cleanupStore";
 import { useConfigStore } from "../stores/configStore";
@@ -24,6 +24,7 @@ import { useScanStore } from "../stores/scanStore";
 import { useUiStore } from "../stores/uiStore";
 import { formatSupportFacts } from "../supportText";
 import { useCover } from "../useCover";
+import { usePrefixOpen } from "../usePrefixOpen";
 import ExplainInfo from "./ExplainInfo.vue";
 import PlayButton from "./PlayButton.vue";
 import SelectBox from "./SelectBox.vue";
@@ -149,7 +150,7 @@ function footprintSizeText(sizeBytes: number | undefined): string {
   if (typeof sizeBytes !== "number" || !Number.isSafeInteger(sizeBytes) || sizeBytes < 0) {
     return t("common.notMeasured");
   }
-  return sizeBytes === 0 ? "0 B" : formatBytes(sizeBytes);
+  return formatKnownBytes(sizeBytes);
 }
 
 function footprintPartText(part: FootprintPart | undefined): string {
@@ -507,6 +508,16 @@ async function copySupport(): Promise<void> {
   }
 }
 
+const {
+  state: prefixState,
+  errorKey: prefixErrorKey,
+  disabledReason: prefixDisabledReason,
+  open: openPrefix,
+} = usePrefixOpen(
+  game,
+  computed(() => launchState.value === "saving"),
+);
+
 // fehler-toast: der state ist entweder ein bekanntes schlagwort oder die fehlermeldung.
 function stateError(s: string): string | null {
   return s === "idle" || s === "saving" || s === "saved" ? null : s;
@@ -635,6 +646,21 @@ watch(errorMessage, (msg) => {
                 : t("drawer.footprintMeasure")
             }}
           </button>
+
+          <div class="prefix-actions" :aria-busy="prefixState === 'opening'">
+            <button
+              class="save"
+              data-testid="prefix-open"
+              type="button"
+              :disabled="prefixDisabledReason !== null || prefixState === 'opening'"
+              :aria-describedby="prefixDisabledReason ? 'prefix-disabled-reason' : undefined"
+              @click="openPrefix"
+            >
+              {{ t(prefixState === 'opening' ? 'drawer.prefixOpening' : 'drawer.prefixOpen') }}
+            </button>
+            <p v-if="prefixDisabledReason" id="prefix-disabled-reason" class="hint" data-testid="prefix-reason" role="status">{{ t(prefixDisabledReason) }}</p>
+            <p v-if="prefixState === 'opened' || prefixState === 'failed'" class="hint" data-testid="prefix-status" :role="prefixState === 'failed' ? 'alert' : 'status'">{{ t(prefixState === 'opened' ? 'drawer.prefixOpened' : prefixErrorKey) }}</p>
+          </div>
 
           <div v-if="footprintState !== 'idle'" class="footprint-values">
             <div class="footprint-row" data-testid="footprint-game-install">
@@ -824,6 +850,7 @@ watch(errorMessage, (msg) => {
 .head :deep(*) { flex-shrink: 0; }
 .meta { margin: 6px 0 2px; color: var(--fg-2); font-size: 0.875rem; }
 .meta-tier { margin: 0 0 20px; color: var(--fg-1); font-size: 0.875rem; line-height: 1.5; }
+.prefix-actions { margin-top: 10px; }
 .support-actions { margin-top: 16px; }
 .support-copy-status { margin-bottom: 0; }
 

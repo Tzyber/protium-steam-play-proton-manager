@@ -131,3 +131,31 @@ describe("i18n, fallback (vertrag)", () => {
     }
   });
 });
+
+describe("Zuordnungsanalyse-Wording", () => {
+  it("entfernt mappingHint und bewahrt die Grenzen in beiden Sprachen", () => {
+    for (const locale of [de, en]) {
+      expect(locale.proton).not.toHaveProperty("mappingHint");
+      const values = [
+        ...Object.values(locale.proton),
+        ...Object.values(locale.explain.topics.explicitMappingCount),
+        ...Object.values(locale.explain.topics.geDeleteScope),
+      ];
+      for (const text of values) {
+        const affirmative = text.replace(
+          /bedeutet nicht, dass das Tool ungenutzt ist|does not mean the tool is unused/gi,
+          "",
+        );
+        expect(affirmative).not.toMatch(
+          /ist ungenutzt|is unused|kann gelöscht werden|safe to delete|verschwendet|wasted|Bereinigung empfohlen/i,
+        );
+      }
+    }
+    expect(de.explain.topics.explicitMappingCount.limit).toContain(
+      "bedeutet nicht, dass das Tool ungenutzt ist",
+    );
+    expect(en.explain.topics.explicitMappingCount.limit).toContain(
+      "does not mean the tool is unused",
+    );
+  });
+});

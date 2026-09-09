@@ -1,24 +1,11 @@
 import type { SupportFacts } from "../core/support.js";
-import { formatBytes } from "./format.js";
+import { formatKnownBytes } from "./format.js";
 import { t } from "./i18n/index.js";
 
-function configStatusLabel(status: SupportFacts["compatConfigStatus"]): string {
+function configStatusLabel(
+  status: Exclude<SupportFacts["launchConfigStatus"], "available">,
+): string {
   switch (status) {
-    case "available":
-      return t("support.toolAvailable");
-    case "missing":
-      return t("support.statusMissing");
-    case "unreadable":
-      return t("support.statusUnreadable");
-    default:
-      return t("support.unknown");
-  }
-}
-
-function launchStatusLabel(status: SupportFacts["launchConfigStatus"]): string {
-  switch (status) {
-    case "available":
-      return t("support.toolAvailable");
     case "missing":
       return t("support.statusMissing");
     case "unreadable":
@@ -55,7 +42,7 @@ function assignmentSourceLabel(source: SupportFacts["compatToolSource"]): string
 function toolAvailabilityLabel(availability: SupportFacts["compatToolAvailability"]): string {
   switch (availability) {
     case "available":
-      return t("support.toolAvailable");
+      return t("support.toolPresent");
     case "not-recognized":
       return t("support.toolNotRecognized");
     case "unknown":
@@ -64,11 +51,15 @@ function toolAvailabilityLabel(availability: SupportFacts["compatToolAvailabilit
 }
 
 function tierLabel(tier: SupportFacts["protonDbTier"]): string {
-  return tier === "unknown" ? t("support.unknown") : tier;
-}
-
-function formatKnownBytes(sizeBytes: number): string {
-  return sizeBytes === 0 ? "0 B" : formatBytes(sizeBytes);
+  const labels: Record<SupportFacts["protonDbTier"], string> = {
+    platinum: "Platinum",
+    gold: "Gold",
+    silver: "Silver",
+    bronze: "Bronze",
+    borked: "Borked",
+    unknown: t("support.unknown"),
+  };
+  return labels[tier];
 }
 
 function footprintLine(facts: SupportFacts): string {
@@ -120,12 +111,19 @@ export function formatSupportFacts(facts: SupportFacts, appVersion: string): str
     t("support.product", { version: appVersion }),
     t("support.appId", { value: facts.appId ?? t("support.unknown") }),
     t("support.library", { value: facts.library ?? t("support.unknown") }),
+    "",
     t("support.scanCoverage", { state: coverageLabel(facts.scanCoverage) }),
-    t("support.config", { status: configStatusLabel(facts.compatConfigStatus) }),
-    t("support.launchConfig", { status: launchStatusLabel(facts.launchConfigStatus) }),
-    t("support.assignmentSource", { source: assignmentSourceLabel(facts.compatToolSource) }),
-    t("support.assignedTool", {
+  ];
+  if (facts.compatConfigStatus !== "available") {
+    lines.push(t("support.config", { status: configStatusLabel(facts.compatConfigStatus) }));
+  }
+  if (facts.launchConfigStatus !== "available") {
+    lines.push(t("support.launchConfig", { status: configStatusLabel(facts.launchConfigStatus) }));
+  }
+  lines.push(
+    t("support.assignedToolWithSource", {
       tool: facts.compatToolAlias ?? t("support.unknown"),
+      source: assignmentSourceLabel(facts.compatToolSource),
     }),
     t("support.toolAvailability", {
       status: toolAvailabilityLabel(facts.compatToolAvailability),
@@ -136,7 +134,8 @@ export function formatSupportFacts(facts: SupportFacts, appVersion: string): str
       ? t("support.externalCompatdataDetected")
       : t("support.externalCompatdataUnknown"),
     ...cleanupLines(facts),
+    "",
     t("support.anonymized"),
-  ];
+  );
   return lines.join("\n");
 }

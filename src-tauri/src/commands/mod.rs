@@ -11,6 +11,7 @@ pub(crate) mod fd;
 pub(crate) mod fs_ops;
 pub(crate) mod ge_install;
 pub(crate) mod path;
+pub(crate) mod prefix;
 pub(crate) mod scope;
 pub(crate) mod shortcuts_bin;
 pub(crate) mod steam;

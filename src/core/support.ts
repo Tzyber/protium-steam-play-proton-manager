@@ -1,5 +1,7 @@
+import { BLOCKLIST } from "./blocklist.js";
 import type { GameFootprint } from "./footprint.js";
 import { hasExternalCompatdata } from "./footprint.js";
+import { MANAGED_GE_NAME_RE } from "./geproton.js";
 import { deriveProtonCheck, isCompatToolPresent } from "./protoncheck.js";
 import { deriveScanCoverage } from "./scan/coverage.js";
 import {
@@ -15,7 +17,6 @@ import {
 
 export type SupportToolAvailability = "available" | "not-recognized" | "unknown";
 export type SupportExternalCompatdata = "detected" | "unknown";
-export type SupportToolAlias = "<compat-tool-1>";
 
 export interface SupportCleanupInput {
   scanning?: boolean;
@@ -55,7 +56,7 @@ export interface SupportFacts {
   compatConfigStatus: CompatConfigStatus | "unknown";
   launchConfigStatus: LaunchConfigStatus | "unknown";
   compatToolSource: CompatToolSource;
-  compatToolAlias: SupportToolAlias | null;
+  compatToolAlias: string | null;
   compatToolAvailability: SupportToolAvailability;
   protonDbTier: Tier;
   footprint: SupportFootprintFacts;
@@ -63,7 +64,17 @@ export interface SupportFacts {
   cleanup: SupportCleanupFacts;
 }
 
-const TOOL_ALIAS: SupportToolAlias = "<compat-tool-1>";
+const TOOL_ALIAS = "<compat-tool-1>";
+
+function projectToolName(name: string): string {
+  // proton_11 teilt seinen Namen mit ARM64; der erste Eintrag vermeidet eine Architekturannahme.
+  const builtin = BLOCKLIST.find(
+    (entry) => entry.category === "proton-builtin" && entry.toolName === name,
+  );
+  if (builtin) return builtin.label;
+  // Nur Syntaxfreigabe, kein Beleg für Herkunft oder Installation.
+  return MANAGED_GE_NAME_RE.exec(name)?.[0] === name ? name : TOOL_ALIAS;
+}
 
 function validAppId(value: unknown): number | null {
   return typeof value === "number" &&
@@ -162,16 +173,17 @@ function projectCompatTool(
     };
   }
 
+  const compatToolAlias = projectToolName(assignedTool);
   if (isCompatToolPresent(result, assignedTool)) {
     return {
       compatToolSource: source,
-      compatToolAlias: TOOL_ALIAS,
+      compatToolAlias,
       compatToolAvailability: "available",
     };
   }
   return {
     compatToolSource: source,
-    compatToolAlias: TOOL_ALIAS,
+    compatToolAlias,
     compatToolAvailability:
       source === "explicit" &&
       validAppId(game.appId) !== null &&

@@ -2,8 +2,11 @@
 
 import { mount } from "@vue/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { reactive } from "vue";
 import type { GeRelease } from "../../src/core/geproton";
 import type { CompatTool } from "../../src/core/types";
+import { setLocale } from "../../src/ui/i18n";
+import { useProtonStore } from "../../src/ui/stores/protonStore";
 
 const { protonState, scanState, uiState, confirmState } = vi.hoisted(() => ({
   protonState: {
@@ -43,7 +46,7 @@ const { protonState, scanState, uiState, confirmState } = vi.hoisted(() => ({
 }));
 
 vi.mock("../../src/ui/stores/protonStore", () => ({
-  useProtonStore: () => protonState,
+  useProtonStore: () => reactive(protonState),
 }));
 vi.mock("../../src/ui/stores/scanStore", () => ({
   useScanStore: () => scanState,
@@ -53,9 +56,6 @@ vi.mock("../../src/ui/stores/uiStore", () => ({
 }));
 vi.mock("../../src/ui/stores/confirmStore", () => ({
   useConfirmStore: () => confirmState,
-}));
-vi.mock("../../src/ui/i18n", () => ({
-  t: (key: string) => key,
 }));
 
 import ProtonManagerView from "../../src/ui/views/ProtonManagerView.vue";
@@ -131,5 +131,65 @@ describe("ProtonManagerView release install status", () => {
 
     expect(removeButtons).toHaveLength(2);
     expect(removeButtons.every((button) => button.attributes("disabled") !== undefined)).toBe(true);
+  });
+});
+
+describe("bekannte explizite Zuordnungen", () => {
+  it.each([
+    { sizes: [], expected: "0 · 0 B" },
+    { sizes: [1024], expected: "1 · 1.0 KB" },
+    { sizes: [1024, 2048], expected: "2 · 3.0 KB" },
+    { sizes: [1024, undefined], expected: "2 · 1.0 KB" },
+    { sizes: [undefined], expected: "1 · nicht gemessen" },
+    { sizes: [0], expected: "1 · 0 B" },
+  ])("summiert nur zugeordnete Tools: $expected", ({ sizes, expected }) => {
+    setLocale("de");
+    protonState.installedTools = sizes.map((sizeBytes, i) => ({
+      ...makeInstalledTool(`GE-Proton9-${i + 1}`),
+      sizeBytes,
+      usedBy: [620],
+    }));
+    protonState.installedTools.push({ ...makeInstalledTool("GE-Proton9-99"), sizeBytes: 99999 });
+    const wrapper = mount(ProtonManagerView);
+    const text = wrapper.get('[data-testid="mapping-summary"]').text();
+    expect(text).toContain(expected);
+    expect(text.includes("teilweise")).toBe(
+      sizes.some((size) => size === undefined) && sizes.some((size) => size !== undefined),
+    );
+    wrapper.unmount();
+  });
+
+  it("aktualisiert die Zusammenfassung aus bestehenden usedBy-Werten", async () => {
+    protonState.installedTools = [makeInstalledTool("GE-Proton9-27")];
+    const wrapper = mount(ProtonManagerView);
+    expect(wrapper.get('[data-testid="mapping-summary"]').text()).toContain("0 · 0 B");
+    const tool = useProtonStore().installedTools[0];
+    if (!tool) throw new Error("tool fehlt");
+    tool.usedBy = [620, 570];
+    await wrapper.vm.$nextTick();
+    expect(wrapper.get('[data-testid="mapping-summary"]').text()).toContain("1 · 1 B");
+    wrapper.unmount();
+  });
+
+  it("erklärt Quelle und Löschumfang neben der unveränderten Überschrift", async () => {
+    setLocale("de");
+    protonState.installedTools = [
+      { ...makeInstalledTool("GE-Proton9-27"), usedBy: [620], source: "system" },
+    ];
+    const wrapper = mount(ProtonManagerView, { attachTo: document.body });
+    expect(wrapper.get("h3").text()).toBe("installiert 1");
+    expect(wrapper.get("h3").find("button").exists()).toBe(false);
+    expect(wrapper.get(".used").attributes("title")).toBeUndefined();
+    expect(wrapper.find("button.rm").exists()).toBe(false);
+    const trigger = wrapper.get('[data-testid="explain-trigger"]');
+    expect(trigger.attributes("aria-label")).toContain("installiert");
+    expect(trigger.attributes("tabindex")).not.toBe("-1");
+    await trigger.trigger("click");
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain("CompatToolMapping");
+    expect(dialog?.textContent).toContain("globaler Standard");
+    expect(dialog?.textContent).toContain("compatdata-Prefixes der Spiele bleiben unberührt");
+    expect(dialog?.textContent).toContain("bedeutet nicht, dass das Tool ungenutzt ist");
+    wrapper.unmount();
   });
 });
