@@ -32,18 +32,9 @@ interface RequestedTarget {
   path: string;
 }
 
-const COMPATDATA_ASSIGNMENT = "STEAM_COMPAT_DATA_PATH=";
-const ASCII_WHITESPACE = /[ \t\r\n\f\v]/;
-
+// Jedes Vorkommen zählt: Hinweis und Öffnen-Sperre schlagen lieber zu oft als zu selten an.
 export function hasExternalCompatdata(launchOptions: string | undefined): boolean {
-  if (typeof launchOptions !== "string") return false;
-  const trimmed = launchOptions.trim();
-  if (trimmed.startsWith(COMPATDATA_ASSIGNMENT)) return true;
-  return (
-    trimmed.startsWith("env") &&
-    ASCII_WHITESPACE.test(trimmed[3] ?? "") &&
-    trimmed.slice(3).match(/^[ \t\r\n\f\v]+STEAM_COMPAT_DATA_PATH=/) !== null
-  );
+  return typeof launchOptions === "string" && launchOptions.includes("STEAM_COMPAT_DATA_PATH");
 }
 
 function failedPart(): FootprintPart {

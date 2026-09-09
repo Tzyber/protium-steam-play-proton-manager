@@ -223,25 +223,65 @@ where
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(format!("cannot open Steam library steamapps: {error}")),
     };
+    is_app_installed_in_steamapps_fd(steamapps_fd.as_raw_fd(), app_id, hook)
+        .map_err(ManifestReadError::into_message)
+}
+
+/// Blocked: Autoritätsverletzung (Symlink, Nicht-Verzeichnis, AppID-Mismatch). Unreadable: Lesefehler.
+#[cfg(target_os = "linux")]
+#[derive(Debug)]
+pub(super) enum ManifestReadError {
+    Blocked(String),
+    Unreadable(String),
+}
+
+#[cfg(target_os = "linux")]
+impl ManifestReadError {
+    fn into_message(self) -> String {
+        match self {
+            Self::Blocked(message) | Self::Unreadable(message) => message,
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn is_app_installed_in_steamapps_fd<F>(
+    steamapps_fd: RawFd,
+    app_id: u32,
+    hook: &mut F,
+) -> Result<bool, ManifestReadError>
+where
+    F: FnMut(u8),
+{
     let manifest_name = format!("appmanifest_{app_id}.acf");
-    let mut manifest = match open_file_at(steamapps_fd.as_raw_fd(), OsStr::new(&manifest_name)) {
+    let mut manifest = match open_file_at(steamapps_fd, OsStr::new(&manifest_name)) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => return Err(format!("cannot open {manifest_name}: {error}")),
+        Err(error) => {
+            let message = format!("cannot open {manifest_name}: {error}");
+            return Err(
+                if matches!(error.raw_os_error(), Some(libc::ELOOP | libc::ENOTDIR)) {
+                    ManifestReadError::Blocked(message)
+                } else {
+                    ManifestReadError::Unreadable(message)
+                },
+            );
+        }
     };
     hook(4);
-    let content = read_fd_text(&mut manifest, &manifest_name, 1024 * 1024)?;
+    let unreadable = ManifestReadError::Unreadable;
+    let content = read_fd_text(&mut manifest, &manifest_name, 1024 * 1024).map_err(unreadable)?;
+    let parse_error = |error| unreadable(format!("cannot parse manifest {manifest_name}: {error}"));
     let internal_id = vdf_patch::get_vdf_value(&content, &["AppState", "appid"])
-        .map_err(|error| format!("cannot parse manifest {manifest_name}: {error}"))?
-        .or(vdf_patch::get_vdf_value(&content, &["AppState", "AppId"])
-            .map_err(|error| format!("cannot parse manifest {manifest_name}: {error}"))?)
-        .ok_or_else(|| format!("manifest {manifest_name} has no AppState appid"))?;
+        .map_err(parse_error)?
+        .or(vdf_patch::get_vdf_value(&content, &["AppState", "AppId"]).map_err(parse_error)?)
+        .ok_or_else(|| unreadable(format!("manifest {manifest_name} has no AppState appid")))?;
     let internal_id = crate::commands::scope::parse_app_id(internal_id.trim())
-        .map_err(|_| format!("manifest {manifest_name} has invalid appid"))?;
+        .map_err(|_| unreadable(format!("manifest {manifest_name} has invalid appid")))?;
     if internal_id != app_id {
-        return Err(format!(
+        return Err(ManifestReadError::Blocked(format!(
             "manifest {manifest_name} filename/appid mismatch ({app_id} != {internal_id})"
-        ));
+        )));
     }
     Ok(true)
 }
@@ -753,5 +793,46 @@ mod tests {
         assert!(!is_managed_ge_name("GE-Proton11-4"));
         assert!(!is_managed_ge_name("GE-Proton9-"));
         assert!(!is_managed_ge_name("GE-Proton-27"));
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod manifest_reader_tests {
+    use super::*;
+    use crate::commands::test_util::fixture_dir;
+
+    #[test]
+    fn shared_manifest_reader_preserves_library_results_and_errors() {
+        let root = fixture_dir("prefix", "manifest-reader");
+        let library = open_absolute_dir(&root).unwrap();
+        assert_eq!(
+            is_app_installed_in_library_fd(library.as_raw_fd(), 620, &mut |_| {}),
+            Ok(false)
+        );
+        fs::create_dir(root.join("steamapps")).unwrap();
+        let steamapps = open_dir_at(library.as_raw_fd(), OsStr::new("steamapps")).unwrap();
+        for (text, expected) in [
+            ("\"AppState\" { \"appid\" \"620\" }", Ok(true)),
+            ("\"AppState\" { \"appid\" \"570\" }", Err("blocked")),
+            ("\"AppState\" {", Err("unreadable")),
+        ] {
+            fs::write(root.join("steamapps/appmanifest_620.acf"), text).unwrap();
+            let shared = is_app_installed_in_steamapps_fd(steamapps.as_raw_fd(), 620, &mut |_| {});
+            assert_eq!(
+                shared
+                    .as_ref()
+                    .map(|value| *value)
+                    .map_err(|error| match error {
+                        ManifestReadError::Blocked(_) => "blocked",
+                        ManifestReadError::Unreadable(_) => "unreadable",
+                    }),
+                expected
+            );
+            assert_eq!(
+                is_app_installed_in_library_fd(library.as_raw_fd(), 620, &mut |_| {}),
+                shared.map_err(ManifestReadError::into_message)
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
     }
 }

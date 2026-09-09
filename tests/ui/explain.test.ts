@@ -18,10 +18,12 @@ const TOPICS: readonly ExplainTopic[] = [
   "cleanup-blocked",
   "steam-owned",
   "incomplete-deletion",
+  "explicit-mapping-count",
+  "ge-delete-scope",
 ];
 
 describe("Explain-Registry", () => {
-  it("registriert genau die zwölf typisierten Topics", () => {
+  it("registriert genau die vierzehn typisierten Topics", () => {
     expect(Object.keys(EXPLAIN_TOPICS).sort()).toEqual([...TOPICS].sort());
   });
 

@@ -105,7 +105,8 @@ pub(super) fn open_file_at(parent_fd: RawFd, name: &OsStr) -> io::Result<std::fs
         openat(
             parent_fd,
             name.as_ptr(),
-            O_RDONLY | O_NOFOLLOW | O_CLOEXEC,
+            // FIFOs dürfen nicht schon vor der regulären Dateiprüfung blockieren.
+            O_RDONLY | O_NOFOLLOW | O_CLOEXEC | libc::O_NONBLOCK,
             0,
         )
     };

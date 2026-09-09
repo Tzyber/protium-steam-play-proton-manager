@@ -3,19 +3,21 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { nextTick } from "vue";
+import { effectScope, nextTick, ref } from "vue";
 import { version as appVersion } from "../../package.json";
 import type { IncompleteDeletion } from "../../src/core/cleanup";
 import type { WriteResult } from "../../src/core/ports";
 import type { Game, ScanResult } from "../../src/core/types";
 
-const { measureGameFootprintMock, openExternalMock } = vi.hoisted(() => ({
+const { measureGameFootprintMock, openExternalMock, openPrefixFolderMock } = vi.hoisted(() => ({
   measureGameFootprintMock: vi.fn(),
   openExternalMock: vi.fn(async () => {}),
+  openPrefixFolderMock: vi.fn(async () => {}),
 }));
 
 vi.mock("../../src/core/adapters/tauri", () => ({
   openExternal: openExternalMock,
+  openPrefixFolder: openPrefixFolderMock,
   tauriPorts: { system: {} },
 }));
 vi.mock("../../src/core/footprint", async (importOriginal) => {
@@ -47,6 +49,7 @@ import { useConfigStore } from "../../src/ui/stores/configStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
 import { useUiStore } from "../../src/ui/stores/uiStore";
 import { formatSupportFacts } from "../../src/ui/supportText";
+import { usePrefixOpen } from "../../src/ui/usePrefixOpen";
 
 const marker = "fixture-secret-934";
 const privatePath = "/home/fixture-private-user/.steam/userdata/76561198012345678";
@@ -176,6 +179,8 @@ function mountDrawer(locale: "de" | "en" = "en") {
 beforeEach(() => {
   previousClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
   measureGameFootprintMock.mockReset();
+  openPrefixFolderMock.mockReset();
+  openPrefixFolderMock.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -248,14 +253,14 @@ describe("GameDetailDrawer SupportFacts-Integration", () => {
       expect(copied).toEqual(expect.any(String));
       if (typeof copied !== "string") return;
       expect(copied).toContain(
-        locale === "de" ? "abgebrochene Löschung: unbekannt" : "incomplete deletion: unknown",
+        locale === "de" ? "Abgebrochene Löschung: unbekannt" : "Incomplete deletion: unknown",
       );
       expect(copied).toContain(
-        locale === "de" ? "Bereinigungsfreigabe: unbekannt" : "cleanup clearance: unknown",
+        locale === "de" ? "Bereinigungsfreigabe: unbekannt" : "Cleanup clearance: unknown",
       );
       expect(copied).not.toContain(locale === "de" ? "Bereinigung blockiert" : "Cleanup blocked");
       expect(copied).not.toContain(
-        locale === "de" ? "abgebrochene Löschung: 0" : "incomplete deletion: 0",
+        locale === "de" ? "Abgebrochene Löschung: 0" : "Incomplete deletion: 0",
       );
     },
   );
@@ -405,4 +410,218 @@ describe("GameDetailDrawer SupportFacts-Integration", () => {
     await nextTick();
     expect(wrapper.get("[data-testid='support-copy']").attributes("disabled")).toBeUndefined();
   });
+});
+
+describe("Prefix-Ordner öffnen", () => {
+  function prefixContext() {
+    setActivePinia(createPinia());
+    const scan = useScanStore();
+    const current = ref<Game | null>(game({ launchOptions: "%command%" }));
+    const saving = ref(false);
+    scan.result = scanResult(game({ launchOptions: "%command%" }));
+    scan.status = "done";
+    const scope = effectScope();
+    const prefix = scope.run(() => usePrefixOpen(current, saving));
+    if (!prefix) throw new Error("prefix scope missing");
+    mountedWrappers.push({ unmount: () => scope.stop() });
+    return { current, saving, scan, prefix };
+  }
+
+  it.each(["saving", "spiel", "library", "startoptionen", "scan", "quelle", "schließen"])(
+    "invalidiert bei Rückkehr zum gleichen Kontext ohne Tick: %s",
+    async (change) => {
+      const { current, saving, scan, prefix } = prefixContext();
+      const pending = deferred<void>();
+      openPrefixFolderMock.mockReturnValueOnce(pending.promise);
+      const request = prefix.open();
+      const original = current.value;
+      const originalResult = scan.result;
+      if (change === "saving") saving.value = true;
+      else if (change === "scan") scan.status = "scanning";
+      else if (change === "quelle")
+        scan.result = scanResult(game(), { launchConfigStatus: "unreadable" });
+      else if (change === "schließen") current.value = null;
+      else
+        current.value = game({
+          launchOptions: change === "startoptionen" ? "" : "%command%",
+          appId: change === "spiel" ? 570 : 620,
+          library: change === "library" ? "/other" : game().library,
+        });
+      saving.value = false;
+      scan.status = "done";
+      scan.result = originalResult;
+      current.value = original;
+      expect(prefix.state.value).toBe("idle");
+      pending.resolve();
+      await request;
+      expect(prefix.state.value).toBe("idle");
+    },
+  );
+
+  it.each(["opened", "failed"])("reaktiviert fertiges Ergebnis %s nicht", async (state) => {
+    const { saving, prefix } = prefixContext();
+    if (state === "failed") openPrefixFolderMock.mockRejectedValueOnce("not-found");
+    await prefix.open();
+    expect(prefix.state.value).toBe(state);
+    saving.value = true;
+    await nextTick();
+    saving.value = false;
+    await nextTick();
+    expect(prefix.state.value).toBe("idle");
+  });
+
+  it.each(["erfolg", "fehler"])(
+    "alte Antwort (%s) überschreibt neue Anfrage nicht",
+    async (end) => {
+      const { saving, prefix } = prefixContext();
+      const old = deferred<void>();
+      const latest = deferred<void>();
+      openPrefixFolderMock.mockReturnValueOnce(old.promise).mockReturnValueOnce(latest.promise);
+      const first = prefix.open();
+      saving.value = true;
+      saving.value = false;
+      const second = prefix.open();
+      expect(openPrefixFolderMock).toHaveBeenCalledTimes(2);
+      if (end === "erfolg") old.resolve();
+      else old.reject("not-found");
+      await first;
+      expect(prefix.state.value).toBe("opening");
+      latest.resolve();
+      await second;
+      expect(prefix.state.value).toBe("opened");
+    },
+  );
+
+  async function ready(locale: "de" | "en" = "de") {
+    const context = mountDrawer(locale);
+    context.scan.result = scanResult(game({ launchOptions: "%command%" }));
+    await nextTick();
+    return context;
+  }
+
+  it("öffnet erst beim Klick ohne vorherige Messung und meldet nur den Handlerstart", async () => {
+    const { wrapper, current } = await ready();
+    const button = wrapper.get('[data-testid="prefix-open"]');
+    expect(button.text()).toBe("Prefix-Ordner öffnen");
+    expect(button.attributes("disabled")).toBeUndefined();
+    expect(measureGameFootprintMock).not.toHaveBeenCalled();
+    expect(openPrefixFolderMock).not.toHaveBeenCalled();
+    await button.trigger("click");
+    await flushPromises();
+    expect(openPrefixFolderMock).toHaveBeenCalledExactlyOnceWith(current.library, current.appId);
+    expect(wrapper.get('[data-testid="prefix-status"]').text()).toBe("Dateimanager gestartet");
+    expect(wrapper.get('[data-testid="prefix-status"]').attributes("role")).toBe("status");
+  });
+
+  it.each([
+    "STEAM_COMPAT_DATA_PATH=/secret",
+    "FOO=1 STEAM_COMPAT_DATA_PATH=/secret",
+    "env -i STEAM_COMPAT_DATA_PATH=/secret",
+  ])("sperrt externe Zielkennung: %s", async (launchOptions) => {
+    const { wrapper, scan } = await ready();
+    scan.result = scanResult(game({ launchOptions }));
+    await nextTick();
+    const button = wrapper.get('[data-testid="prefix-open"]');
+    expect(button.attributes("disabled")).toBeDefined();
+    expect(wrapper.get('[data-testid="prefix-reason"]').text()).toContain(
+      "Standardziel ist nicht belegt",
+    );
+    expect(wrapper.get('[data-testid="prefix-reason"]').text()).not.toContain("/secret");
+    await button.trigger("click");
+    expect(openPrefixFolderMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["missing", "unreadable", "ambiguous"] as const)(
+    "sperrt unklare Startoptionen: %s",
+    async (launchConfigStatus) => {
+      const { wrapper, scan } = await ready();
+      scan.result = scanResult(game({ launchOptions: "" }), { launchConfigStatus });
+      await nextTick();
+      expect(wrapper.get('[data-testid="prefix-open"]').attributes("disabled")).toBeDefined();
+      expect(wrapper.get('[data-testid="prefix-reason"]').text()).toContain(
+        "Startoptionen sind nicht eindeutig verfügbar",
+      );
+      await wrapper.get('[data-testid="prefix-open"]').trigger("click");
+      expect(openPrefixFolderMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("sperrt laufenden Scan und schließt den Drawer ohne Scan-Ergebnis", async () => {
+    const { wrapper, scan } = await ready();
+    scan.status = "scanning";
+    await nextTick();
+    expect(wrapper.get('[data-testid="prefix-open"]').attributes("disabled")).toBeDefined();
+    expect(wrapper.get('[data-testid="prefix-reason"]').text()).toContain(
+      "Scan ist nicht abgeschlossen",
+    );
+    scan.result = null;
+    await nextTick();
+    expect(wrapper.find('[data-testid="prefix-open"]').exists()).toBe(false);
+    expect(openPrefixFolderMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["de", "en"] as const)("übersetzt alle Fehler pfadfrei in %s", async (locale) => {
+    const { wrapper } = await ready(locale);
+    const messages: Record<string, string> = {};
+    for (const code of [
+      "external-target",
+      "unchecked",
+      "not-found",
+      "unreadable",
+      "blocked",
+      "handler-unavailable",
+      `/secret/${marker}`,
+      new Error(`/secret/${marker}`),
+    ]) {
+      openPrefixFolderMock.mockRejectedValueOnce(code);
+      await wrapper.get('[data-testid="prefix-open"]').trigger("click");
+      await flushPromises();
+      const message = wrapper.get('[data-testid="prefix-status"]');
+      expect(message.attributes("role")).toBe("alert");
+      expect(message.text()).not.toContain("/secret");
+      expect(message.text()).not.toContain(marker);
+      messages[typeof code === "string" && !code.startsWith("/") ? code : "unexpected"] =
+        message.text();
+    }
+    expect(messages).toMatchSnapshot();
+  });
+
+  it("unterbindet Doppelklicks solange der Handlerstart aussteht", async () => {
+    const { wrapper } = await ready();
+    const pending = deferred<void>();
+    openPrefixFolderMock.mockReturnValueOnce(pending.promise);
+    await wrapper.get('[data-testid="prefix-open"]').trigger("click");
+    expect(wrapper.get('[data-testid="prefix-open"]').attributes("disabled")).toBeDefined();
+    await wrapper.get('[data-testid="prefix-open"]').trigger("click");
+    expect(openPrefixFolderMock).toHaveBeenCalledTimes(1);
+    pending.resolve();
+    await flushPromises();
+    expect(wrapper.get('[data-testid="prefix-open"]').attributes("disabled")).toBeUndefined();
+  });
+
+  it.each(["spiel", "library", "rescan", "startoptionen", "schließen", "unmount"])(
+    "verwirft alte Antwort nach %s",
+    async (change) => {
+      const { wrapper, scan, ui } = await ready();
+      const pending = deferred<void>();
+      openPrefixFolderMock.mockReturnValueOnce(pending.promise);
+      await wrapper.get('[data-testid="prefix-open"]').trigger("click");
+      if (change === "spiel") {
+        scan.result = scanResult(game({ appId: 570, launchOptions: "" }));
+        ui.selectedAppId = 570;
+      } else if (change === "library")
+        scan.result = scanResult(game({ library: "/other", launchOptions: "" }));
+      else if (change === "rescan") scan.scanGeneration += 1;
+      else if (change === "startoptionen")
+        scan.result = scanResult(game({ launchOptions: "STEAM_COMPAT_DATA_PATH=/secret" }));
+      else if (change === "schließen") {
+        ui.selectedAppId = null;
+        await nextTick();
+        ui.selectedAppId = 620;
+      } else wrapper.unmount();
+      pending.resolve();
+      await flushPromises();
+      expect(wrapper.text()).not.toContain("Dateimanager gestartet");
+    },
+  );
 });

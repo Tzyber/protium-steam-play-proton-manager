@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { BLOCKLIST } from "../../src/core/blocklist.js";
 import { projectSupportFacts } from "../../src/core/support.js";
 import type { CompatTool, Game, ScanResult } from "../../src/core/types.js";
 
@@ -80,7 +81,7 @@ describe("projectSupportFacts", () => {
       compatConfigStatus: "available",
       launchConfigStatus: "available",
       compatToolSource: "explicit",
-      compatToolAlias: "<compat-tool-1>",
+      compatToolAlias: "Proton Experimental",
       compatToolAvailability: "available",
       protonDbTier: "gold",
       footprint: { status: "complete", sizeBytes: 4096 },
@@ -106,7 +107,7 @@ describe("projectSupportFacts", () => {
 
     expect(projectSupportFacts({ game: currentGame, result: scan })).toMatchObject({
       compatToolSource: "default",
-      compatToolAlias: "<compat-tool-1>",
+      compatToolAlias: "Proton Experimental",
       compatToolAvailability: "available",
     });
   });
@@ -310,4 +311,160 @@ describe("projectSupportFacts", () => {
     expect(facts.library).toBe("<steam-library-1>");
     expect(facts.compatToolAlias).toBe("<compat-tool-1>");
   });
+});
+
+describe.each(["explicit", "default"] as const)("Toolnamen-Freigabe bei %s", (source) => {
+  function project(name: string, overrides: Partial<ScanResult> = {}) {
+    const currentGame = game({
+      compatToolSource: source,
+      compatTool: source === "explicit" ? name : "proton_hotfix",
+    });
+    return projectSupportFacts({
+      game: currentGame,
+      result: result({
+        games: [currentGame],
+        defaultCompatTool: source === "default" ? name : "GE-Proton9-27",
+        ...overrides,
+      }),
+    });
+  }
+
+  it.each([
+    "my-custom-proton",
+    "GE-Proton",
+    "GE-Proton10",
+    "GE-Proton10-12-foo",
+    "../etc/passwd",
+    "/home/fixture-private-user/GE-Proton10-12",
+    "GE-Proton10-12-fixture-private-user",
+    "private-GE-Proton10-12",
+    " GE-Proton10-12",
+    "GE-Proton10-12 ",
+    "GE-Proton10-12\t",
+    "GE-Proton10-12\n",
+    "GE-Proton10-12\r",
+    "GE-Proton10-12\r\n",
+    "GE-Proton10-12\u2028",
+    "GE-Proton10-12\u2029",
+    "GE-Proton10-12\0",
+    "GE-Proton１０-12",
+    "ge-Proton10-12",
+    "GE-Proton10-12-X86_64",
+    " proton_experimental",
+    "proton_experimental\n",
+    "Proton_Experimental",
+  ])("aliasiert den nicht freigegebenen Namen %j", (name) => {
+    expect(project(name).compatToolAlias).toBe("<compat-tool-1>");
+  });
+
+  it("verwendet weder Anzeigenamen noch Verzeichnisnamen als Ersatzquelle", () => {
+    expect(
+      project("private-tool", {
+        compatToolsInstalled: [
+          { ...customTool("GE-Proton10-12", "private-tool"), displayName: "Proton Experimental" },
+        ],
+      }),
+    ).toMatchObject({ compatToolAlias: "<compat-tool-1>", compatToolAvailability: "available" });
+  });
+
+  it.each(["missing", "unreadable", undefined] as const)(
+    "unterdrückt alte freigegebene Namen bei Configstatus %s",
+    (compatConfigStatus) => {
+      expect(project("proton_experimental", { compatConfigStatus })).toMatchObject({
+        compatToolSource: "unavailable",
+        compatToolAlias: null,
+        compatToolAvailability: "unknown",
+      });
+    },
+  );
+
+  it.each(["", "default", "unknown"])("bewahrt unbekannte Zuordnung für %j", (name) => {
+    expect(project(name)).toMatchObject({
+      compatToolSource: source === "default" ? "unavailable" : "explicit",
+      compatToolAlias: null,
+      compatToolAvailability: "unknown",
+    });
+  });
+
+  it("liefert für jeden unterschiedlichen Valve-Namen das erste feste Label", () => {
+    const checked = new Set<string>();
+    for (const entry of BLOCKLIST) {
+      if (entry.category !== "proton-builtin" || !entry.toolName || checked.has(entry.toolName)) {
+        continue;
+      }
+      checked.add(entry.toolName);
+      expect(project(entry.toolName).compatToolAlias).toBe(entry.label);
+    }
+    expect(checked.size).toBeGreaterThan(0);
+  });
+
+  it("leitet aus proton_11 keine ARM64-Architektur ab", () => {
+    expect(project("proton_11").compatToolAlias).toBe("Proton 11.0");
+  });
+
+  it("gibt Runtime- und Redistributable-Labels nicht als Toolnamen frei", () => {
+    for (const entry of BLOCKLIST) {
+      if (entry.category === "proton-builtin") continue;
+      expect(project(entry.label).compatToolAlias).toBe("<compat-tool-1>");
+    }
+  });
+
+  it.each([
+    "GE-Proton10-12",
+    "GE-Proton9-27",
+    "GE-Proton10-12-x86_64",
+    "GE-Proton11-3-aarch64",
+    "GE-Proton76561198012345678-1",
+  ])("gibt die Namensform %s ohne Release- oder Herkunftsbeleg frei", (name) => {
+    expect(project(name).compatToolAlias).toBe(name);
+  });
+
+  it.each([
+    ["proton_experimental", "Proton Experimental"],
+    ["GE-Proton10-12", "GE-Proton10-12"],
+    ["private-tool", "<compat-tool-1>"],
+  ])("trennt Namensfreigabe und Inventarstatus für %s", (name, expected) => {
+    const installed = {
+      compatToolsInstalled: [
+        { ...customTool("private-directory", name), displayName: "fixture-private-display" },
+      ],
+    };
+    expect(project(name, installed)).toMatchObject({
+      compatToolSource: source,
+      compatToolAlias: expected,
+      compatToolAvailability: "available",
+    });
+    expect(project(name)).toMatchObject({
+      compatToolAlias: expected,
+      compatToolAvailability: source === "explicit" ? "not-recognized" : "unknown",
+    });
+    expect(
+      project(name, {
+        warnings: [
+          { type: "compat-tool", directory: "/steam/tools", reason: "directory-unreadable" },
+        ],
+      }),
+    ).toMatchObject({ compatToolAlias: expected, compatToolAvailability: "unknown" });
+  });
+});
+
+it("exportiert bei nicht verfügbarer Quelle keine bekannte alte Zuordnung", () => {
+  expect(
+    projectSupportFacts({
+      game: game({ compatToolSource: "unavailable" }),
+      result: result({ defaultCompatTool: "GE-Proton10-12" }),
+    }),
+  ).toMatchObject({
+    compatToolSource: "unavailable",
+    compatToolAlias: null,
+    compatToolAvailability: "unknown",
+  });
+});
+
+it.each(["explicit", "default"] as const)("bewahrt fehlende Namen bei %s als null", (source) => {
+  const currentGame = game({ compatToolSource: source });
+  Reflect.deleteProperty(currentGame, "compatTool");
+  expect(
+    projectSupportFacts({ game: currentGame, result: result({ defaultCompatTool: null }) }),
+  ).toMatchObject({ compatToolAlias: null, compatToolAvailability: "unknown" });
 });

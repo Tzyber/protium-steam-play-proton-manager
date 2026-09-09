@@ -1,3 +1,8 @@
+// Belegte Null ist eine Messung; formatBytes(0) steht für „leer oder ungültig".
+export function formatKnownBytes(bytes: number): string {
+  return bytes === 0 ? "0 B" : formatBytes(bytes);
+}
+
 export function formatBytes(bytes: number | undefined): string {
   if (bytes === undefined) return "…";
   if (!bytes || bytes < 0) return "-";

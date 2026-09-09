@@ -79,6 +79,18 @@ cleaned up), remove installed versions. distro protons such as proton-cachyos
 are detected and marked read-only. they belong to the package manager, not to
 us.
 
+**GE mapping and prefix folder.** the proton manager summarizes the count
+and measured size of tools with known explicit mappings. missing sizes remain
+“not measured” or “partially measured”. the explanation button states the
+source and limits: no known mapping does not prove a tool is unused. removing
+a GE tool leaves its games' prefix folders untouched.
+
+“Open prefix folder” in the game drawer launches the file manager for the freshly
+validated standard prefix. external target hints and unclear launch options
+disable the action with a visible reason. clicking does not measure storage or
+create a folder. “File manager launched” confirms the start, not a visible
+window. path handoff and its limits are described in [SECURITY.md](SECURITY.md).
+
 **compat tool and launch options.** set the proton version and launch options per game. write gate in front (steam-is-running check, backup, atomic rename), and a surgical vdf string patch instead of full serialisation, because otherwise steam's escaping and key order do not survive.
 
 **cleanup.** find and clear orphaned wine prefixes and shader caches, in three separate areas: shader caches, wine prefixes, trash. shader caches are deleted outright. prefixes move to the trash within the same filesystem. space is freed only when the trash is emptied.
@@ -91,7 +103,7 @@ itself is deliberately not a tamper-proof security boundary.
 
 **failure cases.** what is unreadable is shown as unreadable, not as an empty value. destructive actions ask beforehand and show concretely what would happen. where possible, there is a way back.
 
-**explanations and diagnostic evidence.** a question-mark button explains technical values right where they appear (config states, tool source, scan coverage, footprint, protondb, cleanup blockades, incomplete deletions) with source, meaning and what the value explicitly does not mean; the terms follow the [glossary](docs/glossar.md). "copy technical information" puts a privacy-conscious report into the clipboard: fixed labels, status values, validated numbers and report-local aliases only, never names, paths or config contents. conservative hints in the launch-options draft warn about gamemoderun without `%command%`, an assignment behind `%command%` and an enabled `PROTON_LOG=1` assignment.
+**explanations and diagnostic evidence.** a question-mark button explains technical values right where they appear (config states, tool source, scan coverage, footprint, protondb, cleanup blockades, incomplete deletions) with source, meaning and what the value explicitly does not mean; the terms follow the [glossary](docs/glossar.md). "copy technical information" puts a privacy-conscious report into the clipboard: fixed labels including Valve tool labels, status values, validated numbers, format-checked GE tool names and report-local aliases. other tool names remain aliased; game names, paths and config contents are omitted. an allowed tool name proves neither origin nor installation and does not guarantee complete anonymity; see the [security policy](SECURITY.md#export-allowlist-und-zwischenablage). conservative hints in the launch-options draft warn about gamemoderun without `%command%`, an assignment behind `%command%` and an enabled `PROTON_LOG=1` assignment.
 
 **accessibility.** fully keyboard operable, visible focus states, tabs following the WAI-ARIA pattern (arrow keys, roving tabindex), contrasts checked against WCAG AA, `prefers-reduced-motion` respected globally. font sizes in `rem` so the app scales with the system font size. interface in german and english, key parity guarded by a test.
 
@@ -207,7 +219,8 @@ this plan ahead:
 - [x] before v0.8.0: [terminology glossary](docs/glossar.md)
 - a separate prefix metadata spike remains open and independent, without
   claiming a runtime result in advance
-- v0.9.0: honest GE mapping summary and a secure "open prefix folder" workflow
+- [x] v0.9.0: readable support record
+- [x] v0.10.0: honest GE mapping summary and the "open prefix folder" workflow
 - v1.0.0: consolidation (consistency, error semantics, security and
   accessibility review)
 

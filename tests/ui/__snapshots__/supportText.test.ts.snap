@@ -1,0 +1,77 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`kompakter Support-Beleg in de > bewahrt die degradierte Form als Snapshot ohne erfundene Scan-Unbekanntheit 1`] = `
+"Protium: 0.9.0
+AppID: 620
+Library: <steam-library-1>
+
+Scan-Abdeckung: eingeschränkt [lokaler Scan]
+Kompatibilitäts-Config: nicht gefunden [Config]
+Startoptionen-Quelle: mehrdeutig [Config]
+Zugeordnetes Tool: unbekannt [Zuordnung: nicht verfügbar]
+Tool verfügbar: unbekannt [lokaler Scan]
+ProtonDB-Tier: unbekannt [Community-Befund]
+Bekannt belegt: nicht gemessen [lokale Messung und Existenzprüfung]
+Externer Compatdata-Hinweis: unbekannt [Startoptionen]
+Cleanup: vorhandener Anzeigestand, Aktualität unbekannt
+Abgebrochene Löschung: unbekannt
+Bereinigungsfreigabe: unbekannt
+
+Spielnamen und Pfade werden nicht exportiert. Steam-Libraries und Toolnamen außerhalb der Freigaberegeln erscheinen als Alias."
+`;
+
+exports[`kompakter Support-Beleg in de > bewahrt die vollständige Normalform als Snapshot 1`] = `
+"Protium: 0.9.0
+AppID: 668580
+Library: <steam-library-2>
+
+Scan-Abdeckung: vollständig [lokaler Scan]
+Zugeordnetes Tool: GE-Proton10-12 [explizite Zuordnung]
+Tool verfügbar: ja [lokaler Scan]
+ProtonDB-Tier: Platinum [Community-Befund]
+Bekannt belegt: 46.9 GB [lokale Messung und Existenzprüfung]
+Externer Compatdata-Hinweis: unbekannt [Startoptionen]
+Cleanup: vorhandener Anzeigestand, Aktualität unbekannt
+Abgebrochene Löschung: unbekannt
+Bereinigungsfreigabe: unbekannt
+
+Spielnamen und Pfade werden nicht exportiert. Steam-Libraries und Toolnamen außerhalb der Freigaberegeln erscheinen als Alias."
+`;
+
+exports[`kompakter Support-Beleg in en > bewahrt die degradierte Form als Snapshot ohne erfundene Scan-Unbekanntheit 1`] = `
+"Protium: 0.9.0
+AppID: 620
+Library: <steam-library-1>
+
+Scan coverage: limited [local scan]
+Compatibility config: not found [config]
+Launch-options source: ambiguous [config]
+Assigned tool: unknown [Mapping: not available]
+Tool available: unknown [local scan]
+ProtonDB tier: unknown [community finding]
+Known footprint: not measured [local measurement and existence check]
+External compatdata hint: unknown [launch options]
+Cleanup: existing displayed state, freshness unknown
+Incomplete deletion: unknown
+Cleanup clearance: unknown
+
+Game names and paths are omitted. Steam libraries and tool names outside the allowlist rules are shown as aliases."
+`;
+
+exports[`kompakter Support-Beleg in en > bewahrt die vollständige Normalform als Snapshot 1`] = `
+"Protium: 0.9.0
+AppID: 668580
+Library: <steam-library-2>
+
+Scan coverage: complete [local scan]
+Assigned tool: GE-Proton10-12 [explicit mapping]
+Tool available: yes [local scan]
+ProtonDB tier: Platinum [community finding]
+Known footprint: 46.9 GB [local measurement and existence check]
+External compatdata hint: unknown [launch options]
+Cleanup: existing displayed state, freshness unknown
+Incomplete deletion: unknown
+Cleanup clearance: unknown
+
+Game names and paths are omitted. Steam libraries and tool names outside the allowlist rules are shown as aliases."
+`;

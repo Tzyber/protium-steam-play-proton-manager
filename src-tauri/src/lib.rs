@@ -45,6 +45,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::fs_ops::is_process_running,
             commands::external::open_external,
+            commands::prefix::open_prefix_folder,
             commands::fs_ops::dir_size,
             commands::fs_ops::batch_dir_sizes,
             commands::fs_ops::environment_exists,

@@ -3,9 +3,11 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { isManagedGeName } from "../../core/geproton";
 import type { CompatTool } from "../../core/types";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
-import { formatBytes } from "../format";
+import ExplainInfo from "../components/ExplainInfo.vue";
+import { formatBytes, formatKnownBytes } from "../format";
 import type { Key } from "../i18n";
 import { t } from "../i18n";
+import { summarizeSizes } from "../sizeSummary";
 import { useConfirmStore } from "../stores/confirmStore";
 import type { Phase } from "../stores/protonStore";
 import { useProtonStore } from "../stores/protonStore";
@@ -25,6 +27,15 @@ function removable(tt: CompatTool): boolean {
 // ordnername in compatibilitytools.d (= tt.name). r.tag bleibt der release-
 // und job-schlüssel; internalName aus der tool-vdf kann davon abweichen.
 const installedNames = computed(() => new Set(proton.installedTools.map((tt) => tt.name)));
+
+const mappedTools = computed(() => proton.installedTools.filter((tool) => tool.usedBy.length > 0));
+const mappedSize = computed(() => {
+  const summary = summarizeSizes(mappedTools.value);
+  const size = formatKnownBytes(summary.measuredBytes);
+  if (summary.unknownCount === 0) return size;
+  if (summary.unknownCount === mappedTools.value.length) return t("common.notMeasured");
+  return t("cleanup.partialSize", { size });
+});
 
 function pct(tag: string): number | null {
   const j = proton.jobs[tag];
@@ -118,7 +129,11 @@ const statusLine = computed(() => {
     </header>
 
     <!-- installiert -->
-    <h3 class="section">{{ t("proton.installed") }} <span class="count">{{ proton.installedTools.length }}</span></h3>
+    <div class="installed-heading">
+      <h3 class="section">{{ t("proton.installed") }} <span class="count">{{ proton.installedTools.length }}</span></h3>
+      <ExplainInfo :label="t('proton.installed')" :topics="['explicit-mapping-count', 'ge-delete-scope']" />
+    </div>
+    <p class="rsub" data-testid="mapping-summary">{{ t("proton.mappingSummary", { n: mappedTools.length, size: mappedSize }) }}</p>
     <ul class="list" :aria-busy="proton.loading">
       <li v-for="tt in proton.installedTools" :key="tt.name">
         <div class="row">
@@ -133,12 +148,11 @@ const statusLine = computed(() => {
             v-if="tt.usedBy.length"
             class="used"
             type="button"
-            :title="t('proton.mappingHint')"
             @click="ui.showLibraryForTool(tt.internalName)"
           >
             {{ t("proton.usedBy", { n: tt.usedBy.length }) }}
           </button>
-          <span v-else class="used muted" :title="t('proton.mappingHint')">{{ t("proton.unused") }}</span>
+          <span v-else class="used muted">{{ t("proton.unused") }}</span>
           <button
             v-if="removable(tt)"
             class="rm"
@@ -247,6 +261,7 @@ const statusLine = computed(() => {
 }
 .rescan:hover:not(:disabled) { color: var(--fg-0); border-color: var(--signal-dim); }
 
+.installed-heading { display: flex; align-items: baseline; gap: 8px; }
 .section { font-family: var(--font-display); font-size: 0.875rem; font-weight: 600; margin: 22px 0 10px; color: var(--fg-1); }
 .section .count { color: var(--fg-2); font-weight: 400; }
 

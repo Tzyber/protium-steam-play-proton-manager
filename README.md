@@ -94,6 +94,18 @@ partiellen datei), installierte versionen löschen. distro-protons wie
 proton-cachyos werden
 erkannt und als read-only markiert. die gehören dem paketmanager, nicht uns.
 
+**GE-zuordnung und prefix-ordner.** der proton-manager fasst anzahl und
+gemessene größe der tools mit bekannter expliziter zuordnung zusammen. fehlende
+größen bleiben „nicht gemessen“ oder „teilweise gemessen“. der erklärknopf
+nennt quelle und grenze: keine bekannte zuordnung beweist keine fehlende nutzung.
+beim entfernen eines GE-tools bleiben die prefix-ordner seiner spiele erhalten.
+
+im spiel-drawer startet „Prefix-Ordner öffnen“ den dateimanager für den frisch
+geprüften standard-prefix. externe zielhinweise und unklare startoptionen
+sperren die aktion mit sichtbarem grund. der klick misst nichts und legt keinen
+ordner an. „Dateimanager gestartet“ bestätigt den start, nicht ein sichtbares
+fenster. die pfadübergabe und ihre grenzen stehen in [SECURITY.md](SECURITY.md).
+
 **compat-tool und startoptionen.** proton-version und startoptionen pro spiel
 direkt setzen. write-gate davor (steam-läuft-check, backup, atomarer rename),
 und ein chirurgischer vdf-string-patch statt voll-serialisierung, weil steams
@@ -120,8 +132,11 @@ footprint, protondb, cleanup-blockaden, abgebrochene löschungen) mit quelle,
 bedeutung und dem, was der wert ausdrücklich nicht bedeutet; die begriffe
 folgen dem [glossar](docs/glossar.md).
 „technische infos kopieren" legt einen datensparsamen beleg in die
-zwischenablage: nur feste labels, statuswerte, validierte zahlen und
-berichtsbezogene aliasse, nie namen, pfade oder config-inhalte. konservative
+zwischenablage: feste labels einschließlich Valve-toolbezeichnungen, statuswerte,
+validierte zahlen, formatgeprüfte GE-toolnamen und berichtsbezogene aliase. andere toolnamen bleiben
+aliasiert; spielnamen, pfade und config-inhalte werden nicht übernommen.
+ein freigegebener toolname belegt weder herkunft noch installation und garantiert
+keine vollständige anonymität; details stehen in der [sicherheitsbeschreibung](SECURITY.md#export-allowlist-und-zwischenablage). konservative
 hinweise im startoptionen-entwurf warnen vor gamemoderun ohne `%command%`,
 einem assignment hinter `%command%` und einem aktivierten
 `PROTON_LOG=1`-assignment.
@@ -275,8 +290,9 @@ als plan folgen:
 - [x] vor v0.8.0: [terminologie-glossar](docs/glossar.md)
 - separater Prefix-Metadaten-Spike bleibt offen und unabhängig, ohne
   vorweggenommene Runtime-Behauptung
-- v0.9.0: ehrliche GE-Zuordnungszusammenfassung und sicherer
-  „Prefix-Ordner öffnen"-Workflow
+- [x] v0.9.0: lesbarer support-beleg
+- [x] v0.10.0: ehrliche GE-Zuordnungszusammenfassung und „Prefix-Ordner
+  öffnen"-Workflow
 - v1.0.0: konsolidierung (konsistenz, fehlersemantik, security- und
   zugänglichkeits-review)
 

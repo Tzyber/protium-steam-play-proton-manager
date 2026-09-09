@@ -189,3 +189,7 @@ export function openExternal(url: string): Promise<void> {
 export function launchGame(appId: number): Promise<void> {
   return invoke("open_external", { url: `steam://rungameid/${appId}` });
 }
+
+export function openPrefixFolder(library: string, appId: number): Promise<void> {
+  return invoke("open_prefix_folder", { library, appId: String(appId) });
+}

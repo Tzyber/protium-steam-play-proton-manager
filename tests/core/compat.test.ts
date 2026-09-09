@@ -321,3 +321,46 @@ describe("listCompatTools", () => {
     ]);
   });
 });
+
+describe("Zuordnungsanalyse aus vorhandenen Scan-Fakten", () => {
+  it("zählt weder globalen Standard noch nicht installierte Spiele und bleibt bei fehlender Config leer", async () => {
+    const name = "GE-Proton11-6-x86_64";
+    const fs: FileSystem = {
+      exists: vi.fn(async () => true),
+      readFile: vi.fn(async () => new Uint8Array()),
+      readDir: vi.fn(async () => [{ name, isDirectory: true, isSymlink: false }]),
+      readTextFile: vi.fn(
+        async () => `"compatibilitytools"
+{
+  "compat_tools"
+  {
+    "${name}"
+    {
+      "display_name" "GE"
+    }
+  }
+}`,
+      ),
+    };
+    const system = {
+      pathIdentity: vi.fn(async () => ({
+        realpath: "/library/compatibilitytools.d",
+        dev: "1",
+        ino: "1",
+      })),
+      dirSize: vi.fn(async () => ({ status: "measured", sizeBytes: 1024 })),
+    } as unknown as System;
+    const mapping = new Map([
+      [0, name],
+      [620, name],
+      [999, name],
+    ]);
+    const installed = new Set([620, 570]);
+    const complete = await listCompatTools(fs, system, "/library", mapping, installed);
+    expect(complete.tools.map((tool) => tool.usedBy)).toEqual([[620]]);
+    const limited = await listCompatTools(fs, system, "/library", new Map(), installed);
+    expect(limited.tools.map((tool) => tool.usedBy)).toEqual([[]]);
+    const partial = await listCompatTools(fs, system, "/library", mapping, new Set([570]));
+    expect(partial.tools.map((tool) => tool.usedBy)).toEqual([[]]);
+  });
+});
