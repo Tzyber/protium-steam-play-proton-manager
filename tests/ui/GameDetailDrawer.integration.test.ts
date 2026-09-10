@@ -499,6 +499,18 @@ describe("Prefix-Ordner öffnen", () => {
     return context;
   }
 
+  it("sitzt in der Konfiguration und nicht in der Footprint-Sektion", async () => {
+    const { wrapper } = await ready();
+    const button = wrapper.get('[data-testid="prefix-open"]');
+    expect(
+      wrapper.get('[data-testid="footprint-section"]').find('[data-testid="prefix-open"]').exists(),
+    ).toBe(false);
+    const launch = wrapper.get("#launch-options").element;
+    const following =
+      launch.compareDocumentPosition(button.element) & Node.DOCUMENT_POSITION_FOLLOWING;
+    expect(following).toBeTruthy();
+  });
+
   it("öffnet erst beim Klick ohne vorherige Messung und meldet nur den Handlerstart", async () => {
     const { wrapper, current } = await ready();
     const button = wrapper.get('[data-testid="prefix-open"]');

@@ -647,21 +647,6 @@ watch(errorMessage, (msg) => {
             }}
           </button>
 
-          <div class="prefix-actions" :aria-busy="prefixState === 'opening'">
-            <button
-              class="save"
-              data-testid="prefix-open"
-              type="button"
-              :disabled="prefixDisabledReason !== null || prefixState === 'opening'"
-              :aria-describedby="prefixDisabledReason ? 'prefix-disabled-reason' : undefined"
-              @click="openPrefix"
-            >
-              {{ t(prefixState === 'opening' ? 'drawer.prefixOpening' : 'drawer.prefixOpen') }}
-            </button>
-            <p v-if="prefixDisabledReason" id="prefix-disabled-reason" class="hint" data-testid="prefix-reason" role="status">{{ t(prefixDisabledReason) }}</p>
-            <p v-if="prefixState === 'opened' || prefixState === 'failed'" class="hint" data-testid="prefix-status" :role="prefixState === 'failed' ? 'alert' : 'status'">{{ t(prefixState === 'opened' ? 'drawer.prefixOpened' : prefixErrorKey) }}</p>
-          </div>
-
           <div v-if="footprintState !== 'idle'" class="footprint-values">
             <div class="footprint-row" data-testid="footprint-game-install">
               <span class="k">{{ t("drawer.footprintGameFiles") }}</span>
@@ -782,6 +767,21 @@ watch(errorMessage, (msg) => {
           >
             <li v-for="hint in launchHints" :key="hint">{{ hint }}</li>
           </ul>
+        </div>
+
+        <div class="prefix-actions" :aria-busy="prefixState === 'opening'">
+          <button
+            class="save"
+            data-testid="prefix-open"
+            type="button"
+            :disabled="prefixDisabledReason !== null || prefixState === 'opening'"
+            :aria-describedby="prefixDisabledReason ? 'prefix-disabled-reason' : undefined"
+            @click="openPrefix"
+          >
+            {{ t(prefixState === 'opening' ? 'drawer.prefixOpening' : 'drawer.prefixOpen') }}
+          </button>
+          <p v-if="prefixDisabledReason" id="prefix-disabled-reason" class="hint" data-testid="prefix-reason" role="status">{{ t(prefixDisabledReason) }}</p>
+          <p v-if="prefixState === 'opened' || prefixState === 'failed'" class="hint" data-testid="prefix-status" :role="prefixState === 'failed' ? 'alert' : 'status'">{{ t(prefixState === 'opened' ? 'drawer.prefixOpened' : prefixErrorKey) }}</p>
         </div>
 
         <div class="divider" />
