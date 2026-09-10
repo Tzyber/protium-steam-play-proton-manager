@@ -26,7 +26,7 @@ describe("recomputeToolUsedBy", () => {
     expect(tools[1]?.usedBy).toEqual([42, 73]);
   });
 
-  it("weichender verzeichnisname zählt wie in listCompatTools (alt-mappings)", () => {
+  it("zählt nur den internen namen, nicht den abweichenden verzeichnisnamen", () => {
     const tools = [{ name: "dir-name", internalName: "real-internal", usedBy: [] }];
     const games = [
       { appId: 5, compatTool: "dir-name" },
@@ -35,7 +35,11 @@ describe("recomputeToolUsedBy", () => {
 
     recomputeToolUsedBy(tools, games);
 
-    expect(tools[0]?.usedBy).toEqual([5, 6]);
+    // spiel 5 zeigt auf den verzeichnisnamen: dazu gibt es kein tool, und der
+    // library-filter matcht `game.compatTool` gegen den internen namen. würde
+    // die zählung ihn mitnehmen, zeigte der proton-manager eine zahl, die die
+    // library nach dem klick nicht einlöst (audit U-1).
+    expect(tools[0]?.usedBy).toEqual([6]);
   });
 });
 
@@ -319,6 +323,44 @@ describe("listCompatTools", () => {
     expect(second.tools).toEqual([
       expect.objectContaining({ internalName: "bad-size", sizeBytes: undefined }),
     ]);
+  });
+
+  it("zählt bei abweichendem verzeichnisnamen nur den internen namen", async () => {
+    const fs: FileSystem = {
+      exists: vi.fn(async () => true),
+      readFile: vi.fn(async () => new Uint8Array()),
+      readDir: vi.fn(async () => [{ name: "Folder", isDirectory: true, isSymlink: false }]),
+      readTextFile: vi.fn(
+        async () => `"compatibilitytools"
+{
+  "compat_tools"
+  {
+    "internal"
+    {
+      "display_name" "Custom Proton"
+    }
+  }
+}`,
+      ),
+    };
+    const system = {
+      pathIdentity: vi.fn(async () => ({ realpath: "/compat", dev: "1", ino: "1" })),
+      dirSize: vi.fn(async () => ({ status: "measured" as const, sizeBytes: 12 })),
+    } as unknown as System;
+    // mapping-werte stammen aus config.vdf und nennen den internen namen;
+    // "Folder" kann dort nicht stehen, weil spiele-compatTool sonst auf kein
+    // installiertes tool zeigt.
+    const mapping = new Map([
+      [620, "internal"],
+      [730, "Folder"],
+    ]);
+
+    const result = await listCompatTools(fs, system, "/steam", mapping, new Set([620, 730]));
+
+    expect(result.tools).toHaveLength(1);
+    expect(result.tools[0]?.name).toBe("Folder");
+    expect(result.tools[0]?.internalName).toBe("internal");
+    expect(result.tools[0]?.usedBy).toEqual([620]);
   });
 });
 

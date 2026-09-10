@@ -1,5 +1,5 @@
 import type { EnvironmentSnapshot, Ports } from "../ports.js";
-import type { ScanResult } from "../types.js";
+import type { ScanResult, ScanWarning } from "../types.js";
 import { readCompatMapping, readLaunchConfig } from "./config.js";
 import { scanGames } from "./games.js";
 import { readLibraryList } from "./libraries.js";
@@ -45,6 +45,22 @@ export async function scanLocal(
     gamesResult.games,
     environment.systemCompatDirs,
   );
+  // ein erst beim per-spiel-read sichtbarer strukturschaden der localconfig
+  // degradiert den status scan-weit; die warnung entsteht genau einmal hier,
+  // damit sie nicht pro spiel wiederholt wird (INV-2).
+  const localConfigDegraded = gamesResult.localConfigDegraded;
+  const launchWarnings: ScanWarning[] =
+    localConfigDegraded === null
+      ? launchResult.warnings
+      : [
+          ...launchResult.warnings,
+          {
+            type: "launch-config",
+            reason: "unreadable",
+            steamUserId: launchResult.steamUserId ?? undefined,
+            detail: `localconfig.vdf strukturell defekt: ${localConfigDegraded}`,
+          },
+        ];
 
   return {
     libraries: libraryResult.libraries,
@@ -54,14 +70,15 @@ export async function scanLocal(
     defaultCompatTool: toolsResult.defaultCompatTool,
     compatConfigStatus: mappingResult.compatConfigStatus,
     steamUserId: launchResult.steamUserId,
-    launchConfigStatus: launchResult.launchConfigStatus,
+    launchConfigStatus:
+      localConfigDegraded === null ? launchResult.launchConfigStatus : "unreadable",
     manifestCounts: gamesResult.manifestCounts,
     compatToolCounts: toolsResult.compatToolCounts,
     blockedAppIds: [...gamesResult.blockedAppIds],
     warnings: [
       ...libraryResult.warnings,
       ...mappingResult.warnings,
-      ...launchResult.warnings,
+      ...launchWarnings,
       ...gamesResult.warnings,
       ...toolsResult.warnings,
     ],

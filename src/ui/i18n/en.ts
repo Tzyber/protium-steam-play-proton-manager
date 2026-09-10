@@ -169,6 +169,7 @@ export const en = {
     trashDeleteEntry: "delete entry",
     trashDeleteConfirmTitle: "empty {n} trash entries?",
     trashDeleteConfirmSingle: "delete {n} trash entry permanently?",
+    trashBatchInfo: "at most {max} entries per pass; remaining in the trash: {rest}.",
     trashPrepareWarning: "unprepared entries ({n}) remain unchanged.",
     trashPrepareError: "unprepared entries ({n}): {errors}",
     trashExecuteError: "undeleted entries ({n}): {errors}",

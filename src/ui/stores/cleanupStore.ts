@@ -661,7 +661,11 @@ export const useCleanupStore = defineStore("cleanup", {
       }
     },
 
-    async deleteTrashEntries(entries: TrashEntry[]) {
+    /** verarbeitet höchstens MAX_PENDING_DELETES einträge je bestätigung
+     *  (ein backend-token je batch); `remainder` ist die zahl der einträge des
+     *  snapshots, die dieser durchgang nicht anfasst, und wird im dialog
+     *  genannt. */
+    async deleteTrashEntries(entries: TrashEntry[], remainder = 0) {
       if (entries.length > MAX_PENDING_DELETES) {
         this.setTrashError(
           t("errors.deleteBatchTooLarge", { n: entries.length, max: MAX_PENDING_DELETES }),
@@ -723,13 +727,25 @@ export const useCleanupStore = defineStore("cleanup", {
         prepareErrors.length > 0
           ? t("cleanup.trashPrepareWarning", { n: prepareErrors.length })
           : null;
+      // bei mehr als MAX_PENDING_DELETES einträgen wird bewusst in batches
+      // gearbeitet (ein backend-token je batch, eine bestätigung je batch aus
+      // INV-6): der dialog nennt grenze und rest statt eines stillen rests.
+      const batchInfo =
+        remainder > 0
+          ? [
+              t("cleanup.trashBatchInfo", {
+                max: MAX_PENDING_DELETES,
+                rest: remainder,
+              }),
+            ]
+          : [];
       const accepted = confirm.ask(
         {
           title:
             prepared.length === 1
               ? t("cleanup.trashDeleteConfirmSingle", { n: prepared.length })
               : t("cleanup.trashDeleteConfirmTitle", { n: prepared.length }),
-          message: [partialPrepareMessage, ...prepared.flatMap((p) => p.descriptions)]
+          message: [partialPrepareMessage, ...batchInfo, ...prepared.flatMap((p) => p.descriptions)]
             .filter((line): line is string => line !== null)
             .join("\n"),
         },
@@ -764,7 +780,9 @@ export const useCleanupStore = defineStore("cleanup", {
     },
 
     async emptyTrash() {
-      await this.deleteTrashEntries(this.trash.slice(0, MAX_PENDING_DELETES));
+      const snapshot = this.trash.slice();
+      const batch = snapshot.slice(0, MAX_PENDING_DELETES);
+      await this.deleteTrashEntries(batch, snapshot.length - batch.length);
     },
   },
 });

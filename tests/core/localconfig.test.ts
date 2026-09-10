@@ -2,7 +2,12 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { findActiveUser, readLaunchOptions } from "../../src/core/localconfig.js";
+import {
+  findActiveUser,
+  isLocalConfigParseable,
+  readLaunchOptions,
+} from "../../src/core/localconfig.js";
+import { VdfPatchError } from "../../src/core/vdfpatch.js";
 import { buildFakeSteam, nodeFs } from "../support/fakeSteam.js";
 
 describe("findActiveUser", () => {
@@ -69,4 +74,43 @@ it("liest launch-options direkt aus localconfig.vdf", async () => {
   const text = await readFile(join(root, "userdata", userId, "config", "localconfig.vdf"), "utf8");
   expect(readLaunchOptions(text, 620)).toBe("gamemoderun %command%");
   expect(readLaunchOptions(text, 730)).toBeUndefined();
+});
+
+// C-1: die vorab-probe prüft nur die ebenen des abgefragten pfads. ein defekt
+// im app-block selbst besteht sie, erst der per-spiel-read wirft — deshalb
+// fängt `scanGames` diesen wurf zusätzlich pro spiel ab.
+const DANGLING_KEY_IN_APP_BLOCK = `"UserLocalConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"Apps"
+				{
+					"620"
+					{
+						"LaunchOptions"		"gamemoderun %command%"
+						"Dangling"
+					}
+				}
+			}
+		}
+	}
+}
+`;
+
+describe("localconfig-strukturprobe", () => {
+  it("besteht einen defekt unterhalb des pfads, den der per-spiel-read dann wirft", () => {
+    expect(isLocalConfigParseable(DANGLING_KEY_IN_APP_BLOCK)).toBeNull();
+    expect(() => readLaunchOptions(DANGLING_KEY_IN_APP_BLOCK, 620)).toThrow(
+      new VdfPatchError('key "Dangling" ohne wert'),
+    );
+  });
+
+  it("meldet einen lexikalischen defekt der ganzen datei", () => {
+    const text = `"UserLocalConfigStore"\n{\n\t"LaunchOptions"\t\t"ohne ende`;
+    expect(isLocalConfigParseable(text)).toEqual({ detail: "unterminierter string" });
+  });
 });

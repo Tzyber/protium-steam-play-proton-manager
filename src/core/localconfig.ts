@@ -1,4 +1,5 @@
 // localconfig.vdf (pro steam-account): startoptionen lesen/schreiben + aktiven user finden.
+import { errText } from "./errtext.js";
 import { paths } from "./paths.js";
 import type { FileSystem } from "./ports.js";
 import { NUMERIC_RE } from "./types.js";
@@ -20,6 +21,20 @@ function launchOptionsPath(appId: number): string[] {
 
 export function readLaunchOptions(localConfigText: string, appId: number): string | undefined {
   return getVdfValue(localConfigText, launchOptionsPath(appId));
+}
+
+/** erkennt lexikalische defekte der localconfig (unterminierter string oder
+ *  block-kommentar). die treffen die ganze datei und lassen deshalb JEDEN
+ *  `getVdfValue`-aufruf werfen; der scan prüft das einmal vorab statt pro spiel
+ *  (INV-2). strukturelle defekte unterhalb des geprüften pfads erkennt diese
+ *  probe NICHT, dafür fängt `scanGames` den wurf pro spiel ab. */
+export function isLocalConfigParseable(localConfigText: string): { detail: string } | null {
+  try {
+    getVdfValue(localConfigText, launchOptionsPath(0));
+    return null;
+  } catch (e) {
+    return { detail: errText(e) };
+  }
 }
 
 /** spielname aus steams localconfig (Apps/<appId>/name). steam pflegt die

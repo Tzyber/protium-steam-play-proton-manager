@@ -87,6 +87,52 @@ describe("scanLocal", () => {
     expect(result.games.every((game) => game.compatToolSource === "unavailable")).toBe(true);
   });
 
+  // C-1: strukturell defekte localconfig warf bisher aus `scanGames` heraus und
+  // beendete den ganzen scan im status "error" (INV-2).
+  it.each([
+    [
+      "unterminiertem string",
+      '"UserLocalConfigStore"\n{\n\t"LaunchOptions"\t\t"ohne ende',
+      "unterminierter string",
+    ],
+    [
+      "unbalancierter klammer",
+      '"UserLocalConfigStore"\n{\n\t"Software"\n\t{\n',
+      'unbalancierte klammern bei "UserLocalConfigStore"',
+    ],
+    // lexikalisch intakt, der fehler liegt unterhalb des geprüften pfads: die
+    // vorab-probe besteht, erst der per-spiel-read wirft.
+    [
+      "key ohne wert im app-block",
+      '"UserLocalConfigStore"\n{\n\t"Software"\n\t{\n\t\t"Valve"\n\t\t{\n\t\t\t"Steam"\n\t\t\t{\n\t\t\t\t"Apps"\n\t\t\t\t{\n\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\t\t"gamemoderun %command%"\n\t\t\t\t\t\t"Dangling"\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n',
+      'key "Dangling" ohne wert',
+    ],
+  ])(
+    "degradiert eine localconfig mit %s auf unreadable, ohne den scan abzubrechen",
+    async (_label, broken, cause) => {
+      const { root, userId, environment } = await buildFakeSteam();
+      await writeFile(join(root, "userdata", userId, "config", "localconfig.vdf"), broken);
+
+      const result = await scanLocal(
+        { fs: nodeFs(), http: fakeHttp(), system: fakeSystem(), cache: memCache() },
+        environment,
+      );
+
+      expect(result.games.map((game) => game.appId).sort((a, b) => a - b)).toEqual([570, 620, 730]);
+      expect(result.games.every((game) => game.launchOptions === undefined)).toBe(true);
+      expect(result.launchConfigStatus).toBe("unreadable");
+      expect(result.steamUserId).toBe(userId);
+      const configWarnings = result.warnings.filter((warning) => warning.type === "launch-config");
+      expect(configWarnings).toHaveLength(1);
+      expect(configWarnings[0]).toEqual({
+        type: "launch-config",
+        reason: "unreadable",
+        steamUserId: userId,
+        detail: `localconfig.vdf strukturell defekt: ${cause}`,
+      });
+    },
+  );
+
   it("behandelt reservierte mappingwerte als echte explizite werte", async () => {
     const { root, environment } = await buildFakeSteam();
     const configPath = join(root, "config", "config.vdf");

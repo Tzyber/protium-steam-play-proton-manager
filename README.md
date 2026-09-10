@@ -102,7 +102,9 @@ beim entfernen eines GE-tools bleiben die prefix-ordner seiner spiele erhalten.
 
 im spiel-drawer startet „Prefix-Ordner öffnen“ den dateimanager für den frisch
 geprüften standard-prefix. externe zielhinweise und unklare startoptionen
-sperren die aktion mit sichtbarem grund. der klick misst nichts und legt keinen
+sperren die aktion mit sichtbarem grund. dieselbe konservative erkennung lässt
+auch den compatdata-teil des speicherbedarfs ungemessen, weil das standardziel
+dann nicht belegt ist. der klick misst nichts und legt keinen
 ordner an. „Dateimanager gestartet“ bestätigt den start, nicht ein sichtbares
 fenster. die pfadübergabe und ihre grenzen stehen in [SECURITY.md](SECURITY.md).
 
@@ -290,9 +292,9 @@ als plan folgen:
 - [x] vor v0.8.0: [terminologie-glossar](docs/glossar.md)
 - separater Prefix-Metadaten-Spike bleibt offen und unabhängig, ohne
   vorweggenommene Runtime-Behauptung
-- [x] v0.9.0: lesbarer support-beleg
-- [x] v0.10.0: ehrliche GE-Zuordnungszusammenfassung und „Prefix-Ordner
-  öffnen"-Workflow
+- [x] v0.9.0: lesbarer support-beleg, ehrliche GE-zuordnungszusammenfassung und
+  „Prefix-Ordner öffnen"-Workflow (der zuletzt als v0.10.0 geplante umfang ist
+  in v0.9.0 enthalten)
 - v1.0.0: konsolidierung (konsistenz, fehlersemantik, security- und
   zugänglichkeits-review)
 

@@ -1286,9 +1286,10 @@ describe("cleanupStore, trash", () => {
     const snapshot = deleteSpy.mock.calls[0]?.[0];
     expect(snapshot).toEqual([e1, e2]);
     expect(snapshot).not.toBe(store.trash);
+    expect(deleteSpy.mock.calls[0]?.[1]).toBe(0);
   });
 
-  it("emptyTrash verarbeitet nur die ersten 32 snapshot-einträge", async () => {
+  it("emptyTrash verarbeitet nur die ersten 32 snapshot-einträge und nennt den rest", async () => {
     const entries = fakeTrashEntries(33);
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
@@ -1304,10 +1305,66 @@ describe("cleanupStore, trash", () => {
       steamRoot: "/home/u/.steam",
     });
     expect(useConfirmStore().pending?.title).toContain("32");
+    expect(useConfirmStore().pending?.message).toContain(
+      "je durchgang höchstens 32 einträge; rest im papierkorb: 1.",
+    );
     await useConfirmStore().confirm();
 
     expect(mockExecuteDelete).toHaveBeenCalledTimes(32);
     expect(store.trash).toEqual([entries[32]]);
+  });
+
+  it("emptyTrash nennt grenze und rest auch bei deutlich mehr als 32 einträgen", async () => {
+    const entries = fakeTrashEntries(70);
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    store.trash = [...entries];
+
+    await store.emptyTrash();
+
+    expect(mockPrepareDelete).toHaveBeenCalledTimes(32);
+    expect(useConfirmStore().pending?.message).toContain(
+      "je durchgang höchstens 32 einträge; rest im papierkorb: 38.",
+    );
+    await useConfirmStore().confirm();
+
+    expect(mockExecuteDelete).toHaveBeenCalledTimes(32);
+    expect(store.trash).toHaveLength(38);
+    expect(store.trash[0]?.path).toBe(entries[32]?.path);
+  });
+
+  it("emptyTrash mit genau 32 einträgen nennt keinen rest", async () => {
+    const entries = fakeTrashEntries(32);
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    store.trash = [...entries];
+
+    await store.emptyTrash();
+
+    expect(useConfirmStore().pending?.title).toContain("32");
+    expect(useConfirmStore().pending?.message).not.toContain("rest im papierkorb");
+    await useConfirmStore().confirm();
+
+    expect(mockExecuteDelete).toHaveBeenCalledTimes(32);
+    expect(store.trash).toEqual([]);
+  });
+
+  it("emptyTrash meldet die grenze auch auf englisch", async () => {
+    setLocale("en");
+    const entries = fakeTrashEntries(33);
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    store.trash = [...entries];
+
+    await store.emptyTrash();
+
+    expect(useConfirmStore().pending?.title).toContain("32");
+    expect(useConfirmStore().pending?.message).toContain(
+      "at most 32 entries per pass; remaining in the trash: 1.",
+    );
   });
 
   it("emptyTrash mit fehlschlag in der mitte, rest wird trotzdem gelöscht", async () => {

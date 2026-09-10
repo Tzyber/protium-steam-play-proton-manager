@@ -166,6 +166,7 @@ export const de = {
     trashDeleteEntry: "eintrag löschen",
     trashDeleteConfirmTitle: "{n} papierkorb-einträge leeren?",
     trashDeleteConfirmSingle: "{n} eintrag endgültig löschen?",
+    trashBatchInfo: "je durchgang höchstens {max} einträge; rest im papierkorb: {rest}.",
     trashPrepareWarning: "nicht vorbereitete Einträge ({n}) bleiben unverändert.",
     trashPrepareError: "nicht vorbereitete Einträge ({n}): {errors}",
     trashExecuteError: "nicht gelöschte Einträge ({n}): {errors}",

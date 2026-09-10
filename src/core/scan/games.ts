@@ -41,6 +41,9 @@ export interface ScanGamesResult {
   skippedLibraries: SkippedLibrary[];
   cleanupUnsafeLibraries: string[];
   manifestCounts: { read: number; failed: number };
+  /** grund, wenn die localconfig eines spiels nicht parsebar war; der aufrufer
+   *  degradiert damit `launchConfigStatus` scan-weit (INV-2: skip + warnung). */
+  localConfigDegraded: string | null;
 }
 
 export interface CompatAssignment {
@@ -72,6 +75,7 @@ export async function scanGames(
   const seenManifests = new Map<number, { library: string; manifestPath: string }>();
   let manifestRead = 0;
   let manifestFailed = 0;
+  let localConfigDegraded: string | null = null;
 
   for (const lib of libraries) {
     const appsDir = paths.libraryAppsDir(lib);
@@ -203,6 +207,16 @@ export async function scanGames(
           detail: `"${data.name}" trägt einen valve-paket-namen, die appid ist aber nicht blocklistet`,
         });
       }
+      let launchOptions: string | undefined;
+      if (localConfigText) {
+        try {
+          launchOptions = readLaunchOptions(localConfigText, data.appId);
+        } catch (e) {
+          // ein struktureller defekt unterhalb des pfads wirft nur hier; das
+          // spiel bleibt im scan, der aufrufer degradiert den status scan-weit.
+          if (localConfigDegraded === null) localConfigDegraded = errText(e);
+        }
+      }
       games.push({
         appId: data.appId,
         name: data.name,
@@ -213,7 +227,7 @@ export async function scanGames(
         protonDb: null,
         localHeader: await resolveLocalHeader(fs, steamRoot, data.appId),
         headerImage: paths.headerImageUrl(data.appId),
-        launchOptions: localConfigText ? readLaunchOptions(localConfigText, data.appId) : undefined,
+        launchOptions,
       });
     }
   }
@@ -225,5 +239,6 @@ export async function scanGames(
     skippedLibraries,
     cleanupUnsafeLibraries: [...cleanupUnsafeLibraries],
     manifestCounts: { read: manifestRead, failed: manifestFailed },
+    localConfigDegraded,
   };
 }

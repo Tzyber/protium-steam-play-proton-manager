@@ -15,7 +15,7 @@ use std::ffi::OsStr;
 #[cfg(target_os = "linux")]
 use std::fs;
 #[cfg(target_os = "linux")]
-use std::io::{self, Read};
+use std::io;
 #[cfg(target_os = "linux")]
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::path::{Path, PathBuf};
@@ -117,15 +117,21 @@ where
             Err(error) => return Err(format!("cannot open compatibilitytool.vdf: {error}")),
         };
         hook(3);
-        let metadata = vdf
-            .metadata()
-            .map_err(|error| format!("cannot stat compatibilitytool.vdf: {error}"))?;
-        if !metadata.is_file() || metadata.len() > MAX_COMPAT_VDF_BYTES {
-            continue;
-        }
-        let mut text = String::new();
-        vdf.read_to_string(&mut text)
-            .map_err(|error| format!("cannot read compatibilitytool.vdf: {error}"))?;
+        // Ein einzelner kaputter Tool-Ordner darf die Autorität für alle anderen
+        // nicht kippen: unlesbare, nicht-UTF8- und übergroße VDFs werden wie
+        // fehlende verlassen. Die Autorität des angefragten Namens bleibt
+        // fail-closed, er wird weiterhin nur aus geparstem Inhalt belegt (S-1).
+        let text = match read_fd_text(&mut vdf, "compatibilitytool.vdf", MAX_COMPAT_VDF_BYTES) {
+            Ok(text) => text,
+            Err(error)
+                if error.starts_with("cannot read compatibilitytool.vdf:")
+                    || error.contains("exceeds read limit")
+                    || error.ends_with("is not a regular file") =>
+            {
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
         if parse_compat_tool_vdf(&text)?.as_deref() == Some(requested) {
             return Ok(true);
         }
@@ -466,6 +472,109 @@ mod tests {
             std::fs::write(tool_dir.join("compatibilitytool.vdf"), tool_vdf).unwrap();
         }
         (home, cache, steam)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn tool_vdf(tool_name: &str) -> String {
+        format!("\"compatibilitytools\" {{ \"compat_tools\" {{ \"{tool_name}\" {{ }} }} }}")
+    }
+
+    // Fixture für S-1: Tool-Ordner mit rohem VDF-inhalt. Bei gemischten
+    // fixtures steht `BrokenTool` zuerst, damit der kaputte ordner zuerst
+    // gelesen wird (fs::read_dir liefert einträge in anlagereihenfolge) und
+    // der test den alten abbruch reproduziert.
+    #[cfg(target_os = "linux")]
+    fn compat_tools_fixture(tag: &str, dirs: &[(&str, &[u8])]) -> PathBuf {
+        let root = wsg_fixture(tag);
+        for (dir, vdf_bytes) in dirs {
+            let tool_dir = root.join(dir);
+            std::fs::create_dir_all(&tool_dir).unwrap();
+            std::fs::write(tool_dir.join("compatibilitytool.vdf"), vdf_bytes).unwrap();
+        }
+        root
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn compat_autorisiert_trotz_kaputter_vdf_und_lehnt_unbekannte_namen_ab() {
+        let intact_dir = "GE-Proton9-27";
+        let intact_name = "GE-Proton11-5-x86_64";
+        let intact = tool_vdf(intact_name);
+        // nicht-UTF8-bytes: der lesepfad scheitert, der ordner wird verlassen.
+        // Der angefragte name steht bewusst nicht in dieser datei — die
+        // fail-closed-eigenschaft ist, dass ohne geparsten inhalt kein name
+        // autorisiert wird (das 0xFF-byte wird nicht als name interpretiert).
+        let broken = b"\"compatibilitytools\" { \"compat_tools\" { \"Broken\" { \xff } } }";
+        // zweiter skip-pfad: statt einer datei liegt ein verzeichnis mit dem
+        // VDF-namen im tool-ordner; `read_to_string` scheitert am read.
+        let unreadable_dir = "GE-Proton8-30";
+
+        let only_broken = compat_tools_fixture("compat-broken-only", &[("BrokenTool", broken)]);
+        let broken_fd = open_absolute_dir(&only_broken).unwrap();
+        let result = compat_root_contains_name_at_fd(&broken_fd, intact_dir, &mut |_| {});
+        assert!(
+            result.is_ok(),
+            "kaputter ordner darf die ganze autorisierung nicht abbrechen: {result:?}"
+        );
+        assert!(
+            !result.unwrap(),
+            "ein kaputter ordner autorisiert keinen namen"
+        );
+        drop(broken_fd);
+        let _ = std::fs::remove_dir_all(only_broken);
+
+        let only_unreadable = compat_tools_fixture("compat-unreadable-only", &[]);
+        std::fs::create_dir_all(
+            only_unreadable
+                .join(unreadable_dir)
+                .join("compatibilitytool.vdf"),
+        )
+        .unwrap();
+        let unreadable_fd = open_absolute_dir(&only_unreadable).unwrap();
+        let result = compat_root_contains_name_at_fd(&unreadable_fd, unreadable_dir, &mut |_| {});
+        assert!(
+            result.is_ok(),
+            "unlesbarer vdf-name darf die autorisierung nicht abbrechen: {result:?}"
+        );
+        assert!(
+            !result.unwrap(),
+            "ein unlesbarer vdf-name autorisiert keinen namen"
+        );
+        drop(unreadable_fd);
+        let _ = std::fs::remove_dir_all(only_unreadable);
+
+        let intact_dir_only =
+            compat_tools_fixture("compat-intact-only", &[(intact_dir, intact.as_bytes())]);
+        let intact_fd = open_absolute_dir(&intact_dir_only).unwrap();
+        assert!(
+            compat_root_contains_name_at_fd(&intact_fd, intact_name, &mut |_| {}).unwrap(),
+            "intakte vdf autorisiert weiterhin"
+        );
+        assert!(
+            !compat_root_contains_name_at_fd(&intact_fd, "GE-Proton10-25", &mut |_| {}).unwrap(),
+            "unbekannter name bleibt false"
+        );
+        drop(intact_fd);
+        let _ = std::fs::remove_dir_all(intact_dir_only);
+
+        let mixed = compat_tools_fixture(
+            "compat-broken-and-intact",
+            &[("BrokenTool", broken), (intact_dir, intact.as_bytes())],
+        );
+        std::fs::create_dir_all(mixed.join(unreadable_dir).join("compatibilitytool.vdf")).unwrap();
+        let mixed_fd = open_absolute_dir(&mixed).unwrap();
+        assert!(
+            compat_root_contains_name_at_fd(&mixed_fd, intact_name, &mut |_| {}).unwrap(),
+            "intakter ordner muss trotz kaputtem nachbarn gefunden werden"
+        );
+        let absent = compat_root_contains_name_at_fd(&mixed_fd, "GE-Proton10-25", &mut |_| {});
+        assert!(
+            absent.is_ok(),
+            "fehlender name muss sauber false liefern: {absent:?}"
+        );
+        assert!(!absent.unwrap());
+        drop(mixed_fd);
+        let _ = std::fs::remove_dir_all(mixed);
     }
 
     #[cfg(target_os = "linux")]

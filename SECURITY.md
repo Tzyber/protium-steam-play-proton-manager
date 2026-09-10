@@ -77,6 +77,8 @@ Das Backend antwortet nur mit `blocked`, `not-found`, `unreadable` oder
 zeigt feste de/en-Texte, nie Pfade oder Rohtext. Die UI sperrt bei nicht
 eindeutig verfügbaren Startoptionen, laufendem Scan und jedem Vorkommen von
 `STEAM_COMPAT_DATA_PATH`; das Gatter ist konservativ, keine Backend-Autorität.
+Dieselbe konservative Erkennung lässt auch den Compatdata-Teil der
+Speicherbedarfsmessung ungemessen, weil das Standardziel dann nicht belegt ist.
 
 **Verbleibende Grenze:** Der Dateimanager erhält einen Pfad und löst ihn selbst
 erneut auf. Ein Prozess mit Schreibrecht auf eine Pfadkomponente kann sie

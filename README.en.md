@@ -87,7 +87,9 @@ a GE tool leaves its games' prefix folders untouched.
 
 “Open prefix folder” in the game drawer launches the file manager for the freshly
 validated standard prefix. external target hints and unclear launch options
-disable the action with a visible reason. clicking does not measure storage or
+disable the action with a visible reason. the same conservative detection also
+leaves the compatdata part of the storage footprint unmeasured, because the
+standard target is then not established. clicking does not measure storage or
 create a folder. “File manager launched” confirms the start, not a visible
 window. path handoff and its limits are described in [SECURITY.md](SECURITY.md).
 
@@ -219,8 +221,9 @@ this plan ahead:
 - [x] before v0.8.0: [terminology glossary](docs/glossar.md)
 - a separate prefix metadata spike remains open and independent, without
   claiming a runtime result in advance
-- [x] v0.9.0: readable support record
-- [x] v0.10.0: honest GE mapping summary and the "open prefix folder" workflow
+- [x] v0.9.0: readable support record, honest GE mapping summary and the
+  "open prefix folder" workflow (the scope last planned as v0.10.0 ships in
+  v0.9.0)
 - v1.0.0: consolidation (consistency, error semantics, security and
   accessibility review)
 

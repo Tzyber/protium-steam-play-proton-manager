@@ -53,13 +53,11 @@ function readToolVdf(
  *  die scan-ergebnisse aber nicht neu gerechnet, sonst zeigt der proton-manager
  *  bis zum nächsten rescan stale spiele-zähler. */
 export function recomputeToolUsedBy(
-  tools: { name: string; internalName: string; usedBy: number[] }[],
+  tools: { internalName: string; usedBy: number[] }[],
   games: readonly { appId: number; compatTool: string }[],
 ): void {
   for (const tool of tools) {
-    tool.usedBy = games
-      .filter((g) => g.compatTool === tool.internalName || g.compatTool === tool.name)
-      .map((g) => g.appId);
+    tool.usedBy = games.filter((g) => g.compatTool === tool.internalName).map((g) => g.appId);
   }
 }
 export interface CompatToolScanResult {
@@ -237,10 +235,10 @@ export async function listCompatTools(
       readCount += 1;
       if (seenInternal.has(internalName)) continue; // aus höher-priorisierter quelle
       seenInternal.add(internalName);
+      // nur der interne name: er steht im mapping und im library-filter
+      // (uiStore.showLibraryForTool). ein zusätzlicher treffer über den
+      // verzeichnisnamen würde spiele zählen, die die library danach nicht zeigt.
       const usedBy = usedByOf(internalName);
-      if (internalName !== name) {
-        for (const appId of usedByOf(name)) if (!usedBy.includes(appId)) usedBy.push(appId);
-      }
       tools.push({ name, internalName, displayName, sizeBytes, usedBy, source });
     }
   }

@@ -1,6 +1,6 @@
 import { type CompatToolMapping, parseCompatToolMapping } from "../compat.js";
 import { errText } from "../errtext.js";
-import { findActiveUser } from "../localconfig.js";
+import { findActiveUser, isLocalConfigParseable } from "../localconfig.js";
 import { paths } from "../paths.js";
 import type { Ports } from "../ports.js";
 import type { CompatConfigStatus, LaunchConfigStatus, ScanWarning } from "../types.js";
@@ -91,6 +91,22 @@ export async function readLaunchConfig(
         reason: "unreadable",
         steamUserId: activeUser.userId,
         detail: `localconfig.vdf nicht lesbar: ${errText(e)}`,
+      });
+    }
+    // lexikalische parsefehler sind von aussen nicht sichtbar: `readTextFile`
+    // gelingt, erst der strukturelle zugriff wirft. solche defekte treffen die
+    // ganze datei und degradieren den status scan-weit, die spiele bleiben
+    // lesbar (INV-2). strukturelle defekte unterhalb eines spiel-pfads fängt
+    // `scanGames` pro spiel ab.
+    const parseError = localConfigText !== null ? isLocalConfigParseable(localConfigText) : null;
+    if (parseError) {
+      launchConfigStatus = "unreadable";
+      localConfigText = null;
+      warnings.push({
+        type: "launch-config",
+        reason: "unreadable",
+        steamUserId: activeUser.userId,
+        detail: `localconfig.vdf strukturell defekt: ${parseError.detail}`,
       });
     }
   }

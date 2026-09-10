@@ -9,6 +9,15 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use tauri::Manager;
 
+#[cfg(target_os = "linux")]
+use crate::commands::fd::{ensure_regular_fd, open_bound_root_fd, open_dir_at, open_file_at};
+#[cfg(target_os = "linux")]
+use std::ffi::OsStr;
+#[cfg(target_os = "linux")]
+use std::io::{self, Read};
+#[cfg(target_os = "linux")]
+use std::os::fd::AsRawFd;
+
 pub(crate) const MAX_ENVIRONMENT_READ_BYTES: u64 = 16 * 1024 * 1024;
 const ROOT_CANDIDATES: [&str; 5] = [
     ".local/share/Steam",
@@ -502,25 +511,89 @@ pub(super) fn parse_library_folder_paths(text: &str) -> Result<Vec<PathBuf>, Str
     Ok(paths)
 }
 
-fn read_library_paths(steam_root: &Path) -> Result<Vec<PathBuf>, String> {
-    let Some(path) = libraryfolders_path(steam_root)? else {
+/// Liest `libraryfolders.vdf` über die gebundene no-follow-Deskriptorkette
+/// (S-2): Root und Unterverzeichnis werden als Deskriptor gebunden, die Datei
+/// per `openat(O_NOFOLLOW|O_NONBLOCK)` geöffnet und erst am Deskriptor auf
+/// regulären Typ und Größe geprüft. Ein Pfad-`fs::read` hinge sonst an einem
+/// FIFO, der zwischen Prüfung und Open untergeschoben wird. Der Hook sitzt
+/// genau in dieser Lücke, damit ein Test den Tausch dort erzwingen kann.
+#[cfg(target_os = "linux")]
+fn libraryfolders_contents_with_hook<F>(
+    steam_root: &Path,
+    hook: &mut F,
+) -> Result<Option<String>, String>
+where
+    F: FnMut(),
+{
+    const NAME: &str = "libraryfolders.vdf";
+    const LABEL: &str = "libraryfolders.vdf";
+
+    let root_fd = open_bound_root_fd(steam_root, &mut || {})?;
+    for directory in ["config", "steamapps"] {
+        let parent_fd = match open_dir_at(root_fd.as_raw_fd(), OsStr::new(directory)) {
+            Ok(fd) => fd,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("{LABEL}: {error}")),
+        };
+        hook();
+        let file = match open_file_at(parent_fd.as_raw_fd(), OsStr::new(NAME)) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(libraryfolders_open_error(error)),
+        };
+        let length = ensure_regular_fd(&file, LABEL)?;
+        if length > MAX_ENVIRONMENT_READ_BYTES {
+            return Err(format!("{LABEL} exceeds read limit"));
+        }
+        let mut bytes = Vec::new();
+        file.take(MAX_ENVIRONMENT_READ_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|error| format!("cannot read {LABEL}: {error}"))?;
+        if bytes.len() as u64 > MAX_ENVIRONMENT_READ_BYTES {
+            return Err(format!("{LABEL} exceeds read limit"));
+        }
+        let content =
+            String::from_utf8(bytes).map_err(|error| format!("cannot decode {LABEL}: {error}"))?;
+        return Ok(Some(content));
+    }
+    if open_dir_at(root_fd.as_raw_fd(), OsStr::new("steamapps")).is_err() {
+        return Err(format!("{LABEL}: no config or steamapps directory"));
+    }
+    Ok(None)
+}
+
+#[cfg(target_os = "linux")]
+fn libraryfolders_open_error(error: io::Error) -> String {
+    match error.raw_os_error() {
+        Some(libc::ELOOP | libc::ENOTDIR) => {
+            format!("libraryfolders.vdf is not a regular file: {error}")
+        }
+        _ => format!("cannot open libraryfolders.vdf: {error}"),
+    }
+}
+
+/// Nicht-Linux baut nicht (Linux-only-App); fail-closed statt Pfad-Read.
+#[cfg(not(target_os = "linux"))]
+fn libraryfolders_contents_with_hook<F>(
+    _steam_root: &Path,
+    _hook: &mut F,
+) -> Result<Option<String>, String>
+where
+    F: FnMut(),
+{
+    Err("libraryfolders.vdf requires Linux no-follow descriptors".into())
+}
+
+fn read_library_paths_with_hook<F>(steam_root: &Path, hook: &mut F) -> Result<Vec<PathBuf>, String>
+where
+    F: FnMut(),
+{
+    if libraryfolders_path(steam_root)?.is_none() {
+        return Ok(vec![steam_root.to_path_buf()]);
+    }
+    let Some(content) = libraryfolders_contents_with_hook(steam_root, hook)? else {
         return Ok(vec![steam_root.to_path_buf()]);
     };
-    let metadata =
-        fs::symlink_metadata(&path).map_err(|error| format!("libraryfolders.vdf: {error}"))?;
-    if metadata.file_type().is_symlink() || !metadata.is_file() {
-        return Err("libraryfolders.vdf is not a regular file".into());
-    }
-    if metadata.len() > MAX_ENVIRONMENT_READ_BYTES {
-        return Err("libraryfolders.vdf exceeds read limit".into());
-    }
-    let bytes =
-        fs::read(&path).map_err(|error| format!("cannot read libraryfolders.vdf: {error}"))?;
-    if bytes.len() as u64 > MAX_ENVIRONMENT_READ_BYTES {
-        return Err("libraryfolders.vdf exceeds read limit".into());
-    }
-    let content = String::from_utf8(bytes)
-        .map_err(|error| format!("cannot decode libraryfolders.vdf: {error}"))?;
     let paths = parse_library_folder_paths(&content)?;
     if paths.is_empty() {
         return Ok(vec![steam_root.to_path_buf()]);
@@ -541,8 +614,21 @@ fn canonical_library(path: &Path) -> Result<PathBuf, String> {
 }
 
 pub(super) fn read_library_folders(steam_root: &Path) -> Result<Vec<PathBuf>, String> {
+    read_library_folders_with_hook(steam_root, &mut || {})
+}
+
+/// Hook-Variante für die Tausch-Regression: der Hook läuft nach der
+/// Pfad-Vorprüfung und vor dem Deskriptor-Open, also in der TOCTOU-Lücke von
+/// S-2. Produktionsaufrufer nutzen `read_library_folders` ohne Hook.
+fn read_library_folders_with_hook<F>(
+    steam_root: &Path,
+    hook: &mut F,
+) -> Result<Vec<PathBuf>, String>
+where
+    F: FnMut(),
+{
     let mut libraries = vec![canonical_library(steam_root)?];
-    for path in read_library_paths(steam_root)? {
+    for path in read_library_paths_with_hook(steam_root, hook)? {
         let Ok(canonical) = canonical_library(&path) else {
             continue;
         };
@@ -1242,6 +1328,100 @@ mod tests {
 
         let error = read_library_folders(&steam).unwrap_err();
         assert!(error.contains("read limit"), "error: {error}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Deckt das TOCTOU-Fenster aus S-2 ab: eine reguläre, gültige Datei besteht
+    /// die Pfad-Vorprüfung, im Hook wird sie gegen ein Verzeichnis getauscht.
+    /// Die alte Pfad-Lesung scheitert dann erst an `read` (EISDIR), die
+    /// Deskriptorkette erkennt den Typ am Deskriptor. Bewusst kein FIFO: ein
+    /// FIFO macht den alten Pfad nur blockierend sichtbar, nicht rot.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn getauschtes_verzeichnis_libraryfolders_wird_am_deskriptor_abgelehnt() {
+        use std::sync::mpsc;
+
+        let root = wsg_fixture("lf-delete-hardening-swap");
+        let steam = root.join("steam");
+        let config_dir = steam.join("config");
+        let library = root.join("library");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(steam.join("steamapps")).unwrap();
+        std::fs::create_dir_all(&library).unwrap();
+        let path = config_dir.join("libraryfolders.vdf");
+        let valid_vdf = format!(
+            "\"libraryfolders\" {{ \"0\" {{ \"path\" \"{}\" }} }}",
+            library.display()
+        );
+        std::fs::write(&path, &valid_vdf).unwrap();
+
+        let (swap_ready, wait_for_swap) = mpsc::channel();
+        let (wake_worker, wait_for_open) = mpsc::channel();
+        // Der Hook synchronisiert nur; den Tausch macht der Hauptthread genau
+        // zwischen Pfad-Vorprüfung und Deskriptor-Open.
+        let mut hook = move || {
+            swap_ready.send(()).unwrap();
+            wait_for_open.recv().unwrap();
+        };
+        let worker = std::thread::spawn(move || read_library_folders_with_hook(&steam, &mut hook));
+
+        wait_for_swap.recv().unwrap();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        wake_worker.send(()).unwrap();
+        let result = worker.join().unwrap();
+        let error = result.unwrap_err();
+        assert!(error.contains("not a regular file"), "error: {error}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Statischer FIFO an der Stelle der Datei: die alte Pfad-Lesung hängt im
+    /// Open, die Deskriptorkette lehnt ihn wegen `O_NONBLOCK` und der
+    /// Typprüfung sofort ab.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn fifo_libraryfolders_blockiert_den_delete_pfad_nicht() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let root = wsg_fixture("lf-delete-hardening-fifo");
+        let steam = root.join("steam");
+        std::fs::create_dir_all(steam.join("config")).unwrap();
+        std::fs::create_dir_all(steam.join("steamapps")).unwrap();
+        let fifo = steam.join("config/libraryfolders.vdf");
+        let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+
+        let (sender, receiver) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let result = read_library_folders(&steam);
+            sender.send(result).unwrap();
+        });
+        let completed = receiver.recv_timeout(Duration::from_secs(2));
+        // O_RDWR blockiert nie und weckt einen blockierten O_RDONLY-Open, damit
+        // bei einer Regression kein Testthread zurückbleibt.
+        let rescue = if completed.is_err() {
+            Some(
+                std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&fifo)
+                    .unwrap(),
+            )
+        } else {
+            None
+        };
+        worker.join().unwrap();
+        drop(rescue);
+        assert!(
+            completed.is_ok(),
+            "FIFO libraryfolders.vdf blockierte den Aufruf"
+        );
+        let error = completed.unwrap().unwrap_err();
+        assert!(error.contains("not a regular file"), "error: {error}");
 
         let _ = std::fs::remove_dir_all(&root);
     }
