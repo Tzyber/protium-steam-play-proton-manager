@@ -49,23 +49,23 @@ when protium is sure:
 
 grab the AppImage or Debian package from the [releases page](https://github.com/Tzyber/protium-steam-play-proton-manager/releases). make the AppImage executable and run it:
 
-current version: `v0.8.1`.
+current version: `v0.9.0`.
 
 ```sh
-chmod +x protium_0.8.1_amd64.AppImage
-./protium_0.8.1_amd64.AppImage
+chmod +x protium_0.9.0_amd64.AppImage
+./protium_0.9.0_amd64.AppImage
 ```
 
 the AppImage is not signed. if you don't like that, build it yourself (see dev setup). Debian-based systems can install the accompanying Debian package:
 
 ```sh
-sudo apt install ./protium_0.8.1_amd64.deb
+sudo apt install ./protium_0.9.0_amd64.deb
 ```
 
 if nothing starts and no error message appears, fuse2 is usually missing. then either `sudo pacman -S fuse2` or run it once without fuse:
 
 ```sh
-./protium_0.8.1_amd64.AppImage --appimage-extract-and-run
+./protium_0.9.0_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## what it does
