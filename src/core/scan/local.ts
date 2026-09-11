@@ -58,7 +58,7 @@ export async function scanLocal(
             type: "launch-config",
             reason: "unreadable",
             steamUserId: launchResult.steamUserId ?? undefined,
-            detail: `localconfig.vdf strukturell defekt: ${localConfigDegraded}`,
+            detail: `localconfig.vdf structurally broken: ${localConfigDegraded}`,
           },
         ];
 

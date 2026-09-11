@@ -4,12 +4,13 @@ import { filterAndSortGames, fuzzyMatch, type LibraryQuery } from "../../src/ui/
 
 function game(
   partial: Omit<Partial<Game>, "compatToolSource"> & { appId: number; name: string },
+  compatToolSource: Game["compatToolSource"] = "default",
 ): Game {
   return {
     library: "/lib",
     sizeBytes: 0,
     compatTool: "default",
-    compatToolSource: "default",
+    compatToolSource,
     protonDb: { tier: "unknown", confidence: "unknown" },
     localHeader: null,
     headerImage: null,
@@ -103,6 +104,39 @@ describe("filterAndSortGames", () => {
     expect(
       ids(filterAndSortGames(games, { ...base, compatTools: new Set(["proton-cachyos-slr"]) })),
     ).toEqual([1, 3]);
+  });
+  it("filtert nach der quelle der proton-zuordnung, undefined heißt alle", () => {
+    const withSources = [
+      game({ appId: 11, name: "Default Game" }, "default"),
+      game({ appId: 12, name: "Unknown Game" }, "unavailable"),
+      game({ appId: 13, name: "Explicit Game" }, "explicit"),
+    ];
+    expect(ids(filterAndSortGames(withSources, base))).toEqual([11, 13, 12]);
+    expect(ids(filterAndSortGames(withSources, { ...base, compatSource: "default" }))).toEqual([
+      11,
+    ]);
+    expect(ids(filterAndSortGames(withSources, { ...base, compatSource: "unavailable" }))).toEqual([
+      12,
+    ]);
+    expect(ids(filterAndSortGames(withSources, { ...base, compatSource: "explicit" }))).toEqual([
+      13,
+    ]);
+  });
+  it("sortiert nach zuletzt gespielt, fehlende werte unabhängig von der richtung zuletzt", () => {
+    const played = [
+      game({ appId: 21, name: "Old", lastPlayed: 100 }),
+      game({ appId: 22, name: "New", lastPlayed: 300 }),
+      game({ appId: 23, name: "Never A", lastPlayed: undefined }),
+      game({ appId: 24, name: "Middle", lastPlayed: 200 }),
+      game({ appId: 25, name: "Never B", lastPlayed: undefined }),
+    ];
+
+    expect(
+      ids(filterAndSortGames(played, { ...base, sortKey: "lastPlayed", sortDir: "desc" })),
+    ).toEqual([22, 24, 21, 25, 23]);
+    expect(
+      ids(filterAndSortGames(played, { ...base, sortKey: "lastPlayed", sortDir: "asc" })),
+    ).toEqual([21, 24, 22, 23, 25]);
   });
   it("kombiniert suche + filter", () => {
     const r = filterAndSortGames(games, { ...base, search: "the", tiers: new Set<Tier>(["gold"]) });

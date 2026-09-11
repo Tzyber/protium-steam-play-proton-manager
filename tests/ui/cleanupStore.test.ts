@@ -10,7 +10,7 @@ import type { readAllShortcutAppIds } from "../../src/core/shortcuts";
 import type { findTrashEntries, TrashEntry } from "../../src/core/trash";
 import type { OrphanEntry, ScanResult } from "../../src/core/types";
 import { formatBytes } from "../../src/ui/format";
-import { setLocale } from "../../src/ui/i18n";
+import { setLocale, t } from "../../src/ui/i18n";
 
 const {
   mockFindOrphans,
@@ -486,7 +486,7 @@ describe("cleanupStore gate logic", () => {
     await store.scanOrphans();
 
     expect(store.blockedBySkipped).toBe(true);
-    expect(store.error).toContain("cleanupUnsafeLibraries");
+    expect(store.error).toContain("Sicherheitsfeld");
     expect(mockFindOrphans).not.toHaveBeenCalled();
   });
 
@@ -500,7 +500,7 @@ describe("cleanupStore gate logic", () => {
     ]);
 
     expect(store.blockedBySkipped).toBe(true);
-    expect(store.error).toContain("cleanupUnsafeLibraries");
+    expect(store.error).toContain("Sicherheitsfeld");
     expect(mockPrepareDelete).not.toHaveBeenCalled();
     expect(mockExecuteDelete).not.toHaveBeenCalled();
   });
@@ -681,6 +681,190 @@ describe("cleanupStore, S-05 + shortcuts", () => {
 
     expect(mockExecuteDelete).toHaveBeenCalledTimes(32);
     expect(store.deleting.size).toBe(0);
+  });
+
+  it("setzt bei reinen papierkorb-verschiebungen den knopf auf verschieben", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    mockPrepareDelete.mockImplementation(async (req) => ({
+      token: `token-${req.path}`,
+      expiresAt: Date.now() + 60000,
+      targetType: req.targetType,
+      targetPath: req.path,
+      consequences: [
+        {
+          path: req.path,
+          action: "trash" as const,
+          description: "Prefix in den Papierkorb verschieben",
+          affectedAppIds: [999999],
+        },
+      ],
+    }));
+    const store = useCleanupStore();
+
+    await store.deleteOrphans([
+      { appId: 999999, type: "compatdata", path: "/fake/wine", library: "/lib" },
+    ]);
+
+    expect(useConfirmStore().pending?.confirmLabel).toBe(t("cleanup.moveToTrash"));
+  });
+
+  it("setzt bei endgültigem löschen den knopf auf löschen", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    mockPrepareDelete.mockImplementation(async (req) => ({
+      token: `token-${req.path}`,
+      expiresAt: Date.now() + 60000,
+      targetType: req.targetType,
+      targetPath: req.path,
+      consequences: [
+        {
+          path: req.path,
+          action: "permanentDelete" as const,
+          description: "Shader-Cache dauerhaft löschen",
+          affectedAppIds: [999999],
+        },
+      ],
+    }));
+    const store = useCleanupStore();
+
+    await store.deleteOrphans([
+      { appId: 999999, type: "shadercache", path: "/fake/shader", library: "/lib" },
+    ]);
+
+    expect(useConfirmStore().pending?.confirmLabel).toBe(t("common.delete"));
+  });
+
+  it("setzt den knopf auf löschen sobald ein eintrag endgültig gelöscht wird", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    mockPrepareDelete.mockImplementation(async (req) => ({
+      token: `token-${req.path}`,
+      expiresAt: Date.now() + 60000,
+      targetType: req.targetType,
+      targetPath: req.path,
+      consequences: [
+        {
+          path: req.path,
+          action: req.path === "/fake/shader" ? ("permanentDelete" as const) : ("trash" as const),
+          description: "gemischt",
+          affectedAppIds: [999999],
+        },
+      ],
+    }));
+    const store = useCleanupStore();
+
+    await store.deleteOrphans([
+      { appId: 999999, type: "compatdata", path: "/fake/wine", library: "/lib" },
+      { appId: 999999, type: "shadercache", path: "/fake/shader", library: "/lib" },
+    ]);
+
+    expect(useConfirmStore().pending?.confirmLabel).toBe(t("common.delete"));
+  });
+
+  it("nennt im orphan-dialog den spielnamen aus orphanNames", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    mockPrepareDelete.mockImplementation(async (req) => ({
+      token: `token-${req.path}`,
+      expiresAt: Date.now() + 60000,
+      targetType: req.targetType,
+      targetPath: req.path,
+      consequences: [
+        {
+          path: req.path,
+          action: "trash" as const,
+          description: "Prefix in den Papierkorb verschieben",
+          affectedAppIds: [999999],
+        },
+      ],
+    }));
+    const store = useCleanupStore();
+    store.orphanNames = { "/fake/wine": "Portal 2" };
+
+    await store.deleteOrphans([
+      { appId: 999999, type: "compatdata", path: "/fake/wine", library: "/lib" },
+    ]);
+
+    expect(useConfirmStore().pending?.message).toContain("Portal 2");
+  });
+
+  it("deleteOrphansAll verarbeitet nur die ersten 32 einträge und nennt den rest", async () => {
+    const entries = fakeOrphanEntries(33);
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    mockFindOrphans.mockResolvedValue([]);
+    const store = useCleanupStore();
+    store.orphans = [...entries];
+
+    await store.deleteOrphansAll(entries);
+
+    expect(mockPrepareDelete).toHaveBeenCalledTimes(32);
+    expect(mockPrepareDelete).not.toHaveBeenCalledWith({
+      targetType: "orphan",
+      path: entries[32]?.path,
+      steamRoot: "/home/u/.steam",
+    });
+    expect(useConfirmStore().pending?.title).toContain("32");
+    expect(useConfirmStore().pending?.message).toContain(
+      "je durchgang höchstens 32 einträge; danach verbleiben: 1.",
+    );
+    await useConfirmStore().confirm();
+
+    expect(mockExecuteDelete).toHaveBeenCalledTimes(32);
+  });
+
+  it("deleteOrphansAll nennt grenze und rest auch bei deutlich mehr als 32 einträgen", async () => {
+    const entries = fakeOrphanEntries(70);
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    mockFindOrphans.mockResolvedValue([]);
+    const store = useCleanupStore();
+    store.orphans = [...entries];
+
+    await store.deleteOrphansAll(entries);
+
+    expect(mockPrepareDelete).toHaveBeenCalledTimes(32);
+    expect(useConfirmStore().pending?.message).toContain(
+      "je durchgang höchstens 32 einträge; danach verbleiben: 38.",
+    );
+    await useConfirmStore().confirm();
+
+    expect(mockExecuteDelete).toHaveBeenCalledTimes(32);
+  });
+
+  it("deleteOrphansAll mit genau 32 einträgen nennt keinen rest", async () => {
+    const entries = fakeOrphanEntries(32);
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    mockFindOrphans.mockResolvedValue([]);
+    const store = useCleanupStore();
+    store.orphans = [...entries];
+
+    await store.deleteOrphansAll(entries);
+
+    expect(useConfirmStore().pending?.title).toContain("32");
+    expect(useConfirmStore().pending?.message).not.toContain("danach verbleiben");
+    await useConfirmStore().confirm();
+
+    expect(mockExecuteDelete).toHaveBeenCalledTimes(32);
+  });
+
+  it("deleteOrphansAll meldet die grenze auch auf englisch", async () => {
+    setLocale("en");
+    const entries = fakeOrphanEntries(33);
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    mockFindOrphans.mockResolvedValue([]);
+    const store = useCleanupStore();
+    store.orphans = [...entries];
+
+    await store.deleteOrphansAll(entries);
+
+    expect(useConfirmStore().pending?.title).toContain("32");
+    expect(useConfirmStore().pending?.message).toContain(
+      "at most 32 entries per pass; remaining afterwards: 1.",
+    );
   });
 });
 
@@ -1060,6 +1244,10 @@ function fakeOrphanEntry(index: number): OrphanEntry {
   };
 }
 
+function fakeOrphanEntries(count: number): OrphanEntry[] {
+  return Array.from({ length: count }, (_, index) => fakeOrphanEntry(index + 1));
+}
+
 function fakeTrashEntries(count: number): TrashEntry[] {
   return Array.from({ length: count }, (_, index) =>
     fakeTrashEntry({
@@ -1173,7 +1361,7 @@ describe("cleanupStore, trash", () => {
     store.trash = [e1, e2];
 
     await store.deleteTrashEntries([e1, e2]);
-    expect(useConfirmStore().pending?.title).toBe("2 papierkorb-einträge leeren?");
+    expect(useConfirmStore().pending?.title).toBe("2 papierkorb-einträge endgültig löschen?");
     await useConfirmStore().confirm();
 
     expect(mockPrepareDelete).toHaveBeenCalledTimes(2);
@@ -1251,6 +1439,26 @@ describe("cleanupStore, trash", () => {
 
     expect(mockExecuteDelete).toHaveBeenCalledTimes(32);
     expect(store.trash).toEqual([]);
+  });
+
+  it("deleteTrashEntries beginnt die bestätigung mit der unwiderruflichkeits-warnung und nennt die summengröße", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    const e1 = fakeTrashEntry({ sizeBytes: 8192 });
+    const e2 = fakeTrashEntry({
+      path: "/lib/steamapps/.protium-trash/compatdata_570_100",
+      name: "compatdata_570_100",
+      appId: 570,
+      sizeBytes: 1048576,
+    });
+    store.trash = [e1, e2];
+
+    await store.deleteTrashEntries([e1, e2]);
+
+    const message = useConfirmStore().pending?.message ?? "";
+    expect(message.startsWith("Unwiderruflich")).toBe(true);
+    expect(message).toContain(formatBytes(8192 + 1048576));
   });
 
   it("ohne erfolgreiches prepare gibt es keinen dialog und kein execute", async () => {

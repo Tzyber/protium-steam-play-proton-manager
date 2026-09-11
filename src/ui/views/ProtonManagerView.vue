@@ -154,6 +154,15 @@ const statusLine = computed(() => {
           </button>
           <span v-else class="used muted">{{ t("proton.unused") }}</span>
           <button
+            v-if="tt.internalName === proton.defaultCompatTool"
+            class="used"
+            type="button"
+            data-testid="global-default"
+            @click="ui.showLibraryForTool('default')"
+          >
+            {{ t("proton.globalDefault") }}
+          </button>
+          <button
             v-if="removable(tt)"
             class="rm"
             type="button"

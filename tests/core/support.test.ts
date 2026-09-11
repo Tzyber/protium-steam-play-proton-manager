@@ -78,6 +78,7 @@ describe("projectSupportFacts", () => {
       appId: 620,
       library: "<steam-library-1>",
       scanCoverage: "complete",
+      scanCoverageCounts: null,
       compatConfigStatus: "available",
       launchConfigStatus: "available",
       compatToolSource: "explicit",
@@ -96,6 +97,55 @@ describe("projectSupportFacts", () => {
       },
     });
   });
+
+  it("belegt die Abdeckungszahlen nur bei gestörtem Scan", () => {
+    const currentGame = game();
+    const scan = result({
+      games: [currentGame],
+      skippedLibraries: [{ path: "/steam/other-library", reason: "path-missing" }],
+      manifestCounts: { read: 4, failed: 2 },
+      compatToolCounts: { read: 3, failed: 1 },
+    });
+
+    expect(projectSupportFacts({ game: currentGame, result: scan }).scanCoverageCounts).toEqual({
+      librariesRead: 1,
+      librariesTotal: 2,
+      manifestsFailed: 2,
+      toolsFailed: 1,
+    });
+  });
+
+  it.each(["manifestCounts", "compatToolCounts"] as const)(
+    "verwirft bei ungültigem %s alle Abdeckungszahlen",
+    (field) => {
+      const currentGame = game();
+      const overrides: Partial<ScanResult> =
+        field === "manifestCounts"
+          ? { manifestCounts: { read: 1, failed: -1 } }
+          : { compatToolCounts: { read: 1, failed: -1 } };
+      const scan = result({ games: [currentGame], compatConfigStatus: "missing", ...overrides });
+
+      expect(
+        projectSupportFacts({ game: currentGame, result: scan }).scanCoverageCounts,
+      ).toBeNull();
+    },
+  );
+
+  it.each([
+    ["detected", "available", "STEAM_COMPAT_DATA_PATH=/home/private/prefix %command%"],
+    ["not-detected", "available", undefined],
+    ["unknown", "ambiguous", "STEAM_COMPAT_DATA_PATH=/home/private/prefix %command%"],
+  ] as const)(
+    "trennt den externen Compatdata-Hinweis als %s bei %s",
+    (expected, launchConfigStatus, launchOptions) => {
+      const currentGame = game(launchOptions === undefined ? {} : { launchOptions });
+
+      expect(
+        projectSupportFacts({ game: currentGame, result: result({ launchConfigStatus }) })
+          .externalCompatdata,
+      ).toBe(expected);
+    },
+  );
 
   it("verwendet beim globalen Standard das Default-Tool und dessen Inventar", () => {
     const currentGame = game({ compatTool: "default", compatToolSource: "default" });

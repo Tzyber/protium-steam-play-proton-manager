@@ -108,11 +108,21 @@ describe("formatSupportFacts", () => {
   });
 
   it.each([
-    ["de", "Scan-Abdeckung: unvollständig", "Scan-Abdeckung: eingeschränkt"],
-    ["en", "Scan coverage: incomplete", "Scan coverage: limited"],
+    [
+      "de",
+      "Scan-Abdeckung: unvollständig",
+      "Scan-Abdeckung: eingeschränkt",
+      "Abdeckung: Libraries 1/2 · Manifeste fehlgeschlagen 0 · Tools fehlgeschlagen 0 [lokaler Scan]",
+    ],
+    [
+      "en",
+      "Scan coverage: incomplete",
+      "Scan coverage: limited",
+      "Coverage: libraries 1/2 · manifests failed 0 · tools failed 0 [local scan]",
+    ],
   ] as const)(
     "exportiert einen unvollständigen Scan als unvollständig in %s",
-    (locale, incomplete, limited) => {
+    (locale, incomplete, limited, counts) => {
       setLocale(locale);
       const currentGame = game();
       const facts = projectSupportFacts({
@@ -127,25 +137,39 @@ describe("formatSupportFacts", () => {
       expect(facts.scanCoverage).toBe("incomplete");
       const text = formatSupportFacts(facts, "0.7.1");
       expect(text).toContain(incomplete);
+      expect(text).toContain(counts);
       expect(text).not.toContain(limited);
     },
   );
 
   it.each([
-    ["de", "Scan-Abdeckung: eingeschränkt"],
-    ["en", "Scan coverage: limited"],
-  ] as const)("exportiert eine fehlende Config als eingeschränkt in %s", (locale, limited) => {
-    setLocale(locale);
-    const currentGame = game();
-    const facts = projectSupportFacts({
-      game: currentGame,
-      result: result({ games: [currentGame], compatConfigStatus: "missing" }),
-      cleanup: {},
-    });
+    [
+      "de",
+      "Scan-Abdeckung: eingeschränkt",
+      "Abdeckung: Libraries 1/1 · Manifeste fehlgeschlagen 0 · Tools fehlgeschlagen 0 [lokaler Scan]",
+    ],
+    [
+      "en",
+      "Scan coverage: limited",
+      "Coverage: libraries 1/1 · manifests failed 0 · tools failed 0 [local scan]",
+    ],
+  ] as const)(
+    "exportiert eine fehlende Config als eingeschränkt in %s",
+    (locale, limited, counts) => {
+      setLocale(locale);
+      const currentGame = game();
+      const facts = projectSupportFacts({
+        game: currentGame,
+        result: result({ games: [currentGame], compatConfigStatus: "missing" }),
+        cleanup: {},
+      });
 
-    expect(facts.scanCoverage).toBe("limited");
-    expect(formatSupportFacts(facts, "0.7.1")).toContain(limited);
-  });
+      expect(facts.scanCoverage).toBe("limited");
+      const text = formatSupportFacts(facts, "0.7.1");
+      expect(text).toContain(limited);
+      expect(text).toContain(counts);
+    },
+  );
 });
 
 describe.each(["de", "en"] as const)("kompakter Support-Beleg in %s", (locale) => {
@@ -301,10 +325,19 @@ describe.each(["de", "en"] as const)("kompakter Support-Beleg in %s", (locale) =
     ["unknown", null],
   ] as const)("formatiert Tier %s", (tier, label) => {
     const text = render({ game: game({ protonDb: { tier, confidence: "private-confidence" } }) });
+    if (label === null) {
+      // ohne befund bleibt die quellenklammer weg: sie würde eine aussage
+      // behaupten, die diese quelle nicht geliefert hat.
+      expect(text).toContain(
+        locale === "de" ? "ProtonDB-Tier: unbekannt" : "ProtonDB tier: unknown",
+      );
+      expect(text).not.toContain(locale === "de" ? "[Community-Befund]" : "[community finding]");
+      return;
+    }
     expect(text).toContain(
       locale === "de"
-        ? `ProtonDB-Tier: ${label ?? "unbekannt"} [Community-Befund]`
-        : `ProtonDB tier: ${label ?? "unknown"} [community finding]`,
+        ? `ProtonDB-Tier: ${label} [Community-Befund]`
+        : `ProtonDB tier: ${label} [community finding]`,
     );
   });
 
@@ -416,17 +449,41 @@ describe.each(["de", "en"] as const)("kompakter Support-Beleg in %s", (locale) =
     },
   );
 
-  it.each([true, false])(
-    "bewahrt den externen Compatdata-Hinweis bei lesbarer Config %s",
-    (readable) => {
+  it.each([undefined, 0])(
+    "fasst den Cleanup-Block bei Claim-Anzahl %s ohne Befund auf eine Zeile zusammen",
+    (count) => {
       const text = render({
-        game: game({ launchOptions: "STEAM_COMPAT_DATA_PATH=/private/prefix %command%" }),
-        result: result({ launchConfigStatus: readable ? "available" : "unreadable" }),
+        cleanup: count === undefined ? {} : { incompleteDeletionsCount: count },
       });
       expect(text).toContain(
         locale === "de"
-          ? `Externer Compatdata-Hinweis: ${readable ? "vorhanden" : "unbekannt"} [Startoptionen]`
-          : `External compatdata hint: ${readable ? "detected" : "unknown"} [launch options]`,
+          ? "Bereinigung: kein Befund im vorhandenen Anzeigestand (keine Blockade, keine abgebrochene Löschung; Aktualität und Freigabe unbekannt)"
+          : "Cleanup: no findings in the displayed state (no blockade, no incomplete deletion; freshness and clearance unknown)",
+      );
+      expect(text).not.toContain(
+        locale === "de" ? "Abgebrochene Löschung: unbekannt" : "Incomplete deletion: unknown",
+      );
+      expect(text).not.toContain(
+        locale === "de" ? "Bereinigungsfreigabe: unbekannt" : "Cleanup clearance: unknown",
+      );
+    },
+  );
+
+  it.each([
+    ["available", "STEAM_COMPAT_DATA_PATH=/private/prefix %command%", "vorhanden", "detected"],
+    ["available", undefined, "nicht gesetzt", "not set"],
+    ["ambiguous", "STEAM_COMPAT_DATA_PATH=/private/prefix %command%", "unbekannt", "unknown"],
+  ] as const)(
+    "bewahrt den externen Compatdata-Hinweis bei Startoptionen-Status %s",
+    (launchConfigStatus, launchOptions, de, en) => {
+      const text = render({
+        game: game(launchOptions === undefined ? {} : { launchOptions }),
+        result: result({ launchConfigStatus }),
+      });
+      expect(text).toContain(
+        locale === "de"
+          ? `Externer Compatdata-Hinweis: ${de} [Startoptionen]`
+          : `External compatdata hint: ${en} [launch options]`,
       );
       expect(text).not.toContain("/private/prefix");
       expect(text).not.toContain("STEAM_COMPAT_DATA_PATH");

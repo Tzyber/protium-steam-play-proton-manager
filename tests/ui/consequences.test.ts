@@ -35,17 +35,18 @@ describe("localizeConsequences", () => {
           },
         ],
       }),
+      "Half-Life",
     );
     expect(lines).toEqual([
-      "Move prefix of app 620 to trash",
-      "Permanently delete shader cache of app 620",
+      "Move prefix of Half-Life to trash",
+      "Permanently delete shader cache of Half-Life",
     ]);
     for (const line of lines) {
       expect(line).not.toMatch(/Papierkorb|löschen|dauerhaft|Prefix|Shader/);
     }
   });
 
-  it("deutsch bleibt korrekt", () => {
+  it("deutsch bleibt korrekt und fällt ohne name auf die app-id zurück", () => {
     setLocale("de");
     const lines = localizeConsequences(
       pending({
@@ -60,7 +61,25 @@ describe("localizeConsequences", () => {
         ],
       }),
     );
-    expect(lines).toEqual(["Prefix von app 620 in den Papierkorb verschieben"]);
+    expect(lines).toEqual(["Prefix von 620 in den Papierkorb verschieben"]);
+  });
+
+  it("englisch: ohne name fällt der orphan auf die app-id zurück", () => {
+    setLocale("en");
+    const lines = localizeConsequences(
+      pending({
+        targetType: "orphan",
+        consequences: [
+          {
+            path: "/lib/steamapps/shadercache/620",
+            action: "permanentDelete",
+            description: "Shader-Cache von app 620 dauerhaft löschen",
+            affectedAppIds: [620],
+          },
+        ],
+      }),
+    );
+    expect(lines).toEqual(["Permanently delete shader cache of 620"]);
   });
 
   it("papierkorb-eintrag nutzt den verzeichnisnamen aus dem pfad", () => {
@@ -81,7 +100,7 @@ describe("localizeConsequences", () => {
     expect(lines).toEqual(["Permanently delete trash entry compatdata_620_123"]);
   });
 
-  it("compat-tool nutzt den tool-namen aus dem pfad", () => {
+  it("compat-tool nennt mit affectedAppIds tool-namen und zahl der spiele", () => {
     setLocale("en");
     const lines = localizeConsequences(
       pending({
@@ -92,7 +111,25 @@ describe("localizeConsequences", () => {
             path: "/home/u/.steam/compatibilitytools.d/GE-Proton9-27",
             action: "permanentDelete",
             description: "GE-Proton-Tool GE-Proton9-27 dauerhaft löschen",
-            affectedAppIds: [620],
+            affectedAppIds: [620, 730],
+          },
+        ],
+      }),
+    );
+    expect(lines).toEqual(["Permanently delete GE-Proton tool GE-Proton9-27 (assigned games: 2)"]);
+  });
+
+  it("compat-tool ohne affectedAppIds nutzt weiter die zeile ohne zahl", () => {
+    setLocale("en");
+    const lines = localizeConsequences(
+      pending({
+        targetType: "compatTool",
+        targetPath: "/home/u/.steam/compatibilitytools.d/GE-Proton9-27",
+        consequences: [
+          {
+            path: "/home/u/.steam/compatibilitytools.d/GE-Proton9-27",
+            action: "permanentDelete",
+            description: "GE-Proton-Tool GE-Proton9-27 dauerhaft löschen",
           },
         ],
       }),

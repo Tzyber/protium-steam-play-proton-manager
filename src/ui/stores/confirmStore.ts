@@ -5,6 +5,9 @@ import { computed, ref } from "vue";
 export interface ConfirmRequest {
   title: string;
   message: string;
+  /** beschriftung des bestätigen-knopfs; ohne wert zeigt der dialog
+   *  `common.confirm`. */
+  confirmLabel?: string;
 }
 
 interface ConfirmCallbacks {

@@ -92,4 +92,40 @@ describe("FilterBar proton-check", () => {
     expect(lib.protonCheck).toBe(false);
     expect(wrapper.get("button.proton-check").attributes("aria-pressed")).toBe("false");
   });
+
+  it("zyklisiert die quelle der proton-zuordnung und nennt den zustand", async () => {
+    const lib = useLibraryStore();
+    const wrapper = mount(FilterBar);
+    const button = wrapper.get("button.compat-source");
+
+    expect(button.text()).toContain(t("filter.compatSourceAll"));
+    expect(button.attributes("aria-pressed")).toBe("false");
+
+    await button.trigger("click");
+    expect(lib.compatSource).toBe("unavailable");
+    expect(button.text()).toContain(t("filter.compatSourceUnavailable"));
+    expect(button.attributes("aria-pressed")).toBe("true");
+
+    await button.trigger("click");
+    expect(lib.compatSource).toBe("default");
+    expect(button.text()).toContain(t("filter.compatSourceDefault"));
+
+    await button.trigger("click");
+    expect(lib.compatSource).toBeNull();
+    expect(button.text()).toContain(t("filter.compatSourceAll"));
+  });
+
+  it("bietet zuletzt gespielt als sortierschlüssel an", async () => {
+    const lib = useLibraryStore();
+    const wrapper = mount(FilterBar);
+    const sort = wrapper
+      .findAll("button.seg")
+      .find((button) => button.text().includes(t("filter.sortLastPlayed")));
+
+    expect(sort).toBeDefined();
+    await sort?.trigger("click");
+
+    expect(lib.sortKey).toBe("lastPlayed");
+    expect(lib.sortDir).toBe("desc");
+  });
 });

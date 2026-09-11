@@ -35,7 +35,9 @@ vi.mock("../../src/ui/views/CleanupView.vue", () => ({
 }));
 vi.mock("../../src/ui/i18n", () => ({
   t: (key: string, params?: Record<string, string | number>) =>
-    key === "app.updateAvailable" ? `Protium v${params?.version} ist verfügbar.` : key,
+    key === "app.updateAvailable"
+      ? `Protium v${params?.version} ist verfügbar (installiert: v${params?.current}).`
+      : key,
 }));
 vi.mock("../../src/ui/stores/scanStore", () => ({
   useScanStore: () => mockScanState,
@@ -76,6 +78,12 @@ describe("App modal background", () => {
     expect(wrapper.get(".readout-version").text()).toContain(`v${packageVersion}`);
   });
 
+  it("gibt dem hauptbereich einen programmatisch fokussierbaren skip-link-anker", () => {
+    const wrapper = mount(App);
+
+    expect(wrapper.get("#main-content").attributes("tabindex")).toBe("-1");
+  });
+
   it("setzt inert auf die gesamte shell, wenn ein modal aktiv ist", () => {
     const wrapper = mount(App);
 
@@ -106,19 +114,21 @@ describe("App update-hinweis", () => {
     const wrapper = mount(App);
     await flushPromises();
 
-    expect(wrapper.get(".update-notice").text()).toContain("Protium v0.6.11 ist verfügbar.");
+    expect(wrapper.get(".update-notice").text()).toContain(
+      `Protium v0.6.11 ist verfügbar (installiert: v${packageVersion}).`,
+    );
     await wrapper.get(".update-close").trigger("click");
     expect(wrapper.find(".update-notice").exists()).toBe(false);
   });
 
-  it("öffnet nur die feste release-seite", async () => {
+  it("öffnet den release-tag der neuen version", async () => {
     mockCheckForUpdate.mockResolvedValue("0.6.11");
     const wrapper = mount(App);
     await flushPromises();
 
     await wrapper.get(".update-open").trigger("click");
     expect(mockOpenExternal).toHaveBeenCalledWith(
-      "https://github.com/Tzyber/protium-steam-play-proton-manager/releases",
+      "https://github.com/Tzyber/protium-steam-play-proton-manager/releases/tag/v0.6.11",
     );
   });
 

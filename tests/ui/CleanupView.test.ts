@@ -84,6 +84,58 @@ describe("CleanupView incomplete deletions", () => {
     );
   });
 
+  it("klick auf 'alle shader-caches bereinigen' ruft deleteOrphansAll mit der vollen liste", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    const orphans: OrphanEntry[] = [
+      { appId: 1, type: "shadercache", path: "/lib/shadercache/1", library: "/lib" },
+      { appId: 2, type: "shadercache", path: "/lib/shadercache/2", library: "/lib" },
+      { appId: 3, type: "shadercache", path: "/lib/shadercache/3", library: "/lib" },
+    ];
+    store.orphans = orphans;
+    const deleteAll = vi.spyOn(store, "deleteOrphansAll").mockResolvedValue(undefined);
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+
+    const button = wrapper
+      .findAll("button")
+      .find((candidate) => candidate.text() === t("cleanup.cleanAllShaders"));
+    expect(button).toBeDefined();
+    await button?.trigger("click");
+
+    expect(deleteAll).toHaveBeenCalledTimes(1);
+    expect(deleteAll.mock.calls[0]?.[0]).toEqual(orphans);
+  });
+
+  it("rendert das confirmLabel des offenen dialogs am bestätigen-knopf", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    const confirm = useConfirmStore();
+    confirm.ask({
+      title: "verschieben?",
+      message: "folge",
+      confirmLabel: t("cleanup.moveToTrash"),
+    });
+
+    const wrapper = mount(CleanupView, { attachTo: document.body });
+    await wrapper.vm.$nextTick();
+    const confirmButton = () =>
+      document.body.querySelectorAll("[role='dialog'] .actions button")[1]?.textContent?.trim();
+
+    expect(confirmButton()).toBe(t("cleanup.moveToTrash"));
+
+    confirm.cancel();
+    confirm.ask({ title: "löschen?", message: "folge" });
+    await wrapper.vm.$nextTick();
+    expect(confirmButton()).toBe(t("common.delete"));
+
+    wrapper.unmount();
+    document.body.innerHTML = "";
+  });
+
   it("kennzeichnet exakte und teilweise größen in allen cleanup-bereichen", async () => {
     const store = useCleanupStore();
     vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);

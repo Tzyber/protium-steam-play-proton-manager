@@ -240,7 +240,7 @@ describe("GameDetailDrawer SupportFacts-Integration", () => {
   );
 
   it.each(["de", "en"] as const)(
-    "exportiert bei leerem und nie gescanntem Cleanup-Store in %s nur unbekannte Zustände",
+    "exportiert bei leerem und nie gescanntem Cleanup-Store in %s den zusammengefassten Befund",
     async (locale) => {
       const writeText = vi.fn(async (_text: string) => {});
       installClipboard(writeText);
@@ -253,10 +253,9 @@ describe("GameDetailDrawer SupportFacts-Integration", () => {
       expect(copied).toEqual(expect.any(String));
       if (typeof copied !== "string") return;
       expect(copied).toContain(
-        locale === "de" ? "Abgebrochene Löschung: unbekannt" : "Incomplete deletion: unknown",
-      );
-      expect(copied).toContain(
-        locale === "de" ? "Bereinigungsfreigabe: unbekannt" : "Cleanup clearance: unknown",
+        locale === "de"
+          ? "Bereinigung: kein Befund im vorhandenen Anzeigestand (keine Blockade, keine abgebrochene Löschung; Aktualität und Freigabe unbekannt)"
+          : "Cleanup: no findings in the displayed state (no blockade, no incomplete deletion; freshness and clearance unknown)",
       );
       expect(copied).not.toContain(locale === "de" ? "Bereinigung blockiert" : "Cleanup blocked");
       expect(copied).not.toContain(
@@ -557,6 +556,22 @@ describe("Prefix-Ordner öffnen", () => {
       expect(openPrefixFolderMock).not.toHaveBeenCalled();
     },
   );
+
+  it("nennt laufendes Speichern als Sperrgrund", async () => {
+    const { wrapper, config } = await ready();
+    const saveLaunch = vi
+      .spyOn(config, "saveLaunchOptions")
+      .mockImplementation(() => deferred<WriteResult>().promise);
+    const input = wrapper.get<HTMLInputElement>("#launch-options");
+
+    await input.setValue("gamemoderun %command%");
+    await input.trigger("keydown", { key: "Enter" });
+    await nextTick();
+
+    expect(saveLaunch).toHaveBeenCalledTimes(1);
+    expect(wrapper.get('[data-testid="prefix-open"]').attributes("disabled")).toBeDefined();
+    expect(wrapper.get('[data-testid="prefix-reason"]').text()).toContain("gespeichert");
+  });
 
   it("sperrt laufenden Scan und schließt den Drawer ohne Scan-Ergebnis", async () => {
     const { wrapper, scan } = await ready();

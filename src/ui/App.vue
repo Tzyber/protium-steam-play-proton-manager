@@ -27,7 +27,9 @@ onMounted(() => {
 });
 
 function openUpdateRelease() {
-  void openExternal(UPDATE_RELEASE_URL).catch(() => {});
+  const version = updateVersion.value;
+  const url = version ? `${UPDATE_RELEASE_URL}/tag/v${version}` : UPDATE_RELEASE_URL;
+  void openExternal(url).catch(() => {});
 }
 
 // confirm-dialog sperrt den hintergrund für screenreader + tab (inert), wie
@@ -125,9 +127,9 @@ async function copyError() {
       </div>
       </aside>
 
-      <main id="main-content" class="content">
+      <main id="main-content" class="content" tabindex="-1">
       <section v-if="updateVersion" class="update-notice" role="status">
-        <span>{{ t("app.updateAvailable", { version: updateVersion }) }}</span>
+        <span>{{ t("app.updateAvailable", { version: updateVersion, current: appVersion }) }}</span>
         <button class="update-open" type="button" @click="openUpdateRelease">
           {{ t("app.openRelease") }}
         </button>

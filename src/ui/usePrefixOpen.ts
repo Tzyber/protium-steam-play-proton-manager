@@ -52,7 +52,8 @@ export function usePrefixOpen(game: Readonly<Ref<Game | null>>, saving: Readonly
   );
   const disabledReason = computed<Key | null>(() => {
     if (!game.value || !scan.result || scan.status !== "done") return "drawer.prefixScanPending";
-    if (scan.result.launchConfigStatus !== "available" || saving.value) {
+    if (saving.value) return "drawer.prefixSaving";
+    if (scan.result.launchConfigStatus !== "available") {
       return "drawer.prefixUnchecked";
     }
     return hasExternalCompatdata(game.value.launchOptions) ? "drawer.prefixExternal" : null;

@@ -26,6 +26,20 @@ describe("confirmStore", () => {
     expect(store.reserve()).not.toBeNull();
   });
 
+  it("übernimmt ein optionales confirmLabel in den dialog", () => {
+    const store = useConfirmStore();
+
+    store.ask({
+      title: "verschieben?",
+      message: "folge",
+      confirmLabel: "in den Papierkorb verschieben",
+    });
+
+    expect(store.pending?.confirmLabel).toBe("in den Papierkorb verschieben");
+    store.cancel();
+    expect(store.pending).toBeNull();
+  });
+
   it("schließt nach execute-fehler und übergibt ihn an onError", async () => {
     const store = useConfirmStore();
     const error = new Error("token expired");

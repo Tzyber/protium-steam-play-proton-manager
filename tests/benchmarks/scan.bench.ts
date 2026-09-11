@@ -61,6 +61,10 @@ async function measureScenario(scenario: ScanPerformanceScenario): Promise<void>
       measurements.scanGamesMs.push(performance.now() - gamesStartedAt);
 
       expect(gamesResult.games).toHaveLength(gamesFixture.appIds.length);
+      expect(gamesResult.games.filter((game) => game.launchOptions !== undefined)).toHaveLength(
+        gamesFixture.launchOptionAppIds.length,
+      );
+      expect(gamesResult.localConfigDegraded).toBeNull();
       expect(gamesResult.games.filter((game) => game.localHeader !== null)).toHaveLength(
         gamesFixture.headerAppIds.length,
       );

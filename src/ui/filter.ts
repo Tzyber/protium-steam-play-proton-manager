@@ -1,6 +1,6 @@
-import type { Game, Tier } from "../core/types";
+import type { CompatToolSource, Game, Tier } from "../core/types";
 
-export type SortKey = "name" | "size" | "tier";
+export type SortKey = "name" | "size" | "tier" | "lastPlayed";
 export type SortDir = "asc" | "desc";
 
 export interface LibraryQuery {
@@ -10,6 +10,7 @@ export interface LibraryQuery {
   tiers: ReadonlySet<Tier>; // leer = alle
   compatTools: ReadonlySet<string>; // leer = alle
   libraries: ReadonlySet<string>; // leer = alle
+  compatSource?: CompatToolSource; // undefiniert = alle
   protonCheckAppIds?: ReadonlySet<number>; // undefiniert = alle
 }
 
@@ -39,6 +40,7 @@ export function filterAndSortGames(games: readonly Game[], q: LibraryQuery): Gam
     if (!fuzzyMatch(g.name, q.search)) return false;
     if (q.tiers.size && !q.tiers.has(g.protonDb?.tier ?? "unknown")) return false;
     if (q.compatTools.size && !q.compatTools.has(g.compatTool)) return false;
+    if (q.compatSource && g.compatToolSource !== q.compatSource) return false;
     if (q.libraries.size && !q.libraries.has(g.library)) return false;
     if (q.protonCheckAppIds && !q.protonCheckAppIds.has(g.appId)) return false;
     return true;
@@ -47,14 +49,13 @@ export function filterAndSortGames(games: readonly Game[], q: LibraryQuery): Gam
   const dir = q.sortDir === "asc" ? 1 : -1;
   filtered.sort((a, b) => {
     let cmp: number;
-    if (q.sortKey === "size") {
-      if (a.sizeBytes === undefined || b.sizeBytes === undefined) {
-        if (a.sizeBytes === undefined && b.sizeBytes !== undefined) return 1;
-        if (a.sizeBytes !== undefined && b.sizeBytes === undefined) return -1;
-        cmp = 0;
-      } else {
-        cmp = a.sizeBytes - b.sizeBytes;
-      }
+    if (q.sortKey === "size" || q.sortKey === "lastPlayed") {
+      // fehlende werte immer ans ende, unabhängig von der richtung
+      const aVal = q.sortKey === "size" ? a.sizeBytes : a.lastPlayed;
+      const bVal = q.sortKey === "size" ? b.sizeBytes : b.lastPlayed;
+      if (aVal === undefined && bVal !== undefined) return 1;
+      if (aVal !== undefined && bVal === undefined) return -1;
+      cmp = aVal === undefined || bVal === undefined ? 0 : aVal - bVal;
     } else if (q.sortKey === "tier")
       cmp = TIER_RANK[a.protonDb?.tier ?? "unknown"] - TIER_RANK[b.protonDb?.tier ?? "unknown"];
     else cmp = a.name.localeCompare(b.name, "en", { sensitivity: "base" });

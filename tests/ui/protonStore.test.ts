@@ -487,6 +487,23 @@ describe("protonStore pump-phasen", () => {
     expect(store.jobs[release.tag]?.downloaded).toBe(0);
     expect(store.jobs[release.tag]?.phase).toBe("downloading");
   });
+
+  it("bestehender zielordner → lokalisierter installExists-fehler", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScanResult();
+    mockInstallGeProton.mockRejectedValueOnce(
+      new Error("ToolAlreadyExists: target directory already exists"),
+    );
+
+    const store = useProtonStore();
+    store.releases = [release];
+    store.queueInstall(release);
+
+    await vi.waitFor(() => {
+      expect(store.jobs[release.tag]).toBeUndefined();
+    });
+    expect(store.loadError).toContain("bereits installiert");
+  });
 });
 
 describe("protonStore warnung (sha512-fetch-fehler)", () => {
@@ -668,6 +685,46 @@ describe("protonStore.remove", () => {
     expect(useConfirmStore().reserved).toBe(false);
     expect(store.busyRemove).toBeNull();
     expect(store.loadError).toContain("prepare kaputt");
+  });
+
+  it("lokalisiert die steam-läuft-ablehnung beim vorbereiten", async () => {
+    const scan = useScanStore();
+    scan.result = fakeScanResult();
+    vi.mocked(tauriPorts.system.prepareDelete).mockRejectedValueOnce(
+      new Error("steam is running, deletion refused"),
+    );
+    const store = useProtonStore();
+
+    await store.remove({
+      name: "GE-Proton9-27",
+      internalName: "GE-Proton9-27",
+      displayName: "GE-Proton9-27",
+      sizeBytes: 1000,
+      source: "user",
+      usedBy: [],
+    });
+
+    expect(store.loadError).toContain("steam läuft");
+    expect(store.busyRemove).toBeNull();
+    expect(useConfirmStore().reserved).toBe(false);
+  });
+
+  it("ergänzt den prefix-satz im löschdialog", async () => {
+    const scan = useScanStore();
+    scan.result = fakeScanResult();
+    const store = useProtonStore();
+
+    await store.remove({
+      name: "GE-Proton9-27",
+      internalName: "GE-Proton9-27",
+      displayName: "GE-Proton9-27",
+      sizeBytes: 1000,
+      source: "user",
+      usedBy: [],
+    });
+
+    expect(useConfirmStore().pending?.message).toContain("Prefixes der Spiele bleiben erhalten");
+    useConfirmStore().cancel();
   });
 
   it("löscht nur benutzerdefinierte GE-Proton Tools", async () => {

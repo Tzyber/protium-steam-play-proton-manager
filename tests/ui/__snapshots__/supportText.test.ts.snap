@@ -8,14 +8,13 @@ Library: <steam-library-1>
 Scan-Abdeckung: eingeschränkt [lokaler Scan]
 Kompatibilitäts-Config: nicht gefunden [Config]
 Startoptionen-Quelle: mehrdeutig [Config]
+Abdeckung: Libraries 1/1 · Manifeste fehlgeschlagen 0 · Tools fehlgeschlagen 0 [lokaler Scan]
 Zugeordnetes Tool: unbekannt [Zuordnung: nicht verfügbar]
 Tool verfügbar: unbekannt [lokaler Scan]
-ProtonDB-Tier: unbekannt [Community-Befund]
-Bekannt belegt: nicht gemessen [lokale Messung und Existenzprüfung]
+ProtonDB-Tier: unbekannt
+Bekannt belegt: nicht gemessen
 Externer Compatdata-Hinweis: unbekannt [Startoptionen]
-Cleanup: vorhandener Anzeigestand, Aktualität unbekannt
-Abgebrochene Löschung: unbekannt
-Bereinigungsfreigabe: unbekannt
+Bereinigung: kein Befund im vorhandenen Anzeigestand (keine Blockade, keine abgebrochene Löschung; Aktualität und Freigabe unbekannt)
 
 Spielnamen und Pfade werden nicht exportiert. Steam-Libraries und Toolnamen außerhalb der Freigaberegeln erscheinen als Alias."
 `;
@@ -30,10 +29,8 @@ Zugeordnetes Tool: GE-Proton10-12 [explizite Zuordnung]
 Tool verfügbar: ja [lokaler Scan]
 ProtonDB-Tier: Platinum [Community-Befund]
 Bekannt belegt: 46.9 GB [lokale Messung und Existenzprüfung]
-Externer Compatdata-Hinweis: unbekannt [Startoptionen]
-Cleanup: vorhandener Anzeigestand, Aktualität unbekannt
-Abgebrochene Löschung: unbekannt
-Bereinigungsfreigabe: unbekannt
+Externer Compatdata-Hinweis: nicht gesetzt [Startoptionen]
+Bereinigung: kein Befund im vorhandenen Anzeigestand (keine Blockade, keine abgebrochene Löschung; Aktualität und Freigabe unbekannt)
 
 Spielnamen und Pfade werden nicht exportiert. Steam-Libraries und Toolnamen außerhalb der Freigaberegeln erscheinen als Alias."
 `;
@@ -46,14 +43,13 @@ Library: <steam-library-1>
 Scan coverage: limited [local scan]
 Compatibility config: not found [config]
 Launch-options source: ambiguous [config]
+Coverage: libraries 1/1 · manifests failed 0 · tools failed 0 [local scan]
 Assigned tool: unknown [Mapping: not available]
 Tool available: unknown [local scan]
-ProtonDB tier: unknown [community finding]
-Known footprint: not measured [local measurement and existence check]
+ProtonDB tier: unknown
+Known footprint: not measured
 External compatdata hint: unknown [launch options]
-Cleanup: existing displayed state, freshness unknown
-Incomplete deletion: unknown
-Cleanup clearance: unknown
+Cleanup: no findings in the displayed state (no blockade, no incomplete deletion; freshness and clearance unknown)
 
 Game names and paths are omitted. Steam libraries and tool names outside the allowlist rules are shown as aliases."
 `;
@@ -68,10 +64,8 @@ Assigned tool: GE-Proton10-12 [explicit mapping]
 Tool available: yes [local scan]
 ProtonDB tier: Platinum [community finding]
 Known footprint: 46.9 GB [local measurement and existence check]
-External compatdata hint: unknown [launch options]
-Cleanup: existing displayed state, freshness unknown
-Incomplete deletion: unknown
-Cleanup clearance: unknown
+External compatdata hint: not set [launch options]
+Cleanup: no findings in the displayed state (no blockade, no incomplete deletion; freshness and clearance unknown)
 
 Game names and paths are omitted. Steam libraries and tool names outside the allowlist rules are shown as aliases."
 `;

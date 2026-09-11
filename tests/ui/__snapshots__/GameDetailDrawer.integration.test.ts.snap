@@ -2,24 +2,24 @@
 
 exports[`Prefix-Ordner öffnen > übersetzt alle Fehler pfadfrei in de 1`] = `
 {
-  "blocked": "Prefix-Ordner aus Sicherheitsgründen blockiert.",
-  "external-target": "Prefix-Ordner nicht verfügbar: Startoptionen enthalten STEAM_COMPAT_DATA_PATH. Das Standardziel ist nicht belegt.",
+  "blocked": "Prefix-Ordner aus Sicherheitsgründen blockiert: Installation oder Library nicht eindeutig zuordenbar. Library neu scannen.",
+  "external-target": "Prefix-Ordner nicht verfügbar: Startoptionen enthalten STEAM_COMPAT_DATA_PATH. Das Standardziel ist nicht belegt; den Pfad aus den Startoptionen selbst öffnen.",
   "handler-unavailable": "Dateimanager nicht verfügbar: kein Systemhandler konnte gestartet werden.",
-  "not-found": "Prefix-Ordner nicht gefunden.",
+  "not-found": "Prefix-Ordner nicht gefunden. Das Spiel einmal über Steam mit Proton starten, dann existiert er.",
   "unchecked": "Prefix-Ordner nicht verfügbar: Startoptionen sind nicht eindeutig verfügbar.",
-  "unexpected": "Prefix-Ordner aus Sicherheitsgründen blockiert.",
-  "unreadable": "Prefix-Ordner oder Installationsbeleg unlesbar.",
+  "unexpected": "Prefix-Ordner aus Sicherheitsgründen blockiert: Installation oder Library nicht eindeutig zuordenbar. Library neu scannen.",
+  "unreadable": "Prefix-Ordner oder Installationsbeleg unlesbar. Dateirechte des Steam-Verzeichnisses prüfen.",
 }
 `;
 
 exports[`Prefix-Ordner öffnen > übersetzt alle Fehler pfadfrei in en 1`] = `
 {
-  "blocked": "Prefix folder blocked for safety.",
-  "external-target": "Prefix folder not available: launch options contain STEAM_COMPAT_DATA_PATH. The standard target is not established.",
+  "blocked": "Prefix folder blocked for safety: installation or library cannot be clearly assigned. Rescan the library.",
+  "external-target": "Prefix folder not available: launch options contain STEAM_COMPAT_DATA_PATH. The standard target is not established; open the path from the launch options yourself.",
   "handler-unavailable": "File manager not available: no system handler could be launched.",
-  "not-found": "Prefix folder not found.",
+  "not-found": "Prefix folder not found. Start the game once through Steam with Proton, then it exists.",
   "unchecked": "Prefix folder not available: launch options are not unambiguously available.",
-  "unexpected": "Prefix folder blocked for safety.",
-  "unreadable": "Prefix folder or installation evidence unreadable.",
+  "unexpected": "Prefix folder blocked for safety: installation or library cannot be clearly assigned. Rescan the library.",
+  "unreadable": "Prefix folder or installation evidence unreadable. Check the file permissions of the Steam directory.",
 }
 `;

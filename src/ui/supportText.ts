@@ -62,6 +62,17 @@ function tierLabel(tier: SupportFacts["protonDbTier"]): string {
   return labels[tier];
 }
 
+function externalCompatdataLine(facts: SupportFacts): string {
+  switch (facts.externalCompatdata) {
+    case "detected":
+      return t("support.externalCompatdataDetected");
+    case "not-detected":
+      return t("support.externalCompatdataNotDetected");
+    case "unknown":
+      return t("support.externalCompatdataUnknown");
+  }
+}
+
 function footprintLine(facts: SupportFacts): string {
   const { status, sizeBytes } = facts.footprint;
   if (status === "complete" && sizeBytes !== undefined) {
@@ -74,8 +85,18 @@ function footprintLine(facts: SupportFacts): string {
 }
 
 function cleanupLines(facts: SupportFacts): string[] {
-  const lines = [t("support.cleanupDisplayedState")];
   const cleanup = facts.cleanup;
+  if (
+    !cleanup.scanInProgress &&
+    !cleanup.prefixUnavailable &&
+    !cleanup.shaderUnavailable &&
+    !cleanup.trashUnavailable &&
+    !(cleanup.incompleteDeletionsCount !== null && cleanup.incompleteDeletionsCount > 0) &&
+    !cleanup.incompleteDeletionsUnreadable
+  ) {
+    return [t("support.cleanupNoFindings")];
+  }
+  const lines = [t("support.cleanupDisplayedState")];
   if (cleanup.scanInProgress) lines.push(t("support.cleanupCheckInProgress"));
 
   const blockedAreas: readonly [boolean, string][] = [
@@ -120,6 +141,16 @@ export function formatSupportFacts(facts: SupportFacts, appVersion: string): str
   if (facts.launchConfigStatus !== "available") {
     lines.push(t("support.launchConfig", { status: configStatusLabel(facts.launchConfigStatus) }));
   }
+  if (facts.scanCoverageCounts !== null) {
+    lines.push(
+      t("support.scanCoverageCounts", {
+        read: facts.scanCoverageCounts.librariesRead,
+        total: facts.scanCoverageCounts.librariesTotal,
+        manifests: facts.scanCoverageCounts.manifestsFailed,
+        tools: facts.scanCoverageCounts.toolsFailed,
+      }),
+    );
+  }
   lines.push(
     t("support.assignedToolWithSource", {
       tool: facts.compatToolAlias ?? t("support.unknown"),
@@ -128,11 +159,11 @@ export function formatSupportFacts(facts: SupportFacts, appVersion: string): str
     t("support.toolAvailability", {
       status: toolAvailabilityLabel(facts.compatToolAvailability),
     }),
-    t("support.protonDb", { tier: tierLabel(facts.protonDbTier) }),
+    facts.protonDbTier === "unknown"
+      ? t("support.protonDbUnknown")
+      : t("support.protonDb", { tier: tierLabel(facts.protonDbTier) }),
     footprintLine(facts),
-    facts.externalCompatdata === "detected"
-      ? t("support.externalCompatdataDetected")
-      : t("support.externalCompatdataUnknown"),
+    externalCompatdataLine(facts),
     ...cleanupLines(facts),
     "",
     t("support.anonymized"),

@@ -12,21 +12,32 @@ function baseName(path: string): string {
   return idx >= 0 ? path.slice(idx + 1) : path;
 }
 
-export function localizeConsequences(pending: PendingDeleteInfo): string[] {
+export function localizeConsequences(
+  pending: PendingDeleteInfo,
+  targetName?: string | null,
+): string[] {
   return pending.consequences.map((c) => {
     switch (pending.targetType) {
       case "orphan": {
-        const appId = c.affectedAppIds?.[0] ?? pending.targetPath;
-        if (c.action === "trash") return t("cleanup.consequenceMoveToTrash", { appId });
+        const name = targetName ?? String(c.affectedAppIds?.[0] ?? pending.targetPath);
+        if (c.action === "trash") return t("cleanup.consequenceMoveToTrash", { name });
         if (c.action === "permanentDelete") {
-          return t("cleanup.consequencePermanentShadercache", { appId });
+          return t("cleanup.consequencePermanentShadercache", { name });
         }
         break;
       }
       case "trash":
         return t("cleanup.consequenceTrashEntry", { name: baseName(c.path) });
-      case "compatTool":
+      case "compatTool": {
+        const affected = c.affectedAppIds ?? [];
+        if (affected.length > 0) {
+          return t("cleanup.consequenceCompatToolMapped", {
+            name: baseName(c.path),
+            n: affected.length,
+          });
+        }
         return t("cleanup.consequenceCompatTool", { name: baseName(c.path) });
+      }
     }
     return c.description;
   });

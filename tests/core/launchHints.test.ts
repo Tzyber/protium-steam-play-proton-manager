@@ -10,7 +10,11 @@ describe("analyzeLaunchOptions", () => {
     ["gamemoderun mit marker und tab", "gamemoderun\t%command%", []],
     ["mangohud ohne marker", "mangohud", []],
     ["absoluter wrapperpfad", "/usr/bin/gamemoderun %command%", []],
-    ["gamemoderun hinter assignment ohne marker", "X=1 gamemoderun", []],
+    [
+      "gamemoderun hinter assignment ohne marker",
+      "X=1 gamemoderun",
+      ["assignment-without-command"],
+    ],
     ["assignment vor marker", "A=1 %command%", []],
     ["assignment nach marker", "%command% A=1", ["assignment-after-command"]],
     ["equals-option nach marker", "%command% --foo=bar", []],

@@ -6,6 +6,7 @@ import FilterBar from "../components/FilterBar.vue";
 import GameCard from "../components/GameCard.vue";
 import GameDetailDrawer from "../components/GameDetailDrawer.vue";
 import { filterAndSortGames } from "../filter";
+import type { Key } from "../i18n";
 import { t } from "../i18n";
 import { useLibraryStore } from "../stores/libraryStore";
 import { useScanStore } from "../stores/scanStore";
@@ -21,6 +22,7 @@ const visible = computed(() =>
     tiers: lib.tierSet,
     compatTools: lib.compatToolSet,
     libraries: lib.librarySet,
+    compatSource: lib.compatSource ?? undefined,
     protonCheckAppIds: lib.protonCheck ? scan.protonCheckAppIds : undefined,
   }),
 );
@@ -56,6 +58,18 @@ const toolNeedsAttention = computed(
   () => (scan.coverage?.tools.failed ?? 0) > 0 || toolWarnings.value.length > 0,
 );
 
+const attentionGroups = computed(() =>
+  [
+    [libraryNeedsAttention.value, "library.coverageLibraries"],
+    [configNeedsAttention.value, "library.coverageConfiguration"],
+    [manifestNeedsAttention.value, "library.coverageManifests"],
+    [toolNeedsAttention.value, "library.coverageTools"],
+  ]
+    .filter(([on]) => on)
+    .map(([, key]) => t(key as Key))
+    .join(", "),
+);
+
 const coverageLabel = computed(() => {
   const coverage = scan.coverage;
   if (!coverage) return "";
@@ -66,8 +80,8 @@ const coverageLabel = computed(() => {
     });
   }
   return coverage.state === "limited"
-    ? t("library.coverageLimited")
-    : t("library.coverageIncomplete");
+    ? t("library.coverageLimited", { groups: attentionGroups.value })
+    : t("library.coverageIncomplete", { groups: attentionGroups.value });
 });
 
 const libraryRows = computed(() => {
@@ -280,7 +294,8 @@ function formatWarning(warning: ScanWarning): string {
       </div>
 
       <div class="right">
-        <span class="status" role="status" aria-live="polite" aria-atomic="true">{{ statusText }}</span>
+        <span class="status">{{ statusText }}</span>
+        <span class="sr-only" role="status" aria-live="polite" aria-atomic="true">{{ scan.statusText }}</span>
         <button class="rescan" type="button" :disabled="scan.status === 'scanning'" @click="scan.runScan()">
           {{ scan.status === "scanning" ? t("library.scanning") : t("library.rescan") }}
         </button>
@@ -407,8 +422,11 @@ function formatWarning(warning: ScanWarning): string {
     <div v-if="scan.status === 'not-found'" class="empty">
       {{ t("library.noSteamFound") }}
     </div>
-    <div v-else-if="scan.status === 'error'" class="empty err" role="alert">{{ t("library.errorPrefix", { error: scan.error ?? "" }) }}</div>
+    <div v-else-if="scan.status === 'error'" class="empty err" role="alert">
+      {{ t("library.errorPrefix", { error: scan.error ?? "" }) }}<button class="linklike" type="button" @click="scan.runScan()">{{ t("library.retryScan") }}</button>
+    </div>
     <div v-else-if="scan.status === 'scanning' && !scan.games.length" class="empty">{{ t("library.scanningState") }}</div>
+    <div v-else-if="!scan.games.length" class="empty">{{ t("library.noGames") }}</div>
     <div v-else-if="!visible.length" class="empty">
       {{ t("library.nothingFound") }}<button class="linklike" type="button" @click="lib.reset()">{{ t("library.resetFilter") }}</button>
     </div>

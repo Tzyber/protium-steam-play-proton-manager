@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   findActiveUser,
   isLocalConfigParseable,
+  readAllLaunchOptions,
+  readAppFields,
   readLaunchOptions,
 } from "../../src/core/localconfig.js";
 import { VdfPatchError } from "../../src/core/vdfpatch.js";
@@ -74,6 +76,87 @@ it("liest launch-options direkt aus localconfig.vdf", async () => {
   const text = await readFile(join(root, "userdata", userId, "config", "localconfig.vdf"), "utf8");
   expect(readLaunchOptions(text, 620)).toBe("gamemoderun %command%");
   expect(readLaunchOptions(text, 730)).toBeUndefined();
+  expect(readAllLaunchOptions(text)).toEqual({
+    values: new Map([[620, "gamemoderun %command%"]]),
+    firstError: null,
+  });
+});
+
+describe("readAppFields", () => {
+  const TWO_APPS = `"UserLocalConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"Apps"
+				{
+					"620"
+					{
+						"LaunchOptions"		"gamemoderun %command%"
+						"LastPlayed"		"1757000000"
+					}
+					"730"
+					{
+						"LastPlayed"		"0"
+					}
+					"nicht-numerisch"
+					{
+						"LaunchOptions"		"ignoriert %command%"
+					}
+				}
+			}
+		}
+	}
+}
+`;
+
+  it("liest startoptionen und LastPlayed in einem lauf", () => {
+    expect(readAppFields(TWO_APPS)).toEqual({
+      launchOptions: new Map([[620, "gamemoderun %command%"]]),
+      lastPlayed: new Map([
+        [620, "1757000000"],
+        [730, "0"],
+      ]),
+      firstError: null,
+    });
+  });
+
+  it("meldet einen defekten fremdblock und behält die intakten werte", () => {
+    const text = `"UserLocalConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"Apps"
+				{
+					"620"
+					{
+						"LaunchOptions"		"intact %command%"
+						"LastPlayed"		"1757000000"
+					}
+					"730"
+					{
+						"LastPlayed"		"1"
+						"Dangling"
+					}
+				}
+			}
+		}
+	}
+}
+`;
+    expect(readAppFields(text)).toEqual({
+      launchOptions: new Map([[620, "intact %command%"]]),
+      lastPlayed: new Map([[620, "1757000000"]]),
+      firstError: 'key "Dangling" ohne wert',
+    });
+  });
 });
 
 // C-1: die vorab-probe prüft nur die ebenen des abgefragten pfads. ein defekt
@@ -107,10 +190,16 @@ describe("localconfig-strukturprobe", () => {
     expect(() => readLaunchOptions(DANGLING_KEY_IN_APP_BLOCK, 620)).toThrow(
       new VdfPatchError('key "Dangling" ohne wert'),
     );
+    // einmal-lesen überspringt den defekten block und meldet den fehler statt zu werfen.
+    expect(readAllLaunchOptions(DANGLING_KEY_IN_APP_BLOCK)).toEqual({
+      values: new Map(),
+      firstError: 'key "Dangling" ohne wert',
+    });
   });
 
   it("meldet einen lexikalischen defekt der ganzen datei", () => {
     const text = `"UserLocalConfigStore"\n{\n\t"LaunchOptions"\t\t"ohne ende`;
     expect(isLocalConfigParseable(text)).toEqual({ detail: "unterminierter string" });
+    expect(() => readAllLaunchOptions(text)).toThrow(new VdfPatchError("unterminierter string"));
   });
 });

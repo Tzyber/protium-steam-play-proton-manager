@@ -49,7 +49,7 @@ describe("scanLocal", () => {
     expect(result.warnings).toContainEqual({
       type: "compat-config",
       reason: "missing",
-      detail: "config.vdf fehlt → compat-tools als 'unknown' markiert",
+      detail: "config.vdf missing, compat tools marked 'unknown'",
     });
     expect(result.cleanupUnsafeLibraries).toContain(root);
   });
@@ -128,7 +128,7 @@ describe("scanLocal", () => {
         type: "launch-config",
         reason: "unreadable",
         steamUserId: userId,
-        detail: `localconfig.vdf strukturell defekt: ${cause}`,
+        detail: `localconfig.vdf structurally broken: ${cause}`,
       });
     },
   );

@@ -1,5 +1,7 @@
 // minimaler VDF-reader: navigiert ohne voll-serialisierung durch Steam-Dateien.
 
+import { errText } from "./errtext.js";
+
 export class VdfPatchError extends Error {
   constructor(message: string) {
     super(message);
@@ -150,4 +152,59 @@ export function getVdfValue(text: string, path: readonly string[]): string | und
     to = entry.block.to;
   }
   return undefined;
+}
+
+/** alle direkten kind-blöcke am pfad in EINEM tokenize-lauf lesen:
+ *  blockKey → (angefragter leafKey → wert). leere map, wenn der pfad fehlt.
+ *  defekte einzelblöcke werden übersprungen und als erster fehler gemeldet,
+ *  damit der scan wie bisher degradiert. */
+export function getVdfChildFieldValues(
+  text: string,
+  path: readonly string[],
+  leafKeys: readonly string[],
+): { values: Map<string, Map<string, string>>; firstError: string | null } {
+  const tokens = tokenize(text);
+  const values = new Map<string, Map<string, string>>();
+  let from = 0;
+  let to = tokens.length;
+  for (let depth = 0; depth < path.length; depth++) {
+    const key = path[depth];
+    if (key === undefined) return { values, firstError: null };
+    const entry = findEntry(tokens, from, to, key);
+    const block = entry?.block;
+    if (!block) return { values, firstError: null };
+    from = block.from;
+    to = block.to;
+  }
+  let firstError: string | null = null;
+  for (const child of scanEntries(tokens, from, to)) {
+    if (!child.block) continue;
+    try {
+      const fields = new Map<string, string>();
+      for (const leafKey of leafKeys) {
+        const entry = findEntry(tokens, child.block.from, child.block.to, leafKey);
+        if (entry && !entry.block) fields.set(leafKey, entry.value.value);
+      }
+      // block ohne einen der leafs bleibt draußen, sonst ändert der wrapper sein verhalten
+      if (fields.size > 0 && !values.has(child.key.value)) values.set(child.key.value, fields);
+    } catch (e) {
+      if (firstError === null) firstError = errText(e);
+    }
+  }
+  return { values, firstError };
+}
+
+/** einzelner leaf-key: dünner wrapper über `getVdfChildFieldValues`. */
+export function getVdfChildValues(
+  text: string,
+  path: readonly string[],
+  leafKey: string,
+): { values: Map<string, string>; firstError: string | null } {
+  const { values, firstError } = getVdfChildFieldValues(text, path, [leafKey]);
+  const flat = new Map<string, string>();
+  for (const [blockKey, fields] of values) {
+    const value = fields.get(leafKey);
+    if (value !== undefined) flat.set(blockKey, value);
+  }
+  return { values: flat, firstError };
 }

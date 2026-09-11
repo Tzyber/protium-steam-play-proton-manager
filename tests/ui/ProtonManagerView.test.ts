@@ -11,6 +11,7 @@ import { useProtonStore } from "../../src/ui/stores/protonStore";
 const { protonState, scanState, uiState, confirmState } = vi.hoisted(() => ({
   protonState: {
     installedTools: [] as CompatTool[],
+    defaultCompatTool: null as string | null,
     releases: [] as GeRelease[],
     loading: false,
     loadError: null as string | null,
@@ -89,6 +90,7 @@ function makeInstalledTool(name: string): CompatTool {
 
 afterEach(() => {
   document.body.innerHTML = "";
+  protonState.defaultCompatTool = null;
 });
 
 describe("ProtonManagerView release install status", () => {
@@ -190,6 +192,29 @@ describe("bekannte explizite Zuordnungen", () => {
     expect(dialog?.textContent).toContain("globaler Standard");
     expect(dialog?.textContent).toContain("compatdata-Prefixes der Spiele bleiben unberührt");
     expect(dialog?.textContent).toContain("bedeutet nicht, dass das Tool ungenutzt ist");
+    wrapper.unmount();
+  });
+});
+
+describe("globaler standard", () => {
+  it("markiert das tool mit dem globalen standard und springt auf den literalfilter", async () => {
+    setLocale("de");
+    uiState.showLibraryForTool.mockClear();
+    protonState.installedTools = [
+      makeInstalledTool("GE-Proton9-27"),
+      makeInstalledTool("GE-Proton10-1"),
+    ];
+    protonState.defaultCompatTool = "GE-Proton9-27";
+
+    const wrapper = mount(ProtonManagerView);
+    const button = wrapper.get('[data-testid="global-default"]');
+    expect(wrapper.findAll('[data-testid="global-default"]')).toHaveLength(1);
+    expect(button.element.closest("li")?.textContent).toContain("GE-Proton9-27");
+    expect(button.text()).toBe("globaler standard in steams config →");
+
+    await button.trigger("click");
+    expect(uiState.showLibraryForTool).toHaveBeenCalledWith("default");
+
     wrapper.unmount();
   });
 });

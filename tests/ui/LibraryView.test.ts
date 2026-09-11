@@ -110,6 +110,24 @@ describe("LibraryView proton-check und ProtonDB-Nachlauf", () => {
     expect(wrapper.findAll(".mock-card").map((card) => card.text())).toEqual(["Needs Check"]);
   });
 
+  it("filtert die karten über die quelle der proton-zuordnung", () => {
+    const scan = useScanStore();
+    const [first, second] = scan.result?.games ?? [];
+    if (!first || !second) throw new Error("fixture erwartet zwei spiele");
+    scan.result = result({
+      games: [
+        { ...first, compatTool: "unknown", compatToolSource: "unavailable" },
+        { ...second, compatToolSource: "default" },
+      ],
+    });
+    const lib = useLibraryStore();
+    lib.cycleCompatSource(); // null → unavailable
+
+    const wrapper = mount(LibraryView);
+
+    expect(wrapper.findAll(".mock-card").map((card) => card.text())).toEqual(["Needs Check"]);
+  });
+
   it.each([
     ["de", "scan vollständig · 1 libraries · 2 spiele"],
     ["en", "scan complete · 1 libraries · 2 games"],
@@ -145,7 +163,9 @@ describe("LibraryView proton-check und ProtonDB-Nachlauf", () => {
     const wrapper = mount(LibraryView);
 
     expect(wrapper.get(".coverage").classes()).toContain("coverage--limited");
-    expect(wrapper.get(".coverage-summary").text()).toBe(t("library.coverageLimited"));
+    expect(wrapper.get(".coverage-summary").text()).toBe(
+      t("library.coverageLimited", { groups: t("library.coverageConfiguration") }),
+    );
     await wrapper.get(".coverage-toggle").trigger("click");
     expect(wrapper.get(".coverage-card:nth-child(2)").classes()).toContain(
       "coverage-card--attention",
@@ -153,8 +173,12 @@ describe("LibraryView proton-check und ProtonDB-Nachlauf", () => {
   });
 
   it.each([
-    ["de", "scan eingeschränkt · konfiguration prüfen", "zeigt nur den stand dieses lokalen scans"],
-    ["en", "scan limited · review configuration", "shows only this local scan"],
+    [
+      "de",
+      "scan eingeschränkt · steam-konfiguration prüfen",
+      "zeigt nur den stand dieses lokalen scans",
+    ],
+    ["en", "scan limited · review steam configuration", "shows only this local scan"],
   ] as const)("zeigt eingeschränkte coverage lokalisiert (%s)", (locale, label, context) => {
     setLocale(locale);
     const scan = useScanStore();
@@ -169,8 +193,8 @@ describe("LibraryView proton-check und ProtonDB-Nachlauf", () => {
   });
 
   it.each([
-    ["de", "scan unvollständig · details prüfen", "zeigt nur den stand dieses lokalen scans"],
-    ["en", "scan incomplete · review details", "shows only this local scan"],
+    ["de", "scan unvollständig · manifeste prüfen", "zeigt nur den stand dieses lokalen scans"],
+    ["en", "scan incomplete · review manifests", "shows only this local scan"],
   ] as const)("zeigt unvollständige coverage lokalisiert (%s)", (locale, label, context) => {
     setLocale(locale);
     const scan = useScanStore();
@@ -268,6 +292,30 @@ describe("LibraryView proton-check und ProtonDB-Nachlauf", () => {
     const details = wrapper.get(".coverage-details").text();
     expect(details).toContain("unavailable: /mnt/games");
     expect(details).not.toContain("read: /mnt/games");
+  });
+
+  it("zeigt bei leerem scan den scan-hinweis statt des filter-hinweises", () => {
+    const scan = useScanStore();
+    scan.result = result({ games: [] });
+    scan.status = "done";
+
+    const wrapper = mount(LibraryView);
+
+    expect(wrapper.get(".empty").text()).toBe(t("library.noGames"));
+    expect(wrapper.text()).not.toContain(t("library.nothingFound"));
+  });
+
+  it("bietet bei einem scan-hartfehler einen erneuten scan an", async () => {
+    const scan = useScanStore();
+    scan.status = "error";
+    scan.error = "kaputt";
+    const runScan = vi.spyOn(scan, "runScan").mockResolvedValue(undefined);
+
+    const wrapper = mount(LibraryView);
+    await wrapper.get("button.linklike").trigger("click");
+
+    expect(runScan).toHaveBeenCalledTimes(1);
+    runScan.mockRestore();
   });
 
   it.each(["scanning", "error"] as const)("zeigt bei status %s keine coverage", (status) => {

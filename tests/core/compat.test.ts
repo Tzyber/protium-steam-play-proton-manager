@@ -213,7 +213,7 @@ describe("listCompatTools", () => {
         type: "compat-tool",
         reason: "directory-unreadable",
         detail:
-          'compat-verzeichnis "/fake/steam/compatibilitytools.d" nicht lesbar: directory denied',
+          'compat directory "/fake/steam/compatibilitytools.d" not readable: directory denied',
       }),
     ]);
   });

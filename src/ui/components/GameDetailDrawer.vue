@@ -155,10 +155,9 @@ function footprintSizeText(sizeBytes: number | undefined): string {
 
 function footprintPartText(part: FootprintPart | undefined): string {
   if (footprintState.value === "measuring") return t("drawer.footprintLoading");
-  if (!part || part.status === "failed" || part.status === "not-requested") {
-    return t("common.notMeasured");
-  }
-  if (part.status === "missing") return "0 B";
+  if (!part || part.status === "not-requested") return t("common.notMeasured");
+  if (part.status === "failed") return t("drawer.footprintFailed");
+  if (part.status === "missing") return t("drawer.footprintMissing");
   return footprintSizeText(part.sizeBytes);
 }
 
@@ -276,6 +275,8 @@ function launchHintText(hint: LaunchHint): string {
       return t("drawer.launchHintGamemodeMissingCommand");
     case "assignment-after-command":
       return t("drawer.launchHintAssignmentAfterCommand");
+    case "assignment-without-command":
+      return t("drawer.launchHintAssignmentWithoutCommand");
     case "proton-log-enabled":
       return t("drawer.launchHintProtonLogEnabled");
   }
@@ -289,6 +290,11 @@ const launchHints = computed(() => {
   }
   return analyzeLaunchOptions(launchInput.value).map(launchHintText);
 });
+
+const launchConfigUnavailable = computed(
+  () =>
+    scan.result?.launchConfigStatus !== undefined && scan.result.launchConfigStatus !== "available",
+);
 
 async function saveLaunch() {
   const g = game.value;
@@ -757,6 +763,9 @@ watch(errorMessage, (msg) => {
             </button>
           </div>
           <p class="hint">{{ t("drawer.launchOptionsHint") }}</p>
+          <p v-if="launchConfigUnavailable" class="hint" data-testid="launch-config-unavailable">
+            {{ t("drawer.launchOptionsUnavailable") }}
+          </p>
           <ul
             v-if="launchHints.length"
             class="launch-hints"

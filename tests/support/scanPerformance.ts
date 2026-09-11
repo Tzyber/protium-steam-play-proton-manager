@@ -9,6 +9,8 @@ export const SCAN_FIXTURE_GAME_COUNT = 500;
 export const SCAN_FIXTURE_HEADER_COUNT = 250;
 export const SCAN_FIXTURE_FIRST_APP_ID = 10_000_000;
 export const SCAN_FIXTURE_HTTP_DELAY_MS = 5;
+/** launch-options nur bei jedem zwanzigsten spiel (reale datei: 22 von 476). */
+export const SCAN_FIXTURE_LAUNCH_OPTION_EVERY = 20;
 
 export type ScanPerformanceScenario = "cold" | "warm" | "offline";
 
@@ -17,6 +19,7 @@ export interface ScanPerformanceFixture {
   environment: EnvironmentSnapshot;
   appIds: readonly number[];
   headerAppIds: readonly number[];
+  launchOptionAppIds: readonly number[];
   localConfigText: string;
   cleanup: () => Promise<void>;
 }
@@ -66,7 +69,25 @@ const CONFIG_VDF = `"InstallConfigStore"
 }
 `;
 
-const LOCAL_CONFIG_VDF = `"UserLocalConfigStore"
+// realistische localconfig: LastPlayed bei allen spielen, LaunchOptions nur bei
+// jedem zwanzigsten (vorbild tests/fixtures/cross-parser-input.vdf:9-20).
+const localConfigVdf = (appIds: readonly number[]): string => {
+  const apps = appIds
+    .map((appId, index) => {
+      const launchOptions =
+        index % SCAN_FIXTURE_LAUNCH_OPTION_EVERY === 0
+          ? `\t\t\t\t\t\t"LaunchOptions"\t\t"MANGOHUD_CONFIG=\\"fps,cpu\\" PROTON_LOG_DIR=C:\\\\logs %command%"\n`
+          : "";
+      return (
+        `\t\t\t\t\t"${appId}"\n` +
+        `\t\t\t\t\t{\n` +
+        launchOptions +
+        `\t\t\t\t\t\t"LastPlayed"\t\t"1757000000"\n` +
+        `\t\t\t\t\t}\n`
+      );
+    })
+    .join("");
+  return `"UserLocalConfigStore"
 {
 \t"Software"
 \t{
@@ -76,12 +97,13 @@ const LOCAL_CONFIG_VDF = `"UserLocalConfigStore"
 \t\t\t{
 \t\t\t\t"Apps"
 \t\t\t\t{
-\t\t\t\t}
+${apps}\t\t\t\t}
 \t\t\t}
 \t\t}
 \t}
 }
 `;
+};
 
 export async function buildScanPerformanceFixture(): Promise<ScanPerformanceFixture> {
   const tempRoot = await mkdtemp(join(tmpdir(), "protium-scan-"));
@@ -95,6 +117,9 @@ export async function buildScanPerformanceFixture(): Promise<ScanPerformanceFixt
     (_, index) => SCAN_FIXTURE_FIRST_APP_ID + index,
   );
   const headerAppIds = appIds.slice(0, SCAN_FIXTURE_HEADER_COUNT);
+  const launchOptionAppIds = appIds.filter(
+    (_, index) => index % SCAN_FIXTURE_LAUNCH_OPTION_EVERY === 0,
+  );
 
   try {
     await Promise.all([
@@ -105,7 +130,7 @@ export async function buildScanPerformanceFixture(): Promise<ScanPerformanceFixt
     await Promise.all([
       writeFile(join(appsDir, "libraryfolders.vdf"), LIBRARY_FOLDERS(root), "utf8"),
       writeFile(join(configDir, "config.vdf"), CONFIG_VDF, "utf8"),
-      writeFile(join(userConfigDir, "localconfig.vdf"), LOCAL_CONFIG_VDF, "utf8"),
+      writeFile(join(userConfigDir, "localconfig.vdf"), localConfigVdf(appIds), "utf8"),
     ]);
 
     await Promise.all(
@@ -137,6 +162,7 @@ export async function buildScanPerformanceFixture(): Promise<ScanPerformanceFixt
     },
     appIds,
     headerAppIds,
+    launchOptionAppIds,
     localConfigText: await readFile(join(userConfigDir, "localconfig.vdf"), "utf8"),
     cleanup: () => rm(tempRoot, { recursive: true, force: true }),
   };

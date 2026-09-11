@@ -17,7 +17,7 @@ describe("scan config", () => {
       {
         type: "compat-config",
         reason: "missing",
-        detail: "config.vdf fehlt → compat-tools als 'unknown' markiert",
+        detail: "config.vdf missing, compat tools marked 'unknown'",
       },
     ]);
   });
@@ -46,7 +46,7 @@ describe("scan config", () => {
       {
         type: "compat-config",
         reason: "unreadable",
-        detail: expect.stringContaining("config.vdf nicht lesbar:"),
+        detail: expect.stringContaining("config.vdf not readable:"),
       },
     ]);
   });
@@ -73,7 +73,7 @@ describe("scan config", () => {
         type: "launch-config",
         reason: "unreadable",
         steamUserId: userId,
-        detail: "localconfig.vdf nicht lesbar: read denied",
+        detail: "localconfig.vdf not readable: read denied",
       },
     ]);
   });
@@ -99,7 +99,7 @@ describe("scan config", () => {
       {
         type: "launch-config",
         reason: "unreadable",
-        detail: "accountsuche nicht lesbar: account discovery denied",
+        detail: "account discovery not readable: account discovery denied",
       },
     ]);
   });
@@ -117,7 +117,7 @@ describe("scan config", () => {
       {
         type: "launch-config",
         reason: "missing",
-        detail: "kein steam-account mit localconfig.vdf gefunden → startoptionen unbekannt",
+        detail: "no steam account with localconfig.vdf found, launch options unknown",
       },
     ]);
   });
@@ -141,7 +141,7 @@ describe("scan config", () => {
         type: "launch-config",
         reason: "selection-ambiguous",
         steamUserId: userId,
-        detail: expect.stringContaining("mehrere steam-accounts"),
+        detail: expect.stringContaining("multiple steam accounts"),
       },
     ]);
   });

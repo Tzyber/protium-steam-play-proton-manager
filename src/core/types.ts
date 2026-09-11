@@ -80,6 +80,9 @@ export interface Game {
   localHeader: string | null; // bevorzugt (CDN-unabhängig)
   headerImage: string | null; // CDN-fallback
   launchOptions?: string;
+  /** zuletzt gespielt als unix-sekunden aus `LastPlayed` in localconfig.vdf;
+   *  undefined = unbekannt oder nie gespielt (steam schreibt `"0"`). */
+  lastPlayed?: number;
 }
 
 export interface CompatTool {

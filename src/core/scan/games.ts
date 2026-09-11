@@ -1,6 +1,6 @@
 import { blockReason } from "../blocklist.js";
 import { errText } from "../errtext.js";
-import { readLaunchOptions } from "../localconfig.js";
+import { readAppFields } from "../localconfig.js";
 import { parseManifest } from "../manifest.js";
 import { joinPath, LOCAL_HEADER_FILENAME, paths } from "../paths.js";
 import type { DirEntry, Ports } from "../ports.js";
@@ -60,6 +60,13 @@ function resolveCompatAssignment(value: CompatAssignment | string): CompatAssign
   return { compatTool: value, compatToolSource: "explicit" };
 }
 
+/** localconfig-rohwert → unix-sekunden; `"0"` und unsinn bleiben unbekannt. */
+function parseLastPlayed(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
 export async function scanGames(
   fs: Ports["fs"],
   steamRoot: string,
@@ -76,6 +83,17 @@ export async function scanGames(
   let manifestRead = 0;
   let manifestFailed = 0;
   let localConfigDegraded: string | null = null;
+  // ein tokenize für alle spiele; ein lexikalischer defekt wirft hier einmal
+  // (config.ts fängt ihn vorab, der direkte aufruf degradiert ebenfalls).
+  let apps: ReturnType<typeof readAppFields> | null = null;
+  if (localConfigText) {
+    try {
+      apps = readAppFields(localConfigText);
+      if (apps.firstError !== null) localConfigDegraded = apps.firstError;
+    } catch (e) {
+      localConfigDegraded = errText(e);
+    }
+  }
 
   for (const lib of libraries) {
     const appsDir = paths.libraryAppsDir(lib);
@@ -86,7 +104,7 @@ export async function scanGames(
           type: "library",
           path: lib,
           reason: "path-missing",
-          detail: `library "${lib}" fehlt: steamapps`,
+          detail: `library "${lib}" missing: steamapps`,
         });
         skippedLibraries.push({ path: lib, reason: "path-missing" });
         continue;
@@ -97,7 +115,7 @@ export async function scanGames(
         type: "library",
         path: lib,
         reason: "read-failed",
-        detail: `library "${lib}" nicht lesbar: ${errText(e)}`,
+        detail: `library "${lib}" not readable: ${errText(e)}`,
       });
       skippedLibraries.push({ path: lib, reason: "read-failed" });
       continue;
@@ -117,7 +135,7 @@ export async function scanGames(
           library: lib,
           manifestName: entry.name,
           reason: "invalid-filename",
-          detail: "ungültige appid im dateinamen",
+          detail: "invalid appid in filename",
         });
         continue;
       }
@@ -165,7 +183,7 @@ export async function scanGames(
           manifestName: entry.name,
           appId: data.appId,
           reason: "appid-mismatch",
-          detail: `dateiname ${filenameAppId} vs vdf ${data.appId}`,
+          detail: `filename ${filenameAppId} vs vdf ${data.appId}`,
         });
         continue;
       }
@@ -181,7 +199,7 @@ export async function scanGames(
           manifestName: entry.name,
           appId: data.appId,
           reason: "duplicate",
-          detail: `"${manifestPath}" kollidiert mit "${existing.manifestPath}"`,
+          detail: `"${manifestPath}" collides with "${existing.manifestPath}"`,
         });
         continue;
       }
@@ -204,19 +222,11 @@ export async function scanGames(
           manifestName: entry.name,
           appId: data.appId,
           reason: "name-heuristic",
-          detail: `"${data.name}" trägt einen valve-paket-namen, die appid ist aber nicht blocklistet`,
+          detail: `"${data.name}" carries a valve package name but the appid is not blocklisted`,
         });
       }
-      let launchOptions: string | undefined;
-      if (localConfigText) {
-        try {
-          launchOptions = readLaunchOptions(localConfigText, data.appId);
-        } catch (e) {
-          // ein struktureller defekt unterhalb des pfads wirft nur hier; das
-          // spiel bleibt im scan, der aufrufer degradiert den status scan-weit.
-          if (localConfigDegraded === null) localConfigDegraded = errText(e);
-        }
-      }
+      const launchOptions = apps?.launchOptions.get(data.appId);
+      const lastPlayed = parseLastPlayed(apps?.lastPlayed.get(data.appId));
       games.push({
         appId: data.appId,
         name: data.name,
@@ -228,6 +238,7 @@ export async function scanGames(
         localHeader: await resolveLocalHeader(fs, steamRoot, data.appId),
         headerImage: paths.headerImageUrl(data.appId),
         launchOptions,
+        lastPlayed,
       });
     }
   }

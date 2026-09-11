@@ -6,6 +6,7 @@ const DISALLOWED_CHARACTER = /[^A-Za-z0-9_./:+,@%=~\- \t]/;
 export type LaunchHint =
   | "gamemode-missing-command"
   | "assignment-after-command"
+  | "assignment-without-command"
   | "proton-log-enabled";
 
 interface Assignment {
@@ -52,8 +53,11 @@ function parseAssignment(token: string): Assignment | undefined {
 }
 
 function analyzeWithoutMarker(tokens: readonly string[]): LaunchHint[] {
-  if (tokens[0] !== "gamemoderun") return [];
-  return ["gamemode-missing-command"];
+  if (tokens[0] === "gamemoderun") return ["gamemode-missing-command"];
+  if (tokens.some((token) => parseAssignment(token) !== undefined)) {
+    return ["assignment-without-command"];
+  }
+  return [];
 }
 
 function analyzeWithMarker(tokens: readonly string[], markerIndex: number): LaunchHint[] {

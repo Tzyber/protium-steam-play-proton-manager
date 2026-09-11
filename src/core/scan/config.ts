@@ -25,7 +25,7 @@ export async function readCompatMapping(
       warnings.push({
         type: "compat-config",
         reason: "missing",
-        detail: "config.vdf fehlt → compat-tools als 'unknown' markiert",
+        detail: "config.vdf missing, compat tools marked 'unknown'",
       });
     }
   } catch (e) {
@@ -33,7 +33,7 @@ export async function readCompatMapping(
     warnings.push({
       type: "compat-config",
       reason: "unreadable",
-      detail: `config.vdf nicht lesbar: ${errText(e)}`,
+      detail: `config.vdf not readable: ${errText(e)}`,
     });
   }
   return {
@@ -62,14 +62,14 @@ export async function readLaunchConfig(
     warnings.push({
       type: "launch-config",
       reason: "missing",
-      detail: "kein steam-account mit localconfig.vdf gefunden → startoptionen unbekannt",
+      detail: "no steam account with localconfig.vdf found, launch options unknown",
     });
   } else if (activeUser.status === "unreadable") {
     launchConfigStatus = "unreadable";
     warnings.push({
       type: "launch-config",
       reason: "unreadable",
-      detail: `accountsuche nicht lesbar: ${activeUser.detail}`,
+      detail: `account discovery not readable: ${activeUser.detail}`,
     });
   } else {
     steamUserId = activeUser.userId;
@@ -79,7 +79,7 @@ export async function readLaunchConfig(
         type: "launch-config",
         reason: "selection-ambiguous",
         steamUserId: activeUser.userId,
-        detail: `mehrere steam-accounts gefunden, loginusers.vdf nicht eindeutig → nehme ${activeUser.userId}`,
+        detail: `multiple steam accounts found, loginusers.vdf ambiguous, using ${activeUser.userId}`,
       });
     }
     try {
@@ -90,7 +90,7 @@ export async function readLaunchConfig(
         type: "launch-config",
         reason: "unreadable",
         steamUserId: activeUser.userId,
-        detail: `localconfig.vdf nicht lesbar: ${errText(e)}`,
+        detail: `localconfig.vdf not readable: ${errText(e)}`,
       });
     }
     // lexikalische parsefehler sind von aussen nicht sichtbar: `readTextFile`
@@ -106,7 +106,7 @@ export async function readLaunchConfig(
         type: "launch-config",
         reason: "unreadable",
         steamUserId: activeUser.userId,
-        detail: `localconfig.vdf strukturell defekt: ${parseError.detail}`,
+        detail: `localconfig.vdf structurally broken: ${parseError.detail}`,
       });
     }
   }

@@ -26,7 +26,7 @@ describe("scanGames", () => {
         type: "library",
         path: root,
         reason: "read-failed",
-        detail: `library "${root}" nicht lesbar: read denied`,
+        detail: `library "${root}" not readable: read denied`,
       },
     ]);
     expect(result.manifestCounts).toEqual({ read: 0, failed: 0 });
@@ -56,7 +56,7 @@ describe("scanGames", () => {
         type: "library",
         path: root,
         reason: "path-missing",
-        detail: `library "${root}" fehlt: steamapps`,
+        detail: `library "${root}" missing: steamapps`,
       },
     ]);
     expect(result.skippedLibraries).toEqual([{ path: root, reason: "path-missing" }]);
@@ -429,5 +429,85 @@ describe("scanGames", () => {
 
     expect(result.games.some((game) => game.appId === 4183110)).toBe(false);
     expect(result.blockedAppIds.has(4183110)).toBe(true);
+  });
+
+  it("degradiert bei defekt in einem fremden app-block, behält aber alle spiele und die intakten optionen", async () => {
+    const { root, lib2 } = await buildFakeSteam();
+    const localConfigText = `"UserLocalConfigStore"
+{
+\t"Software"
+\t{
+\t\t"Valve"
+\t\t{
+\t\t\t"Steam"
+\t\t\t{
+\t\t\t\t"Apps"
+\t\t\t\t{
+\t\t\t\t\t"570"
+\t\t\t\t\t{
+\t\t\t\t\t\t"LaunchOptions"\t\t"intact %command%"
+\t\t\t\t\t}
+\t\t\t\t\t"730"
+\t\t\t\t\t{
+\t\t\t\t\t\t"LaunchOptions"\t\t"broken %command%"
+\t\t\t\t\t\t"Dangling"
+\t\t\t\t\t}
+\t\t\t\t}
+\t\t\t}
+\t\t}
+\t}
+}
+`;
+
+    const result = await scanGames(nodeFs(), root, [root, lib2], () => "default", localConfigText);
+
+    expect(result.localConfigDegraded).toBe('key "Dangling" ohne wert');
+    expect(result.games.map((game) => game.appId).sort((a, b) => a - b)).toEqual([570, 620, 730]);
+    expect(result.games.find((game) => game.appId === 570)?.launchOptions).toBe("intact %command%");
+    expect(result.games.find((game) => game.appId === 730)?.launchOptions).toBeUndefined();
+  });
+
+  it("setzt lastPlayed aus der localconfig; 0, unsinn und fehlend bleiben undefined", async () => {
+    const { root, lib2 } = await buildFakeSteam();
+    await writeFile(
+      join(root, "steamapps/appmanifest_9000.acf"),
+      `"AppState"\n{\n\t"appid"\t\t"9000"\n\t"name"\t\t"Never Played"\n}\n`,
+    );
+    const localConfigText = `"UserLocalConfigStore"
+{
+ \t"Software"
+ \t{
+ \t\t"Valve"
+ \t\t{
+ \t\t\t"Steam"
+ \t\t\t{
+ \t\t\t\t"Apps"
+ \t\t\t\t{
+ \t\t\t\t\t"570"
+ \t\t\t\t\t{
+ \t\t\t\t\t\t"LastPlayed"\t\t"1757000000"
+ \t\t\t\t\t}
+ \t\t\t\t\t"620"
+ \t\t\t\t\t{
+ \t\t\t\t\t\t"LastPlayed"\t\t"0"
+ \t\t\t\t\t}
+ \t\t\t\t\t"730"
+ \t\t\t\t\t{
+ \t\t\t\t\t\t"LastPlayed"\t\t"keine zahl"
+ \t\t\t\t\t}
+ \t\t\t\t}
+ \t\t\t}
+ \t\t}
+ \t}
+ }
+ `;
+
+    const result = await scanGames(nodeFs(), root, [root, lib2], () => "default", localConfigText);
+
+    expect(result.games.find((game) => game.appId === 570)?.lastPlayed).toBe(1757000000);
+    expect(result.games.find((game) => game.appId === 620)?.lastPlayed).toBeUndefined();
+    expect(result.games.find((game) => game.appId === 730)?.lastPlayed).toBeUndefined();
+    expect(result.games.find((game) => game.appId === 9000)?.lastPlayed).toBeUndefined();
+    expect(result.localConfigDegraded).toBeNull();
   });
 });

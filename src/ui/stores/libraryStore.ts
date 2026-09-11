@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import type { Tier } from "../../core/types";
+import type { CompatToolSource, Tier } from "../../core/types";
 import type { SortDir, SortKey } from "../filter";
 
 interface State {
@@ -9,11 +9,17 @@ interface State {
   tiers: Tier[];
   compatTools: string[];
   libraries: string[];
+  compatSource: CompatToolSource | null;
   protonCheck: boolean;
 }
 
 // sinnvolle default-richtung je sortierschlüssel
-const DEFAULT_DIR: Record<SortKey, SortDir> = { name: "asc", size: "desc", tier: "desc" };
+const DEFAULT_DIR: Record<SortKey, SortDir> = {
+  name: "asc",
+  size: "desc",
+  tier: "desc",
+  lastPlayed: "desc",
+};
 
 export const useLibraryStore = defineStore("library", {
   state: (): State => ({
@@ -23,6 +29,7 @@ export const useLibraryStore = defineStore("library", {
     tiers: [],
     compatTools: [],
     libraries: [],
+    compatSource: null,
     protonCheck: false,
   }),
   getters: {
@@ -31,7 +38,11 @@ export const useLibraryStore = defineStore("library", {
     compatToolSet: (s) => new Set(s.compatTools),
     librarySet: (s) => new Set(s.libraries),
     activeFilterCount: (s) =>
-      s.tiers.length + s.compatTools.length + s.libraries.length + (s.protonCheck ? 1 : 0),
+      s.tiers.length +
+      s.compatTools.length +
+      s.libraries.length +
+      (s.compatSource ? 1 : 0) +
+      (s.protonCheck ? 1 : 0),
   },
   actions: {
     setSort(key: SortKey) {
@@ -48,11 +59,17 @@ export const useLibraryStore = defineStore("library", {
       if (i >= 0) arr.splice(i, 1);
       else arr.push(value);
     },
+    cycleCompatSource() {
+      if (this.compatSource === null) this.compatSource = "unavailable";
+      else if (this.compatSource === "unavailable") this.compatSource = "default";
+      else this.compatSource = null;
+    },
     reset() {
       this.search = "";
       this.tiers = [];
       this.compatTools = [];
       this.libraries = [];
+      this.compatSource = null;
       this.protonCheck = false;
     },
   },

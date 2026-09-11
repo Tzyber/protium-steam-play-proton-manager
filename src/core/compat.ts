@@ -110,7 +110,7 @@ export async function listCompatTools(
     let id: Awaited<ReturnType<System["pathIdentity"]>>;
     try {
       id = await system.pathIdentity(dir);
-      if (!id) throw new Error("pathIdentity nicht verfügbar");
+      if (!id) throw new Error("pathIdentity not available");
     } catch (e) {
       failedCount += 1;
       warnings.push({
@@ -134,7 +134,7 @@ export async function listCompatTools(
         type: "compat-tool",
         directory: dir,
         reason: "directory-unreadable",
-        detail: `compat-verzeichnis "${dir}" nicht lesbar: ${errText(e)}`,
+        detail: `compat directory "${dir}" not readable: ${errText(e)}`,
       });
       continue;
     }
@@ -150,7 +150,7 @@ export async function listCompatTools(
           directory: dir,
           toolName: entry.name,
           reason: "symlink",
-          detail: `"${entry.name}" in ${dir} ist ein symlink → übersprungen`,
+          detail: `"${entry.name}" in ${dir} is a symlink, skipped`,
         });
         continue;
       }
@@ -208,14 +208,14 @@ export async function listCompatTools(
         const size = await system.dirSize(joinPath(dir, name));
         if (size.status === "measured") {
           if (!Number.isSafeInteger(size.sizeBytes) || size.sizeBytes < 0) {
-            throw new Error(`ungültige größe: ${size.sizeBytes}`);
+            throw new Error(`invalid size: ${size.sizeBytes}`);
           }
           sizeBytes = size.sizeBytes;
         } else {
           throw new Error(
             size.status === "failed"
-              ? (size.detail ?? "größenmessung fehlgeschlagen")
-              : "pfad während der größenmessung verschwunden",
+              ? (size.detail ?? "size measurement failed")
+              : "path disappeared during size measurement",
           );
         }
       } catch (e) {

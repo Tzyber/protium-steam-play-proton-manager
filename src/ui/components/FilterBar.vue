@@ -14,7 +14,14 @@ const SORTS = computed(() => [
   { key: "name" as const, label: t("filter.sortName") },
   { key: "size" as const, label: t("filter.sortSize") },
   { key: "tier" as const, label: t("filter.sortTier") },
+  { key: "lastPlayed" as const, label: t("filter.sortLastPlayed") },
 ]);
+
+const compatSourceLabel = computed(() => {
+  if (lib.compatSource === "unavailable") return t("filter.compatSourceUnavailable");
+  if (lib.compatSource === "default") return t("filter.compatSourceDefault");
+  return t("filter.compatSourceAll");
+});
 
 // nur tatsächlich vorkommende werte als filteroptionen anbieten
 const tiersPresent = computed(() => {
@@ -80,6 +87,19 @@ function libShort(path: string): string {
         @click="lib.toggle('tiers', t)"
       >
         {{ t }}
+      </button>
+    </div>
+
+    <div class="group">
+      <span class="label">{{ t("filter.compatSource") }}</span>
+      <button
+        class="seg compat-source"
+        :class="{ on: lib.compatSource !== null }"
+        type="button"
+        :aria-pressed="lib.compatSource !== null"
+        @click="lib.cycleCompatSource()"
+      >
+        {{ compatSourceLabel }}<span class="sr-only">{{ t("filter.compatSource") }}</span>
       </button>
     </div>
 

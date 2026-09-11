@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { getVdfValue, VdfPatchError } from "../../src/core/vdfpatch.js";
+import {
+  getVdfChildFieldValues,
+  getVdfChildValues,
+  getVdfValue,
+  VdfPatchError,
+} from "../../src/core/vdfpatch.js";
 
 const LOCALCONFIG = `"UserLocalConfigStore"
 {
@@ -74,6 +79,151 @@ describe("getVdfValue", () => {
     const text = `"Root"\n{\n\t"Key"\t\t"value"\t[linux]\n\t[windows]\n\t"Other"\t\t"other"\n}\n`;
     expect(getVdfValue(text, ["Root", "Key"])).toBe("value");
     expect(getVdfValue(text, ["Root", "Other"])).toBe("other");
+  });
+});
+
+const APPS_PATH = ["UserLocalConfigStore", "Software", "Valve", "Steam", "Apps"];
+
+const appsText = (body: string): string => `"UserLocalConfigStore"
+{
+\t"Software"
+\t{
+\t\t"Valve"
+\t\t{
+\t\t\t"Steam"
+\t\t\t{
+\t\t\t\t"Apps"
+\t\t\t\t{
+${body}\t\t\t\t}
+\t\t\t}
+\t\t}
+\t}
+}
+`;
+
+describe("getVdfChildValues", () => {
+  it("liefert eine leere map ohne fehler, wenn der pfad fehlt", () => {
+    const text = `"UserLocalConfigStore"\n{\n\t"Software"\n\t{\n\t}\n}\n`;
+    expect(getVdfChildValues(text, APPS_PATH, "LaunchOptions")).toEqual({
+      values: new Map(),
+      firstError: null,
+    });
+  });
+
+  it("liefert eine leere map, wenn ein pfadsegment skalar ist", () => {
+    const text = `"UserLocalConfigStore"\n{\n\t"Software"\t\t"scalar"\n}\n`;
+    expect(getVdfChildValues(text, APPS_PATH, "LaunchOptions")).toEqual({
+      values: new Map(),
+      firstError: null,
+    });
+  });
+
+  it("nimmt bei doppeltem app-key den ersten treffer", () => {
+    const text = appsText(
+      `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\t\t"first %command%"\n\t\t\t\t\t}\n` +
+        `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\t\t"second %command%"\n\t\t\t\t\t}\n`,
+    );
+    const result = getVdfChildValues(text, APPS_PATH, "LaunchOptions");
+    expect(result.firstError).toBeNull();
+    expect(result.values.size).toBe(1);
+    expect(result.values.get("620")).toBe("first %command%");
+  });
+
+  it("überspringt einen block-wert als leaf", () => {
+    const text = appsText(
+      `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\n\t\t\t\t\t\t{\n\t\t\t\t\t\t\t"nested"\t\t"x"\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n` +
+        `\t\t\t\t\t"730"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\t\t"ok %command%"\n\t\t\t\t\t}\n`,
+    );
+    const result = getVdfChildValues(text, APPS_PATH, "LaunchOptions");
+    expect(result.firstError).toBeNull();
+    expect(result.values.has("620")).toBe(false);
+    expect(result.values.get("730")).toBe("ok %command%");
+  });
+
+  it("navigiert pfad und leaf-key case-insensitiv", () => {
+    const text = appsText(
+      `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"launchoptions"\t\t"klein %command%"\n\t\t\t\t\t}\n`,
+    )
+      .replaceAll('"UserLocalConfigStore"', '"userlocalconfigstore"')
+      .replaceAll('"Software"', '"software"');
+    const result = getVdfChildValues(text, APPS_PATH, "LAUNCHOPTIONS");
+    expect(result.firstError).toBeNull();
+    expect(result.values.get("620")).toBe("klein %command%");
+  });
+
+  it("meldet den defekt eines fremden blocks und liefert die übrigen werte", () => {
+    const text = appsText(
+      `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\t\t"intact %command%"\n\t\t\t\t\t}\n` +
+        `\t\t\t\t\t"730"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\t\t"x"\n\t\t\t\t\t\t"Dangling"\n\t\t\t\t\t}\n`,
+    );
+    const result = getVdfChildValues(text, APPS_PATH, "LaunchOptions");
+    expect(result.values.get("620")).toBe("intact %command%");
+    expect(result.values.has("730")).toBe(false);
+    expect(result.firstError).toBe('key "Dangling" ohne wert');
+  });
+});
+
+describe("getVdfChildFieldValues", () => {
+  const FIELDS = ["LaunchOptions", "LastPlayed"] as const;
+
+  it("liest mehrere leafs eines app-blocks in einem lauf", () => {
+    const text = appsText(
+      `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\t\t"gamemoderun %command%"\n\t\t\t\t\t\t"LastPlayed"\t\t"1757000000"\n\t\t\t\t\t}\n`,
+    );
+    const result = getVdfChildFieldValues(text, APPS_PATH, FIELDS);
+    expect(result.firstError).toBeNull();
+    expect(result.values.get("620")).toEqual(
+      new Map([
+        ["LaunchOptions", "gamemoderun %command%"],
+        ["LastPlayed", "1757000000"],
+      ]),
+    );
+  });
+
+  it("nimmt nur die vorhandenen leafs eines blocks auf", () => {
+    const text = appsText(
+      `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LastPlayed"\t\t"1757000000"\n\t\t\t\t\t}\n`,
+    );
+    const result = getVdfChildFieldValues(text, APPS_PATH, FIELDS);
+    expect(result.firstError).toBeNull();
+    expect(result.values.get("620")).toEqual(new Map([["LastPlayed", "1757000000"]]));
+    expect(result.values.get("620")?.has("LaunchOptions")).toBe(false);
+  });
+
+  it("überspringt einen block-wert als leaf", () => {
+    const text = appsText(
+      `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LastPlayed"\n\t\t\t\t\t\t{\n\t\t\t\t\t\t\t"nested"\t\t"x"\n\t\t\t\t\t\t}\n\t\t\t\t\t\t"LaunchOptions"\t\t"ok %command%"\n\t\t\t\t\t}\n`,
+    );
+    const result = getVdfChildFieldValues(text, APPS_PATH, FIELDS);
+    expect(result.firstError).toBeNull();
+    expect(result.values.get("620")).toEqual(new Map([["LaunchOptions", "ok %command%"]]));
+  });
+
+  it("nimmt bei doppeltem app-key nur den ersten block", () => {
+    const text = appsText(
+      `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LastPlayed"\t\t"1"\n\t\t\t\t\t}\n` +
+        `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\t\t"second %command%"\n\t\t\t\t\t\t"LastPlayed"\t\t"2"\n\t\t\t\t\t}\n`,
+    );
+    const result = getVdfChildFieldValues(text, APPS_PATH, FIELDS);
+    expect(result.firstError).toBeNull();
+    expect(result.values.size).toBe(1);
+    expect(result.values.get("620")).toEqual(new Map([["LastPlayed", "1"]]));
+  });
+
+  it("meldet den defekt eines fremden blocks und liefert die übrigen werte", () => {
+    const text = appsText(
+      `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\t\t"intact %command%"\n\t\t\t\t\t\t"LastPlayed"\t\t"1757000000"\n\t\t\t\t\t}\n` +
+        `\t\t\t\t\t"730"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LastPlayed"\t\t"1"\n\t\t\t\t\t\t"Dangling"\n\t\t\t\t\t}\n`,
+    );
+    const result = getVdfChildFieldValues(text, APPS_PATH, FIELDS);
+    expect(result.values.get("620")).toEqual(
+      new Map([
+        ["LaunchOptions", "intact %command%"],
+        ["LastPlayed", "1757000000"],
+      ]),
+    );
+    expect(result.values.has("730")).toBe(false);
+    expect(result.firstError).toBe('key "Dangling" ohne wert');
   });
 });
 

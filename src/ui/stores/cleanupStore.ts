@@ -19,6 +19,7 @@ import {
 import { findTrashEntries, type TrashEntry, type TrashLibraryStatus } from "../../core/trash";
 import type { OrphanEntry, ScanResult } from "../../core/types";
 import { localizeConsequences } from "../consequences";
+import { formatBytes } from "../format";
 import { t } from "../i18n";
 import { useConfirmStore } from "./confirmStore";
 import { useScanStore } from "./scanStore";
@@ -313,9 +314,7 @@ export const useCleanupStore = defineStore("cleanup", {
         const unsafe = result.cleanupUnsafeLibraries;
         if (!Array.isArray(unsafe)) {
           this.blockedBySkipped = true;
-          this.setOrphanError(
-            t("errors.scanIncomplete", { paths: "cleanupUnsafeLibraries fehlt" }),
-          );
+          this.setOrphanError(t("errors.scanContractMissing"));
           return;
         }
         if (blocking.length > 0 || unsafe.length > 0) {
@@ -410,7 +409,7 @@ export const useCleanupStore = defineStore("cleanup", {
       }
     },
 
-    async deleteOrphans(entries: OrphanEntry[]) {
+    async deleteOrphans(entries: OrphanEntry[], remainder = 0) {
       if (entries.length > MAX_PENDING_DELETES) {
         this.setOrphanError(
           t("errors.deleteBatchTooLarge", { n: entries.length, max: MAX_PENDING_DELETES }),
@@ -435,7 +434,7 @@ export const useCleanupStore = defineStore("cleanup", {
       const unsafe = result.cleanupUnsafeLibraries;
       if (!Array.isArray(unsafe)) {
         this.blockedBySkipped = true;
-        this.setOrphanError(t("errors.scanIncomplete", { paths: "cleanupUnsafeLibraries fehlt" }));
+        this.setOrphanError(t("errors.scanContractMissing"));
         return;
       }
       if (unsafe.length > 0) {
@@ -463,6 +462,7 @@ export const useCleanupStore = defineStore("cleanup", {
         key: string;
         type: string;
         descriptions: string[];
+        permanentDelete: boolean;
       }[] = [];
       for (const entry of entries) {
         if (!isCurrent()) break;
@@ -489,7 +489,8 @@ export const useCleanupStore = defineStore("cleanup", {
             token: pending.token,
             key: k,
             type: entry.type,
-            descriptions: localizeConsequences(pending),
+            descriptions: localizeConsequences(pending, this.orphanNames[entry.path] ?? null),
+            permanentDelete: pending.consequences.some((c) => c.action === "permanentDelete"),
           });
         } catch (e) {
           // deleting hier räumen: sonst bleibt die view nach einem
@@ -510,10 +511,27 @@ export const useCleanupStore = defineStore("cleanup", {
         return;
       }
 
+      // bei mehr als MAX_PENDING_DELETES einträgen wird bewusst in batches
+      // gearbeitet (ein backend-token je batch, eine bestätigung je batch aus
+      // INV-6): der dialog nennt grenze und rest statt eines stillen rests.
+      const batchInfo =
+        remainder > 0
+          ? [
+              t("cleanup.orphanBatchInfo", {
+                max: MAX_PENDING_DELETES,
+                rest: remainder,
+              }),
+            ]
+          : [];
       const accepted = confirm.ask(
         {
           title: t("cleanup.deleteConfirmTitle", { n: prepared.length }),
-          message: prepared.flatMap((p) => p.descriptions).join("\n"),
+          message: [...batchInfo, ...prepared.flatMap((p) => p.descriptions)].join("\n"),
+          // shadercache wird hart gelöscht, compatdata nur verschoben: der
+          // knopf benennt die jeweils schwerere wirkung.
+          confirmLabel: prepared.some((p) => p.permanentDelete)
+            ? t("common.delete")
+            : t("cleanup.moveToTrash"),
         },
         {
           onSuccess: async () => {
@@ -739,13 +757,19 @@ export const useCleanupStore = defineStore("cleanup", {
               }),
             ]
           : [];
+      const total = entries.reduce((s, e) => s + (e.sizeBytes ?? 0), 0);
       const accepted = confirm.ask(
         {
           title:
             prepared.length === 1
               ? t("cleanup.trashDeleteConfirmSingle", { n: prepared.length })
               : t("cleanup.trashDeleteConfirmTitle", { n: prepared.length }),
-          message: [partialPrepareMessage, ...batchInfo, ...prepared.flatMap((p) => p.descriptions)]
+          message: [
+            t("cleanup.trashDeleteWarning", { size: formatBytes(total) }),
+            partialPrepareMessage,
+            ...batchInfo,
+            ...prepared.flatMap((p) => p.descriptions),
+          ]
             .filter((line): line is string => line !== null)
             .join("\n"),
         },
@@ -783,6 +807,11 @@ export const useCleanupStore = defineStore("cleanup", {
       const snapshot = this.trash.slice();
       const batch = snapshot.slice(0, MAX_PENDING_DELETES);
       await this.deleteTrashEntries(batch, snapshot.length - batch.length);
+    },
+
+    async deleteOrphansAll(entries: OrphanEntry[]) {
+      const batch = entries.slice(0, MAX_PENDING_DELETES);
+      await this.deleteOrphans(batch, entries.length - batch.length);
     },
   },
 });

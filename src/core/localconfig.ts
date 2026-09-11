@@ -2,25 +2,60 @@
 import { errText } from "./errtext.js";
 import { paths } from "./paths.js";
 import type { FileSystem } from "./ports.js";
-import { NUMERIC_RE } from "./types.js";
+import { NUMERIC_RE, parseSafeAppId } from "./types.js";
 import { asInt, asNode, getPath, parseVdf } from "./vdf.js";
-import { getVdfValue } from "./vdfpatch.js";
+import { getVdfChildFieldValues, getVdfChildValues, getVdfValue } from "./vdfpatch.js";
+
+const APPS_PATH = ["UserLocalConfigStore", "Software", "Valve", "Steam", "Apps"];
 
 /** pfad des LaunchOptions-werts eines spiels in localconfig.vdf. */
 function launchOptionsPath(appId: number): string[] {
-  return [
-    "UserLocalConfigStore",
-    "Software",
-    "Valve",
-    "Steam",
-    "Apps",
-    String(appId),
-    "LaunchOptions",
-  ];
+  return [...APPS_PATH, String(appId), "LaunchOptions"];
 }
 
 export function readLaunchOptions(localConfigText: string, appId: number): string | undefined {
   return getVdfValue(localConfigText, launchOptionsPath(appId));
+}
+
+/** alle startoptionen der localconfig in EINEM tokenize-lauf: appId → wert.
+ *  `firstError` ist der erste strukturelle defekt eines app-blocks; ein defekter
+ *  fremdblock verwirft die übrigen optionen nicht mehr, degradiert aber wie bisher. */
+export function readAllLaunchOptions(localConfigText: string): {
+  values: Map<number, string>;
+  firstError: string | null;
+} {
+  const { values, firstError } = getVdfChildValues(localConfigText, APPS_PATH, "LaunchOptions");
+  const byAppId = new Map<number, string>();
+  for (const [key, value] of values) {
+    const appId = parseSafeAppId(key);
+    if (appId !== null) byAppId.set(appId, value);
+  }
+  return { values: byAppId, firstError };
+}
+
+/** startoptionen UND `LastPlayed` aller apps in EINEM tokenize-lauf:
+ *  appId → rohwert. `lastPlayed` bleibt roh (steam schreibt `"0"` für nie
+ *  gespielt); die interpretation liegt beim aufrufer. */
+export function readAppFields(localConfigText: string): {
+  launchOptions: Map<number, string>;
+  lastPlayed: Map<number, string>;
+  firstError: string | null;
+} {
+  const { values, firstError } = getVdfChildFieldValues(localConfigText, APPS_PATH, [
+    "LaunchOptions",
+    "LastPlayed",
+  ]);
+  const launchOptions = new Map<number, string>();
+  const lastPlayed = new Map<number, string>();
+  for (const [key, fields] of values) {
+    const appId = parseSafeAppId(key);
+    if (appId === null) continue;
+    const launch = fields.get("LaunchOptions");
+    if (launch !== undefined) launchOptions.set(appId, launch);
+    const played = fields.get("LastPlayed");
+    if (played !== undefined) lastPlayed.set(appId, played);
+  }
+  return { launchOptions, lastPlayed, firstError };
 }
 
 /** erkennt lexikalische defekte der localconfig (unterminierter string oder

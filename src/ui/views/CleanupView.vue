@@ -189,7 +189,7 @@ async function confirmDeleteOrphans() {
 function deleteShadersAll() {
   // alle shader-caches leeren, selections-umweg unnötig: das backend-gate
   // bestätigt über den native-dialog.
-  void cleanup.deleteOrphans(shadercacheOrphans.value);
+  void cleanup.deleteOrphansAll(shadercacheOrphans.value);
 }
 
 const busy = computed(() => cleanup.scanning || cleanup.deleting.size > 0);
@@ -644,7 +644,7 @@ const tabLabel = (id: Tab) =>
     :title="confirm.pending.title"
     :busy="confirm.busy"
     danger
-    :confirm-label="t('common.delete')"
+    :confirm-label="confirm.pending.confirmLabel ?? t('common.delete')"
     @confirm="confirm.confirm()"
     @cancel="confirm.cancel()"
   >

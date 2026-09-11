@@ -140,7 +140,7 @@ describe("scanLibrary (integration, dominiks reales setup)", () => {
     expect(result.warnings).toContainEqual({
       type: "launch-config",
       reason: "missing",
-      detail: "kein steam-account mit localconfig.vdf gefunden → startoptionen unbekannt",
+      detail: "no steam account with localconfig.vdf found, launch options unknown",
     });
     expect(result.steamUserId).toBeNull();
     expect(result.games.length).toBeGreaterThan(0);
@@ -164,7 +164,7 @@ describe("scanLibrary (integration, dominiks reales setup)", () => {
     expect(result.warnings).toContainEqual({
       type: "compat-config",
       reason: "missing",
-      detail: "config.vdf fehlt → compat-tools als 'unknown' markiert",
+      detail: "config.vdf missing, compat tools marked 'unknown'",
     });
   });
 });

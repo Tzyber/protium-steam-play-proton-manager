@@ -366,7 +366,7 @@ describe("GameDetailDrawer Speicherbedarf", () => {
     expect(section.attributes("aria-busy")).toBe("false");
   });
 
-  it("rendert fehlend als exakt 0 B und failed als nicht gemessen", async () => {
+  it("rendert fehlend als kein ordner und failed als nicht messbar", async () => {
     measureGameFootprintMock.mockResolvedValueOnce(
       footprint({
         gameInstall: { status: "missing", sizeBytes: 0 },
@@ -380,9 +380,11 @@ describe("GameDetailDrawer Speicherbedarf", () => {
     await wrapper.vm.$nextTick();
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.find("[data-testid='footprint-game-install-value']").text()).toBe("0 B");
+    expect(wrapper.find("[data-testid='footprint-game-install-value']").text()).toBe(
+      t("drawer.footprintMissing"),
+    );
     expect(wrapper.find("[data-testid='footprint-compatdata-value']").text()).toBe(
-      t("common.notMeasured"),
+      t("drawer.footprintFailed"),
     );
   });
 
@@ -421,7 +423,7 @@ describe("GameDetailDrawer Speicherbedarf", () => {
       t("drawer.footprintSummaryPartial"),
     );
     expect(wrapper.find("[data-testid='footprint-game-install-value']").text()).toBe(
-      t("common.notMeasured"),
+      t("drawer.footprintFailed"),
     );
 
     measureGameFootprintMock.mockResolvedValueOnce(
@@ -768,6 +770,10 @@ describe("GameDetailDrawer Startoptionen-Hinweise", () => {
       expected: "Ein Assignment folgt auf %command% im Entwurf.",
     },
     {
+      draft: "PROTON_LOG=1",
+      expected: "Ein Assignment steht ohne %command%-Marker im Entwurf.",
+    },
+    {
       draft: "PROTON_LOG=1 %command%",
       expected: "Proton-Logging im Entwurf aktiv",
     },
@@ -807,29 +813,45 @@ describe("GameDetailDrawer Startoptionen-Hinweise", () => {
   });
 
   it.each([
-    { label: "scan läuft", status: "scanning" as const, launchConfigStatus: "available" as const },
-    { label: "config fehlt", status: "done" as const, launchConfigStatus: "missing" as const },
+    {
+      label: "scan läuft",
+      status: "scanning" as const,
+      launchConfigStatus: "available" as const,
+      unavailable: false,
+    },
+    {
+      label: "config fehlt",
+      status: "done" as const,
+      launchConfigStatus: "missing" as const,
+      unavailable: true,
+    },
     {
       label: "config nicht lesbar",
       status: "done" as const,
       launchConfigStatus: "unreadable" as const,
+      unavailable: true,
     },
     {
       label: "config mehrdeutig",
       status: "done" as const,
       launchConfigStatus: "ambiguous" as const,
+      unavailable: true,
     },
-  ])("analysiert bei $label keine Entwurfs-Hinweise", ({ status, launchConfigStatus }) => {
-    scanState.status = status;
-    const wrapper = mountDrawer(
-      result("available", "default", "default", null, {
-        launchConfigStatus,
-        launchOptions: "gamemoderun",
-      }),
-    );
+  ])(
+    "analysiert bei $label keine Entwurfs-Hinweise",
+    ({ status, launchConfigStatus, unavailable }) => {
+      scanState.status = status;
+      const wrapper = mountDrawer(
+        result("available", "default", "default", null, {
+          launchConfigStatus,
+          launchOptions: "gamemoderun",
+        }),
+      );
 
-    expect(wrapper.find("[data-testid='launch-hints']").exists()).toBe(false);
-  });
+      expect(wrapper.find("[data-testid='launch-hints']").exists()).toBe(false);
+      expect(wrapper.find("[data-testid='launch-config-unavailable']").exists()).toBe(unavailable);
+    },
+  );
 
   it("ändert weder Eingabewert noch Save-Gate durch die Analyse", async () => {
     const wrapper = mountDrawer(

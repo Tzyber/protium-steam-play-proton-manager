@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
-import { errText } from "../../core/errtext";
+import { errText, isSteamRunning, isToolAlreadyExists } from "../../core/errtext";
 import {
   type FetchSource,
   fetchReleases,
@@ -42,6 +42,14 @@ let downloadSequence = 0;
 function createDownloadId(): string {
   downloadSequence += 1;
   return `proton-${Date.now().toString(36)}-${downloadSequence.toString(36)}`;
+}
+
+/** backend-ablehnungen beim löschen lokalisieren; das write-gate (steam läuft)
+ *  bekommt einen eigenen text statt des rohen backend-strings. */
+function removeErrorText(e: unknown): string {
+  return isSteamRunning(e)
+    ? t("proton.removeSteamRunning")
+    : t("proton.removeFailed", { msg: errText(e) });
 }
 
 interface ListenerOwnership {
@@ -93,6 +101,11 @@ export const useProtonStore = defineStore("proton", {
   getters: {
     installedTools(): CompatTool[] {
       return useScanStore().compatTools;
+    },
+    /** globaler standard aus config.vdf; spiele tragen dafür den literalstring
+     *  "default" in `compatTool`, nicht den toolnamen. */
+    defaultCompatTool(): string | null {
+      return useScanStore().result?.defaultCompatTool ?? null;
     },
   },
   actions: {
@@ -336,7 +349,11 @@ export const useProtonStore = defineStore("proton", {
         delete this.jobs[tag];
       } catch (e) {
         const msg = errText(e);
-        if (!/cancel/i.test(msg)) this.loadError = t("proton.installFailed", { tag, msg });
+        if (!/cancel/i.test(msg)) {
+          this.loadError = isToolAlreadyExists(e)
+            ? t("proton.installExists", { tag })
+            : t("proton.installFailed", { tag, msg });
+        }
         delete this.jobs[tag];
       } finally {
         this.activeTag = null;
@@ -365,7 +382,7 @@ export const useProtonStore = defineStore("proton", {
         const accepted = confirm.ask(
           {
             title: t("proton.removeConfirmTitle", { name: tool.name }),
-            message: localizeConsequences(pending).join("\n"),
+            message: [...localizeConsequences(pending), t("proton.removeKeepsPrefixes")].join("\n"),
           },
           {
             onSuccess: async () => {
@@ -382,7 +399,7 @@ export const useProtonStore = defineStore("proton", {
               this.busyRemove = null;
             },
             onError: (e) => {
-              this.loadError = t("proton.removeFailed", { msg: errText(e) });
+              this.loadError = removeErrorText(e);
               this.busyRemove = null;
             },
           },
@@ -394,7 +411,7 @@ export const useProtonStore = defineStore("proton", {
         }
       } catch (e) {
         confirm.release(reservation);
-        this.loadError = t("proton.removeFailed", { msg: errText(e) });
+        this.loadError = removeErrorText(e);
         this.busyRemove = null;
       }
     },

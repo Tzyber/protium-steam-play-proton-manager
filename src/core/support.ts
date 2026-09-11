@@ -11,12 +11,13 @@ import {
   isRecord,
   type LaunchConfigStatus,
   MAX_APP_ID,
+  type ScanCoverage,
   type ScanResult,
   type Tier,
 } from "./types.js";
 
 export type SupportToolAvailability = "available" | "not-recognized" | "unknown";
-export type SupportExternalCompatdata = "detected" | "unknown";
+export type SupportExternalCompatdata = "detected" | "not-detected" | "unknown";
 
 export interface SupportCleanupInput {
   scanning?: boolean;
@@ -53,6 +54,12 @@ export interface SupportFacts {
   appId: number | null;
   library: string | null;
   scanCoverage: "complete" | "incomplete" | "limited";
+  scanCoverageCounts: {
+    librariesRead: number;
+    librariesTotal: number;
+    manifestsFailed: number;
+    toolsFailed: number;
+  } | null;
   compatConfigStatus: CompatConfigStatus | "unknown";
   launchConfigStatus: LaunchConfigStatus | "unknown";
   compatToolSource: CompatToolSource;
@@ -216,26 +223,46 @@ function projectCleanup(input: SupportCleanupInput | undefined): SupportCleanupF
   };
 }
 
+function projectScanCoverageCounts(coverage: ScanCoverage): SupportFacts["scanCoverageCounts"] {
+  const librariesRead = validNonNegativeInteger(coverage.libraries.read);
+  const librariesTotal = validNonNegativeInteger(coverage.libraries.total);
+  const manifestsFailed = validNonNegativeInteger(coverage.manifests.failed);
+  const toolsFailed = validNonNegativeInteger(coverage.tools.failed);
+  if (
+    librariesRead === null ||
+    librariesTotal === null ||
+    manifestsFailed === null ||
+    toolsFailed === null
+  ) {
+    return null;
+  }
+  return { librariesRead, librariesTotal, manifestsFailed, toolsFailed };
+}
+
 export function projectSupportFacts(input: SupportInput): SupportFacts {
   const compatConfig = compatConfigStatus(input.result.compatConfigStatus);
   const launchConfig = launchConfigStatus(input.result.launchConfigStatus);
   const tool = projectCompatTool(input.game, input.result, compatConfig);
   const protonDbTier = tier(input.game.protonDb?.tier);
   const appId = validAppId(input.game.appId);
+  const coverage = deriveScanCoverage(input.result);
 
   return {
     appId,
     library: libraryAlias(input.game, input.result),
-    scanCoverage: deriveScanCoverage(input.result).state,
+    scanCoverage: coverage.state,
+    scanCoverageCounts: coverage.state === "complete" ? null : projectScanCoverageCounts(coverage),
     compatConfigStatus: compatConfig,
     launchConfigStatus: launchConfig,
     ...tool,
     protonDbTier,
     footprint: projectFootprint(input.footprint),
     externalCompatdata:
-      launchConfig === "available" && hasExternalCompatdata(input.game.launchOptions)
-        ? "detected"
-        : "unknown",
+      launchConfig !== "available"
+        ? "unknown"
+        : hasExternalCompatdata(input.game.launchOptions)
+          ? "detected"
+          : "not-detected",
     cleanup: projectCleanup(input.cleanup),
   };
 }

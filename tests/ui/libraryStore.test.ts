@@ -20,6 +20,10 @@ describe("libraryStore", () => {
     lib.setSort("tier");
     expect(lib.sortKey).toBe("tier");
     expect(lib.sortDir).toBe("desc");
+
+    lib.setSort("lastPlayed");
+    expect(lib.sortKey).toBe("lastPlayed");
+    expect(lib.sortDir).toBe("desc"); // zuletzt gespielt default: absteigend
   });
 
   it("setSort mit demselben key toggelt die richtung", () => {
@@ -72,6 +76,35 @@ describe("libraryStore", () => {
     lib.reset();
 
     expect(lib.protonCheck).toBe(false);
+    expect(lib.activeFilterCount).toBe(0);
+  });
+
+  it("cycleCompatSource zyklt null → unavailable → default → null und zählt als filter", () => {
+    const lib = useLibraryStore();
+    expect(lib.compatSource).toBeNull();
+    expect(lib.activeFilterCount).toBe(0);
+
+    lib.cycleCompatSource();
+    expect(lib.compatSource).toBe("unavailable");
+    expect(lib.activeFilterCount).toBe(1);
+
+    lib.cycleCompatSource();
+    expect(lib.compatSource).toBe("default");
+    expect(lib.activeFilterCount).toBe(1);
+
+    lib.cycleCompatSource();
+    expect(lib.compatSource).toBeNull();
+    expect(lib.activeFilterCount).toBe(0);
+  });
+
+  it("reset setzt die quelle der proton-zuordnung zurück", () => {
+    const lib = useLibraryStore();
+    lib.cycleCompatSource();
+    expect(lib.compatSource).toBe("unavailable");
+
+    lib.reset();
+
+    expect(lib.compatSource).toBeNull();
     expect(lib.activeFilterCount).toBe(0);
   });
 
