@@ -10,6 +10,7 @@ function fakeSystem(impl: (library: string) => Promise<TrashListing>): System {
       generation: 1,
       steamRoot: "/tmp/steam",
       libraries: ["/tmp/steam"],
+      unavailableLibraries: [],
       systemCompatDirs: [],
       appCacheDir: "/tmp/cache",
       appConfigDir: "/tmp/config",
@@ -21,6 +22,8 @@ function fakeSystem(impl: (library: string) => Promise<TrashListing>): System {
     pathIdentity: async () => null,
     installGeProton: async () => "verified" as const,
     cancelDownload: async () => {},
+    onDownloadProgress: async () => () => {},
+    onInstallPhase: async () => () => {},
     saveLaunchOptions: async () => "written" as const,
     saveCompatTool: async () => "written" as const,
     prepareDelete: async (req) => ({
@@ -30,7 +33,7 @@ function fakeSystem(impl: (library: string) => Promise<TrashListing>): System {
       targetPath: req.path,
       consequences: [],
     }),
-    executeDelete: async () => ({ success: true, deletedPath: "" }),
+    executeDelete: async () => ({ deletedPath: "" }),
   };
 }
 

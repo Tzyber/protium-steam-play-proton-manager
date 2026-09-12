@@ -1,8 +1,6 @@
 import { joinPath, paths } from "./paths.js";
 import type { DirEntry, FileSystem } from "./ports.js";
-import { NUMERIC_RE, type OrphanEntry, type OrphanType, parseSafeAppId } from "./types.js";
-
-const ORPHAN_TYPES: OrphanType[] = ["compatdata", "shadercache"];
+import { ORPHAN_TYPES, type OrphanEntry, type OrphanType, parseSafeAppId } from "./types.js";
 
 /** Namenspräfix, das `claim_delete_target` (delete_ops.rs) einem Ziel vor der
  *  Mutation gibt. Spiegel zum Rust-Code, beide zusammen pflegen. */
@@ -11,7 +9,7 @@ export const DELETE_CLAIM_PREFIX = ".protium-delete-claim-";
 /** Parent-Location eines liegengebliebenen Claims. Der Delete-Pipeline claimt
  *  Ziele in vier Locations: compatdata/shadercache (Orphans), .protium-trash
  *  (Papierkorb-Einträge) und compatibilitytools.d (GE-Tools). */
-export type IncompleteDeletionType = OrphanType | "trash" | "compat-tool";
+type IncompleteDeletionType = OrphanType | "trash" | "compat-tool";
 
 /** Ein Verzeichnis, das Protium zum Löschen umbenannt, aber nicht mehr
  *  abgeschlossen hat (Absturz, SIGKILL, Stromausfall im Fenster zwischen
@@ -28,7 +26,7 @@ export interface IncompleteDeletion {
 
 /** Ergebnis der read-only Claim-Suche. Fehlende Parent-Verzeichnisse sind
  * normal; nur vorhandene, aber nicht lesbare Orte stehen in `unreadable`. */
-export interface IncompleteDeletionScanResult {
+interface IncompleteDeletionScanResult {
   entries: IncompleteDeletion[];
   unreadable: string[];
 }
@@ -61,7 +59,7 @@ export async function findOrphans(
         // Claim-Reste sind keine Orphans: sie gehören zu einer abgebrochenen
         // Löschung und werden von findIncompleteDeletions gemeldet.
         if (entry.name.startsWith(DELETE_CLAIM_PREFIX)) continue;
-        if (!NUMERIC_RE.test(entry.name)) continue;
+        // parseSafeAppId prüft dasselbe zahlenformat und zusätzlich den bereich.
         const appId = parseSafeAppId(entry.name);
         if (appId === null) continue;
         // blockedAppIds = appIDs, deren manifest existiert, die aber kein

@@ -1,18 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
-import { version as appVersion } from "../../../package.json";
 import { openExternal, tauriPorts } from "../../core/adapters/tauri";
 import { SteamRunningError } from "../../core/configwrite";
 import { errText } from "../../core/errtext";
-import {
-  type FootprintPart,
-  type GameFootprint,
-  hasExternalCompatdata,
-  measureGameFootprint,
-} from "../../core/footprint";
 import { analyzeLaunchOptions, type LaunchHint } from "../../core/launchHints";
 import { protonDbAppUrl } from "../../core/protondb";
-import { projectSupportFacts } from "../../core/support";
 import type { LaunchConfigStatus, Tier } from "../../core/types";
 import { focusFirstFocusable, restoreFocus, trapFocus } from "../a11y";
 import type { ExplainTopic } from "../explain";
@@ -22,9 +14,12 @@ import { useCleanupStore } from "../stores/cleanupStore";
 import { useConfigStore } from "../stores/configStore";
 import { useScanStore } from "../stores/scanStore";
 import { useUiStore } from "../stores/uiStore";
-import { formatSupportFacts } from "../supportText";
+import { tierName } from "../tier";
 import { useCover } from "../useCover";
+import { useGameFootprint } from "../useGameFootprint";
+import { useLatestRequest } from "../useLatestRequest";
 import { usePrefixOpen } from "../usePrefixOpen";
+import { useSupportCopy } from "../useSupportCopy";
 import ExplainInfo from "./ExplainInfo.vue";
 import PlayButton from "./PlayButton.vue";
 import SelectBox from "./SelectBox.vue";
@@ -38,154 +33,16 @@ const cleanup = useCleanupStore();
 // drawer die frischen daten (z. B. direkt nach compat-tool-/startoptionen-write).
 const game = computed(() => scan.result?.games.find((g) => g.appId === ui.selectedAppId) ?? null);
 
-type FootprintUiState = "idle" | "measuring" | "ready";
-
-interface FootprintContext {
-  appId: number;
-  scanGeneration: number;
-  library: string;
-  installdir: string | undefined;
-  launchConfigStatus: LaunchConfigStatus;
-  externalCompatdata: boolean;
-  compatdataNotChecked: boolean;
-}
-
-const footprintContext = computed<FootprintContext | null>(() => {
-  const current = game.value;
-  const result = scan.result;
-  if (!current || !result) return null;
-  const launchConfigStatus = result.launchConfigStatus;
-  return {
-    appId: current.appId,
-    scanGeneration: scan.scanGeneration,
-    library: current.library,
-    installdir: current.installdir,
-    launchConfigStatus,
-    externalCompatdata:
-      launchConfigStatus === "available" && hasExternalCompatdata(current.launchOptions),
-    compatdataNotChecked: launchConfigStatus !== "available",
-  };
-});
-
-const footprintResult = ref<GameFootprint | null>(null);
-const footprintState = ref<FootprintUiState>("idle");
-let footprintRequestId = 0;
-
-function sameFootprintContext(
-  left: FootprintContext | null,
-  right: FootprintContext | null,
-): boolean {
-  if (left === null || right === null) return left === right;
-  return (
-    left.appId === right.appId &&
-    left.scanGeneration === right.scanGeneration &&
-    left.library === right.library &&
-    left.installdir === right.installdir &&
-    left.launchConfigStatus === right.launchConfigStatus &&
-    left.externalCompatdata === right.externalCompatdata &&
-    left.compatdataNotChecked === right.compatdataNotChecked
-  );
-}
-
-function invalidateFootprint(): void {
-  footprintRequestId += 1;
-  footprintResult.value = null;
-  footprintState.value = "idle";
-}
-
-watch(
-  footprintContext,
-  (current, previous) => {
-    if (previous === undefined || !sameFootprintContext(current, previous)) {
-      invalidateFootprint();
-    }
-  },
-  { immediate: true },
-);
-
-function failedFootprint(context: FootprintContext): GameFootprint {
-  return {
-    gameInstall: { status: "failed" },
-    compatdata:
-      context.externalCompatdata || context.compatdataNotChecked
-        ? { status: "not-requested" }
-        : { status: "failed" },
-    shadercache: { status: "failed" },
-    summary: { status: "not-measured" },
-    externalCompatdata: context.externalCompatdata,
-    compatdataNotChecked: context.compatdataNotChecked,
-  };
-}
-
-function isCurrentFootprintRequest(requestId: number, context: FootprintContext): boolean {
-  return requestId === footprintRequestId && sameFootprintContext(footprintContext.value, context);
-}
-
-async function measureFootprint(): Promise<void> {
-  const current = game.value;
-  const result = scan.result;
-  const context = footprintContext.value;
-  if (!current || !result || !context || footprintState.value === "measuring") return;
-
-  const requestId = ++footprintRequestId;
-  footprintResult.value = null;
-  footprintState.value = "measuring";
-  try {
-    const measured = await measureGameFootprint(
-      tauriPorts.system,
-      current,
-      result.launchConfigStatus,
-    );
-    if (!isCurrentFootprintRequest(requestId, context)) return;
-    footprintResult.value = measured;
-    footprintState.value = "ready";
-  } catch {
-    if (!isCurrentFootprintRequest(requestId, context)) return;
-    footprintResult.value = failedFootprint(context);
-    footprintState.value = "ready";
-  }
-}
-
-function footprintSizeText(sizeBytes: number | undefined): string {
-  if (typeof sizeBytes !== "number" || !Number.isSafeInteger(sizeBytes) || sizeBytes < 0) {
-    return t("common.notMeasured");
-  }
-  return formatKnownBytes(sizeBytes);
-}
-
-function footprintPartText(part: FootprintPart | undefined): string {
-  if (footprintState.value === "measuring") return t("drawer.footprintLoading");
-  if (!part || part.status === "not-requested") return t("common.notMeasured");
-  if (part.status === "failed") return t("drawer.footprintFailed");
-  if (part.status === "missing") return t("drawer.footprintMissing");
-  return footprintSizeText(part.sizeBytes);
-}
-
-function footprintSummaryLabel(summary: GameFootprint["summary"]): string {
-  if (summary.status === "partial") {
-    return `${t("drawer.footprintSummaryLabel")} (${t("drawer.footprintSummaryPartial")})`;
-  }
-  return t("drawer.footprintSummaryLabel");
-}
-
-function footprintSummaryText(): string {
-  if (footprintState.value === "measuring") return t("drawer.footprintLoading");
-  const summary = footprintResult.value?.summary;
-  if (!summary || summary.status === "not-measured") return t("common.notMeasured");
-  return footprintSizeText(summary.sizeBytes);
-}
-
-// tier-labels: t() in einem object, damit wir pro tier den lokalisierten text haben.
-// (reactive weil t() selbst zustandslos ist, aber für saubere template-usage als
-// computed.)
-const TIER_LABEL = computed<Record<Tier, string>>(() => ({
-  platinum: t("tier.platinum"),
-  gold: t("tier.gold"),
-  silver: t("tier.silver"),
-  bronze: t("tier.bronze"),
-  borked: t("tier.borked"),
-  unknown: t("tier.unknown"),
-}));
+const {
+  context: footprintContext,
+  result: footprintResult,
+  state: footprintState,
+  invalidate: invalidateFootprint,
+  measure: measureFootprint,
+  partText: footprintPartText,
+  summaryLabel: footprintSummaryLabel,
+  summaryText: footprintSummaryText,
+} = useGameFootprint(game, scan);
 
 // fehlertext: SteamRunningError bekommt die übersetzte meldung, andere rohe errors
 // (z. b. schreibrechte) bleiben unverändert, weil sie aus dem system kommen.
@@ -252,21 +109,29 @@ async function openProtonDb() {
   }
 }
 
+// Status eines Speichervorgangs: bekannte schlagworte ODER die fehlermeldung.
+// Als tagged union, damit `stateError` nicht aus einem freien string raten muss.
+type SaveState = { kind: "idle" | "saving" | "saved" } | { kind: "error"; message: string };
+
+const save = (kind: "idle" | "saving" | "saved"): SaveState => ({ kind });
+const saveError = (message: string): SaveState => ({ kind: "error", message });
+
 // Status für das Speichern von Startoptionen.
 const launchInput = ref("");
-const launchState = ref<"idle" | "saving" | "saved" | string>("idle");
+const launchState = ref<SaveState>(save("idle"));
 const launchDirty = computed(() => launchInput.value !== (game.value?.launchOptions ?? ""));
+const launchRequest = useLatestRequest(() => game.value);
 
 watch(
   game,
   (g) => {
     launchInput.value = g?.launchOptions ?? "";
-    launchState.value = "idle";
+    launchState.value = save("idle");
   },
   { immediate: true },
 );
 watch(launchInput, () => {
-  if (launchState.value === "saved") launchState.value = "idle";
+  if (launchState.value.kind === "saved") launchState.value = save("idle");
 });
 
 function launchHintText(hint: LaunchHint): string {
@@ -298,23 +163,36 @@ const launchConfigUnavailable = computed(
 
 async function saveLaunch() {
   const g = game.value;
-  if (!g || launchState.value === "saving") return;
+  if (!g || launchState.value.kind === "saving") return;
   // dirty-vergleich und gespeicherter wert laufen beide getrimmt, sonst bliebe
   // der save-button nach dem speichern von " foo " fälschlich aktiv.
   launchInput.value = launchInput.value.trim();
   if (!launchDirty.value) return;
-  launchState.value = "saving";
+  const token = launchRequest.begin();
+  const submitted = launchInput.value;
+  // ein abweichender entwurf beendet den status trotzdem, sonst bliebe der
+  // knopf dauerhaft gesperrt.
+  const stillMatches = (): boolean =>
+    launchRequest.matchesValue(token, () => launchInput.value === submitted);
+  launchState.value = save("saving");
   try {
-    await config.saveLaunchOptions(g.appId, launchInput.value);
-    launchState.value = "saved";
+    const result = await config.saveLaunchOptions(token.appId ?? g.appId, submitted);
+    if (!launchRequest.matches(token)) return;
+    if (!stillMatches()) {
+      launchState.value = save("idle");
+      return;
+    }
+    launchState.value = save(result === "written" ? "saved" : "idle");
   } catch (e) {
-    launchState.value = errorText(e);
+    if (!stillMatches()) return;
+    launchState.value = saveError(errorText(e));
   }
 }
 
 // Auswahl und Status für Compat-Tools.
 const compatSelected = ref("__default__");
-const compatState = ref<"idle" | "saving" | "saved" | string>("idle");
+const compatState = ref<SaveState>(save("idle"));
+const compatRequest = useLatestRequest(() => game.value);
 
 const compatProvenance = computed(() => {
   const result = scan.result;
@@ -398,121 +276,52 @@ watch(
   (g) => {
     const tool = g?.compatTool;
     compatSelected.value = tool && tool !== "default" ? tool : "__default__";
-    compatState.value = "idle";
+    compatState.value = save("idle");
   },
   { immediate: true },
 );
 
 watch(compatSelected, () => {
-  if (compatState.value === "saved") compatState.value = "idle";
+  if (compatState.value.kind === "saved") compatState.value = save("idle");
 });
 
 async function saveCompat() {
   const g = game.value;
-  if (!g || compatState.value === "saving" || !compatDirty.value) return;
-  compatState.value = "saving";
+  if (!g || compatState.value.kind === "saving" || !compatDirty.value) return;
+  const token = compatRequest.begin();
+  const selected = compatSelected.value;
+  const stillMatches = (): boolean =>
+    compatRequest.matchesValue(token, () => compatSelected.value === selected);
+  compatState.value = save("saving");
   try {
-    const name = compatSelected.value === "__default__" ? null : compatSelected.value;
-    await config.saveCompatTool(g.appId, name);
-    compatState.value = "saved";
-  } catch (e) {
-    compatState.value = errorText(e);
-  }
-}
-
-type SupportCopyState = "idle" | "copying" | "copied" | "failed";
-
-interface SupportCopyContext {
-  appId: number;
-  scanGeneration: number;
-}
-
-const supportCopyState = ref<SupportCopyState>("idle");
-let supportCopyRequestId = 0;
-
-const supportCopyContext = computed<SupportCopyContext | null>(() => {
-  const current = game.value;
-  const result = scan.result;
-  if (!current || !result || scan.status !== "done") return null;
-  return { appId: current.appId, scanGeneration: scan.scanGeneration };
-});
-
-function sameSupportCopyContext(
-  left: SupportCopyContext | null,
-  right: SupportCopyContext | null,
-): boolean {
-  if (left === null || right === null) return left === right;
-  return left.appId === right.appId && left.scanGeneration === right.scanGeneration;
-}
-
-function invalidateSupportCopy(): void {
-  supportCopyRequestId += 1;
-  supportCopyState.value = "idle";
-}
-
-watch(
-  supportCopyContext,
-  (current, previous) => {
-    if (previous === undefined || !sameSupportCopyContext(current, previous)) {
-      invalidateSupportCopy();
+    const result = await config.saveCompatTool(
+      token.appId ?? g.appId,
+      selected === "__default__" ? null : selected,
+    );
+    if (!compatRequest.matches(token)) return;
+    if (!stillMatches()) {
+      compatState.value = save("idle");
+      return;
     }
-  },
-  { immediate: true },
-);
-
-const canCopySupport = computed(
-  () =>
-    supportCopyContext.value !== null &&
-    launchState.value !== "saving" &&
-    compatState.value !== "saving" &&
-    supportCopyState.value !== "copying",
-);
-
-function isCurrentSupportCopy(requestId: number, context: SupportCopyContext): boolean {
-  return (
-    requestId === supportCopyRequestId && sameSupportCopyContext(supportCopyContext.value, context)
-  );
-}
-
-async function copySupport(): Promise<void> {
-  const current = game.value;
-  const result = scan.result;
-  const context = supportCopyContext.value;
-  if (!current || !result || !context || !canCopySupport.value) return;
-
-  const snapshot = formatSupportFacts(
-    projectSupportFacts({
-      game: current,
-      result,
-      footprint: footprintResult.value,
-      cleanup: {
-        scanning: cleanup.scanning,
-        trashScanning: cleanup.trashScanning,
-        prefixUnavailable: cleanup.prefixUnavailable,
-        shaderUnavailable: cleanup.shaderUnavailable,
-        trashUnavailable: cleanup.trashUnavailable,
-        incompleteDeletionsCount: cleanup.incompleteDeletions.length,
-        incompleteDeletionsUnreadable: cleanup.incompleteDeletionsUnreadable.length > 0,
-      },
-    }),
-    appVersion,
-  );
-  const requestId = ++supportCopyRequestId;
-  supportCopyState.value = "copying";
-
-  const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard;
-  if (!clipboard || typeof clipboard.writeText !== "function") {
-    if (isCurrentSupportCopy(requestId, context)) supportCopyState.value = "failed";
-    return;
-  }
-
-  try {
-    await clipboard.writeText(snapshot);
-    if (isCurrentSupportCopy(requestId, context)) supportCopyState.value = "copied";
-  } catch {
-    if (isCurrentSupportCopy(requestId, context)) supportCopyState.value = "failed";
+    compatState.value = save(result === "written" ? "saved" : "idle");
+  } catch (e) {
+    if (!stillMatches()) return;
+    compatState.value = saveError(errorText(e));
   }
 }
+
+const {
+  state: supportCopyState,
+  canCopy: canCopySupport,
+  invalidate: invalidateSupportCopy,
+  copy: copySupport,
+} = useSupportCopy(
+  game,
+  scan,
+  footprintResult,
+  cleanup,
+  computed(() => launchState.value.kind === "saving" || compatState.value.kind === "saving"),
+);
 
 const {
   state: prefixState,
@@ -521,17 +330,17 @@ const {
   open: openPrefix,
 } = usePrefixOpen(
   game,
-  computed(() => launchState.value === "saving"),
+  computed(() => launchState.value.kind === "saving"),
 );
 
-// fehler-toast: der state ist entweder ein bekanntes schlagwort oder die fehlermeldung.
-function stateError(s: string): string | null {
-  return s === "idle" || s === "saving" || s === "saved" ? null : s;
+// fehler-toast: nur der fehlerfall trägt eine meldung.
+function stateError(s: SaveState): string | null {
+  return s.kind === "error" ? s.message : null;
 }
 const errorMessage = computed(() => stateError(compatState.value) ?? stateError(launchState.value));
 function dismissError() {
-  if (stateError(compatState.value)) compatState.value = "idle";
-  if (stateError(launchState.value)) launchState.value = "idle";
+  if (stateError(compatState.value)) compatState.value = save("idle");
+  if (stateError(launchState.value)) launchState.value = save("idle");
 }
 
 // toast nach 6s automatisch schließen (bleibt bei erneutem fehler frisch stehen).
@@ -578,7 +387,7 @@ watch(errorMessage, (msg) => {
         </div>
         <p class="meta mono">{{ formatBytes(game.sizeBytes) }} · appid - {{ game.appId }}</p>
         <p class="meta-tier">
-          {{ TIER_LABEL[game.protonDb?.tier ?? "unknown"] }}
+          {{ tierName(game.protonDb?.tier ?? "unknown") }}
           <ExplainInfo
             :label="t('explain.topics.protondb.title')"
             :topics="['protondb']"
@@ -727,10 +536,16 @@ watch(errorMessage, (msg) => {
             <button
               class="save"
               type="button"
-              :disabled="!compatDirty || compatState === 'saving'"
+              :disabled="!compatDirty || compatState.kind === 'saving'"
               @click="saveCompat"
             >
-              {{ compatState === "saving" ? "…" : compatState === "saved" ? t("drawer.saved") : t("drawer.save") }}
+              {{
+                compatState.kind === "saving"
+                  ? "…"
+                  : compatState.kind === "saved"
+                    ? t("drawer.saved")
+                    : t("drawer.save")
+              }}
             </button>
           </div>
           <p class="hint" data-testid="compat-provenance">
@@ -756,10 +571,16 @@ watch(errorMessage, (msg) => {
             <button
               class="save"
               type="button"
-              :disabled="!launchDirty || launchState === 'saving'"
+              :disabled="!launchDirty || launchState.kind === 'saving'"
               @click="saveLaunch"
             >
-              {{ launchState === "saving" ? "…" : launchState === "saved" ? t("drawer.saved") : t("drawer.save") }}
+              {{
+                launchState.kind === "saving"
+                  ? "…"
+                  : launchState.kind === "saved"
+                    ? t("drawer.saved")
+                    : t("drawer.save")
+              }}
             </button>
           </div>
           <p class="hint">{{ t("drawer.launchOptionsHint") }}</p>

@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
-import { recomputeToolUsedBy } from "../../core/compat";
+import { recomputeToolUsedBy } from "../../core/compatTools";
 import { errText, isSteamNotFound } from "../../core/errtext";
 import { deriveProtonCheck } from "../../core/protoncheck";
 import { deriveScanCoverage } from "../../core/scan/coverage";

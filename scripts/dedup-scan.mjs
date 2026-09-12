@@ -1,6 +1,13 @@
 #!/usr/bin/env node
-// read-only dedup scan: exakte codeblock-duplikate + dateipaar-ähnlichkeit.
+// read-only dedup scan: codeblock-duplikate + dateipaar-ähnlichkeit.
 // keine dependency, nur node builtins. ausgabe als plain text.
+//
+// Der block-vergleich normalisiert bewusst (whitespace, strukturklammern,
+// kommentare): exakte byte-gleiche blöcke gibt es in diesem repo praktisch
+// nicht, die echten wiederholungen sind Fixture-literale und
+// boilerplate-muster, die sich in einrückung und umgebung unterscheiden.
+// Der lauf ersetzt kein Token-Werkzeug (jscpd), findet aber die Fälle, die
+// beim Umbau wirklich stören.
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, extname } from "node:path";
@@ -35,62 +42,80 @@ function lines(file) {
   return readFileSync(file, "utf8").split(/\r?\n/);
 }
 
-// exakte block-duplikate über alle dateien (auch innerdatei).
+/** zeile für den vergleich normalisieren; `null` = strukturkram, zählt nicht.
+ *  ohne diesen filter bestehen die treffer nur aus schließenden klammern. */
+function normalizeLine(raw) {
+  const line = raw.trim();
+  if (!line) return null;
+  if (line.startsWith("//") || line.startsWith("*") || line.startsWith("/*")) return null;
+  // nur klammern/kommas/doppelpunkte: reine struktur, kein inhalt
+  if (/^[\]\[)(}{;,]+$/.test(line)) return null;
+  return line.replace(/\s+/g, " ");
+}
+
+// Block-duplikate über alle Dateien (auch innerdatei). Verglichen wird auf
+// normalisierten Zeilen: eine Zeile gilt als "geteilt", wenn dieselbe
+// normalisierte Fassung in mindestens zwei Dateien an einer beliebigen Stelle
+// vorkommt. Gemeldet werden maximale Folgen geteilter Zeilen ab MIN_BLOCK —
+// ohne Gleitfenster, damit derselbe Fund nicht dutzendfach mit verschobenem
+// Start erscheint.
 function findBlocks(files) {
-  const map = new Map(); // hash -> [{file, start, lines}]
-  const filesLines = files.map((f) => [f, lines(f)]);
-  for (const [file, ls] of filesLines) {
-    for (let i = 0; i + MIN_BLOCK <= ls.length; i++) {
-      const block = ls.slice(i, i + MIN_BLOCK);
-      const norm = block.map((l) => l.trim()).join("\n");
-      if (!norm.trim()) continue;
-      let key = 0;
-      for (let c = 0; c < norm.length; c++) key = (key * 31 + norm.charCodeAt(c)) >>> 0;
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push({ file, start: i + 1, text: block.join("\n") });
+  const byNormalized = new Map(); // normalisierte zeile -> menge der dateien
+  const normalizedByFile = new Map();
+  for (const file of files) {
+    const entries = [];
+    for (const raw of lines(file)) {
+      const norm = normalizeLine(raw);
+      if (norm === null) continue;
+      entries.push([norm, raw]);
+      if (!byNormalized.has(norm)) byNormalized.set(norm, new Set());
+      byNormalized.get(norm).add(file);
     }
+    normalizedByFile.set(file, entries);
+  }
+
+  const out = [];
+  for (const [file, entries] of normalizedByFile) {
+    let run = null;
+    const flush = () => {
+      if (run && run.end - run.start + 1 >= MIN_BLOCK) {
+        const text = entries
+          .slice(run.start, run.end + 1)
+          .map((entry) => entry[1])
+          .join("\n");
+        out.push({ file, start: run.start + 1, end: run.end + 1, text });
+      }
+      run = null;
+    };
+    for (let i = 0; i < entries.length; i++) {
+      const shared = byNormalized.get(entries[i][0]).size > 1;
+      if (shared) {
+        if (run) run.end = i;
+        else run = { start: i, end: i };
+      } else {
+        flush();
+      }
+    }
+    flush();
+  }
+
+  // gleiche Textstelle aus mehreren Dateien zu einem Fund bündeln
+  const grouped = new Map();
+  for (const block of out) {
+    const key = block.text;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(block);
   }
   const groups = [];
-  for (const hits of map.values()) {
-    // nur gruppen mit mehr als einem fund und mindestens zwei verschiedenen stellen
-    const seen = new Set(hits.map((h) => `${h.file}:${h.start}`));
-    if (seen.size < 2) continue;
-    // zusammenlegen: benachbarte starts in derselben datei sind teil desselben blocks
-    const byFile = new Map();
-    for (const h of hits) {
-      if (!byFile.has(h.file)) byFile.set(h.file, []);
-      byFile.get(h.file).push(h);
-    }
-    let total = 0;
-    const repr = [];
-    for (const [f, hs] of byFile) {
-      hs.sort((a, b) => a.start - b.start);
-      let merged = [{ start: hs[0].start, len: 1 }];
-      for (let k = 1; k < hs.length; k++) {
-        const last = merged[merged.length - 1];
-        if (hs[k].start === last.start + last.len) last.len++;
-        else merged.push({ start: hs[k].start, len: 1 });
-      }
-      for (const m of merged) {
-        if (m.len < MIN_BLOCK) continue;
-        total += m.len;
-        repr.push(`${f}:${m.start} (${m.len} z.)`);
-      }
-    }
-    if (total >= MIN_BLOCK && repr.length >= 2) {
-      groups.push({ repr, sample: hits[0].text });
-    }
+  for (const [text, blocks] of grouped) {
+    const files = new Set(blocks.map((b) => b.file));
+    if (files.size < 2) continue;
+    const repr = blocks
+      .sort((a, b) => a.file.localeCompare(b.file) || a.start - b.start)
+      .map((b) => `${b.file}:${b.start}-${b.end} (${b.end - b.start + 1} z.)`);
+    groups.push({ repr, sample: text });
   }
-  // dedup gleicher gruppen (gleiche repr-menge)
-  const out = [];
-  const seenKeys = new Set();
-  for (const g of groups) {
-    const key = [...g.repr].sort().join("|");
-    if (seenKeys.has(key)) continue;
-    seenKeys.add(key);
-    out.push(g);
-  }
-  return out;
+  return groups.sort((a, b) => b.repr.length - a.repr.length);
 }
 
 // dateipaar-ähnlichkeit via jaccard über 5er-zeilen-shingles (normiert).

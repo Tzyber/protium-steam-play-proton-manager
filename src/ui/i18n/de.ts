@@ -77,6 +77,7 @@ export const de = {
     coverageReasonPathMissing: "pfad fehlt",
     coverageReasonScopeFailed: "zugriff nicht freigegeben",
     coverageReasonReadFailed: "lesen fehlgeschlagen",
+    coverageReasonUnverified: "zustand nicht belegt",
     coverageReasonMissing: "konfiguration fehlt",
     coverageReasonUnreadable: "nicht lesbar",
     coverageReasonSelectionAmbiguous: "account-auswahl mehrdeutig",
@@ -301,6 +302,16 @@ export const de = {
   card: {
     openDetails: "{name} details öffnen",
     launch: "{name} starten",
+  },
+  // kurznamen für sichtbare labels (drawer/tierbadge); `tier.*` sind die
+  // ausführlichen ProtonDB-beschreibungen
+  tierName: {
+    platinum: "Platin",
+    gold: "Gold",
+    silver: "Silber",
+    bronze: "Bronze",
+    borked: "Defekt",
+    unknown: "Unbekannt",
   },
   tier: {
     platinum: "läuft perfekt, out of the box",

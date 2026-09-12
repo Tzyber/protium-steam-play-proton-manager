@@ -32,7 +32,7 @@ interface CacheEntry {
 
 export type FetchSource = "cache" | "not-modified" | "fresh" | "offline";
 
-export interface FetchResult {
+interface FetchResult {
   releases: GeRelease[];
   fetchedAt: number; // letzter echter github-kontakt
   source: FetchSource;
@@ -244,7 +244,7 @@ export async function fetchReleases(
   }
 }
 
-export type InstallPhase = "downloading" | "verifying" | "extracting";
+type InstallPhase = "downloading" | "verifying" | "extracting";
 
 interface InstallOpts {
   steamRoot: string;

@@ -4,33 +4,13 @@ import { paths } from "./paths.js";
 import type { FileSystem } from "./ports.js";
 import { NUMERIC_RE, parseSafeAppId } from "./types.js";
 import { asInt, asNode, getPath, parseVdf } from "./vdf.js";
-import { getVdfChildFieldValues, getVdfChildValues, getVdfValue } from "./vdfpatch.js";
+import { getVdfChildFieldValues, getVdfValue } from "./vdfpatch.js";
 
 const APPS_PATH = ["UserLocalConfigStore", "Software", "Valve", "Steam", "Apps"];
 
 /** pfad des LaunchOptions-werts eines spiels in localconfig.vdf. */
 function launchOptionsPath(appId: number): string[] {
   return [...APPS_PATH, String(appId), "LaunchOptions"];
-}
-
-export function readLaunchOptions(localConfigText: string, appId: number): string | undefined {
-  return getVdfValue(localConfigText, launchOptionsPath(appId));
-}
-
-/** alle startoptionen der localconfig in EINEM tokenize-lauf: appId → wert.
- *  `firstError` ist der erste strukturelle defekt eines app-blocks; ein defekter
- *  fremdblock verwirft die übrigen optionen nicht mehr, degradiert aber wie bisher. */
-export function readAllLaunchOptions(localConfigText: string): {
-  values: Map<number, string>;
-  firstError: string | null;
-} {
-  const { values, firstError } = getVdfChildValues(localConfigText, APPS_PATH, "LaunchOptions");
-  const byAppId = new Map<number, string>();
-  for (const [key, value] of values) {
-    const appId = parseSafeAppId(key);
-    if (appId !== null) byAppId.set(appId, value);
-  }
-  return { values: byAppId, firstError };
 }
 
 /** startoptionen UND `LastPlayed` aller apps in EINEM tokenize-lauf:
@@ -115,7 +95,7 @@ async function mostRecentUser(fs: FileSystem, steamRoot: string): Promise<string
   return null;
 }
 
-export type ActiveUserSearchResult =
+type ActiveUserSearchResult =
   | { status: "missing" }
   | { status: "unreadable"; detail: string }
   | { status: "selected"; userId: string; selection: "unique" | "ambiguous" };
@@ -137,7 +117,7 @@ export async function findActiveUser(
       if (await fs.exists(paths.localConfigVdf(steamRoot, e.name))) candidates.push(e.name);
     }
   } catch (e) {
-    return { status: "unreadable", detail: e instanceof Error ? e.message : String(e) };
+    return { status: "unreadable", detail: errText(e) };
   }
   // numerisch sortieren: lexikographisch läge "10" vor "2".
   const first = candidates.sort((a, b) => Number(a) - Number(b))[0];

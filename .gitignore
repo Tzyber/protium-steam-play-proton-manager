@@ -65,14 +65,10 @@ reports/
 .windsurf/
 .github/copilot-instructions.md
 CLAUDE.md
-0.3.0-plan.md
-0.3.0-spec.md
-PROTIUM_AUDIT_AND_RECOMMENDATIONS.md
+# abgeschlossene planungsstände, seit 2026-09-12 unter docs/archiv/
+docs/archiv/
 docs/mutation-report-2026-08-08.md
 docs/wiki-entwurf/
-quickfix-plan.md
-s09-sha512fix-plan.md
-umsetzungsbericht-2026-08-11.md
 HANDOFF.md
 AGENTS.md
 
@@ -89,4 +85,4 @@ docs/protium-v0.6.2-sdd-truth-deletion-hardening.md
 docs/Protium-Backend-Audit-vor-v0.8-2026-09-03.md
 
 # release-anweisung fuer den release-agenten, gehoert nicht ins release
-RELEASE-HANDOFF-*.md
+docs/archiv/RELEASE-HANDOFF-*.md

@@ -2,16 +2,16 @@ import { paths } from "./paths.js";
 import type { System } from "./ports.js";
 import { type Game, isRecord, type LaunchConfigStatus } from "./types.js";
 
-export type FootprintPartStatus = "measured" | "missing" | "failed" | "not-requested";
+type FootprintPartStatus = "measured" | "missing" | "failed" | "not-requested";
 
 export interface FootprintPart {
   status: FootprintPartStatus;
   sizeBytes?: number;
 }
 
-export type FootprintSummaryStatus = "complete" | "partial" | "not-measured";
+type FootprintSummaryStatus = "complete" | "partial" | "not-measured";
 
-export interface FootprintSummary {
+interface FootprintSummary {
   status: FootprintSummaryStatus;
   sizeBytes?: number;
 }

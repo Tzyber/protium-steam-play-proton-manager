@@ -8,12 +8,10 @@ let dialogCount = 0;
 const {
   title,
   confirmLabel,
-  danger,
   busy = false,
 } = defineProps<{
   title: string;
   confirmLabel?: string;
-  danger?: boolean;
   busy?: boolean;
 }>();
 const emit = defineEmits<{ confirm: []; cancel: [] }>();
@@ -75,7 +73,7 @@ onBeforeUnmount(() => {
           <button class="btn ghost" type="button" :disabled="busy" @click="cancel">
             {{ t("common.cancel") }}
           </button>
-          <button class="btn" :class="{ danger }" type="button" :disabled="busy" @click="confirm">
+          <button class="btn" type="button" :disabled="busy" @click="confirm">
             {{ confirmLabel ?? t("common.confirm") }}
           </button>
         </div>
@@ -110,10 +108,12 @@ h3 {
 }
 .content { color: var(--fg-1); font-size: 0.8125rem; margin-bottom: 18px; }
 .actions { display: flex; justify-content: flex-end; gap: 10px; }
+/* bestätigung ist immer destruktiv (INV-6): die rote variante ist der einzige
+ * bestätigungsknopf, ein neutraler zweig existiert nicht mehr. */
 .btn {
-  border: 1px solid var(--signal);
-  background: var(--signal);
-  color: #0a0b11;
+  border: 1px solid #c03940;
+  background: #c03940;
+  color: #fff;
   border-radius: var(--r-sm);
   padding: 8px 14px;
   font-family: var(--font-body);
@@ -123,9 +123,7 @@ h3 {
 }
 .btn.ghost { background: transparent; color: var(--fg-1); border-color: var(--line); }
 .btn.ghost:hover { color: var(--fg-0); border-color: var(--signal-dim); }
-.btn.danger { background: #c03940; border-color: #c03940; color: #fff; }
-.btn:hover { background: var(--signal-dim); border-color: var(--signal-dim); }
-.btn.danger:hover { background: #a93238; border-color: #a93238; color: #fff; }
+.btn:hover { background: #a93238; border-color: #a93238; }
 .btn:focus-visible,
 .btn.ghost:focus-visible {
   outline: 2px solid var(--signal-dim);

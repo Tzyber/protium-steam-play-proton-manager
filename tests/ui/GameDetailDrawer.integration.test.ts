@@ -41,6 +41,7 @@ vi.mock("../../src/ui/components/TierBadge.vue", () => ({
   default: { template: '<span data-testid="tier-badge" />' },
 }));
 
+import { tauriPorts } from "../../src/core/adapters/tauri";
 import { projectSupportFacts } from "../../src/core/support";
 import GameDetailDrawer from "../../src/ui/components/GameDetailDrawer.vue";
 import { setLocale, t } from "../../src/ui/i18n";
@@ -50,26 +51,15 @@ import { useScanStore } from "../../src/ui/stores/scanStore";
 import { useUiStore } from "../../src/ui/stores/uiStore";
 import { formatSupportFacts } from "../../src/ui/supportText";
 import { usePrefixOpen } from "../../src/ui/usePrefixOpen";
+import { deferred, game as makeGame } from "../support/factories";
 
 const marker = "fixture-secret-934";
 const privatePath = "/home/fixture-private-user/.steam/userdata/76561198012345678";
 
-function deferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-  reject: (reason?: unknown) => void;
-} {
-  let resolvePromise: (value: T) => void = () => {};
-  let rejectPromise: (reason?: unknown) => void = () => {};
-  const promise = new Promise<T>((resolve, reject) => {
-    resolvePromise = resolve;
-    rejectPromise = reject;
-  });
-  return { promise, resolve: resolvePromise, reject: rejectPromise };
-}
-
+// marker und privatePath stehen in jeder figur: der test prüft, dass nichts
+// davon in die kopierte diagnose oder in logs leckt.
 function game(overrides: Partial<Game> = {}): Game {
-  return {
+  return makeGame({
     appId: 620,
     name: `Game ${marker}`,
     library: `${privatePath}/steamapps`,
@@ -82,7 +72,7 @@ function game(overrides: Partial<Game> = {}): Game {
     headerImage: `https://${marker}/fallback.png`,
     launchOptions: `PROTON_LOG=1 STEAM_COMPAT_DATA_PATH=${privatePath}/${marker} %command%`,
     ...overrides,
-  };
+  });
 }
 
 function scanResult(currentGame: Game = game(), overrides: Partial<ScanResult> = {}): ScanResult {
@@ -272,7 +262,7 @@ describe("GameDetailDrawer SupportFacts-Integration", () => {
     await nextTick();
 
     const button = wrapper.get("[data-testid='support-copy']");
-    expect(button.attributes("disabled")).toBeDefined();
+    expect(button.attributes("disabled")).toBe("");
     await button.trigger("click");
     expect(writeText).not.toHaveBeenCalled();
   });
@@ -286,7 +276,7 @@ describe("GameDetailDrawer SupportFacts-Integration", () => {
 
     await button.trigger("click");
     await nextTick();
-    expect(button.attributes("disabled")).toBeDefined();
+    expect(button.attributes("disabled")).toBe("");
     await button.trigger("click");
     expect(writeText).toHaveBeenCalledTimes(1);
     const snapshot = writeText.mock.calls[0]?.[0];
@@ -386,6 +376,40 @@ describe("GameDetailDrawer SupportFacts-Integration", () => {
     expect(saveCompat).not.toHaveBeenCalled();
   });
 
+  it("übernimmt einen geschriebenen Startoptionen-Save in die scan-wahrheit", async () => {
+    // F3/F1-Regression: der Erfolgspfad muss über den echten Config-Store
+    // laufen (applyGameConfig per appId) und darf den neuen Wächter nicht
+    // verlieren.
+    const system = tauriPorts.system as { saveLaunchOptions?: unknown };
+    const save = vi.fn(async () => "written" as WriteResult);
+    system.saveLaunchOptions = save;
+    try {
+      const { wrapper, current } = mountDrawer();
+      const input = wrapper.get<HTMLInputElement>("#launch-options");
+
+      await input.setValue("MANGOHUD=1 %command%");
+      await input.trigger("keydown", { key: "Enter" });
+      await flushPromises();
+      await nextTick();
+
+      expect(save).toHaveBeenCalledTimes(1);
+      expect(save).toHaveBeenCalledWith(
+        current.library.split("/steamapps")[0],
+        expect.any(String),
+        current.appId,
+        "MANGOHUD=1 %command%",
+      );
+      expect(current.launchOptions).toBe("MANGOHUD=1 %command%");
+      expect(input.element.value).toBe("MANGOHUD=1 %command%");
+
+      const saveButton = input.element.parentElement?.querySelector<HTMLButtonElement>("button");
+      expect(saveButton?.disabled).toBe(true);
+      expect(saveButton?.textContent).toContain(t("drawer.saved"));
+    } finally {
+      Reflect.deleteProperty(system, "saveLaunchOptions");
+    }
+  });
+
   it("deaktiviert den Support-Klick während eines laufenden Config-Saves", async () => {
     const pendingSave = deferred<WriteResult>();
     const writeText = vi.fn(async (_text: string) => {});
@@ -401,7 +425,7 @@ describe("GameDetailDrawer SupportFacts-Integration", () => {
     await nextTick();
 
     expect(saveLaunch).toHaveBeenCalledTimes(1);
-    expect(wrapper.get("[data-testid='support-copy']").attributes("disabled")).toBeDefined();
+    expect(wrapper.get("[data-testid='support-copy']").attributes("disabled")).toBe("");
     expect(writeText).not.toHaveBeenCalled();
 
     pendingSave.resolve("written");
@@ -533,7 +557,7 @@ describe("Prefix-Ordner öffnen", () => {
     scan.result = scanResult(game({ launchOptions }));
     await nextTick();
     const button = wrapper.get('[data-testid="prefix-open"]');
-    expect(button.attributes("disabled")).toBeDefined();
+    expect(button.attributes("disabled")).toBe("");
     expect(wrapper.get('[data-testid="prefix-reason"]').text()).toContain(
       "Standardziel ist nicht belegt",
     );
@@ -548,7 +572,7 @@ describe("Prefix-Ordner öffnen", () => {
       const { wrapper, scan } = await ready();
       scan.result = scanResult(game({ launchOptions: "" }), { launchConfigStatus });
       await nextTick();
-      expect(wrapper.get('[data-testid="prefix-open"]').attributes("disabled")).toBeDefined();
+      expect(wrapper.get('[data-testid="prefix-open"]').attributes("disabled")).toBe("");
       expect(wrapper.get('[data-testid="prefix-reason"]').text()).toContain(
         "Startoptionen sind nicht eindeutig verfügbar",
       );
@@ -569,7 +593,7 @@ describe("Prefix-Ordner öffnen", () => {
     await nextTick();
 
     expect(saveLaunch).toHaveBeenCalledTimes(1);
-    expect(wrapper.get('[data-testid="prefix-open"]').attributes("disabled")).toBeDefined();
+    expect(wrapper.get('[data-testid="prefix-open"]').attributes("disabled")).toBe("");
     expect(wrapper.get('[data-testid="prefix-reason"]').text()).toContain("gespeichert");
   });
 
@@ -577,7 +601,7 @@ describe("Prefix-Ordner öffnen", () => {
     const { wrapper, scan } = await ready();
     scan.status = "scanning";
     await nextTick();
-    expect(wrapper.get('[data-testid="prefix-open"]').attributes("disabled")).toBeDefined();
+    expect(wrapper.get('[data-testid="prefix-open"]').attributes("disabled")).toBe("");
     expect(wrapper.get('[data-testid="prefix-reason"]').text()).toContain(
       "Scan ist nicht abgeschlossen",
     );
@@ -618,7 +642,7 @@ describe("Prefix-Ordner öffnen", () => {
     const pending = deferred<void>();
     openPrefixFolderMock.mockReturnValueOnce(pending.promise);
     await wrapper.get('[data-testid="prefix-open"]').trigger("click");
-    expect(wrapper.get('[data-testid="prefix-open"]').attributes("disabled")).toBeDefined();
+    expect(wrapper.get('[data-testid="prefix-open"]').attributes("disabled")).toBe("");
     await wrapper.get('[data-testid="prefix-open"]').trigger("click");
     expect(openPrefixFolderMock).toHaveBeenCalledTimes(1);
     pending.resolve();

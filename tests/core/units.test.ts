@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { availableBuiltinProtons, BLOCKLIST, isBlocked } from "../../src/core/blocklist.js";
-import { parseCompatToolMapping } from "../../src/core/compat.js";
+import { parseCompatToolMapping } from "../../src/core/compatTools.js";
 import { errText, isSteamRunning, isToolAlreadyExists } from "../../src/core/errtext.js";
 import { parseManifest } from "../../src/core/manifest.js";
 import { joinPath } from "../../src/core/paths.js";

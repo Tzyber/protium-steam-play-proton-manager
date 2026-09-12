@@ -2,14 +2,25 @@
 // werden ausschließlich im Rust-Backend entdeckt und als Snapshot geliefert.
 
 function join(...parts: string[]): string {
-  const joined = parts
-    .map((p, i) => (i === 0 ? p.replace(/\/+$/, "") : p.replace(/^\/+|\/+$/g, "")))
-    .filter(Boolean)
-    .join("/");
-  if (joined.split("/").some((seg) => seg === "..")) {
-    throw new Error(`joinPath: ".." segment rejected for security`);
+  const root = parts[0];
+  // die wurzel ist immer ein absoluter pfad aus dem backend-snapshot. eine
+  // leere oder relative wurzel wird abgelehnt: vorher verschwand "/" durch
+  // `.filter(Boolean)` still und aus "/" + "steamapps" wurde "steamapps"
+  // (relativ zum arbeitsverzeichnis).
+  if (root === undefined || root === "" || !root.startsWith("/")) {
+    throw new Error("joinPath: root must be an absolute path");
   }
-  return joined;
+  const segments = [root.replace(/\/+$/, "") || "/"];
+  for (const part of parts.slice(1)) {
+    for (const segment of part.split("/")) {
+      if (segment === "" || segment === ".") continue;
+      if (segment === "..") {
+        throw new Error(`joinPath: ".." segment rejected for security`);
+      }
+      segments.push(segment);
+    }
+  }
+  return segments.join("/").replace(/\/\//g, "/");
 }
 
 export const paths = {

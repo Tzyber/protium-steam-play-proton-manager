@@ -5,16 +5,10 @@ import type { scanLocal } from "../../src/core/scan/local";
 import type { enrichProtondb } from "../../src/core/scan/protondb";
 import type { ScanResult } from "../../src/core/types";
 import { setLocale } from "../../src/ui/i18n";
+import { deferred, environment, game, scanResult } from "../support/factories";
 
 const { mockDiscoverEnvironment, mockScanLocal, mockEnrichProtondb } = vi.hoisted(() => ({
-  mockDiscoverEnvironment: vi.fn<() => Promise<EnvironmentSnapshot>>(async () => ({
-    generation: 1,
-    steamRoot: "/home/u/.steam",
-    libraries: ["/home/u/.steam"],
-    systemCompatDirs: [],
-    appCacheDir: "/home/u/.cache/protium",
-    appConfigDir: "/home/u/.config/protium",
-  })),
+  mockDiscoverEnvironment: vi.fn<() => Promise<EnvironmentSnapshot>>(async () => environment()),
   mockScanLocal: vi.fn<typeof scanLocal>(),
   mockEnrichProtondb: vi.fn<typeof enrichProtondb>(async () => {}),
 }));
@@ -40,35 +34,7 @@ vi.mock("../../src/core/scan/protondb", () => ({
 import { useScanStore } from "../../src/ui/stores/scanStore";
 
 function fakeResult(): ScanResult {
-  return {
-    steamRoot: "/home/u/.steam",
-    libraries: ["/home/u/.steam"],
-    games: [
-      {
-        appId: 42,
-        name: "Game 42",
-        library: "/home/u/.steam",
-        sizeBytes: 100,
-        compatTool: "default",
-        compatToolSource: "default",
-        protonDb: null,
-        localHeader: null,
-        headerImage: null,
-      },
-    ],
-    compatToolsInstalled: [],
-    builtinProtonsInstalled: [],
-    defaultCompatTool: null,
-    compatConfigStatus: "available",
-    launchConfigStatus: "available",
-    manifestCounts: { read: 0, failed: 0 },
-    compatToolCounts: { read: 0, failed: 0 },
-    steamUserId: null,
-    warnings: [],
-    skippedLibraries: [],
-    cleanupUnsafeLibraries: [],
-    blockedAppIds: [],
-  };
+  return scanResult({ games: [game()] });
 }
 
 function fakeLocalResult(result = fakeResult()): Awaited<ReturnType<typeof scanLocal>> {
@@ -90,33 +56,12 @@ function fakeLocalResult(result = fakeResult()): Awaited<ReturnType<typeof scanL
   };
 }
 
-function deferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-  reject: (reason?: unknown) => void;
-} {
-  let resolvePromise: (value: T) => void = () => {};
-  let rejectPromise: (reason?: unknown) => void = () => {};
-  const promise = new Promise<T>((resolve, reject) => {
-    resolvePromise = resolve;
-    rejectPromise = reject;
-  });
-  return { promise, resolve: resolvePromise, reject: rejectPromise };
-}
-
 describe("scanStore.runScan", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     setLocale("de");
     mockDiscoverEnvironment.mockReset();
-    mockDiscoverEnvironment.mockResolvedValue({
-      generation: 1,
-      steamRoot: "/home/u/.steam",
-      libraries: ["/home/u/.steam"],
-      systemCompatDirs: [],
-      appCacheDir: "/home/u/.cache/protium",
-      appConfigDir: "/home/u/.config/protium",
-    });
+    mockDiscoverEnvironment.mockResolvedValue(environment());
     mockScanLocal.mockReset();
     mockScanLocal.mockResolvedValue(fakeLocalResult());
     mockEnrichProtondb.mockReset();
@@ -197,25 +142,27 @@ describe("scanStore.runScan", () => {
 
     const oldRun = store.runScan();
     const newRun = store.runScan();
-    first.resolve({
-      generation: 1,
-      steamRoot: "/old",
-      libraries: ["/old"],
-      systemCompatDirs: [],
-      appCacheDir: "/cache",
-      appConfigDir: "/config",
-    });
+    first.resolve(
+      environment({
+        generation: 1,
+        steamRoot: "/old",
+        libraries: ["/old"],
+        appCacheDir: "/cache",
+        appConfigDir: "/config",
+      }),
+    );
     await oldRun;
     expect(mockScanLocal).not.toHaveBeenCalled();
 
-    second.resolve({
-      generation: 2,
-      steamRoot: "/new",
-      libraries: ["/new"],
-      systemCompatDirs: [],
-      appCacheDir: "/cache",
-      appConfigDir: "/config",
-    });
+    second.resolve(
+      environment({
+        generation: 2,
+        steamRoot: "/new",
+        libraries: ["/new"],
+        appCacheDir: "/cache",
+        appConfigDir: "/config",
+      }),
+    );
     await newRun;
 
     expect(mockScanLocal).toHaveBeenCalledTimes(1);
@@ -238,14 +185,15 @@ describe("scanStore.runScan", () => {
     expect(store.error).toBeNull();
     expect(store.elapsedMs).toBe(0);
 
-    second.resolve({
-      generation: 2,
-      steamRoot: "/new",
-      libraries: ["/new"],
-      systemCompatDirs: [],
-      appCacheDir: "/cache",
-      appConfigDir: "/config",
-    });
+    second.resolve(
+      environment({
+        generation: 2,
+        steamRoot: "/new",
+        libraries: ["/new"],
+        appCacheDir: "/cache",
+        appConfigDir: "/config",
+      }),
+    );
     await newRun;
   });
 

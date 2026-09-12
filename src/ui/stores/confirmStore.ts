@@ -2,7 +2,7 @@ import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 
 /** anzeige eines bestätigungsdialogs im hauptfenster (v0.3.1-stil). */
-export interface ConfirmRequest {
+interface ConfirmRequest {
   title: string;
   message: string;
   /** beschriftung des bestätigen-knopfs; ohne wert zeigt der dialog

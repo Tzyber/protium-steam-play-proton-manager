@@ -10,13 +10,8 @@ interface ScanOptions {
 
 export async function scanLibrary(ports: Ports, opts: ScanOptions): Promise<ScanResult> {
   const { environment } = opts;
-  if (
-    environment.generation < 1 ||
-    environment.steamRoot.length === 0 ||
-    !environment.libraries.includes(environment.steamRoot)
-  ) {
-    throw new Error("environment snapshot is missing a current Steam root");
-  }
+  // die snapshot-prüfung (generation, wurzel, libraries) liegt in `scanLocal`,
+  // dem gemeinsamen einstieg aller scan-pfade.
   const local = await scanLocal(ports, environment);
   await enrichProtondb(ports, local.games, opts.protonDbDelayMs ?? 150);
 

@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 
-import { mount } from "@vue/test-utils";
+import { DOMWrapper, flushPromises, mount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick, reactive } from "vue";
 import type { FootprintPart, GameFootprint } from "../../src/core/footprint";
+import type { WriteResult } from "../../src/core/ports";
 import type { ProtonCheck } from "../../src/core/protoncheck";
 import type { ScanResult } from "../../src/core/types";
 
@@ -27,8 +28,8 @@ const {
     showNotification: vi.fn(),
   },
   configState: {
-    saveLaunchOptions: vi.fn(async () => ({ changed: false })),
-    saveCompatTool: vi.fn(async () => ({ changed: false })),
+    saveLaunchOptions: vi.fn(async (): Promise<WriteResult> => "unchanged"),
+    saveCompatTool: vi.fn(async (): Promise<WriteResult> => "unchanged"),
   },
   cleanupState: {
     scanning: false,
@@ -77,9 +78,10 @@ vi.mock("../../src/ui/components/PlayButton.vue", () => ({
 }));
 vi.mock("../../src/ui/components/SelectBox.vue", () => ({
   default: {
-    props: ["options"],
+    props: ["options", "modelValue"],
+    emits: ["update:modelValue"],
     template:
-      '<ul data-testid="select-box"><li v-for="option in options" :key="option.value" class="select-option">{{ option.label }}</li></ul>',
+      '<ul data-testid="select-box"><li v-for="option in options" :key="option.value" class="select-option" @click="$emit(\'update:modelValue\', option.value)">{{ option.label }}</li></ul>',
   },
 }));
 vi.mock("../../src/ui/components/TierBadge.vue", () => ({
@@ -89,16 +91,14 @@ vi.mock("../../src/ui/components/TierBadge.vue", () => ({
 import { tauriPorts } from "../../src/core/adapters/tauri";
 import GameDetailDrawer from "../../src/ui/components/GameDetailDrawer.vue";
 import { setLocale, t } from "../../src/ui/i18n";
+import { deferred, game as makeGame, scanResult } from "../support/factories";
 
-function deferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-} {
-  let resolvePromise: (value: T) => void = () => {};
-  const promise = new Promise<T>((resolve) => {
-    resolvePromise = resolve;
-  });
-  return { promise, resolve: resolvePromise };
+/** Pflicht-Element aus dem DOM: ein fehlendes Element lässt den Test mit
+ *  klarer Meldung scheitern statt still zurückzuspringen. */
+function requireElement(selector: string, root: ParentNode = document): HTMLElement {
+  const element = root.querySelector<HTMLElement>(selector);
+  if (!element) throw new Error(`element nicht gefunden: ${selector}`);
+  return element;
 }
 
 function footprint(
@@ -135,37 +135,22 @@ function result(
   } = {},
 ): ScanResult {
   const appId = options.appId ?? 42;
-  return {
-    steamRoot: "/home/u/.steam",
-    libraries: ["/home/u/.steam"],
+  return scanResult({
     games: [
-      {
+      makeGame({
         appId,
-        name: `Game ${appId}`,
         library: options.library ?? "/home/u/.steam",
-        sizeBytes: 100,
         installdir: options.installdir ?? `game-${appId}`,
         compatTool,
         compatToolSource,
         protonDb: { tier: "gold", confidence: "strong" },
-        localHeader: null,
-        headerImage: null,
         launchOptions: options.launchOptions,
-      },
+      }),
     ],
-    compatToolsInstalled: [],
-    builtinProtonsInstalled: [],
     defaultCompatTool,
     compatConfigStatus,
     launchConfigStatus: options.launchConfigStatus ?? "available",
-    manifestCounts: { read: 0, failed: 0 },
-    compatToolCounts: { read: 0, failed: 0 },
-    steamUserId: null,
-    warnings: [],
-    skippedLibraries: [],
-    cleanupUnsafeLibraries: [],
-    blockedAppIds: [],
-  };
+  });
 }
 
 function mountDrawer(scanResult: ScanResult, reasons: ProtonCheck["reasons"] = []) {
@@ -206,6 +191,27 @@ describe("GameDetailDrawer Config-Provenienz", () => {
     const wrapper = mountDrawer(result("available", "default", "default", null, { appId: 620 }));
 
     expect(wrapper.get(".meta").text()).toBe("100 B · appid - 620");
+  });
+
+  it("zeigt den lokalisierten stufennamen statt der langbeschreibung", () => {
+    // die kurznamen kommen aus der gemeinsamen tier-darstellung; `tier.*` sind
+    // die ausführlichen ProtonDB-beschreibungen und hier bewusst nicht sichtbar.
+    const withTier = (tier: "platinum" | "borked") =>
+      scanResult({
+        games: [
+          makeGame({ protonDb: { tier, confidence: "strong" } }),
+          ...result("available", "default", "default", null).games,
+        ],
+      });
+
+    setLocale("de");
+    const de = mountDrawer(withTier("platinum"));
+    expect(de.get(".meta-tier").text()).toContain("Platin");
+    expect(de.get(".meta-tier").text()).not.toContain(t("tier.platinum"));
+
+    setLocale("en");
+    const en = mountDrawer(withTier("borked"));
+    expect(en.get(".meta-tier").text()).toContain("Borked");
   });
 
   it.each([
@@ -751,8 +757,8 @@ describe("GameDetailDrawer Startoptionen-Hinweise", () => {
     cleanupState.incompleteDeletionsUnreadable = [];
     configState.saveLaunchOptions.mockReset();
     configState.saveCompatTool.mockReset();
-    configState.saveLaunchOptions.mockResolvedValue({ changed: true });
-    configState.saveCompatTool.mockResolvedValue({ changed: true });
+    configState.saveLaunchOptions.mockResolvedValue("written");
+    configState.saveCompatTool.mockResolvedValue("written");
   });
 
   afterEach(() => {
@@ -928,16 +934,11 @@ describe("GameDetailDrawer Erklärungen", () => {
       ]);
 
       const configTrigger = triggers[2];
-      expect(configTrigger).toBeDefined();
-      if (!configTrigger) return;
+      if (!configTrigger) throw new Error("erklärungs-trigger für config fehlt");
       await configTrigger.trigger("click");
       await nextTick();
-      const dialog = document.body.querySelector(".explain-dialog");
-      expect(dialog).not.toBeNull();
-      if (!dialog) return;
-      const close = dialog.querySelector<HTMLElement>("[data-testid='explain-close']");
-      expect(close).not.toBeNull();
-      if (!close) return;
+      const dialog = requireElement(".explain-dialog");
+      const close = requireElement("[data-testid='explain-close']", dialog);
       expect(dialog.textContent).toContain(t("explain.sourceLabel"));
       expect(dialog.textContent).toContain(t("explain.meaningLabel"));
       expect(dialog.textContent).toContain(t("explain.limitLabel"));
@@ -980,4 +981,261 @@ describe("GameDetailDrawer Erklärungen", () => {
       expect(document.body.querySelector(".explain-dialog")).toBeNull();
     },
   );
+});
+
+describe("GameDetailDrawer Speicherstatus", () => {
+  beforeEach(() => {
+    setLocale("de");
+    uiState.selectedAppId = 42;
+    uiState.inertMain = false;
+    scanState.result = null;
+    scanState.protonChecks = [];
+    scanState.status = "done";
+    scanState.scanGeneration = 1;
+    configState.saveLaunchOptions.mockReset();
+    configState.saveCompatTool.mockReset();
+    configState.saveLaunchOptions.mockResolvedValue("written");
+    configState.saveCompatTool.mockResolvedValue("written");
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+    setLocale("en");
+  });
+
+  function buttonNextTo(
+    wrapper: ReturnType<typeof mountDrawer>,
+    selector: string,
+  ): DOMWrapper<HTMLButtonElement> {
+    const button = wrapper.get(selector).element.parentElement?.querySelector("button");
+    if (!button) throw new Error(`button next to ${selector} missing`);
+    return new DOMWrapper(button);
+  }
+
+  function launchSaveButton(wrapper: ReturnType<typeof mountDrawer>) {
+    return buttonNextTo(wrapper, "#launch-options");
+  }
+
+  function compatSaveButton(wrapper: ReturnType<typeof mountDrawer>) {
+    return buttonNextTo(wrapper, "[data-testid='select-box']");
+  }
+
+  function compatScanResult(): ScanResult {
+    const scan = result("available", "explicit", "tool-a", null, { launchOptions: "" });
+    scan.compatToolsInstalled = [
+      {
+        name: "tool-a",
+        internalName: "tool-a",
+        displayName: "Tool A",
+        sizeBytes: 0,
+        usedBy: [],
+        source: "user",
+      },
+      {
+        name: "tool-b",
+        internalName: "tool-b",
+        displayName: "Tool B",
+        sizeBytes: 0,
+        usedBy: [],
+        source: "user",
+      },
+    ];
+    return scan;
+  }
+
+  async function selectCompatTool(
+    wrapper: ReturnType<typeof mountDrawer>,
+    label: string,
+  ): Promise<void> {
+    const option = wrapper.findAll(".select-option").find((li) => li.text() === label);
+    if (!option) throw new Error(`compat option missing: ${label}`);
+    await option.trigger("click");
+  }
+
+  function switchToGame43(): void {
+    scanState.result = result("available", "default", "default", null, {
+      appId: 43,
+      launchOptions: "",
+    });
+    uiState.selectedAppId = 43;
+  }
+
+  it("zeigt nach einem geschriebenen Startoptionen-Save den gespeichert-Status", async () => {
+    const wrapper = mountDrawer(
+      result("available", "default", "default", null, { launchOptions: "" }),
+    );
+    const input = wrapper.get<HTMLInputElement>("#launch-options");
+
+    await input.setValue("  gamemoderun %command%  ");
+    await launchSaveButton(wrapper).trigger("click");
+    await flushPromises();
+    await nextTick();
+
+    expect(configState.saveLaunchOptions).toHaveBeenCalledExactlyOnceWith(
+      42,
+      "gamemoderun %command%",
+    );
+    expect(launchSaveButton(wrapper).text()).toBe(t("drawer.saved"));
+  });
+
+  it("zeigt bei unchanged kein gespeichert ✓ für die Startoptionen", async () => {
+    configState.saveLaunchOptions.mockResolvedValue("unchanged");
+    const wrapper = mountDrawer(
+      result("available", "default", "default", null, { launchOptions: "" }),
+    );
+    const input = wrapper.get<HTMLInputElement>("#launch-options");
+
+    await input.setValue("gamemoderun %command%");
+    await launchSaveButton(wrapper).trigger("click");
+    await flushPromises();
+    await nextTick();
+
+    expect(configState.saveLaunchOptions).toHaveBeenCalledTimes(1);
+    expect(launchSaveButton(wrapper).text()).not.toBe(t("drawer.saved"));
+    expect(launchSaveButton(wrapper).text()).toBe(t("drawer.save"));
+  });
+
+  it("verwirft ein Startoptionen-Ergebnis nach Änderung des sichtbaren Werts", async () => {
+    const pending = deferred<WriteResult>();
+    configState.saveLaunchOptions.mockReturnValueOnce(pending.promise);
+    const wrapper = mountDrawer(
+      result("available", "default", "default", null, { launchOptions: "" }),
+    );
+    const input = wrapper.get<HTMLInputElement>("#launch-options");
+
+    await input.setValue("gamemoderun %command%");
+    await launchSaveButton(wrapper).trigger("click");
+    await nextTick();
+    expect(configState.saveLaunchOptions).toHaveBeenCalledTimes(1);
+
+    await input.setValue("gamemoderun %command% --später");
+    pending.resolve("written");
+    await flushPromises();
+    await nextTick();
+
+    expect(input.element.value).toBe("gamemoderun %command% --später");
+    expect(launchSaveButton(wrapper).text()).not.toBe(t("drawer.saved"));
+    // der verworfene auftrag darf den knopf nicht dauerhaft sperren
+    expect(launchSaveButton(wrapper).text()).toBe(t("drawer.save"));
+    expect(launchSaveButton(wrapper).attributes("disabled")).toBeUndefined();
+  });
+
+  it("verwirft die Startoptionen-Antwort nach einem Spielwechsel", async () => {
+    const pending = deferred<WriteResult>();
+    configState.saveLaunchOptions.mockReturnValueOnce(pending.promise);
+    const wrapper = mountDrawer(
+      result("available", "default", "default", null, { launchOptions: "" }),
+    );
+    const input = wrapper.get<HTMLInputElement>("#launch-options");
+
+    await input.setValue("gamemoderun %command%");
+    await launchSaveButton(wrapper).trigger("click");
+    await nextTick();
+    expect(configState.saveLaunchOptions).toHaveBeenCalledExactlyOnceWith(
+      42,
+      "gamemoderun %command%",
+    );
+
+    switchToGame43();
+    await nextTick();
+
+    pending.resolve("written");
+    await flushPromises();
+    await nextTick();
+
+    expect(launchSaveButton(wrapper).text()).not.toBe(t("drawer.saved"));
+    expect(launchSaveButton(wrapper).text()).toBe(t("drawer.save"));
+    expect(wrapper.find(".toast").exists()).toBe(false);
+  });
+
+  it("zeigt nach einem Spielwechsel keinen fremden Startoptionen-Fehler", async () => {
+    const pending = deferred<WriteResult>();
+    configState.saveLaunchOptions.mockReturnValueOnce(pending.promise);
+    const wrapper = mountDrawer(
+      result("available", "default", "default", null, { launchOptions: "" }),
+    );
+    const input = wrapper.get<HTMLInputElement>("#launch-options");
+
+    await input.setValue("gamemoderun %command%");
+    await launchSaveButton(wrapper).trigger("click");
+    await nextTick();
+
+    switchToGame43();
+    await nextTick();
+
+    pending.reject(new Error("fremder Fehler 934"));
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.find(".toast").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("fremder Fehler 934");
+  });
+
+  it("zeigt nach einem geschriebenen Compat-Save den gespeichert-Status", async () => {
+    const wrapper = mountDrawer(compatScanResult());
+
+    await selectCompatTool(wrapper, "Tool B");
+    await compatSaveButton(wrapper).trigger("click");
+    await flushPromises();
+    await nextTick();
+
+    expect(configState.saveCompatTool).toHaveBeenCalledExactlyOnceWith(42, "tool-b");
+    expect(compatSaveButton(wrapper).text()).toBe(t("drawer.saved"));
+  });
+
+  it("zeigt bei unchanged kein gespeichert ✓ für das Compat-Tool", async () => {
+    configState.saveCompatTool.mockResolvedValue("unchanged");
+    const wrapper = mountDrawer(compatScanResult());
+
+    await selectCompatTool(wrapper, "Tool B");
+    await compatSaveButton(wrapper).trigger("click");
+    await flushPromises();
+    await nextTick();
+
+    expect(configState.saveCompatTool).toHaveBeenCalledTimes(1);
+    expect(compatSaveButton(wrapper).text()).not.toBe(t("drawer.saved"));
+    expect(compatSaveButton(wrapper).text()).toBe(t("drawer.save"));
+  });
+
+  it("verwirft die Compat-Antwort nach einem Spielwechsel", async () => {
+    const pending = deferred<WriteResult>();
+    configState.saveCompatTool.mockReturnValueOnce(pending.promise);
+    const wrapper = mountDrawer(compatScanResult());
+
+    await selectCompatTool(wrapper, "Tool B");
+    await compatSaveButton(wrapper).trigger("click");
+    await nextTick();
+    expect(configState.saveCompatTool).toHaveBeenCalledExactlyOnceWith(42, "tool-b");
+
+    switchToGame43();
+    await nextTick();
+
+    pending.resolve("written");
+    await flushPromises();
+    await nextTick();
+
+    expect(compatSaveButton(wrapper).text()).not.toBe(t("drawer.saved"));
+    expect(compatSaveButton(wrapper).text()).toBe(t("drawer.save"));
+    expect(wrapper.find(".toast").exists()).toBe(false);
+  });
+
+  it("zeigt nach einem Spielwechsel keinen fremden Compat-Fehler", async () => {
+    const pending = deferred<WriteResult>();
+    configState.saveCompatTool.mockReturnValueOnce(pending.promise);
+    const wrapper = mountDrawer(compatScanResult());
+
+    await selectCompatTool(wrapper, "Tool B");
+    await compatSaveButton(wrapper).trigger("click");
+    await nextTick();
+
+    switchToGame43();
+    await nextTick();
+
+    pending.reject(new Error("fremder Compat-Fehler 935"));
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.find(".toast").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("fremder Compat-Fehler 935");
+  });
 });

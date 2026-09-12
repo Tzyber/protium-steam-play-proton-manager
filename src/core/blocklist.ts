@@ -1,12 +1,14 @@
 // Tabelle statt Liste: kanonische Quelle für Filter und Dropdown.
 // (availableBuiltinProtons filtert hier nach `installedAppIds`).
 
-export type BlockCategory =
+import type { BuiltinProton } from "./types.js";
+
+type BlockCategory =
   | "proton-builtin" // valve-eigene proton-builds, eigene steam-app
   | "runtime" // steam linux runtime container
   | "redistributable"; // steamworks common redistributables
 
-export interface BlockEntry {
+interface BlockEntry {
   appId: number;
   category: BlockCategory;
   /** nur für proton-builtin: interner compat-tool-name im mapping. */
@@ -66,7 +68,7 @@ const NAME_PREFIXES = [
  *  "name-heuristic" = nur namens-präfix (unsicherheit). Nur die exakte ID
  *  darf ein spiel still ausblenden; der präfix-treffer wird gemeldet, nie
  *  als gewissheit behandelt (keine string-heuristik als fachlicher fakt). */
-export type BlockReason = "id" | "name-heuristic" | null;
+type BlockReason = "id" | "name-heuristic" | null;
 
 export function blockReason(appId: number, name: string): BlockReason {
   if (BLOCKED_IDS.has(appId)) return "id";
@@ -79,9 +81,7 @@ export function isBlocked(appId: number, name: string): boolean {
 }
 
 /** die built-in protons, deren steam-app im scan als installiert erkannt wurde. */
-export function availableBuiltinProtons(
-  installedAppIds: ReadonlySet<number>,
-): { internalName: string; displayName: string }[] {
+export function availableBuiltinProtons(installedAppIds: ReadonlySet<number>): BuiltinProton[] {
   return BLOCKLIST.filter(
     (e) => e.category === "proton-builtin" && installedAppIds.has(e.appId),
   ).map((e) => ({ internalName: e.toolName as string, displayName: e.label }));

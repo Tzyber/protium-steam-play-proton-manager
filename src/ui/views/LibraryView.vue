@@ -5,6 +5,7 @@ import ExplainInfo from "../components/ExplainInfo.vue";
 import FilterBar from "../components/FilterBar.vue";
 import GameCard from "../components/GameCard.vue";
 import GameDetailDrawer from "../components/GameDetailDrawer.vue";
+import { formatConfigStatus, formatLibraryReason, formatWarning } from "../coverageText";
 import { filterAndSortGames } from "../filter";
 import type { Key } from "../i18n";
 import { t } from "../i18n";
@@ -117,169 +118,6 @@ const libraryWarnings = computed(() =>
     (warning): warning is Extract<ScanWarning, { type: "library" }> => warning.type === "library",
   ),
 );
-
-function formatLibraryReason(reason: SkipReason): string {
-  switch (reason) {
-    case "path-missing":
-      return t("library.coverageReasonPathMissing");
-    case "scope-failed":
-      return t("library.coverageReasonScopeFailed");
-    case "read-failed":
-      return t("library.coverageReasonReadFailed");
-  }
-}
-
-function formatConfigStatus(status: "available" | "missing" | "unreadable" | "ambiguous"): string {
-  switch (status) {
-    case "available":
-      return t("library.coverageStatusAvailable");
-    case "missing":
-      return t("library.coverageStatusMissing");
-    case "unreadable":
-      return t("library.coverageStatusUnreadable");
-    case "ambiguous":
-      return t("library.coverageStatusAmbiguous");
-  }
-}
-
-function formatWarning(warning: ScanWarning): string {
-  switch (warning.type) {
-    case "library":
-      switch (warning.reason) {
-        case "path-missing":
-          return t("library.coverageWarningLibrary", {
-            path: warning.path,
-            reason: t("library.coverageReasonPathMissing"),
-            detail: warning.detail ?? "",
-          });
-        case "scope-failed":
-          return t("library.coverageWarningLibrary", {
-            path: warning.path,
-            reason: t("library.coverageReasonScopeFailed"),
-            detail: warning.detail ?? "",
-          });
-        case "read-failed":
-          return t("library.coverageWarningLibrary", {
-            path: warning.path,
-            reason: t("library.coverageReasonReadFailed"),
-            detail: warning.detail ?? "",
-          });
-      }
-      break;
-    case "compat-config":
-      return t("library.coverageWarningConfig", {
-        source: t("library.coverageCompatConfig"),
-        reason:
-          warning.reason === "missing"
-            ? t("library.coverageReasonMissing")
-            : t("library.coverageReasonUnreadable"),
-        detail: warning.detail ?? "",
-      });
-    case "launch-config": {
-      const account = warning.steamUserId
-        ? t("library.coverageLaunchAccount", { id: warning.steamUserId })
-        : "";
-      const detail = [account, warning.detail].filter((part) => part !== "").join(" · ");
-      return t("library.coverageWarningConfig", {
-        source: t("library.coverageLaunchConfig"),
-        reason:
-          warning.reason === "missing"
-            ? t("library.coverageReasonMissing")
-            : warning.reason === "unreadable"
-              ? t("library.coverageReasonUnreadable")
-              : t("library.coverageReasonSelectionAmbiguous"),
-        detail,
-      });
-    }
-    case "manifest":
-      switch (warning.reason) {
-        case "invalid-filename":
-          return t("library.coverageWarningManifest", {
-            name: warning.manifestName,
-            reason: t("library.coverageReasonInvalidFilename"),
-            detail: warning.detail ?? "",
-          });
-        case "unreadable":
-          return t("library.coverageWarningManifest", {
-            name: warning.manifestName,
-            reason: t("library.coverageReasonUnreadable"),
-            detail: warning.detail ?? "",
-          });
-        case "invalid-content":
-          return t("library.coverageWarningManifest", {
-            name: warning.manifestName,
-            reason: t("library.coverageReasonInvalidContent"),
-            detail: warning.detail ?? "",
-          });
-        case "appid-mismatch":
-          return t("library.coverageWarningManifest", {
-            name: warning.manifestName,
-            reason: t("library.coverageReasonAppIdMismatch"),
-            detail: warning.detail ?? "",
-          });
-        case "duplicate":
-          return t("library.coverageWarningManifest", {
-            name: warning.manifestName,
-            reason: t("library.coverageReasonDuplicate"),
-            detail: warning.detail ?? "",
-          });
-        case "name-heuristic":
-          return t("library.coverageWarningManifest", {
-            name: warning.manifestName,
-            reason: t("library.coverageReasonNameHeuristic"),
-            detail: warning.detail ?? "",
-          });
-      }
-      break;
-    case "compat-tool":
-      switch (warning.reason) {
-        case "path-identity":
-          return t("library.coverageWarningTool", {
-            name: warning.toolName ?? warning.directory,
-            directory: warning.directory,
-            reason: t("library.coverageReasonPathIdentity"),
-            detail: warning.detail ?? "",
-          });
-        case "directory-unreadable":
-          return t("library.coverageWarningTool", {
-            name: warning.toolName ?? warning.directory,
-            directory: warning.directory,
-            reason: t("library.coverageReasonDirectoryUnreadable"),
-            detail: warning.detail ?? "",
-          });
-        case "symlink":
-          return t("library.coverageWarningTool", {
-            name: warning.toolName ?? warning.directory,
-            directory: warning.directory,
-            reason: t("library.coverageReasonSymlink"),
-            detail: warning.detail ?? "",
-          });
-        case "vdf-unreadable":
-          return t("library.coverageWarningTool", {
-            name: warning.toolName ?? warning.directory,
-            directory: warning.directory,
-            reason: t("library.coverageReasonVdfUnreadable"),
-            detail: warning.detail ?? "",
-          });
-        case "vdf-invalid":
-          return t("library.coverageWarningTool", {
-            name: warning.toolName ?? warning.directory,
-            directory: warning.directory,
-            reason: t("library.coverageReasonVdfInvalid"),
-            detail: warning.detail ?? "",
-          });
-        case "size-unreadable":
-          return t("library.coverageWarningTool", {
-            name: warning.toolName ?? warning.directory,
-            directory: warning.directory,
-            reason: t("library.coverageReasonSizeUnreadable"),
-            detail: warning.detail ?? "",
-          });
-      }
-      break;
-  }
-  return t("library.coverageUnknownWarning");
-}
 </script>
 
 <template>
@@ -589,7 +427,6 @@ function formatWarning(warning: ScanWarning): string {
   padding: 0;
   margin: 0;
 }
-.grid-item { display: contents; }
 
 .empty {
   padding: 60px 0;

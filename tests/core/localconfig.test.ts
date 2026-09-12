@@ -1,16 +1,16 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   findActiveUser,
   isLocalConfigParseable,
-  readAllLaunchOptions,
   readAppFields,
-  readLaunchOptions,
 } from "../../src/core/localconfig.js";
-import { VdfPatchError } from "../../src/core/vdfpatch.js";
+import { getVdfValue, VdfPatchError } from "../../src/core/vdfpatch.js";
 import { buildFakeSteam, nodeFs } from "../support/fakeSteam.js";
+
+const APPS_PATH = ["UserLocalConfigStore", "Software", "Valve", "Steam", "Apps"];
 
 describe("findActiveUser", () => {
   it("findet den einzigen account mit localconfig.vdf", async () => {
@@ -71,17 +71,6 @@ describe("findActiveUser", () => {
   });
 });
 
-it("liest launch-options direkt aus localconfig.vdf", async () => {
-  const { root, userId } = await buildFakeSteam();
-  const text = await readFile(join(root, "userdata", userId, "config", "localconfig.vdf"), "utf8");
-  expect(readLaunchOptions(text, 620)).toBe("gamemoderun %command%");
-  expect(readLaunchOptions(text, 730)).toBeUndefined();
-  expect(readAllLaunchOptions(text)).toEqual({
-    values: new Map([[620, "gamemoderun %command%"]]),
-    firstError: null,
-  });
-});
-
 describe("readAppFields", () => {
   const TWO_APPS = `"UserLocalConfigStore"
 {
@@ -120,6 +109,41 @@ describe("readAppFields", () => {
         [620, "1757000000"],
         [730, "0"],
       ]),
+      firstError: null,
+    });
+  });
+
+  it("bleibt bei doppeltem app-key mit dem einzelreader deckungsgleich", () => {
+    // der erste block hat keine der angefragten felder: der sammelreader muss
+    // trotzdem denselben block sehen wie `getVdfValue` (first-match).
+    const text = `"UserLocalConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"Apps"
+				{
+					"620"
+					{
+						"Playtime"		"10"
+					}
+					"620"
+					{
+						"LaunchOptions"		"PROTON_LOG=1 %command%"
+					}
+				}
+			}
+		}
+	}
+}
+`;
+    expect(getVdfValue(text, [...APPS_PATH, "620", "LaunchOptions"])).toBeUndefined();
+    expect(readAppFields(text)).toEqual({
+      launchOptions: new Map(),
+      lastPlayed: new Map(),
       firstError: null,
     });
   });
@@ -185,14 +209,12 @@ const DANGLING_KEY_IN_APP_BLOCK = `"UserLocalConfigStore"
 `;
 
 describe("localconfig-strukturprobe", () => {
-  it("besteht einen defekt unterhalb des pfads, den der per-spiel-read dann wirft", () => {
+  it("besteht einen defekt unterhalb des pfads, den der sammelreader dann meldet", () => {
     expect(isLocalConfigParseable(DANGLING_KEY_IN_APP_BLOCK)).toBeNull();
-    expect(() => readLaunchOptions(DANGLING_KEY_IN_APP_BLOCK, 620)).toThrow(
-      new VdfPatchError('key "Dangling" ohne wert'),
-    );
-    // einmal-lesen überspringt den defekten block und meldet den fehler statt zu werfen.
-    expect(readAllLaunchOptions(DANGLING_KEY_IN_APP_BLOCK)).toEqual({
-      values: new Map(),
+    // der defekte block trägt keine werte bei, der fehler kommt als firstError.
+    expect(readAppFields(DANGLING_KEY_IN_APP_BLOCK)).toEqual({
+      launchOptions: new Map(),
+      lastPlayed: new Map(),
       firstError: 'key "Dangling" ohne wert',
     });
   });
@@ -200,6 +222,6 @@ describe("localconfig-strukturprobe", () => {
   it("meldet einen lexikalischen defekt der ganzen datei", () => {
     const text = `"UserLocalConfigStore"\n{\n\t"LaunchOptions"\t\t"ohne ende`;
     expect(isLocalConfigParseable(text)).toEqual({ detail: "unterminierter string" });
-    expect(() => readAllLaunchOptions(text)).toThrow(new VdfPatchError("unterminierter string"));
+    expect(() => readAppFields(text)).toThrow(new VdfPatchError("unterminierter string"));
   });
 });

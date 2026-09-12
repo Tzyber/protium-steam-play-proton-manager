@@ -8,49 +8,35 @@ import type { ScanResult } from "../../src/core/types";
 import { setLocale, t } from "../../src/ui/i18n";
 import { useLibraryStore } from "../../src/ui/stores/libraryStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
+import { game, scanResult } from "../support/factories";
 
+/** Pflicht-Element aus dem DOM: ein fehlendes Element lässt den Test mit
+ *  klarer Meldung scheitern statt still zurückzuspringen. */
+function requireElement(selector: string, root: ParentNode = document): HTMLElement {
+  const element = root.querySelector<HTMLElement>(selector);
+  if (!element) throw new Error(`element nicht gefunden: ${selector}`);
+  return element;
+}
+
+// Zwei spiele: 42 braucht einen proton-check, 43 ist sauber.
 function result(overrides: Partial<ScanResult> = {}): ScanResult {
-  return {
-    steamRoot: "/home/u/.steam",
-    libraries: ["/home/u/.steam"],
+  return scanResult({
     games: [
-      {
+      game({
         appId: 42,
         name: "Needs Check",
-        library: "/home/u/.steam",
-        sizeBytes: 100,
-        compatTool: "default",
-        compatToolSource: "default",
         protonDb: { tier: "bronze", confidence: "strong" },
-        localHeader: null,
-        headerImage: null,
-      },
-      {
+      }),
+      game({
         appId: 43,
         name: "Clean Game",
-        library: "/home/u/.steam",
         sizeBytes: 50,
-        compatTool: "default",
-        compatToolSource: "default",
         protonDb: { tier: "gold", confidence: "strong" },
-        localHeader: null,
-        headerImage: null,
-      },
+      }),
     ],
-    compatToolsInstalled: [],
-    builtinProtonsInstalled: [],
     defaultCompatTool: "proton_experimental",
-    compatConfigStatus: "available",
-    launchConfigStatus: "available",
-    manifestCounts: { read: 0, failed: 0 },
-    compatToolCounts: { read: 0, failed: 0 },
-    steamUserId: null,
-    warnings: [],
-    skippedLibraries: [],
-    cleanupUnsafeLibraries: [],
-    blockedAppIds: [],
     ...overrides,
-  };
+  });
 }
 
 // Die View-Tests fokussieren Filterung und Nachlaufstatus; die Kindflächen
@@ -372,9 +358,7 @@ describe("LibraryView Coverage-Erklärung", () => {
       await trigger.trigger("click");
       await nextTick();
 
-      const dialog = document.body.querySelector("[role='dialog']");
-      expect(dialog).not.toBeNull();
-      if (!dialog) return;
+      const dialog = requireElement("[role='dialog']");
       expect(dialog.textContent).toContain(t("explain.topics.scanCoverage.source"));
       expect(dialog.textContent).toContain(t("explain.topics.scanCoverage.meaning"));
       expect(dialog.textContent).toContain(t("explain.topics.scanCoverage.limit"));

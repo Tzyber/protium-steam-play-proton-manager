@@ -21,17 +21,6 @@ pub(super) fn is_safe_path(canonical: &str) -> bool {
         .any(|b| canonical == *b || canonical.starts_with(&format!("{b}/")))
 }
 
-/// sanitize → canonicalize → is_safe_path (blocklist). der gemeinsame
-/// Gemeinsamer Prolog der schreibfreien Validierungen.
-pub(super) fn canonicalize_safe(path: &str, label: &str) -> Result<PathBuf, String> {
-    sanitize_path(path, label)?;
-    let real = fs::canonicalize(path).map_err(|e| e.to_string())?;
-    if !is_safe_path(&real.to_string_lossy()) {
-        return Err(format!("blocked path: {path}"));
-    }
-    Ok(real)
-}
-
 /// canonicalize eines pfads, dessen roh-input kein symlink sein darf.
 /// der symlink_metadata-guard läuft auf dem roh-input VOR canonicalize
 /// canonicalize folgt symlinks, ein guard auf dem gefolgten pfad wäre tot.

@@ -133,6 +133,21 @@ describe("scanLocal", () => {
     },
   );
 
+  it.each([
+    ["generation 0", { generation: 0 }],
+    ["leere wurzel", { steamRoot: "" }],
+    ["wurzel nicht in libraries", { libraries: ["/tmp/other"] }],
+  ])("bricht bei %s fail-closed ab, bevor ein pfad gelesen wird", async (_label, patch) => {
+    const { environment } = await buildFakeSteam();
+
+    await expect(
+      scanLocal(
+        { fs: nodeFs(), http: fakeHttp(), system: fakeSystem(), cache: memCache() },
+        { ...environment, ...patch },
+      ),
+    ).rejects.toThrow("environment snapshot is missing a current Steam root");
+  });
+
   it("behandelt reservierte mappingwerte als echte explizite werte", async () => {
     const { root, environment } = await buildFakeSteam();
     const configPath = join(root, "config", "config.vdf");

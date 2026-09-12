@@ -4,16 +4,17 @@ import type { GeRelease } from "../../src/core/geproton";
 import type { ScanResult } from "../../src/core/types";
 import { setLocale } from "../../src/ui/i18n";
 
-type Listener = (event: { payload: unknown }) => void;
+type ProgressHandler = (event: DownloadProgressEvent) => void;
+type PhaseHandler = (event: InstallPhaseEvent) => void;
 type InstallCall = { downloadId: string };
 
 const {
   mockGeTargetArch,
   mockInstallGeProton,
   mockHttpGet,
-  mockListen,
+  mockOnDownloadProgress,
+  mockOnInstallPhase,
   mockCancelDownload,
-  registeredListeners,
 } = vi.hoisted(() => ({
   mockGeTargetArch: vi.fn<() => Promise<"x86_64" | "aarch64">>(async () => "x86_64"),
   mockInstallGeProton: vi.fn<(params: InstallCall) => Promise<"verified" | "unverified">>(
@@ -26,10 +27,10 @@ const {
     text: `${"a".repeat(128)}  x.tar.gz`,
     headers: {},
   })),
-  mockListen: vi.fn<(event: string, listener: Listener) => Promise<() => void>>(
+  mockOnDownloadProgress: vi.fn<(handler: ProgressHandler) => Promise<() => void>>(
     async () => () => {},
   ),
-  registeredListeners: new Map<string, Listener>(),
+  mockOnInstallPhase: vi.fn<(handler: PhaseHandler) => Promise<() => void>>(async () => () => {}),
 }));
 
 vi.mock("../../src/core/adapters/tauri", async () => {
@@ -49,22 +50,22 @@ vi.mock("../../src/core/adapters/tauri", async () => {
           targetPath: req.path,
           consequences: [],
         })),
-        executeDelete: vi.fn(async () => ({ success: true, deletedPath: "/path" })),
+        executeDelete: vi.fn(async () => ({ deletedPath: "/path" })),
         cancelDownload: mockCancelDownload,
+        onDownloadProgress: mockOnDownloadProgress,
+        onInstallPhase: mockOnInstallPhase,
       },
       cache: {},
     },
   };
 });
 
-vi.mock("@tauri-apps/api/event", () => ({
-  listen: mockListen,
-}));
-
 import { tauriPorts } from "../../src/core/adapters/tauri";
+import type { DownloadProgressEvent, InstallPhaseEvent } from "../../src/core/ports";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useProtonStore } from "../../src/ui/stores/protonStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
+import { scanResult } from "../support/factories";
 
 const release: GeRelease = {
   tag: "GE-Proton9-27",
@@ -82,32 +83,22 @@ const release: GeRelease = {
 };
 
 function fakeScanResult(): ScanResult {
-  return {
-    steamRoot: "/root",
-    libraries: [],
-    games: [],
-    compatToolsInstalled: [],
-    builtinProtonsInstalled: [],
-    defaultCompatTool: null,
-    compatConfigStatus: "available",
-    launchConfigStatus: "available",
-    manifestCounts: { read: 0, failed: 0 },
-    compatToolCounts: { read: 0, failed: 0 },
-    steamUserId: null,
-    warnings: [],
-    skippedLibraries: [],
-    cleanupUnsafeLibraries: [],
-    blockedAppIds: [],
-  };
+  return scanResult({ steamRoot: "/root", libraries: [] });
+}
+
+/** registrierungen gesamt: jeder init-Versuch startet beide Abos. */
+function listenerCalls(): number {
+  return mockOnDownloadProgress.mock.calls.length + mockOnInstallPhase.mock.calls.length;
 }
 
 describe("protonStore init + pump-robustheit", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     setLocale("de");
-    mockListen.mockReset();
-    mockListen.mockResolvedValue(() => {});
-    registeredListeners.clear();
+    mockOnDownloadProgress.mockReset();
+    mockOnDownloadProgress.mockResolvedValue(() => {});
+    mockOnInstallPhase.mockReset();
+    mockOnInstallPhase.mockResolvedValue(() => {});
     mockGeTargetArch.mockReset();
     mockGeTargetArch.mockResolvedValue("x86_64");
     mockInstallGeProton.mockClear();
@@ -116,7 +107,7 @@ describe("protonStore init + pump-robustheit", () => {
   });
 
   it("init: listener-fehler → keine unhandled rejection, releases laden trotzdem, retry möglich", async () => {
-    mockListen.mockRejectedValueOnce(new Error("event api unavailable"));
+    mockOnDownloadProgress.mockRejectedValueOnce(new Error("event api unavailable"));
     const store = useProtonStore();
     const loadReleases = vi.fn(async () => {});
     store.loadReleases = loadReleases;
@@ -131,17 +122,19 @@ describe("protonStore init + pump-robustheit", () => {
     const firstUnlisten = vi.fn();
     const store = useProtonStore();
     store.loadReleases = vi.fn(async () => {});
-    mockListen.mockResolvedValueOnce(firstUnlisten).mockRejectedValueOnce(new Error("phase fehlt"));
+    mockOnDownloadProgress.mockResolvedValueOnce(firstUnlisten);
+    mockOnInstallPhase.mockRejectedValueOnce(new Error("phase fehlt"));
 
     await store.init();
 
     expect(firstUnlisten).toHaveBeenCalledTimes(1);
     expect(store.listenerReady).toBe(false);
 
-    mockListen.mockResolvedValueOnce(vi.fn()).mockResolvedValueOnce(vi.fn());
+    mockOnDownloadProgress.mockResolvedValueOnce(vi.fn()).mockResolvedValueOnce(vi.fn());
+    mockOnInstallPhase.mockResolvedValueOnce(vi.fn()).mockResolvedValueOnce(vi.fn());
     await store.init();
 
-    expect(mockListen).toHaveBeenCalledTimes(4);
+    expect(listenerCalls()).toBe(4);
     expect(store.listenerReady).toBe(true);
   });
 
@@ -150,7 +143,8 @@ describe("protonStore init + pump-robustheit", () => {
     const secondUnlisten = vi.fn();
     const store = useProtonStore();
     store.loadReleases = vi.fn(async () => {});
-    mockListen.mockResolvedValueOnce(firstUnlisten).mockResolvedValueOnce(secondUnlisten);
+    mockOnDownloadProgress.mockResolvedValueOnce(firstUnlisten);
+    mockOnInstallPhase.mockResolvedValueOnce(secondUnlisten);
 
     await store.init();
     await store.disposeListeners();
@@ -160,17 +154,29 @@ describe("protonStore init + pump-robustheit", () => {
     expect(secondUnlisten).toHaveBeenCalledTimes(1);
     expect(store.listenerReady).toBe(false);
 
-    mockListen.mockResolvedValueOnce(vi.fn()).mockResolvedValueOnce(vi.fn());
+    mockOnDownloadProgress.mockResolvedValueOnce(vi.fn()).mockResolvedValueOnce(vi.fn());
+    mockOnInstallPhase.mockResolvedValueOnce(vi.fn()).mockResolvedValueOnce(vi.fn());
     await store.init();
-    expect(mockListen).toHaveBeenCalledTimes(4);
+    expect(listenerCalls()).toBe(4);
     expect(store.listenerReady).toBe(true);
   });
 
   it("$dispose löst listener und alte callback-closures wirken nicht auf recreation", async () => {
-    const oldCallbacks = new Map<string, Listener>();
+    let staleProgress: ProgressHandler | undefined;
+    let stalePhase: PhaseHandler | undefined;
     const oldUnlisteners: Array<ReturnType<typeof vi.fn>> = [];
-    mockListen.mockImplementation(async (event, listener) => {
-      oldCallbacks.set(event, listener);
+    // nur die erste registrierung ist der alte store; die des neuen stores darf
+    // die gemerkten handler nicht überschreiben, sonst prüft der test nichts.
+    let firstRegistration = true;
+    mockOnDownloadProgress.mockImplementation(async (handler) => {
+      if (firstRegistration) staleProgress = handler;
+      const unlisten = vi.fn();
+      oldUnlisteners.push(unlisten);
+      return unlisten;
+    });
+    mockOnInstallPhase.mockImplementation(async (handler) => {
+      if (firstRegistration) stalePhase = handler;
+      firstRegistration = false;
       const unlisten = vi.fn();
       oldUnlisteners.push(unlisten);
       return unlisten;
@@ -178,8 +184,6 @@ describe("protonStore init + pump-robustheit", () => {
     const oldStore = useProtonStore();
     oldStore.loadReleases = vi.fn(async () => {});
     await oldStore.init();
-    const staleProgress = oldCallbacks.get("download-progress");
-    const stalePhase = oldCallbacks.get("install-phase");
     oldStore.$dispose();
     expect(oldUnlisteners).toHaveLength(2);
     expect(oldUnlisteners.every((unlisten) => unlisten.mock.calls.length === 1)).toBe(true);
@@ -197,14 +201,14 @@ describe("protonStore init + pump-robustheit", () => {
     });
 
     staleProgress?.({
-      payload: { id: freshStore.jobs[release.tag]?.downloadId, downloaded: 99, total: 100 },
+      id: freshStore.jobs[release.tag]?.downloadId ?? "",
+      downloaded: 99,
+      total: 100,
     });
     stalePhase?.({
-      payload: {
-        id: freshStore.jobs[release.tag]?.downloadId,
-        phase: "extracting",
-        verified: true,
-      },
+      id: freshStore.jobs[release.tag]?.downloadId ?? "",
+      phase: "extracting",
+      verified: true,
     });
     expect(freshStore.jobs[release.tag]?.downloaded).toBe(0);
     expect(freshStore.jobs[release.tag]?.phase).toBe("downloading");
@@ -213,12 +217,18 @@ describe("protonStore init + pump-robustheit", () => {
   it("parallele init-aufrufe teilen eine registration und teardown löst beide exakt einmal", async () => {
     let resolveFirst: (unlisten: () => void) => void = () => {};
     let resolveSecond: (unlisten: () => void) => void = () => {};
-    mockListen.mockImplementation((event) => {
-      return new Promise<() => void>((resolve) => {
-        if (event === "download-progress") resolveFirst = resolve;
-        else resolveSecond = resolve;
-      });
-    });
+    mockOnDownloadProgress.mockImplementation(
+      () =>
+        new Promise<() => void>((resolve) => {
+          resolveFirst = resolve;
+        }),
+    );
+    mockOnInstallPhase.mockImplementation(
+      () =>
+        new Promise<() => void>((resolve) => {
+          resolveSecond = resolve;
+        }),
+    );
     const firstUnlisten = vi.fn();
     const secondUnlisten = vi.fn();
     const store = useProtonStore();
@@ -226,9 +236,9 @@ describe("protonStore init + pump-robustheit", () => {
 
     const firstInit = store.init();
     const secondInit = store.init();
-    await vi.waitFor(() => expect(mockListen).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(listenerCalls()).toBe(1));
     resolveFirst(firstUnlisten);
-    await vi.waitFor(() => expect(mockListen).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(listenerCalls()).toBe(2));
     resolveSecond(secondUnlisten);
     await Promise.all([firstInit, secondInit]);
     await store.disposeListeners();
@@ -238,24 +248,29 @@ describe("protonStore init + pump-robustheit", () => {
   });
 
   it("dispose zwischen listener-awaits verhindert spätere ownership und callbacks", async () => {
+    let staleProgressForStaleTest: ProgressHandler | undefined;
     let resolveFirst: (unlisten: () => void) => void = () => {};
     let resolveSecond: (unlisten: () => void) => void = () => {};
-    const callbacks = new Map<string, Listener>();
-    mockListen.mockImplementation((event, listener) => {
-      callbacks.set(event, listener);
+    mockOnDownloadProgress.mockImplementation(async (handler) => {
+      staleProgressForStaleTest = handler;
       return new Promise<() => void>((resolve) => {
-        if (event === "download-progress") resolveFirst = resolve;
-        else resolveSecond = resolve;
+        resolveFirst = resolve;
       });
     });
+    mockOnInstallPhase.mockImplementation(
+      () =>
+        new Promise<() => void>((resolve) => {
+          resolveSecond = resolve;
+        }),
+    );
     const firstUnlisten = vi.fn();
     const secondUnlisten = vi.fn();
     const store = useProtonStore();
     store.loadReleases = vi.fn(async () => {});
     const initPromise = store.init();
-    await vi.waitFor(() => expect(mockListen).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(listenerCalls()).toBe(1));
     resolveFirst(firstUnlisten);
-    await vi.waitFor(() => expect(mockListen).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(listenerCalls()).toBe(2));
 
     const disposePromise = store.disposeListeners();
     resolveSecond(secondUnlisten);
@@ -264,17 +279,18 @@ describe("protonStore init + pump-robustheit", () => {
     expect(firstUnlisten).toHaveBeenCalledTimes(1);
     expect(secondUnlisten).toHaveBeenCalledTimes(1);
     expect(store.listenerReady).toBe(false);
-    callbacks.get("download-progress")?.({
-      payload: { id: "stale", downloaded: 99, total: 100 },
-    });
+    staleProgressForStaleTest?.({ id: "stale", downloaded: 99, total: 100 });
     expect(Object.keys(store.jobs)).toHaveLength(0);
   });
 
   it("dispose invalidiert init sofort und schützt einen neuen lauf vor alten resolves", async () => {
     const resolvers: Array<(unlisten: () => void) => void> = [];
-    mockListen.mockImplementation(async () => {
-      return new Promise<() => void>((resolve) => resolvers.push(resolve));
-    });
+    mockOnDownloadProgress.mockImplementation(
+      () => new Promise<() => void>((resolve) => resolvers.push(resolve)),
+    );
+    mockOnInstallPhase.mockImplementation(
+      () => new Promise<() => void>((resolve) => resolvers.push(resolve)),
+    );
     const oldFirst = vi.fn();
     const oldSecond = vi.fn();
     const newFirst = vi.fn();
@@ -311,7 +327,7 @@ describe("protonStore init + pump-robustheit", () => {
     await store.init();
 
     expect(store.listenerReady).toBe(true);
-    expect(mockListen).toHaveBeenCalledTimes(2);
+    expect(listenerCalls()).toBe(2);
   });
 
   it("loadReleases: fragt die backendarchitektur vor dem fetch ab", async () => {
@@ -416,9 +432,15 @@ describe("protonStore pump-phasen", () => {
   });
 
   it("verifying-/extracting-events ändern nur den passenden aktiven job", async () => {
-    mockListen.mockImplementation(async (event, listener) => {
-      registeredListeners.set(event, listener);
-      return () => registeredListeners.delete(event);
+    let phaseHandler: PhaseHandler | undefined;
+    let progressHandler: ProgressHandler | undefined;
+    mockOnInstallPhase.mockImplementation(async (handler) => {
+      phaseHandler = handler;
+      return () => {};
+    });
+    mockOnDownloadProgress.mockImplementation(async (handler) => {
+      progressHandler = handler;
+      return () => {};
     });
     mockInstallGeProton.mockImplementation(() => new Promise(() => {}));
     const scanStore = useScanStore();
@@ -437,22 +459,26 @@ describe("protonStore pump-phasen", () => {
     expect(downloadId).toBeDefined();
     expect(mockInstallGeProton).toHaveBeenCalledWith(expect.objectContaining({ downloadId }));
 
-    const phaseListener = registeredListeners.get("install-phase");
-    const progressListener = registeredListeners.get("download-progress");
-    expect(phaseListener).toBeDefined();
-    expect(progressListener).toBeDefined();
-    phaseListener?.({ payload: { id: downloadId, phase: "verifying", verified: false } });
+    expect(phaseHandler).toBeDefined();
+    expect(progressHandler).toBeDefined();
+    phaseHandler?.({ id: downloadId ?? "", phase: "verifying", verified: false });
     expect(store.jobs[release.tag]?.phase).toBe("verifying");
-    phaseListener?.({ payload: { id: downloadId, phase: "extracting", verified: true } });
+    phaseHandler?.({ id: downloadId ?? "", phase: "extracting", verified: true });
     expect(store.jobs[release.tag]?.phase).toBe("extracting");
-    progressListener?.({ payload: { id: downloadId, downloaded: 42, total: 100 } });
+    progressHandler?.({ id: downloadId ?? "", downloaded: 42, total: 100 });
     expect(store.jobs[release.tag]?.downloaded).toBe(42);
   });
 
   it("stale callbacks eines alten laufs ändern keinen neuen lauf desselben tags", async () => {
-    mockListen.mockImplementation(async (event, listener) => {
-      registeredListeners.set(event, listener);
-      return () => registeredListeners.delete(event);
+    let phaseHandler: PhaseHandler | undefined;
+    let progressHandler: ProgressHandler | undefined;
+    mockOnInstallPhase.mockImplementation(async (handler) => {
+      phaseHandler = handler;
+      return () => {};
+    });
+    mockOnDownloadProgress.mockImplementation(async (handler) => {
+      progressHandler = handler;
+      return () => {};
     });
     mockInstallGeProton.mockResolvedValueOnce("verified");
     const scanStore = useScanStore();
@@ -478,12 +504,9 @@ describe("protonStore pump-phasen", () => {
     expect(newDownloadId).toBeDefined();
     expect(newDownloadId).not.toBe(oldDownloadId);
 
-    registeredListeners.get("download-progress")?.({
-      payload: { id: oldDownloadId, downloaded: 99, total: 100 },
-    });
-    registeredListeners.get("install-phase")?.({
-      payload: { id: oldDownloadId, phase: "extracting", verified: true },
-    });
+    // die handler des alten laufs feuern mit der alten download-id
+    progressHandler?.({ id: oldDownloadId ?? "", downloaded: 99, total: 100 });
+    phaseHandler?.({ id: oldDownloadId ?? "", phase: "extracting", verified: true });
     expect(store.jobs[release.tag]?.downloaded).toBe(0);
     expect(store.jobs[release.tag]?.phase).toBe("downloading");
   });
@@ -602,7 +625,6 @@ describe("protonStore.remove", () => {
     });
     vi.mocked(tauriPorts.system.executeDelete).mockReset();
     vi.mocked(tauriPorts.system.executeDelete).mockResolvedValue({
-      success: true,
       deletedPath: "/root/compatibilitytools.d/GE-Proton9-27",
     });
   });
@@ -729,23 +751,7 @@ describe("protonStore.remove", () => {
 
   it("löscht nur benutzerdefinierte GE-Proton Tools", async () => {
     const scan = useScanStore();
-    scan.result = {
-      steamRoot: "/root",
-      libraries: [],
-      games: [],
-      compatToolsInstalled: [],
-      builtinProtonsInstalled: [],
-      defaultCompatTool: null,
-      compatConfigStatus: "available",
-      launchConfigStatus: "available",
-      manifestCounts: { read: 0, failed: 0 },
-      compatToolCounts: { read: 0, failed: 0 },
-      steamUserId: null,
-      warnings: [],
-      skippedLibraries: [],
-      cleanupUnsafeLibraries: [],
-      blockedAppIds: [],
-    };
+    scan.result = fakeScanResult();
     const store = useProtonStore();
     const { tauriPorts } = await import("../../src/core/adapters/tauri");
     const prepareSpy = vi.spyOn(tauriPorts.system, "prepareDelete");
@@ -795,23 +801,7 @@ describe("protonStore.remove", () => {
 
   it("onError räumt busyRemove nach execute-fehler auf", async () => {
     const scan = useScanStore();
-    scan.result = {
-      steamRoot: "/root",
-      libraries: [],
-      games: [],
-      compatToolsInstalled: [],
-      builtinProtonsInstalled: [],
-      defaultCompatTool: null,
-      compatConfigStatus: "available",
-      launchConfigStatus: "available",
-      manifestCounts: { read: 0, failed: 0 },
-      compatToolCounts: { read: 0, failed: 0 },
-      steamUserId: null,
-      warnings: [],
-      skippedLibraries: [],
-      cleanupUnsafeLibraries: [],
-      blockedAppIds: [],
-    };
+    scan.result = fakeScanResult();
     const store = useProtonStore();
     const { tauriPorts } = await import("../../src/core/adapters/tauri");
     vi.spyOn(tauriPorts.system, "executeDelete").mockRejectedValueOnce(new Error("token expired"));

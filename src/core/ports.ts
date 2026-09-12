@@ -1,5 +1,7 @@
 // einzige schnittstelle von core zur außenwelt: adapter implementieren, tests mocken.
 
+import type { SkippedLibrary } from "./types.js";
+
 export interface DirEntry {
   name: string;
   isDirectory: boolean;
@@ -44,9 +46,28 @@ export interface EnvironmentSnapshot {
   generation: number;
   steamRoot: string;
   libraries: string[];
+  /** Discovery-Fehler des Backends; `libraries` enthält nur die erfolgreichen Pfade. */
+  unavailableLibraries: SkippedLibrary[];
   systemCompatDirs: string[];
   appCacheDir: string;
   appConfigDir: string;
+}
+
+/** Phase eines GE-Installationslaufs, wie sie das Backend meldet. */
+export type InstallPhase = "queued" | "downloading" | "verifying" | "extracting";
+
+/** Payload des Fortschritts-Events (Backend: `download-progress`). */
+export interface DownloadProgressEvent {
+  id: string;
+  downloaded: number;
+  total: number | null;
+}
+
+/** Payload des Phasen-Events (Backend: `install-phase`). */
+export interface InstallPhaseEvent {
+  id: string;
+  phase: InstallPhase;
+  verified: boolean;
 }
 
 export type DirectorySize =
@@ -69,6 +90,10 @@ export interface System {
   installGeProton(params: GeInstallParams): Promise<InstallGeResult>;
   /** Bricht den Download ab und räumt die partielle Datei auf. */
   cancelDownload(downloadId: string): Promise<void>;
+  /** Abonniert die Fortschritts-Events des Backends; liefert den Unlisten-Handle. */
+  onDownloadProgress(handler: (event: DownloadProgressEvent) => void): Promise<() => void>;
+  /** Abonniert die Phasen-Events des Backends; liefert den Unlisten-Handle. */
+  onInstallPhase(handler: (event: InstallPhaseEvent) => void): Promise<() => void>;
   /** Bereitet eine Löschung vor (frischer Live-Zustandsabgleich, Token-Generierung). */
   prepareDelete(request: PrepareDeleteRequest): Promise<PendingDeleteInfo>;
   /** Führt die vorbereitete Löschung nach Bestätigung im Hauptfenster aus. */
@@ -86,7 +111,7 @@ export interface System {
   listTrashEntries(library: string): Promise<TrashListing>;
 }
 
-export type DeleteTargetType = "orphan" | "trash" | "compatTool";
+type DeleteTargetType = "orphan" | "trash" | "compatTool";
 
 export interface PrepareDeleteRequest {
   targetType: DeleteTargetType;
@@ -110,7 +135,7 @@ export interface PendingDeleteInfo {
 }
 
 export interface DeleteResult {
-  success: boolean;
+  /** Pfad der abgeschlossenen Mutation; ein Fehlschlag ist eine Rejection. */
   deletedPath: string;
 }
 

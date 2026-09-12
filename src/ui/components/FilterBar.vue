@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { TIER_ORDER } from "../filter";
+import { pathBasename } from "../format";
 import { t } from "../i18n";
 import { useLibraryStore } from "../stores/libraryStore";
 import { useScanStore } from "../stores/scanStore";
+import { tierTone } from "../tier";
 
 const scan = useScanStore();
 const lib = useLibraryStore();
@@ -32,10 +34,6 @@ const compatToolsPresent = computed(() => [...new Set(scan.games.map((g) => g.co
 const librariesPresent = computed(() => [...new Set(scan.games.map((g) => g.library))]);
 
 const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
-
-function libShort(path: string): string {
-  return path.split("/").filter(Boolean).pop() ?? path;
-}
 </script>
 
 <template>
@@ -81,7 +79,8 @@ function libShort(path: string): string {
         v-for="t in tiersPresent"
         :key="t"
         class="tier-pill"
-        :class="[`t-${t}`, { on: lib.tiers.includes(t) }]"
+        :class="{ on: lib.tiers.includes(t) }"
+        :style="{ '--c': tierTone(t) }"
         type="button"
         :aria-pressed="lib.tiers.includes(t)"
         @click="lib.toggle('tiers', t)"
@@ -131,7 +130,7 @@ function libShort(path: string): string {
         :title="l"
         @click="lib.toggle('libraries', l)"
       >
-        {{ libShort(l) }}
+        {{ pathBasename(l) }}
       </button>
     </div>
 
@@ -228,12 +227,6 @@ function libShort(path: string): string {
   cursor: pointer;
 }
 .tier-pill.on { background: color-mix(in srgb, var(--c) 20%, transparent); color: var(--c); border-color: var(--c); }
-.t-platinum { --c: var(--tier-platinum); }
-.t-gold { --c: var(--tier-gold); }
-.t-silver { --c: var(--tier-silver); }
-.t-bronze { --c: var(--tier-bronze); }
-.t-borked { --c: var(--tier-borked); }
-.t-unknown { --c: var(--tier-unknown); }
 
 /* filter-gruppen-labels (SORT / PROTON / DISK) werden gelesen, nicht gescannt 
    vom globalen .label (mono) auf body umstellen. gleiche schrift wie die chips

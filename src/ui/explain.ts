@@ -21,7 +21,7 @@ export interface ExplainGlossaryAnchor {
   readonly en: string;
 }
 
-export interface ExplainTopicDefinition {
+interface ExplainTopicDefinition {
   readonly titleKey: Key;
   readonly sourceKey: Key;
   readonly meaningKey: Key;

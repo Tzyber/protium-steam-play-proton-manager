@@ -15,3 +15,10 @@ export function formatBytes(bytes: number | undefined): string {
   }
   return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
+
+/** letztes pfadsegment; ein pfad ohne "/" bleibt unverändert. Für knappe
+ *  anzeigen (Library-name, Papierkorb-eintrag), nicht für sicherheitsprüfungen. */
+export function pathBasename(path: string): string {
+  const index = path.lastIndexOf("/");
+  return index >= 0 ? path.slice(index + 1) : path;
+}

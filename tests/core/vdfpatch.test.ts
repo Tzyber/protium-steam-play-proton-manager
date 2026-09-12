@@ -1,11 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import {
-  getVdfChildFieldValues,
-  getVdfChildValues,
-  getVdfValue,
-  VdfPatchError,
-} from "../../src/core/vdfpatch.js";
+import { getVdfChildFieldValues, getVdfValue, VdfPatchError } from "../../src/core/vdfpatch.js";
 
 const LOCALCONFIG = `"UserLocalConfigStore"
 {
@@ -101,10 +96,12 @@ ${body}\t\t\t\t}
 }
 `;
 
-describe("getVdfChildValues", () => {
+describe("getVdfChildFieldValues", () => {
+  const FIELDS = ["LaunchOptions", "LastPlayed"] as const;
+
   it("liefert eine leere map ohne fehler, wenn der pfad fehlt", () => {
     const text = `"UserLocalConfigStore"\n{\n\t"Software"\n\t{\n\t}\n}\n`;
-    expect(getVdfChildValues(text, APPS_PATH, "LaunchOptions")).toEqual({
+    expect(getVdfChildFieldValues(text, APPS_PATH, FIELDS)).toEqual({
       values: new Map(),
       firstError: null,
     });
@@ -112,59 +109,11 @@ describe("getVdfChildValues", () => {
 
   it("liefert eine leere map, wenn ein pfadsegment skalar ist", () => {
     const text = `"UserLocalConfigStore"\n{\n\t"Software"\t\t"scalar"\n}\n`;
-    expect(getVdfChildValues(text, APPS_PATH, "LaunchOptions")).toEqual({
+    expect(getVdfChildFieldValues(text, APPS_PATH, FIELDS)).toEqual({
       values: new Map(),
       firstError: null,
     });
   });
-
-  it("nimmt bei doppeltem app-key den ersten treffer", () => {
-    const text = appsText(
-      `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\t\t"first %command%"\n\t\t\t\t\t}\n` +
-        `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\t\t"second %command%"\n\t\t\t\t\t}\n`,
-    );
-    const result = getVdfChildValues(text, APPS_PATH, "LaunchOptions");
-    expect(result.firstError).toBeNull();
-    expect(result.values.size).toBe(1);
-    expect(result.values.get("620")).toBe("first %command%");
-  });
-
-  it("überspringt einen block-wert als leaf", () => {
-    const text = appsText(
-      `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\n\t\t\t\t\t\t{\n\t\t\t\t\t\t\t"nested"\t\t"x"\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n` +
-        `\t\t\t\t\t"730"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\t\t"ok %command%"\n\t\t\t\t\t}\n`,
-    );
-    const result = getVdfChildValues(text, APPS_PATH, "LaunchOptions");
-    expect(result.firstError).toBeNull();
-    expect(result.values.has("620")).toBe(false);
-    expect(result.values.get("730")).toBe("ok %command%");
-  });
-
-  it("navigiert pfad und leaf-key case-insensitiv", () => {
-    const text = appsText(
-      `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"launchoptions"\t\t"klein %command%"\n\t\t\t\t\t}\n`,
-    )
-      .replaceAll('"UserLocalConfigStore"', '"userlocalconfigstore"')
-      .replaceAll('"Software"', '"software"');
-    const result = getVdfChildValues(text, APPS_PATH, "LAUNCHOPTIONS");
-    expect(result.firstError).toBeNull();
-    expect(result.values.get("620")).toBe("klein %command%");
-  });
-
-  it("meldet den defekt eines fremden blocks und liefert die übrigen werte", () => {
-    const text = appsText(
-      `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\t\t"intact %command%"\n\t\t\t\t\t}\n` +
-        `\t\t\t\t\t"730"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\t\t"x"\n\t\t\t\t\t\t"Dangling"\n\t\t\t\t\t}\n`,
-    );
-    const result = getVdfChildValues(text, APPS_PATH, "LaunchOptions");
-    expect(result.values.get("620")).toBe("intact %command%");
-    expect(result.values.has("730")).toBe(false);
-    expect(result.firstError).toBe('key "Dangling" ohne wert');
-  });
-});
-
-describe("getVdfChildFieldValues", () => {
-  const FIELDS = ["LaunchOptions", "LastPlayed"] as const;
 
   it("liest mehrere leafs eines app-blocks in einem lauf", () => {
     const text = appsText(
@@ -208,6 +157,29 @@ describe("getVdfChildFieldValues", () => {
     expect(result.firstError).toBeNull();
     expect(result.values.size).toBe(1);
     expect(result.values.get("620")).toEqual(new Map([["LastPlayed", "1"]]));
+  });
+
+  it("nimmt bei doppeltem app-key den ersten block auch ohne angefragtes feld", () => {
+    // der erste block ist gesehen, gleich ob er einen der leafs enthält: sonst
+    // liefert der sammelreader einen späteren block als `getVdfValue`.
+    const text = appsText(
+      `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"Playtime"\t\t"10"\n\t\t\t\t\t}\n` +
+        `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\t\t"PROTON_LOG=1 %command%"\n\t\t\t\t\t}\n`,
+    );
+    const result = getVdfChildFieldValues(text, APPS_PATH, FIELDS);
+    expect(result.firstError).toBeNull();
+    expect(result.values.has("620")).toBe(false);
+    expect(getVdfValue(text, [...LAUNCH_620, "LaunchOptions"])).toBeUndefined();
+  });
+
+  it("behandelt doppelte app-keys mit anderer schreibweise als denselben key", () => {
+    const text = appsText(
+      `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"Playtime"\t\t"10"\n\t\t\t\t\t}\n` +
+        `\t\t\t\t\t"620"\n\t\t\t\t\t{\n\t\t\t\t\t\t"LaunchOptions"\t\t"PROTON_LOG=1 %command%"\n\t\t\t\t\t}\n`,
+    );
+    const result = getVdfChildFieldValues(text, APPS_PATH, FIELDS);
+    expect(result.firstError).toBeNull();
+    expect(result.values.has("620")).toBe(false);
   });
 
   it("meldet den defekt eines fremden blocks und liefert die übrigen werte", () => {

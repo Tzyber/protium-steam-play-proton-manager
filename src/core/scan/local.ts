@@ -1,6 +1,6 @@
 import type { EnvironmentSnapshot, Ports } from "../ports.js";
 import type { ScanResult, ScanWarning } from "../types.js";
-import { readCompatMapping, readLaunchConfig } from "./config.js";
+import { localConfigBrokenWarning, readCompatMapping, readLaunchConfig } from "./config.js";
 import { scanGames } from "./games.js";
 import { readLibraryList } from "./libraries.js";
 import { readCompatTools } from "./tools.js";
@@ -11,6 +11,16 @@ export async function scanLocal(
 ): Promise<Omit<ScanResult, "steamRoot">> {
   const { fs, system } = ports;
   const { steamRoot } = environment;
+  // INV-7: alle pfade dieses scans hängen an der wurzel; ein snapshot ohne
+  // aktuelle wurzel darf nicht in einen lesepfad münden. die prüfung liegt
+  // hier, weil dieser einstieg der einzige produktive ist.
+  if (
+    environment.generation < 1 ||
+    steamRoot.length === 0 ||
+    !environment.libraries.includes(steamRoot)
+  ) {
+    throw new Error("environment snapshot is missing a current Steam root");
+  }
   const libraryResult = readLibraryList(environment);
   const mappingResult = await readCompatMapping(fs, steamRoot);
   const launchResult = await readLaunchConfig(fs, steamRoot);
@@ -54,12 +64,7 @@ export async function scanLocal(
       ? launchResult.warnings
       : [
           ...launchResult.warnings,
-          {
-            type: "launch-config",
-            reason: "unreadable",
-            steamUserId: launchResult.steamUserId ?? undefined,
-            detail: `localconfig.vdf structurally broken: ${localConfigDegraded}`,
-          },
+          localConfigBrokenWarning(localConfigDegraded, launchResult.steamUserId),
         ];
 
   return {

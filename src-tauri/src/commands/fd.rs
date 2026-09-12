@@ -170,3 +170,16 @@ pub(super) fn read_fd_text(
     }
     Ok(text)
 }
+
+/// Bytes als kleingeschriebener Hex-String. Drei Stellen (Token-Generierung,
+/// Stream-Hash, Diskhash) brauchten dieselbe Umwandlung.
+#[cfg(target_os = "linux")]
+pub(super) fn hex_lower(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut hex = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        // schreiben in einen String kann nicht fehlschlagen
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}

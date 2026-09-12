@@ -1,6 +1,7 @@
 import type { SupportFacts } from "../core/support.js";
 import { formatKnownBytes } from "./format.js";
 import { t } from "./i18n/index.js";
+import { tierText } from "./tier.js";
 
 function configStatusLabel(
   status: Exclude<SupportFacts["launchConfigStatus"], "available">,
@@ -51,15 +52,7 @@ function toolAvailabilityLabel(availability: SupportFacts["compatToolAvailabilit
 }
 
 function tierLabel(tier: SupportFacts["protonDbTier"]): string {
-  const labels: Record<SupportFacts["protonDbTier"], string> = {
-    platinum: "Platinum",
-    gold: "Gold",
-    silver: "Silver",
-    bronze: "Bronze",
-    borked: "Borked",
-    unknown: t("support.unknown"),
-  };
-  return labels[tier];
+  return tierText(tier);
 }
 
 function externalCompatdataLine(facts: SupportFacts): string {

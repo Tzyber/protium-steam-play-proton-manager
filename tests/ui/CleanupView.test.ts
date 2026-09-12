@@ -11,6 +11,11 @@ import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
 import CleanupView from "../../src/ui/views/CleanupView.vue";
+import {
+  orphan as makeOrphan,
+  trashEntry as makeTrashEntry,
+  scanResult,
+} from "../support/factories";
 
 describe("CleanupView incomplete deletions", () => {
   beforeEach(() => {
@@ -21,22 +26,10 @@ describe("CleanupView incomplete deletions", () => {
     const store = useCleanupStore();
     vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
     vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
-    const orphan = (appId: number, type: OrphanEntry["type"], sizeBytes: number): OrphanEntry => ({
-      appId,
-      type,
-      path: `/lib/${type}/${appId}`,
-      library: "/lib",
-      sizeBytes,
-    });
-    const trash = (appId: number, sizeBytes: number): TrashEntry => ({
-      appId,
-      type: "compatdata",
-      path: `/lib/trash/compatdata_${appId}_1000`,
-      library: "/lib",
-      name: `compatdata_${appId}_1000`,
-      trashedAt: 1000,
-      sizeBytes,
-    });
+    const orphan = (appId: number, type: OrphanEntry["type"], sizeBytes: number): OrphanEntry =>
+      makeOrphan(appId, type, sizeBytes);
+    const trash = (appId: number, sizeBytes: number): TrashEntry =>
+      makeTrashEntry({ appId, sizeBytes });
     store.orphans = [
       orphan(1, "shadercache", 1024),
       orphan(2, "shadercache", 2048),
@@ -140,22 +133,10 @@ describe("CleanupView incomplete deletions", () => {
     const store = useCleanupStore();
     vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
     vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
-    const orphan = (appId: number, type: OrphanEntry["type"], sizeBytes?: number): OrphanEntry => ({
-      appId,
-      type,
-      path: `/lib/${type}/${appId}`,
-      library: "/lib",
-      sizeBytes,
-    });
-    const trash = (appId: number, sizeBytes?: number): TrashEntry => ({
-      appId,
-      type: "compatdata",
-      path: `/lib/trash/compatdata_${appId}_1000`,
-      library: "/lib",
-      name: `compatdata_${appId}_1000`,
-      trashedAt: 1000,
-      sizeBytes,
-    });
+    const orphan = (appId: number, type: OrphanEntry["type"], sizeBytes?: number): OrphanEntry =>
+      makeOrphan(appId, type, sizeBytes);
+    const trash = (appId: number, sizeBytes?: number): TrashEntry =>
+      makeTrashEntry({ appId, sizeBytes });
     store.orphans = [orphan(1, "shadercache", 1024), orphan(2, "shadercache")];
     store.orphans.push(orphan(3, "compatdata", 2048), orphan(4, "compatdata"));
     store.steamOwnedPrefixes = [
@@ -330,23 +311,7 @@ describe("CleanupView incomplete deletions", () => {
     expect(calls).toEqual([]);
 
     // scan liefert das ergebnis nach: der watch holt genau einmal nach
-    scan.result = {
-      steamRoot: "/steam",
-      libraries: ["/steam"],
-      games: [],
-      compatToolsInstalled: [],
-      builtinProtonsInstalled: [],
-      defaultCompatTool: null,
-      compatConfigStatus: "available",
-      launchConfigStatus: "available",
-      manifestCounts: { read: 0, failed: 0 },
-      compatToolCounts: { read: 0, failed: 0 },
-      steamUserId: null,
-      warnings: [],
-      skippedLibraries: [],
-      cleanupUnsafeLibraries: [],
-      blockedAppIds: [],
-    };
+    scan.result = scanResult({ steamRoot: "/steam", libraries: ["/steam"] });
     scan.status = "done";
 
     await vi.waitFor(() => expect(calls).toEqual(["orphans", "trash"]));
@@ -362,23 +327,7 @@ describe("CleanupView incomplete deletions", () => {
     const scan = useScanStore();
     scan.status = "done";
     scan.scanGeneration = 1;
-    scan.result = {
-      steamRoot: "/old",
-      libraries: ["/old"],
-      games: [],
-      compatToolsInstalled: [],
-      builtinProtonsInstalled: [],
-      defaultCompatTool: null,
-      compatConfigStatus: "available",
-      launchConfigStatus: "available",
-      manifestCounts: { read: 0, failed: 0 },
-      compatToolCounts: { read: 0, failed: 0 },
-      steamUserId: null,
-      warnings: [],
-      skippedLibraries: [],
-      cleanupUnsafeLibraries: [],
-      blockedAppIds: [],
-    };
+    scan.result = scanResult({ steamRoot: "/old", libraries: ["/old"] });
     store.orphans = [
       {
         appId: 1,
@@ -565,9 +514,10 @@ describe("CleanupView Erklärungen", () => {
     const triggers = topicTriggers(wrapper);
     const topic = t("explain.open", { topic: t("explain.topics.steamOwned.title") });
     const trigger = triggers.get(topic);
-    expect(trigger).toBeDefined();
-    if (!trigger) return;
-    expect(wrapper.get("[data-testid='steam-owned-total']").element.contains(trigger)).toBe(true);
+    expect(trigger).toBeInstanceOf(HTMLElement);
+    expect(
+      trigger && wrapper.get("[data-testid='steam-owned-total']").element.contains(trigger),
+    ).toBe(true);
 
     const wrapperEl = trigger as HTMLElement;
     wrapperEl.click();
@@ -592,7 +542,7 @@ describe("CleanupView Erklärungen", () => {
 
     const triggers = topicTriggers(wrapper);
     const topic = t("explain.open", { topic: t("explain.topics.incompleteDeletion.title") });
-    expect(triggers.get(topic)).toBeDefined();
+    expect(triggers.get(topic)?.tagName).toBe("BUTTON");
     expect(wrapper.get("#cv-panel-shaders").text()).not.toContain(t("cleanup.unavailable"));
 
     await wrapper.get("#cv-tab-prefixes").trigger("click");

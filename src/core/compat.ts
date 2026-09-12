@@ -1,69 +1,14 @@
+import type { CompatToolMapping } from "./compatTools.js";
+import { readToolVdf, usedBy } from "./compatTools.js";
 import { errText } from "./errtext.js";
 import { joinPath, paths } from "./paths.js";
 import type { DirEntry, FileSystem, System } from "./ports.js";
-import type { CompatTool, ScanWarning } from "./types.js";
-import { asNode, asString, getPath, parseVdf } from "./vdf.js";
+import type { CompatTool, ReadFailedCounts, ScanWarning } from "./types.js";
 
-/** appId → compat-tool-name (interner name, wie in config.vdf). */
-export type CompatToolMapping = Map<number, string>;
-
-// Ein fehlender Teilbaum ergibt eine leere Map; ungültiges VDF wirft.
-export function parseCompatToolMapping(configVdfText: string): CompatToolMapping {
-  const root = parseVdf(configVdfText);
-  const mappingNode = asNode(
-    getPath(root, "InstallConfigStore", "Software", "Valve", "Steam", "CompatToolMapping"),
-  );
-  const out: CompatToolMapping = new Map();
-  if (!mappingNode) return out;
-
-  for (const key of Object.keys(mappingNode)) {
-    const appId = Number(key);
-    if (!Number.isInteger(appId)) continue;
-    const name = asString(getPath(mappingNode, key, "name"));
-    if (name && name.trim() !== "") out.set(appId, name);
-  }
-  return out;
-}
-
-// interner name (key) + display_name aus der tool-vdf.
-function readToolVdf(
-  text: string,
-  fallbackName: string,
-): { internalName: string; displayName: string } {
-  let internalName = fallbackName;
-  let displayName = fallbackName;
-  const compatTools = asNode(getPath(parseVdf(text), "compatibilitytools", "compat_tools"));
-  if (compatTools) {
-    const internal = Object.keys(compatTools)[0];
-    if (internal) {
-      internalName = internal;
-      const dn = asString(getPath(compatTools, internal, "display_name"));
-      if (dn) displayName = dn;
-    }
-  }
-  return { internalName, displayName };
-}
-
-// tools aus steam-root + systemweiten dirs (/usr/share/steam/…, z. B. proton-cachyos).
-// dedup dirs via realpath gegen symlinks, dedup tools via internem namen (erste quelle gewinnt).
-// usedBy matcht den INTERNEN namen (so steht er im mapping), nicht den verzeichnisnamen.
-
-/** gleiche usedBy-regel wie in listCompatTools, aber gegen den in-memory-spielstand:
- *  nach einem compat-tool-wechsel im drawer ist config.vdf auf disk schon aktuell,
- *  die scan-ergebnisse aber nicht neu gerechnet, sonst zeigt der proton-manager
- *  bis zum nächsten rescan stale spiele-zähler. */
-export function recomputeToolUsedBy(
-  tools: { internalName: string; usedBy: number[] }[],
-  games: readonly { appId: number; compatTool: string }[],
-): void {
-  for (const tool of tools) {
-    tool.usedBy = games.filter((g) => g.compatTool === tool.internalName).map((g) => g.appId);
-  }
-}
-export interface CompatToolScanResult {
+interface CompatToolScanResult {
   tools: CompatTool[];
   warnings: ScanWarning[];
-  counts: { read: number; failed: number };
+  counts: ReadFailedCounts;
 }
 
 export async function listCompatTools(
@@ -75,11 +20,17 @@ export async function listCompatTools(
   systemCompatDirs: readonly string[] = [],
 ): Promise<CompatToolScanResult> {
   const warnings: ScanWarning[] = [];
-  // nur installierte echte spiele: keine stale einträge, kein appId 0, keine non-steam-shortcuts.
-  const usedByOf = (id: string): number[] =>
-    [...mapping.entries()]
-      .filter(([appId, name]) => name === id && installedAppIds.has(appId))
-      .map(([appId]) => appId);
+  // ein fehlgeschlagener schritt erzeugt immer dieselbe form: zähler hoch und
+  // eine warnung mit grund. neun aufrufstellen, ein platz für form und zähler.
+  const fail = (
+    reason: Extract<ScanWarning, { type: "compat-tool" }>["reason"],
+    detail: string,
+    dir: string,
+    toolName?: string,
+  ): void => {
+    failedCount += 1;
+    warnings.push({ type: "compat-tool", directory: dir, toolName, reason, detail });
+  };
 
   const candidateDirs = [paths.compatToolsDir(steamRoot), ...systemCompatDirs];
   const userDir = paths.compatToolsDir(steamRoot);
@@ -96,13 +47,7 @@ export async function listCompatTools(
     try {
       present = await fs.exists(dir);
     } catch (e) {
-      failedCount += 1;
-      warnings.push({
-        type: "compat-tool",
-        directory: dir,
-        reason: "directory-unreadable",
-        detail: errText(e),
-      });
+      fail("directory-unreadable", errText(e), dir);
       continue;
     }
     if (!present) continue;
@@ -112,13 +57,7 @@ export async function listCompatTools(
       id = await system.pathIdentity(dir);
       if (!id) throw new Error("pathIdentity not available");
     } catch (e) {
-      failedCount += 1;
-      warnings.push({
-        type: "compat-tool",
-        directory: dir,
-        reason: "path-identity",
-        detail: errText(e),
-      });
+      fail("path-identity", errText(e), dir);
       continue;
     }
     const identityKeys = [`path:${id.realpath}`, `inode:${id.dev}:${id.ino}`];
@@ -129,13 +68,7 @@ export async function listCompatTools(
     try {
       entries = await fs.readDir(dir);
     } catch (e) {
-      failedCount += 1;
-      warnings.push({
-        type: "compat-tool",
-        directory: dir,
-        reason: "directory-unreadable",
-        detail: `compat directory "${dir}" not readable: ${errText(e)}`,
-      });
+      fail("directory-unreadable", `compat directory "${dir}" not readable: ${errText(e)}`, dir);
       continue;
     }
 
@@ -144,14 +77,7 @@ export async function listCompatTools(
         // ein symlink in compatibilitytools.d kann nach ausserhalb zeigen und
         // wird deshalb nicht als Tool geführt und als Warnung gemeldet,
         // sonst verschwindet ein sichtbares verzeichnis ohne erklärung.
-        failedCount += 1;
-        warnings.push({
-          type: "compat-tool",
-          directory: dir,
-          toolName: entry.name,
-          reason: "symlink",
-          detail: `"${entry.name}" in ${dir} is a symlink, skipped`,
-        });
+        fail("symlink", `"${entry.name}" in ${dir} is a symlink, skipped`, dir, entry.name);
         continue;
       }
       if (!entry.isDirectory) continue;
@@ -163,14 +89,7 @@ export async function listCompatTools(
       try {
         hasVdf = await fs.exists(vdfPath);
       } catch (e) {
-        failedCount += 1;
-        warnings.push({
-          type: "compat-tool",
-          directory: dir,
-          toolName: name,
-          reason: "vdf-unreadable",
-          detail: errText(e),
-        });
+        fail("vdf-unreadable", errText(e), dir, name);
         continue;
       }
       if (hasVdf) {
@@ -178,27 +97,13 @@ export async function listCompatTools(
         try {
           text = await fs.readTextFile(vdfPath);
         } catch (e) {
-          failedCount += 1;
-          warnings.push({
-            type: "compat-tool",
-            directory: dir,
-            toolName: name,
-            reason: "vdf-unreadable",
-            detail: errText(e),
-          });
+          fail("vdf-unreadable", errText(e), dir, name);
           continue;
         }
         try {
           ({ internalName, displayName } = readToolVdf(text, name));
         } catch (e) {
-          failedCount += 1;
-          warnings.push({
-            type: "compat-tool",
-            directory: dir,
-            toolName: name,
-            reason: "vdf-invalid",
-            detail: errText(e),
-          });
+          fail("vdf-invalid", errText(e), dir, name);
           continue;
         }
       }
@@ -219,14 +124,7 @@ export async function listCompatTools(
           );
         }
       } catch (e) {
-        failedCount += 1;
-        warnings.push({
-          type: "compat-tool",
-          directory: dir,
-          toolName: name,
-          reason: "size-unreadable",
-          detail: errText(e),
-        });
+        fail("size-unreadable", errText(e), dir, name);
         // tool bleibt im inventar: internalName/displayName sind bekannt, nur
         // die größe nicht. ein unvollständiges inventar darf später keinen
         // falschen tool-not-recognized erzeugen (protoncheck.ts).
@@ -238,8 +136,17 @@ export async function listCompatTools(
       // nur der interne name: er steht im mapping und im library-filter
       // (uiStore.showLibraryForTool). ein zusätzlicher treffer über den
       // verzeichnisnamen würde spiele zählen, die die library danach nicht zeigt.
-      const usedBy = usedByOf(internalName);
-      tools.push({ name, internalName, displayName, sizeBytes, usedBy, source });
+      // nur installierte echte spiele: keine stale einträge, kein appId 0,
+      // keine non-steam-shortcuts.
+      const usedByApps = usedBy(internalName, mapping, installedAppIds);
+      tools.push({
+        name,
+        internalName,
+        displayName,
+        sizeBytes,
+        usedBy: usedByApps,
+        source,
+      });
     }
   }
   return { tools, warnings, counts: { read: readCount, failed: failedCount } };

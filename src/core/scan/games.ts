@@ -2,51 +2,33 @@ import { blockReason } from "../blocklist.js";
 import { errText } from "../errtext.js";
 import { readAppFields } from "../localconfig.js";
 import { parseManifest } from "../manifest.js";
-import { joinPath, LOCAL_HEADER_FILENAME, paths } from "../paths.js";
+import { joinPath, paths } from "../paths.js";
 import type { DirEntry, Ports } from "../ports.js";
 import {
   type CompatToolSource,
   type Game,
   parseSafeAppId,
+  type ReadFailedCounts,
   type ScanWarning,
   type SkippedLibrary,
 } from "../types.js";
+import { resolveLocalHeader } from "./cover.js";
 
 const MANIFEST_RE = /^appmanifest_(\d+)\.acf$/;
 
-// cover liegt unter librarycache/{appId}/{hash}/, hash-unterordner muss durchsucht werden.
-async function resolveLocalHeader(
-  fs: Ports["fs"],
-  steamRoot: string,
-  appId: number,
-): Promise<string | null> {
-  const dir = paths.libraryCacheAppDir(steamRoot, appId);
-  try {
-    if (!(await fs.exists(dir))) return null;
-    for (const entry of await fs.readDir(dir)) {
-      if (!entry.isDirectory) continue;
-      const candidate = joinPath(dir, entry.name, LOCAL_HEADER_FILENAME);
-      if (await fs.exists(candidate)) return candidate;
-    }
-  } catch {
-    // Defekte Cover-Dateien werden wie fehlende behandelt.
-  }
-  return null;
-}
-
-export interface ScanGamesResult {
+interface ScanGamesResult {
   games: Game[];
   blockedAppIds: Set<number>;
   warnings: ScanWarning[];
   skippedLibraries: SkippedLibrary[];
   cleanupUnsafeLibraries: string[];
-  manifestCounts: { read: number; failed: number };
+  manifestCounts: ReadFailedCounts;
   /** grund, wenn die localconfig eines spiels nicht parsebar war; der aufrufer
    *  degradiert damit `launchConfigStatus` scan-weit (INV-2: skip + warnung). */
   localConfigDegraded: string | null;
 }
 
-export interface CompatAssignment {
+interface CompatAssignment {
   compatTool: string;
   compatToolSource: CompatToolSource;
 }
@@ -77,6 +59,20 @@ export async function scanGames(
   const warnings: ScanWarning[] = [];
   const skippedLibraries: SkippedLibrary[] = [];
   const cleanupUnsafeLibraries = new Set<string>();
+  // ein fehlgeschlagenes manifest erzeugt immer dieselbe form: library fürs
+  // cleanup sperren, zähler hoch, warnung mit grund (INV-2). Fünf
+  // aufrufstellen, ein platz für form und zähler.
+  const failManifest = (
+    lib: string,
+    manifestName: string,
+    reason: Extract<ScanWarning, { type: "manifest" }>["reason"],
+    detail: string,
+    appId?: number,
+  ): void => {
+    cleanupUnsafeLibraries.add(lib);
+    manifestFailed += 1;
+    warnings.push({ type: "manifest", library: lib, manifestName, appId, reason, detail });
+  };
   const games: Game[] = [];
   const blockedAppIds = new Set<number>();
   const seenManifests = new Map<number, { library: string; manifestPath: string }>();
@@ -128,15 +124,7 @@ export async function scanGames(
       const filenameRaw = m[1];
       const filenameAppId = filenameRaw ? parseSafeAppId(filenameRaw) : null;
       if (filenameAppId === null) {
-        cleanupUnsafeLibraries.add(lib);
-        manifestFailed += 1;
-        warnings.push({
-          type: "manifest",
-          library: lib,
-          manifestName: entry.name,
-          reason: "invalid-filename",
-          detail: "invalid appid in filename",
-        });
+        failManifest(lib, entry.name, "invalid-filename", "invalid appid in filename");
         continue;
       }
 
@@ -144,16 +132,7 @@ export async function scanGames(
       try {
         text = await fs.readTextFile(manifestPath);
       } catch (e) {
-        cleanupUnsafeLibraries.add(lib);
-        manifestFailed += 1;
-        warnings.push({
-          type: "manifest",
-          library: lib,
-          manifestName: entry.name,
-          appId: filenameAppId,
-          reason: "unreadable",
-          detail: errText(e),
-        });
+        failManifest(lib, entry.name, "unreadable", errText(e), filenameAppId);
         continue;
       }
 
@@ -161,46 +140,33 @@ export async function scanGames(
       try {
         data = parseManifest(text);
       } catch (e) {
-        cleanupUnsafeLibraries.add(lib);
-        manifestFailed += 1;
-        warnings.push({
-          type: "manifest",
-          library: lib,
-          manifestName: entry.name,
-          appId: filenameAppId,
-          reason: "invalid-content",
-          detail: errText(e),
-        });
+        failManifest(lib, entry.name, "invalid-content", errText(e), filenameAppId);
         continue;
       }
 
       if (data.appId !== filenameAppId) {
-        cleanupUnsafeLibraries.add(lib);
-        manifestFailed += 1;
-        warnings.push({
-          type: "manifest",
-          library: lib,
-          manifestName: entry.name,
-          appId: data.appId,
-          reason: "appid-mismatch",
-          detail: `filename ${filenameAppId} vs vdf ${data.appId}`,
-        });
+        failManifest(
+          lib,
+          entry.name,
+          "appid-mismatch",
+          `filename ${filenameAppId} vs vdf ${data.appId}`,
+          data.appId,
+        );
         continue;
       }
 
       const existing = seenManifests.get(data.appId);
       if (existing) {
-        cleanupUnsafeLibraries.add(lib);
+        // beide beteiligten libraries sperren: der duplikat-konflikt trifft
+        // auch die zuerst gesehene library.
         cleanupUnsafeLibraries.add(existing.library);
-        manifestFailed += 1;
-        warnings.push({
-          type: "manifest",
-          library: lib,
-          manifestName: entry.name,
-          appId: data.appId,
-          reason: "duplicate",
-          detail: `"${manifestPath}" collides with "${existing.manifestPath}"`,
-        });
+        failManifest(
+          lib,
+          entry.name,
+          "duplicate",
+          `"${manifestPath}" collides with "${existing.manifestPath}"`,
+          data.appId,
+        );
         continue;
       }
 

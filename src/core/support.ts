@@ -1,25 +1,33 @@
-import { BLOCKLIST } from "./blocklist.js";
 import type { GameFootprint } from "./footprint.js";
 import { hasExternalCompatdata } from "./footprint.js";
-import { MANAGED_GE_NAME_RE } from "./geproton.js";
 import { deriveProtonCheck, isCompatToolPresent } from "./protoncheck.js";
 import { deriveScanCoverage } from "./scan/coverage.js";
 import {
+  isToolName,
+  libraryAlias,
+  projectToolName,
+  validAppId,
+  validNonNegativeInteger,
+} from "./supportRedaction.js";
+import {
+  asCompatConfigStatus,
+  asCompatToolSource,
+  asLaunchConfigStatus,
+  asTier,
   type CompatConfigStatus,
   type CompatToolSource,
   type Game,
   isRecord,
   type LaunchConfigStatus,
-  MAX_APP_ID,
   type ScanCoverage,
   type ScanResult,
   type Tier,
 } from "./types.js";
 
-export type SupportToolAvailability = "available" | "not-recognized" | "unknown";
-export type SupportExternalCompatdata = "detected" | "not-detected" | "unknown";
+type SupportToolAvailability = "available" | "not-recognized" | "unknown";
+type SupportExternalCompatdata = "detected" | "not-detected" | "unknown";
 
-export interface SupportCleanupInput {
+interface SupportCleanupInput {
   scanning?: boolean;
   trashScanning?: boolean;
   prefixUnavailable?: boolean;
@@ -29,7 +37,7 @@ export interface SupportCleanupInput {
   incompleteDeletionsUnreadable?: boolean;
 }
 
-export interface SupportCleanupFacts {
+interface SupportCleanupFacts {
   scanInProgress: boolean;
   prefixUnavailable: boolean;
   shaderUnavailable: boolean;
@@ -38,7 +46,7 @@ export interface SupportCleanupFacts {
   incompleteDeletionsUnreadable: boolean;
 }
 
-export interface SupportFootprintFacts {
+interface SupportFootprintFacts {
   status: "complete" | "partial" | "not-measured";
   sizeBytes?: number;
 }
@@ -71,79 +79,6 @@ export interface SupportFacts {
   cleanup: SupportCleanupFacts;
 }
 
-const TOOL_ALIAS = "<compat-tool-1>";
-
-function projectToolName(name: string): string {
-  // proton_11 teilt seinen Namen mit ARM64; der erste Eintrag vermeidet eine Architekturannahme.
-  const builtin = BLOCKLIST.find(
-    (entry) => entry.category === "proton-builtin" && entry.toolName === name,
-  );
-  if (builtin) return builtin.label;
-  // Nur Syntaxfreigabe, kein Beleg für Herkunft oder Installation.
-  return MANAGED_GE_NAME_RE.exec(name)?.[0] === name ? name : TOOL_ALIAS;
-}
-
-function validAppId(value: unknown): number | null {
-  return typeof value === "number" &&
-    Number.isSafeInteger(value) &&
-    value >= 1 &&
-    value <= MAX_APP_ID
-    ? value
-    : null;
-}
-
-function validNonNegativeInteger(value: unknown): number | null {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
-}
-
-function compatConfigStatus(value: unknown): CompatConfigStatus | "unknown" {
-  if (value === "available" || value === "missing" || value === "unreadable") return value;
-  return "unknown";
-}
-
-function launchConfigStatus(value: unknown): LaunchConfigStatus | "unknown" {
-  if (
-    value === "available" ||
-    value === "missing" ||
-    value === "unreadable" ||
-    value === "ambiguous"
-  ) {
-    return value;
-  }
-  return "unknown";
-}
-
-function compatToolSource(value: unknown): CompatToolSource {
-  if (value === "explicit" || value === "default" || value === "unavailable") return value;
-  return "unavailable";
-}
-
-function tier(value: unknown): Tier {
-  if (
-    value === "platinum" ||
-    value === "gold" ||
-    value === "silver" ||
-    value === "bronze" ||
-    value === "borked" ||
-    value === "unknown"
-  ) {
-    return value;
-  }
-  return "unknown";
-}
-
-function libraryAlias(game: Game, result: ScanResult): string | null {
-  if (!Array.isArray(result.libraries) || typeof game.library !== "string") return null;
-  const index = result.libraries.indexOf(game.library);
-  return index < 0 ? null : `<steam-library-${index + 1}>`;
-}
-
-function isToolName(value: unknown): value is string {
-  return (
-    typeof value === "string" && value.length > 0 && value !== "default" && value !== "unknown"
-  );
-}
-
 function toolNotRecognized(result: ScanResult, appId: number): boolean {
   return deriveProtonCheck(result).some(
     (check) => check.appId === appId && check.reasons.includes("tool-not-recognized"),
@@ -155,7 +90,7 @@ function projectCompatTool(
   result: ScanResult,
   configStatus: CompatConfigStatus | "unknown",
 ): Pick<SupportFacts, "compatToolSource" | "compatToolAlias" | "compatToolAvailability"> {
-  const source = compatToolSource(game.compatToolSource);
+  const source = asCompatToolSource(game.compatToolSource);
   if (configStatus !== "available") {
     return {
       compatToolSource: "unavailable",
@@ -240,10 +175,10 @@ function projectScanCoverageCounts(coverage: ScanCoverage): SupportFacts["scanCo
 }
 
 export function projectSupportFacts(input: SupportInput): SupportFacts {
-  const compatConfig = compatConfigStatus(input.result.compatConfigStatus);
-  const launchConfig = launchConfigStatus(input.result.launchConfigStatus);
+  const compatConfig = asCompatConfigStatus(input.result.compatConfigStatus);
+  const launchConfig = asLaunchConfigStatus(input.result.launchConfigStatus);
   const tool = projectCompatTool(input.game, input.result, compatConfig);
-  const protonDbTier = tier(input.game.protonDb?.tier);
+  const protonDbTier = asTier(input.game.protonDb?.tier);
   const appId = validAppId(input.game.appId);
   const coverage = deriveScanCoverage(input.result);
 

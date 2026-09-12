@@ -1,4 +1,4 @@
-import { type CompatToolMapping, parseCompatToolMapping } from "../compat.js";
+import { type CompatToolMapping, parseCompatToolMapping } from "../compatTools.js";
 import { errText } from "../errtext.js";
 import { findActiveUser, isLocalConfigParseable } from "../localconfig.js";
 import { paths } from "../paths.js";
@@ -40,6 +40,20 @@ export async function readCompatMapping(
     mapping,
     compatConfigStatus,
     warnings,
+  };
+}
+
+/** die eine INV-2-warnung für eine strukturell defekte localconfig. Zwei
+ *  stellen erzeugen sie: die vorab-probe hier (defekt auf den ebenen des
+ *  abgefragten pfads) und `scanGames` pro spiel (defekt unterhalb eines
+ *  spiel-blocks, `scan/local.ts` reicht ihn hoch). Beide müssen denselben text
+ *  und denselben grund tragen. */
+export function localConfigBrokenWarning(detail: string, steamUserId: string | null): ScanWarning {
+  return {
+    type: "launch-config",
+    reason: "unreadable",
+    steamUserId: steamUserId ?? undefined,
+    detail: `localconfig.vdf structurally broken: ${detail}`,
   };
 }
 
@@ -102,12 +116,7 @@ export async function readLaunchConfig(
     if (parseError) {
       launchConfigStatus = "unreadable";
       localConfigText = null;
-      warnings.push({
-        type: "launch-config",
-        reason: "unreadable",
-        steamUserId: activeUser.userId,
-        detail: `localconfig.vdf structurally broken: ${parseError.detail}`,
-      });
+      warnings.push(localConfigBrokenWarning(parseError.detail, activeUser.userId));
     }
   }
   return { steamUserId, localConfigText, launchConfigStatus, warnings };

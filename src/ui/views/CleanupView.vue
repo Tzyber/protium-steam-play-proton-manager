@@ -2,11 +2,13 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import type { TrashEntry } from "../../core/trash";
 import type { OrphanEntry } from "../../core/types";
+import CleanupRow from "../components/CleanupRow.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import ExplainInfo from "../components/ExplainInfo.vue";
-import { formatBytes } from "../format";
+import { formatBytes, formatKnownBytes } from "../format";
 import { getLocale, t } from "../i18n";
-import { summarizeSizes } from "../sizeSummary";
+import { bySizeDesc, formatSizeSummary } from "../sizeSummary";
+import { toggleInSet } from "../stores/cleanupHelpers";
 import { useCleanupStore } from "../stores/cleanupStore";
 import { useConfirmStore } from "../stores/confirmStore";
 import { useScanStore } from "../stores/scanStore";
@@ -101,13 +103,8 @@ function shortPath(p: string): string {
   return `/${parts[0]}/…/${parts.slice(-2).join("/")}`;
 }
 
-const bySize = (a: OrphanEntry, b: OrphanEntry) => {
-  if (a.sizeBytes == null) return b.sizeBytes == null ? 0 : 1;
-  if (b.sizeBytes == null) return -1;
-  return b.sizeBytes - a.sizeBytes;
-};
-const shadercacheOrphans = computed(() => [...cleanup.shadercacheOrphans].sort(bySize));
-const compatdataOrphans = computed(() => [...cleanup.compatdataOrphans].sort(bySize));
+const shadercacheOrphans = computed(() => [...cleanup.shadercacheOrphans].sort(bySizeDesc));
+const compatdataOrphans = computed(() => [...cleanup.compatdataOrphans].sort(bySizeDesc));
 
 /** spielname aus steams localconfig, sonst die app-id (z. B. bei
  *  non-steam-shortcuts oder fehlendem eintrag). */
@@ -118,15 +115,16 @@ function orphanLabel(o: OrphanEntry): string {
 const selected = reactive(new Set<string>());
 
 function toggle(key: string) {
-  if (selected.has(key)) selected.delete(key);
-  else selected.add(key);
+  toggleInSet(selected, key);
+}
+
+/** größe einer zeile; unbekannt bleibt sichtbar "…" statt "0 B". */
+function sizeText(sizeBytes: number | undefined): string {
+  return sizeBytes != null ? formatBytes(sizeBytes) : "…";
 }
 
 function displaySize(entries: readonly { sizeBytes?: number }[]): string {
-  const summary = summarizeSizes(entries);
-  if (summary.unknownCount === 0) return formatBytes(summary.measuredBytes);
-  if (summary.unknownCount === entries.length) return t("common.notMeasured");
-  return t("cleanup.partialSize", { size: formatBytes(summary.measuredBytes) });
+  return formatSizeSummary(entries, formatKnownBytes);
 }
 
 const shadercacheTotal = computed(() => displaySize(shadercacheOrphans.value));
@@ -197,19 +195,12 @@ const destructiveBusy = computed(() => busy.value || confirm.reserved || confirm
 
 // ---- papierkorb ----
 
-const trashBySize = computed(() =>
-  [...cleanup.trash].sort((a, b) => {
-    if (a.sizeBytes == null) return b.sizeBytes == null ? 0 : 1;
-    if (b.sizeBytes == null) return -1;
-    return b.sizeBytes - a.sizeBytes;
-  }),
-);
+const trashBySize = computed(() => [...cleanup.trash].sort(bySizeDesc));
 
 const trashSelected = reactive(new Set<string>());
 
 function toggleTrash(path: string) {
-  if (trashSelected.has(path)) trashSelected.delete(path);
-  else trashSelected.add(path);
+  toggleInSet(trashSelected, path);
 }
 
 const trashTotal = computed(() => displaySize(cleanup.trash));
@@ -385,22 +376,15 @@ const tabLabel = (id: Tab) =>
         </div>
 
         <ul v-if="shadercacheOrphans.length" class="list">
-          <li
-            v-for="o in shadercacheOrphans"
-            :key="cleanup.key(o)"
-          >
-            <button
-              type="button"
-              class="row"
-              :class="{ on: selected.has(cleanup.key(o)) }"
-              :aria-pressed="selected.has(cleanup.key(o))"
-              @click="toggle(cleanup.key(o))"
-            >
-              <span class="box" aria-hidden="true" />
-              <span class="rname mono">{{ orphanLabel(o) }}</span>
-              <span class="rpath mono" :title="o.path">{{ shortPath(o.path) }}<span class="sr-only">{{ o.path }}</span></span>
-              <span class="rsize mono">{{ o.sizeBytes != null ? formatBytes(o.sizeBytes) : "…" }}</span>
-            </button>
+          <li v-for="o in shadercacheOrphans" :key="cleanup.key(o)">
+            <CleanupRow
+              :label="orphanLabel(o)"
+              :path="o.path"
+              :short-path="shortPath(o.path)"
+              :size-text="sizeText(o.sizeBytes)"
+              :selected="selected.has(cleanup.key(o))"
+              @toggle="toggle(cleanup.key(o))"
+            />
           </li>
         </ul>
         <div v-else-if="cleanup.scanning" class="empty">{{ t("cleanup.searching") }}</div>
@@ -457,31 +441,16 @@ const tabLabel = (id: Tab) =>
         </div>
 
         <ul v-if="compatdataOrphans.length" class="list">
-          <li
-            v-for="o in compatdataOrphans"
-            :key="cleanup.key(o)"
-          >
-            <button
-              type="button"
-              class="row"
-              :class="{ on: selected.has(cleanup.key(o)) }"
-              :aria-pressed="selected.has(cleanup.key(o))"
-              @click="toggle(cleanup.key(o))"
-            >
-              <span class="box" aria-hidden="true" />
-              <span class="rname mono">
-                {{ orphanLabel(o) }}
-                <span
-                  v-if="o.potentialShortcut"
-                  class="sc-warn"
-                  :title="t('cleanup.potentialShortcutTooltip')"
-                  aria-hidden="true"
-                >?</span>
-                <span v-if="o.potentialShortcut" class="sr-only">{{ t('cleanup.potentialShortcutTooltip') }}</span>
-              </span>
-              <span class="rpath mono" :title="o.path">{{ shortPath(o.path) }}<span class="sr-only">{{ o.path }}</span></span>
-              <span class="rsize mono">{{ o.sizeBytes != null ? formatBytes(o.sizeBytes) : "…" }}</span>
-            </button>
+          <li v-for="o in compatdataOrphans" :key="cleanup.key(o)">
+            <CleanupRow
+              :label="orphanLabel(o)"
+              :path="o.path"
+              :short-path="shortPath(o.path)"
+              :size-text="sizeText(o.sizeBytes)"
+              :selected="selected.has(cleanup.key(o))"
+              :warning="o.potentialShortcut ? t('cleanup.potentialShortcutTooltip') : undefined"
+              @toggle="toggle(cleanup.key(o))"
+            />
           </li>
         </ul>
         <div v-else-if="cleanup.scanning" class="empty">{{ t("cleanup.searching") }}</div>
@@ -550,26 +519,18 @@ const tabLabel = (id: Tab) =>
         </div>
 
         <ul v-if="trashBySize.length" class="list">
-          <li
-            v-for="e in trashBySize"
-            :key="e.path"
-          >
-            <button
-              type="button"
-              class="row with-date"
-              :class="{ on: trashSelected.has(e.path) }"
-              :aria-pressed="trashSelected.has(e.path)"
-              @click="toggleTrash(e.path)"
-            >
-              <span class="box" aria-hidden="true" />
-              <span class="rname mono">{{ e.appId }}</span>
-              <span class="rpath mono" :title="e.path">{{ shortPath(e.path) }}<span class="sr-only">{{ e.path }}</span></span>
-              <span
-                class="rdate mono"
-                :title="t('cleanup.trashTrashedAt', { date: trashDate(e.trashedAt) })"
-              >{{ trashDate(e.trashedAt) }}</span>
-              <span class="rsize mono">{{ e.sizeBytes != null ? formatBytes(e.sizeBytes) : "…" }}</span>
-            </button>
+          <li v-for="e in trashBySize" :key="e.path">
+            <CleanupRow
+              :label="String(e.appId)"
+              :path="e.path"
+              :short-path="shortPath(e.path)"
+              :size-text="sizeText(e.sizeBytes)"
+              :extra="trashDate(e.trashedAt)"
+              :extra-title="t('cleanup.trashTrashedAt', { date: trashDate(e.trashedAt) })"
+              with-date
+              :selected="trashSelected.has(e.path)"
+              @toggle="toggleTrash(e.path)"
+            />
           </li>
         </ul>
         <div v-else-if="!cleanup.trashScanning && !cleanup.trashUnavailable" class="empty">
@@ -643,7 +604,6 @@ const tabLabel = (id: Tab) =>
     v-if="confirm.pending"
     :title="confirm.pending.title"
     :busy="confirm.busy"
-    danger
     :confirm-label="confirm.pending.confirmLabel ?? t('common.delete')"
     @confirm="confirm.confirm()"
     @cancel="confirm.cancel()"
@@ -784,61 +744,6 @@ const tabLabel = (id: Tab) =>
 }
 
 .list { display: grid; gap: 6px; list-style: none; padding: 0; margin: 0; }
-.list > li { display: contents; }
-
-/* ganze zeile ist die klickfläche (a11y: große trefferfläche statt mini-checkbox).
-   grid statt flex: die pfad-spalte ist minmax(0, 1fr) und kann damit NICHT über
-   den container hinauswachsen. vorher schob die zusätzliche datumsspalte im
-   papierkorb die zeile aus dem viewport. beide listen nutzen dieselben
-   spaltenbreiten, damit sie identisch aussehen. */
-.row {
-position: relative;
-  display: grid;
-  /* rem statt px: skaliert mit root-schriftgröße (text-only-zoom). ch wäre hier
-     falsch, .row erbt Inter vom body, nicht Space Mono. ch in Inter (14px) ≈ 7px,
-     damit wäre 9ch ≈ 63px statt 90px. 5.6rem / 4.6rem bei root 16px = 90px / 74px. */
-  grid-template-columns: 20px 5.6rem minmax(0, 1fr) 5.6rem;
-  align-items: center; gap: 14px;
-  width: 100%; text-align: left;
-  background: var(--bg-2); border: 1px solid var(--line);
-  border-radius: var(--r-sm); padding: 12px 14px; cursor: pointer;
-  transition: border-color 0.12s, background 0.12s;
-  /* damit tastatur-fokus nicht unter der sticky leiste landet */
-  scroll-margin-bottom: 80px;
-}
-/* papierkorb: datumsspalte zwischen pfad und größe, feste breite */
-.row.with-date { grid-template-columns: 20px 5.6rem minmax(0, 1fr) 4.6rem 5.6rem; }
-.row:hover { border-color: var(--signal-dim); background: var(--bg-3); }
-.row:hover .rdate {
-  color: var(--fg-1);
-}
-.row:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
-.row.on { border-color: var(--signal); background: color-mix(in srgb, var(--signal) 10%, var(--bg-2)); }
-
-.box {
-  flex-shrink: 0; width: 20px; height: 20px; border-radius: 5px;
-  border: 2px solid var(--fg-2); background: transparent;
-  display: grid; place-items: center; transition: all 0.12s;
-}
-.row.on .box { border-color: var(--signal); background: var(--signal); }
-.row.on .box::after {
-  content: ""; width: 5px; height: 9px; margin-top: -2px;
-  border: solid var(--bg-0); border-width: 0 2px 2px 0; transform: rotate(45deg);
-}
-
-.rname { font-size: 0.9375rem; color: var(--fg-0); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sc-warn {
-  display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center;
-  border-radius: 50%; font-size: 0.8125rem; font-weight: 600; margin-left: 4px;
-  background: color-mix(in srgb, var(--tier-gold) 20%, transparent);
-  color: #f5d678; border: 1px solid color-mix(in srgb, var(--tier-gold) 40%, transparent);
-}
-.rpath {
-  min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-  color: var(--fg-1); font-size: 0.875rem;
-}
-.rsize { color: var(--fg-1); font-size: 0.875rem; white-space: nowrap; text-align: right; }
-.rdate { color: var(--fg-2); font-size: 0.875rem; white-space: nowrap; text-align: right; }
 
 .moved-note {
   color: var(--fg-2); font-size: 0.875rem; font-family: var(--font-body);
@@ -878,6 +783,5 @@ position: relative;
 .explain-inline { margin-left: 7px; vertical-align: middle; }
 .empty { color: var(--fg-2); font-family: var(--font-body); font-size: 0.875rem; padding: 32px 0; text-align: center; }
 
-.consequences { white-space: pre-line; margin: 0; max-height: 260px; overflow-y: auto; }
 
 </style>

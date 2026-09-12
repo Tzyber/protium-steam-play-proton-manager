@@ -5,12 +5,8 @@
 // das Backend ist die Autorität für WAS passiert, das Frontend lokalisiert
 // nur die Darstellung.
 import type { PendingDeleteInfo } from "../core/ports.js";
+import { pathBasename } from "./format.js";
 import { t } from "./i18n/index.js";
-
-function baseName(path: string): string {
-  const idx = path.lastIndexOf("/");
-  return idx >= 0 ? path.slice(idx + 1) : path;
-}
 
 export function localizeConsequences(
   pending: PendingDeleteInfo,
@@ -27,16 +23,16 @@ export function localizeConsequences(
         break;
       }
       case "trash":
-        return t("cleanup.consequenceTrashEntry", { name: baseName(c.path) });
+        return t("cleanup.consequenceTrashEntry", { name: pathBasename(c.path) });
       case "compatTool": {
         const affected = c.affectedAppIds ?? [];
         if (affected.length > 0) {
           return t("cleanup.consequenceCompatToolMapped", {
-            name: baseName(c.path),
+            name: pathBasename(c.path),
             n: affected.length,
           });
         }
-        return t("cleanup.consequenceCompatTool", { name: baseName(c.path) });
+        return t("cleanup.consequenceCompatTool", { name: pathBasename(c.path) });
       }
     }
     return c.description;

@@ -8,37 +8,13 @@ import FilterBar from "../../src/ui/components/FilterBar.vue";
 import { setLocale, t } from "../../src/ui/i18n";
 import { useLibraryStore } from "../../src/ui/stores/libraryStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
+import { game, scanResult } from "../support/factories";
 
 function result(): ScanResult {
-  return {
-    steamRoot: "/home/u/.steam",
-    libraries: ["/home/u/.steam"],
-    games: [
-      {
-        appId: 42,
-        name: "Game 42",
-        library: "/home/u/.steam",
-        sizeBytes: 100,
-        compatTool: "default",
-        compatToolSource: "default",
-        protonDb: { tier: "bronze", confidence: "strong" },
-        localHeader: null,
-        headerImage: null,
-      },
-    ],
-    compatToolsInstalled: [],
-    builtinProtonsInstalled: [],
+  return scanResult({
+    games: [game({ protonDb: { tier: "bronze", confidence: "strong" } })],
     defaultCompatTool: "proton_experimental",
-    compatConfigStatus: "available",
-    launchConfigStatus: "available",
-    manifestCounts: { read: 0, failed: 0 },
-    compatToolCounts: { read: 0, failed: 0 },
-    steamUserId: null,
-    warnings: [],
-    skippedLibraries: [],
-    cleanupUnsafeLibraries: [],
-    blockedAppIds: [],
-  };
+  });
 }
 
 describe("FilterBar proton-check", () => {

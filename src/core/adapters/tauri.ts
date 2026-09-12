@@ -1,6 +1,7 @@
 // ports-implementierung gegen tauri-plugins + rust-commands.
 // Einzige Datei mit Tauri-Imports auf der Core-Seite.
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   BaseDirectory,
   exists as fsExists,
@@ -14,11 +15,13 @@ import type {
   DeleteResult,
   DirEntry,
   DirectorySize,
+  DownloadProgressEvent,
   EnvironmentSnapshot,
   FileSystem,
   Http,
   HttpResponse,
   InstallGeResult,
+  InstallPhaseEvent,
   PendingDeleteInfo,
   Ports,
   System,
@@ -118,6 +121,12 @@ const system: System = {
       downloadId: params.downloadId,
     }),
   cancelDownload: (downloadId) => invoke<void>("cancel_download", { downloadId }),
+  // Die Event-API von Tauri bleibt hier: die UI-Schicht kennt nur diese zwei
+  // Abos, damit ein Ladeprogress-Listener kein Tauri-Import in einem Store ist.
+  onDownloadProgress: (handler) =>
+    listen<DownloadProgressEvent>("download-progress", (event) => handler(event.payload)),
+  onInstallPhase: (handler) =>
+    listen<InstallPhaseEvent>("install-phase", (event) => handler(event.payload)),
   prepareDelete: (request) =>
     invoke<PendingDeleteInfo>("prepare_delete", {
       request: {

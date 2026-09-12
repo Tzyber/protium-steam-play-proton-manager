@@ -1,8 +1,7 @@
 import type { Cache, Http } from "./ports.js";
-import type { Tier } from "./types.js";
+import { asTier, type Tier } from "./types.js";
 
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const VALID_TIERS: readonly Tier[] = ["platinum", "gold", "silver", "bronze", "borked", "unknown"];
 
 // Der Host muss dem HTTP-Scope entsprechen (`www`, nicht Apex), sonst blockiert Tauri.
 const BASE = "https://www.protondb.com/api/v1/reports/summaries";
@@ -16,12 +15,6 @@ interface CacheEntry {
   tier: Tier;
   confidence: string;
   fetchedAt: number;
-}
-
-function normalizeTier(raw: unknown): Tier {
-  return typeof raw === "string" && (VALID_TIERS as string[]).includes(raw)
-    ? (raw as Tier)
-    : "unknown";
 }
 
 export class ProtonDbClient {
@@ -43,7 +36,7 @@ export class ProtonDbClient {
         // tier-werte durchreichen
         if (this.now() - entry.fetchedAt < TTL_MS) {
           return {
-            tier: normalizeTier(entry.tier),
+            tier: asTier(entry.tier),
             confidence: typeof entry.confidence === "string" ? entry.confidence : "unknown",
           };
         }
@@ -57,7 +50,7 @@ export class ProtonDbClient {
       if (!res.ok) return null; // insb. 404 = kein report
       const body = JSON.parse(res.text) as { tier?: unknown; confidence?: unknown };
       const result = {
-        tier: normalizeTier(body.tier),
+        tier: asTier(body.tier),
         confidence: typeof body.confidence === "string" ? body.confidence : "unknown",
       };
       const entry: CacheEntry = { ...result, fetchedAt: this.now() };

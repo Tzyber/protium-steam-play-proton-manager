@@ -82,6 +82,7 @@ export const en = {
     coverageReasonPathMissing: "path missing",
     coverageReasonScopeFailed: "scope access failed",
     coverageReasonReadFailed: "read failed",
+    coverageReasonUnverified: "state not verified",
     coverageReasonMissing: "configuration missing",
     coverageReasonUnreadable: "unreadable",
     coverageReasonSelectionAmbiguous: "account selection ambiguous",
@@ -300,6 +301,16 @@ export const en = {
   card: {
     openDetails: "open {name} details",
     launch: "start {name}",
+  },
+  // short names for visible labels (drawer/tier badge); `tier.*` are the
+  // full ProtonDB descriptions
+  tierName: {
+    platinum: "Platinum",
+    gold: "Gold",
+    silver: "Silver",
+    bronze: "Bronze",
+    borked: "Borked",
+    unknown: "Unknown",
   },
   tier: {
     platinum: "runs perfectly, out of the box",

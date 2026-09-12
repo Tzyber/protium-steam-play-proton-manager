@@ -265,6 +265,7 @@ export async function buildFakeSteam(): Promise<{
     generation: 1,
     steamRoot: root,
     libraries: [root, lib2],
+    unavailableLibraries: [],
     systemCompatDirs: [systemCompat],
     appCacheDir: join(home, "app-cache"),
     appConfigDir: join(home, "app-config"),
@@ -317,6 +318,7 @@ export function fakeSystem(opts?: { environment?: EnvironmentSnapshot }): System
       generation: 1,
       steamRoot: "/tmp/steam",
       libraries: ["/tmp/steam"],
+      unavailableLibraries: [],
       systemCompatDirs: [],
       appCacheDir: "/tmp/protium-cache",
       appConfigDir: "/tmp/protium-config",
@@ -356,6 +358,8 @@ export function fakeSystem(opts?: { environment?: EnvironmentSnapshot }): System
       return "verified";
     },
     async cancelDownload() {},
+    onDownloadProgress: async () => () => {},
+    onInstallPhase: async () => () => {},
     async prepareDelete(request) {
       if (request.targetType !== "trash" && (await this.isProcessRunning("steam"))) {
         throw new Error("steam is running, deletion refused");
@@ -379,7 +383,7 @@ export function fakeSystem(opts?: { environment?: EnvironmentSnapshot }): System
       try {
         await rm(path, { recursive: true, force: true });
       } catch {}
-      return { success: true, deletedPath: path };
+      return { deletedPath: path };
     },
     async saveLaunchOptions() {
       throw new Error("write gate unavailable in test fixture");

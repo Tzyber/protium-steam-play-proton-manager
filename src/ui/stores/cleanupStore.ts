@@ -10,17 +10,20 @@ import {
 import { errText } from "../../core/errtext";
 import { readAppName } from "../../core/localconfig";
 import { paths } from "../../core/paths";
-import type { DirectorySize } from "../../core/ports";
-import {
-  readAllShortcutAppIds,
-  SHORTCUT_ID_THRESHOLD,
-  type ShortcutResult,
-} from "../../core/shortcuts";
+import { readAllShortcutAppIds, SHORTCUT_ID_THRESHOLD } from "../../core/shortcuts";
 import { findTrashEntries, type TrashEntry, type TrashLibraryStatus } from "../../core/trash";
 import type { OrphanEntry, ScanResult } from "../../core/types";
 import { localizeConsequences } from "../consequences";
 import { formatBytes } from "../format";
 import { t } from "../i18n";
+import {
+  attachSizes,
+  collectInstalledAppIds,
+  combineErrors,
+  formatTrashErrors,
+  hasOrphanUnavailableBase,
+  hasUnreadableIncompleteDeletions,
+} from "./cleanupHelpers";
 import { useConfirmStore } from "./confirmStore";
 import { useScanStore } from "./scanStore";
 
@@ -28,102 +31,6 @@ import { useScanStore } from "./scanStore";
 const IGNORED_MISSING_KEY = "cleanup:ignored-missing-libs";
 
 export const MAX_PENDING_DELETES = 32;
-
-// Baut den aktuellen Installationsstatus aus Spielen und Shortcuts statt auf einen
-// veralteten scan-stand zu vertrauen, der cleanup-race-schutz lebt hier.
-function collectInstalledAppIds(result: ScanResult, shortcutResult: ShortcutResult): Set<number> {
-  const installedAppIds = new Set(result.games.map((g) => g.appId));
-  if (shortcutResult.status === "ok") {
-    for (const id of shortcutResult.ids) installedAppIds.add(id);
-  }
-  return installedAppIds;
-}
-
-/** übernimmt ausschließlich bestätigte messwerte. */
-function attachSizes(
-  entries: { path: string; sizeBytes?: number }[],
-  sizes: Record<string, DirectorySize>,
-): void {
-  const updates: { entry: { path: string; sizeBytes?: number }; sizeBytes?: number }[] = [];
-  for (const entry of entries) {
-    if (!Object.hasOwn(sizes, entry.path)) {
-      throw new Error(`batchDirSizes: ergebnis für pfad fehlt: ${entry.path}`);
-    }
-    const size = sizes[entry.path];
-    if (!size) {
-      throw new Error(`batchDirSizes: ungültiges ergebnis für pfad: ${entry.path}`);
-    }
-    if (size.status === "missing" || size.status === "failed") {
-      updates.push({ entry, sizeBytes: undefined });
-      continue;
-    }
-    if (size.status !== "measured") {
-      throw new Error(`batchDirSizes: ungültiger status für pfad: ${entry.path}`);
-    }
-    if (!Number.isSafeInteger(size.sizeBytes) || size.sizeBytes < 0) {
-      throw new Error(`batchDirSizes: ungültige größe für pfad: ${entry.path}`);
-    }
-    updates.push({ entry, sizeBytes: size.sizeBytes });
-  }
-  for (const update of updates) {
-    update.entry.sizeBytes = update.sizeBytes;
-  }
-}
-
-function formatTrashErrors(prepareErrors: string[], executeErrors: string[]): string | null {
-  const messages: string[] = [];
-  if (prepareErrors.length) {
-    messages.push(
-      t("cleanup.trashPrepareError", {
-        n: prepareErrors.length,
-        errors: prepareErrors.join("; "),
-      }),
-    );
-  }
-  if (executeErrors.length) {
-    messages.push(
-      t("cleanup.trashExecuteError", {
-        n: executeErrors.length,
-        errors: executeErrors.join("; "),
-      }),
-    );
-  }
-  return messages.join("; ") || null;
-}
-
-function combineErrors(messages: (string | null)[]): string | null {
-  const present = messages.filter((message): message is string => message !== null);
-  return present.length > 0 ? present.join("; ") : null;
-}
-
-function hasUnreadableIncompleteDeletions(state: {
-  incompleteDeletionsUnreadable: string[];
-}): boolean {
-  return state.incompleteDeletionsUnreadable.length > 0;
-}
-
-function hasOrphanUnavailableBase(state: {
-  error: string | null;
-  orphanError: string | null;
-  trashError: string | null;
-  shortcutUnreadable: boolean;
-  blockedBySkipped: boolean;
-  pathMissingLibs: string[];
-  incompleteDeletionsUnreadable: string[];
-}): boolean {
-  const legacyError =
-    state.error !== null &&
-    state.orphanError === null &&
-    state.trashError === null &&
-    !state.shortcutUnreadable;
-  return (
-    legacyError ||
-    state.orphanError !== null ||
-    state.blockedBySkipped ||
-    state.pathMissingLibs.length > 0 ||
-    hasUnreadableIncompleteDeletions(state)
-  );
-}
 
 export const useCleanupStore = defineStore("cleanup", {
   state: () => ({
@@ -541,8 +448,8 @@ export const useCleanupStore = defineStore("cleanup", {
             let trashedCompatdata = false;
             for (const p of prepared) {
               try {
-                const res = await tauriPorts.system.executeDelete(p.token);
-                if (res.success && isCurrent()) {
+                await tauriPorts.system.executeDelete(p.token);
+                if (isCurrent()) {
                   this.orphans = this.orphans.filter((o) => this.key(o) !== p.key);
                   // shadercache wird hart gelöscht, landet nie im papierkorb
                   if (p.type === "compatdata") trashedCompatdata = true;
@@ -777,8 +684,8 @@ export const useCleanupStore = defineStore("cleanup", {
           onSuccess: async () => {
             for (const p of prepared) {
               try {
-                const res = await tauriPorts.system.executeDelete(p.token);
-                if (res.success && isCurrent()) {
+                await tauriPorts.system.executeDelete(p.token);
+                if (isCurrent()) {
                   this.trash = this.trash.filter((e) => e.path !== p.path);
                 }
               } catch (e) {
@@ -797,10 +704,6 @@ export const useCleanupStore = defineStore("cleanup", {
         reservation,
       );
       if (!accepted) confirm.release(reservation);
-    },
-
-    async deleteTrashEntry(entry: TrashEntry) {
-      await this.deleteTrashEntries([entry]);
     },
 
     async emptyTrash() {

@@ -19,37 +19,24 @@ vi.mock("../../src/core/adapters/tauri", async () => {
 
 import { useConfigStore } from "../../src/ui/stores/configStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
+import { game, scanResult } from "../support/factories";
 
 function fakeScanResult(): ScanResult {
-  return {
-    steamRoot: "/home/u/.steam",
-    libraries: ["/home/u/.steam"],
+  return scanResult({
     games: [
-      {
+      game({
         appId: 730,
         name: "Test",
-        library: "/home/u/.steam",
         sizeBytes: 0,
         compatTool: "OldTool",
         compatToolSource: "explicit",
         protonDb: { tier: "unknown", confidence: "unknown" },
-        localHeader: null,
-        headerImage: null,
-      },
+      }),
     ],
-    compatToolsInstalled: [],
-    builtinProtonsInstalled: [],
-    defaultCompatTool: "proton-cachyos-slr", // bewusst != "default", regressionstest für Befund 1
-    compatConfigStatus: "available",
-    launchConfigStatus: "available",
-    manifestCounts: { read: 0, failed: 0 },
-    compatToolCounts: { read: 0, failed: 0 },
+    // bewusst != "default", regressionstest für Befund 1
+    defaultCompatTool: "proton-cachyos-slr",
     steamUserId: "12345",
-    warnings: [],
-    skippedLibraries: [],
-    cleanupUnsafeLibraries: [],
-    blockedAppIds: [],
-  };
+  });
 }
 
 describe("configStore.saveCompatTool", () => {

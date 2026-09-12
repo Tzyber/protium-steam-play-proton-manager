@@ -7,7 +7,7 @@ import ExplainInfo from "../components/ExplainInfo.vue";
 import { formatBytes, formatKnownBytes } from "../format";
 import type { Key } from "../i18n";
 import { t } from "../i18n";
-import { summarizeSizes } from "../sizeSummary";
+import { formatSizeSummary } from "../sizeSummary";
 import { useConfirmStore } from "../stores/confirmStore";
 import type { Phase } from "../stores/protonStore";
 import { useProtonStore } from "../stores/protonStore";
@@ -29,13 +29,7 @@ function removable(tt: CompatTool): boolean {
 const installedNames = computed(() => new Set(proton.installedTools.map((tt) => tt.name)));
 
 const mappedTools = computed(() => proton.installedTools.filter((tool) => tool.usedBy.length > 0));
-const mappedSize = computed(() => {
-  const summary = summarizeSizes(mappedTools.value);
-  const size = formatKnownBytes(summary.measuredBytes);
-  if (summary.unknownCount === 0) return size;
-  if (summary.unknownCount === mappedTools.value.length) return t("common.notMeasured");
-  return t("cleanup.partialSize", { size });
-});
+const mappedSize = computed(() => formatSizeSummary(mappedTools.value, formatKnownBytes));
 
 function pct(tag: string): number | null {
   const j = proton.jobs[tag];
@@ -228,7 +222,6 @@ const statusLine = computed(() => {
     v-if="confirm.pending"
     :title="confirm.pending.title"
     :busy="confirm.busy"
-    danger
     :confirm-label="t('common.delete')"
     @confirm="confirm.confirm()"
     @cancel="confirm.cancel()"
@@ -275,7 +268,6 @@ const statusLine = computed(() => {
 .section .count { color: var(--fg-2); font-weight: 400; }
 
 .list { display: grid; gap: 8px; list-style: none; padding: 0; margin: 0; }
-.list > li { display: contents; }
 .row {
   display: flex; align-items: center; gap: 14px;
   background: var(--bg-2); border: 1px solid var(--line);
@@ -350,5 +342,4 @@ const statusLine = computed(() => {
   padding: 0;
 }
 .hint-close:hover { opacity: 0.6; }
-.consequences { white-space: pre-line; margin: 0; max-height: 260px; overflow-y: auto; }
 </style>

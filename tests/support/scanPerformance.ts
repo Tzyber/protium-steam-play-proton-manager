@@ -156,6 +156,7 @@ export async function buildScanPerformanceFixture(): Promise<ScanPerformanceFixt
       generation: 1,
       steamRoot: root,
       libraries: [root],
+      unavailableLibraries: [],
       systemCompatDirs: [],
       appCacheDir: join(tempRoot, "app-cache"),
       appConfigDir: join(tempRoot, "app-config"),

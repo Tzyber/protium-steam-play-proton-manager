@@ -1,6 +1,7 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { deriveScanCoverage } from "../../src/core/scan/coverage.js";
 import { scanLibrary } from "../../src/core/scan.js";
 import { buildFakeSteam, fakeHttp, fakeSystem, memCache, nodeFs } from "../support/fakeSteam";
 
@@ -14,6 +15,7 @@ describe("scanLibrary (integration, dominiks reales setup)", () => {
             generation: 0,
             steamRoot: "/tmp/claimed",
             libraries: [],
+            unavailableLibraries: [],
             systemCompatDirs: [],
             appCacheDir: "/tmp/cache",
             appConfigDir: "/tmp/config",
@@ -123,6 +125,30 @@ describe("scanLibrary (integration, dominiks reales setup)", () => {
 
     expect(result.libraries).toEqual([root, lib2]);
     expect(result.games.every((game) => game.library !== claimed)).toBe(true);
+  });
+
+  it("meldet eine in libraryfolders.vdf gelistete, fehlende library als unvollständig", async () => {
+    // F1-regression: das backend liefert die fehlgeschlagene discovery im
+    // snapshot; der scan darf sie nicht mehr stillschweigend als vollständig
+    // ausgeben.
+    const { root, lib2, staleLib, environment } = await buildFakeSteam();
+    const result = await scanLibrary(
+      { fs: nodeFs(), http: fakeHttp(), system: fakeSystem(), cache: memCache() },
+      {
+        environment: {
+          ...environment,
+          libraries: [root, lib2],
+          unavailableLibraries: [{ path: staleLib, reason: "path-missing" }],
+        },
+        protonDbDelayMs: 0,
+      },
+    );
+
+    expect(result.libraries).toEqual([root, lib2]);
+    expect(result.skippedLibraries).toContainEqual({ path: staleLib, reason: "path-missing" });
+    const coverage = deriveScanCoverage(result);
+    expect(coverage.state).toBe("incomplete");
+    expect(coverage.libraries).toEqual({ total: 3, read: 2, unavailable: 1 });
   });
 
   // der bericht (113:7): kein account durfte den scan nicht crashen, sondern

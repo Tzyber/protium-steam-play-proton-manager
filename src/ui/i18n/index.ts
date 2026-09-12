@@ -20,7 +20,7 @@ type DeepStringify<T> = T extends string
   : T extends object
     ? { [K in keyof T]: DeepStringify<T[K]> }
     : T;
-export type Dict = DeepStringify<typeof de>;
+type Dict = DeepStringify<typeof de>;
 
 const tables: Record<Locale, Dict> = { de, en: en as DeepStringify<typeof en> };
 

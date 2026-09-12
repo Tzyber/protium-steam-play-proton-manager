@@ -1,19 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { Tier } from "../../core/types";
+import { tierTone } from "../tier";
 
 const props = defineProps<{ tier: Tier; confidence?: string }>();
 
-const COLORS: Record<Tier, string> = {
-  platinum: "var(--tier-platinum)",
-  gold: "var(--tier-gold)",
-  silver: "var(--tier-silver)",
-  bronze: "var(--tier-bronze)",
-  borked: "var(--tier-borked)",
-  unknown: "var(--tier-unknown)",
-};
-
-const color = computed(() => COLORS[props.tier]);
+const color = computed(() => tierTone(props.tier));
 </script>
 
 <template>

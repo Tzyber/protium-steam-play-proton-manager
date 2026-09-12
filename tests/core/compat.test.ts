@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { listCompatTools, recomputeToolUsedBy } from "../../src/core/compat.js";
+import { listCompatTools } from "../../src/core/compat.js";
+import { recomputeToolUsedBy } from "../../src/core/compatTools.js";
 import type {
   DirEntry,
   DirectorySize,
@@ -125,6 +126,7 @@ describe("listCompatTools", () => {
         generation: 1,
         steamRoot: "/fake/steam",
         libraries: ["/fake/steam"],
+        unavailableLibraries: [],
         systemCompatDirs: [],
         appCacheDir: "/tmp/cache",
         appConfigDir: "/tmp/config",
@@ -144,6 +146,8 @@ describe("listCompatTools", () => {
       pathIdentity: vi.fn(async () => pi),
       installGeProton: vi.fn(async () => "verified" as const),
       cancelDownload: vi.fn(async () => {}),
+      onDownloadProgress: async () => () => {},
+      onInstallPhase: async () => () => {},
       saveLaunchOptions: vi.fn(async () => "written" as const),
       saveCompatTool: vi.fn(async () => "written" as const),
       prepareDelete: vi.fn(async () => ({
@@ -153,7 +157,7 @@ describe("listCompatTools", () => {
         targetPath: "/path",
         consequences: [],
       })),
-      executeDelete: vi.fn(async () => ({ success: true, deletedPath: "/path" })),
+      executeDelete: vi.fn(async () => ({ deletedPath: "/path" })),
     };
 
     const result = await listCompatTools(fs, system, "/fake/steam", new Map(), new Set());

@@ -19,7 +19,7 @@ function isErrorCode(value: unknown): value is keyof typeof ERROR_KEYS {
   return typeof value === "string" && Object.hasOwn(ERROR_KEYS, value);
 }
 
-export type PrefixOpenState = "idle" | "opening" | "opened" | "failed";
+type PrefixOpenState = "idle" | "opening" | "opened" | "failed";
 
 interface PrefixResult {
   state: Exclude<PrefixOpenState, "idle">;

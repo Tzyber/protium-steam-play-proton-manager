@@ -13,6 +13,29 @@ describe("paths", () => {
 
   it("lehnt Pfadtraversal in joinPath ab", () => {
     expect(() => joinPath("/home/u", "../.ssh")).toThrow('".." segment rejected');
+    expect(() => joinPath("/home/u/.steam", "steamapps", "..", "..")).toThrow(
+      '".." segment rejected',
+    );
+  });
+
+  it("behält eine wurzel aus nur einem schrägstrich", () => {
+    // `.filter(Boolean)` hat den fall vorher still zu einem relativen pfad
+    // gemacht: aus "/" + "steamapps" wurde "steamapps".
+    expect(joinPath("/", "steamapps", "common")).toBe("/steamapps/common");
+  });
+
+  it("lehnt eine leere oder relative wurzel ab", () => {
+    expect(() => joinPath("", "steamapps")).toThrow("absolute path");
+    expect(() => joinPath("relative/root", "steamapps")).toThrow("absolute path");
+  });
+
+  it("normalisiert doppelte und abschließende trenner", () => {
+    expect(joinPath("/home/u/.steam/", "config", "config.vdf")).toBe(
+      "/home/u/.steam/config/config.vdf",
+    );
+    expect(joinPath("/home/u/.steam", "steamapps/", "libraryfolders.vdf")).toBe(
+      "/home/u/.steam/steamapps/libraryfolders.vdf",
+    );
   });
 
   it("führt nur die beiden festen System-Compat-Wurzeln", () => {

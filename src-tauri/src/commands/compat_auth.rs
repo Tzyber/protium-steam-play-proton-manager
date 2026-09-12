@@ -8,7 +8,7 @@
 use crate::commands::fd::{
     fd_identity, open_absolute_dir, open_dir_at, open_file_at, read_fd_text, FdIdentity,
 };
-use crate::commands::scope::SYSTEM_COMPAT_DIRS;
+use crate::commands::scope::{MAX_VDF_READ_BYTES, SYSTEM_COMPAT_DIRS};
 use crate::commands::vdf_patch;
 #[cfg(target_os = "linux")]
 use std::ffi::OsStr;
@@ -19,6 +19,10 @@ use std::io;
 #[cfg(target_os = "linux")]
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::path::{Path, PathBuf};
+
+/// Deckel für appmanifest-reads in der Autorität (1 MiB, wie im
+/// delete-pfad): appmanifeste sind klein, eine übergrosse datei ist präpariert.
+const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 
 // Die Webview-Blocklist ist keine Autorität; diese Tabelle bindet Valve-Namen
 // an ihre Steam-App, deren Manifest danach frisch aus den Libraries gelesen wird.
@@ -96,7 +100,7 @@ fn compat_root_contains_name_at_fd<F>(
 where
     F: FnMut(u8),
 {
-    const MAX_COMPAT_VDF_BYTES: u64 = 1024 * 1024;
+    const MAX_COMPAT_VDF_BYTES: u64 = 1024 * 1024; // kleiner als MAX_VDF_READ_BYTES: tool-vdfs sind winzig
     const ENOTDIR: i32 = 20;
     let proc_dir = Path::new("/proc/self/fd").join(root_fd.as_raw_fd().to_string());
     let entries =
@@ -118,9 +122,10 @@ where
         };
         hook(3);
         // Ein einzelner kaputter Tool-Ordner darf die Autorität für alle anderen
-        // nicht kippen: unlesbare, nicht-UTF8- und übergroße VDFs werden wie
-        // fehlende verlassen. Die Autorität des angefragten Namens bleibt
-        // fail-closed, er wird weiterhin nur aus geparstem Inhalt belegt (S-1).
+        // nicht kippen: unlesbare, nicht-UTF8-, übergroße und syntaktisch
+        // defekte VDFs werden wie fehlende verlassen. Die Autorität des
+        // angefragten Namens bleibt fail-closed, er wird weiterhin nur aus
+        // geparstem Inhalt belegt (S-1).
         let text = match read_fd_text(&mut vdf, "compatibilitytool.vdf", MAX_COMPAT_VDF_BYTES) {
             Ok(text) => text,
             Err(error)
@@ -132,7 +137,14 @@ where
             }
             Err(error) => return Err(error),
         };
-        if parse_compat_tool_vdf(&text)?.as_deref() == Some(requested) {
+        // Der Parsefehler eines Kandidaten zählt zu denselben Skip-Fällen: nur
+        // dieser Kandidat wird verlassen, die übrigen Tool-Ordner bleiben
+        // prüfbar. Aus unparsbarem Inhalt wird nie autorisiert (S-1).
+        let parsed = match parse_compat_tool_vdf(&text) {
+            Ok(parsed) => parsed,
+            Err(_) => continue,
+        };
+        if parsed.as_deref() == Some(requested) {
             return Ok(true);
         }
     }
@@ -160,7 +172,10 @@ fn read_library_folders_from_root_fd<F>(
 where
     F: FnMut(u8),
 {
-    const MAX_LIBRARYFOLDERS_BYTES: u64 = 1024 * 1024;
+    // dieselbe grenze wie die Discovery (MAX_VDF_READ_BYTES): beide lesen
+    // dieselbe datei. Mit dem früheren 1-MiB-cap scheiterte diese autorisierung
+    // an einer datei, die die Discovery vollständig gelesen hatte — sichtbar
+    // (kein stiller fallback; der greift nur, wenn die datei ganz fehlt).
     hook(1);
     for directory in ["config", "steamapps"] {
         let directory_fd = match open_dir_at(steam_root_fd.as_raw_fd(), OsStr::new(directory)) {
@@ -175,7 +190,7 @@ where
                 Err(error) => return Err(format!("cannot open libraryfolders.vdf: {error}")),
             };
         hook(2);
-        let text = read_fd_text(&mut file, "libraryfolders.vdf", MAX_LIBRARYFOLDERS_BYTES)?;
+        let text = read_fd_text(&mut file, "libraryfolders.vdf", MAX_VDF_READ_BYTES)?;
         return crate::commands::scope::parse_library_folder_paths(&text);
     }
     if open_dir_at(steam_root_fd.as_raw_fd(), OsStr::new("steamapps")).is_ok() {
@@ -276,7 +291,10 @@ where
     };
     hook(4);
     let unreadable = ManifestReadError::Unreadable;
-    let content = read_fd_text(&mut manifest, &manifest_name, 1024 * 1024).map_err(unreadable)?;
+    // appmanifeste sind klein; dasselbe limit wie im valve-pfad
+    // (delete_inspect), nicht das 16-MiB-limit der config-dateien.
+    let content =
+        read_fd_text(&mut manifest, &manifest_name, MAX_MANIFEST_BYTES).map_err(unreadable)?;
     let parse_error = |error| unreadable(format!("cannot parse manifest {manifest_name}: {error}"));
     let internal_id = vdf_patch::get_vdf_value(&content, &["AppState", "appid"])
         .map_err(parse_error)?
@@ -315,10 +333,20 @@ where
             }
             continue;
         }
-        let library_canonical = fs::canonicalize(&library)
-            .map_err(|error| format!("cannot canonicalize Steam library: {error}"))?;
-        let library_metadata = fs::metadata(&library_canonical)
-            .map_err(|error| format!("cannot stat Steam library: {error}"))?;
+        // Eine gelistete, aber nicht gemountete Library belegt keine
+        // Installation: NotFound wird übersprungen und die Suche läuft weiter
+        // (INV-2). Jeder andere Fehler bleibt hart fail-closed, ebenso ein
+        // Identitätswechsel der Library.
+        let library_canonical = match fs::canonicalize(&library) {
+            Ok(path) => path,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("cannot canonicalize Steam library: {error}")),
+        };
+        let library_metadata = match fs::metadata(&library_canonical) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("cannot stat Steam library: {error}")),
+        };
         use std::os::unix::fs::MetadataExt;
         let library_identity = FdIdentity {
             dev: library_metadata.dev(),
@@ -436,512 +464,9 @@ pub(super) fn is_managed_ge_name(name: &str) -> bool {
     let Some(minor) = minor_text.parse::<u64>().ok() else {
         return false;
     };
-    is_current || major < 11 || (major == 11 && minor <= 3)
+    is_current || crate::commands::ge_install::is_legacy_ge_version(major, minor)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[cfg(target_os = "linux")]
-    use crate::commands::fd::{open_absolute_dir, open_bound_root_fd};
-    use crate::commands::test_util::wsg_fixture;
-
-    #[cfg(target_os = "linux")]
-    fn valve_authority_fixture(tag: &str) -> (PathBuf, PathBuf) {
-        let root = wsg_fixture(tag);
-        let steam = root.join("steam");
-        std::fs::create_dir_all(steam.join("config")).unwrap();
-        (root, steam)
-    }
-
-    #[cfg(target_os = "linux")]
-    fn wsg_env(tag: &str) -> (PathBuf, PathBuf, PathBuf) {
-        let root = wsg_fixture(tag);
-        let home = root.join("fakehome");
-        let steam = home.join(".local/share/Steam");
-        let cache = root.join("cache");
-        std::fs::create_dir_all(steam.join("config")).unwrap();
-        std::fs::create_dir_all(steam.join("userdata/123/config")).unwrap();
-        std::fs::create_dir_all(&cache).unwrap();
-        for tool_name in ["GE-Proton9-27", "GE-Proton9-28"] {
-            let tool_dir = steam.join("compatibilitytools.d").join(tool_name);
-            std::fs::create_dir_all(&tool_dir).unwrap();
-            let tool_vdf = format!(
-                "\"compatibilitytools\" {{ \"compat_tools\" {{ \"{tool_name}\" {{ }} }} }}"
-            );
-            std::fs::write(tool_dir.join("compatibilitytool.vdf"), tool_vdf).unwrap();
-        }
-        (home, cache, steam)
-    }
-
-    #[cfg(target_os = "linux")]
-    fn tool_vdf(tool_name: &str) -> String {
-        format!("\"compatibilitytools\" {{ \"compat_tools\" {{ \"{tool_name}\" {{ }} }} }}")
-    }
-
-    // Fixture für S-1: Tool-Ordner mit rohem VDF-inhalt. Bei gemischten
-    // fixtures steht `BrokenTool` zuerst, damit der kaputte ordner zuerst
-    // gelesen wird (fs::read_dir liefert einträge in anlagereihenfolge) und
-    // der test den alten abbruch reproduziert.
-    #[cfg(target_os = "linux")]
-    fn compat_tools_fixture(tag: &str, dirs: &[(&str, &[u8])]) -> PathBuf {
-        let root = wsg_fixture(tag);
-        for (dir, vdf_bytes) in dirs {
-            let tool_dir = root.join(dir);
-            std::fs::create_dir_all(&tool_dir).unwrap();
-            std::fs::write(tool_dir.join("compatibilitytool.vdf"), vdf_bytes).unwrap();
-        }
-        root
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn compat_autorisiert_trotz_kaputter_vdf_und_lehnt_unbekannte_namen_ab() {
-        let intact_dir = "GE-Proton9-27";
-        let intact_name = "GE-Proton11-5-x86_64";
-        let intact = tool_vdf(intact_name);
-        // nicht-UTF8-bytes: der lesepfad scheitert, der ordner wird verlassen.
-        // Der angefragte name steht bewusst nicht in dieser datei — die
-        // fail-closed-eigenschaft ist, dass ohne geparsten inhalt kein name
-        // autorisiert wird (das 0xFF-byte wird nicht als name interpretiert).
-        let broken = b"\"compatibilitytools\" { \"compat_tools\" { \"Broken\" { \xff } } }";
-        // zweiter skip-pfad: statt einer datei liegt ein verzeichnis mit dem
-        // VDF-namen im tool-ordner; `read_to_string` scheitert am read.
-        let unreadable_dir = "GE-Proton8-30";
-
-        let only_broken = compat_tools_fixture("compat-broken-only", &[("BrokenTool", broken)]);
-        let broken_fd = open_absolute_dir(&only_broken).unwrap();
-        let result = compat_root_contains_name_at_fd(&broken_fd, intact_dir, &mut |_| {});
-        assert!(
-            result.is_ok(),
-            "kaputter ordner darf die ganze autorisierung nicht abbrechen: {result:?}"
-        );
-        assert!(
-            !result.unwrap(),
-            "ein kaputter ordner autorisiert keinen namen"
-        );
-        drop(broken_fd);
-        let _ = std::fs::remove_dir_all(only_broken);
-
-        let only_unreadable = compat_tools_fixture("compat-unreadable-only", &[]);
-        std::fs::create_dir_all(
-            only_unreadable
-                .join(unreadable_dir)
-                .join("compatibilitytool.vdf"),
-        )
-        .unwrap();
-        let unreadable_fd = open_absolute_dir(&only_unreadable).unwrap();
-        let result = compat_root_contains_name_at_fd(&unreadable_fd, unreadable_dir, &mut |_| {});
-        assert!(
-            result.is_ok(),
-            "unlesbarer vdf-name darf die autorisierung nicht abbrechen: {result:?}"
-        );
-        assert!(
-            !result.unwrap(),
-            "ein unlesbarer vdf-name autorisiert keinen namen"
-        );
-        drop(unreadable_fd);
-        let _ = std::fs::remove_dir_all(only_unreadable);
-
-        let intact_dir_only =
-            compat_tools_fixture("compat-intact-only", &[(intact_dir, intact.as_bytes())]);
-        let intact_fd = open_absolute_dir(&intact_dir_only).unwrap();
-        assert!(
-            compat_root_contains_name_at_fd(&intact_fd, intact_name, &mut |_| {}).unwrap(),
-            "intakte vdf autorisiert weiterhin"
-        );
-        assert!(
-            !compat_root_contains_name_at_fd(&intact_fd, "GE-Proton10-25", &mut |_| {}).unwrap(),
-            "unbekannter name bleibt false"
-        );
-        drop(intact_fd);
-        let _ = std::fs::remove_dir_all(intact_dir_only);
-
-        let mixed = compat_tools_fixture(
-            "compat-broken-and-intact",
-            &[("BrokenTool", broken), (intact_dir, intact.as_bytes())],
-        );
-        std::fs::create_dir_all(mixed.join(unreadable_dir).join("compatibilitytool.vdf")).unwrap();
-        let mixed_fd = open_absolute_dir(&mixed).unwrap();
-        assert!(
-            compat_root_contains_name_at_fd(&mixed_fd, intact_name, &mut |_| {}).unwrap(),
-            "intakter ordner muss trotz kaputtem nachbarn gefunden werden"
-        );
-        let absent = compat_root_contains_name_at_fd(&mixed_fd, "GE-Proton10-25", &mut |_| {});
-        assert!(
-            absent.is_ok(),
-            "fehlender name muss sauber false liefern: {absent:?}"
-        );
-        assert!(!absent.unwrap());
-        drop(mixed_fd);
-        let _ = std::fs::remove_dir_all(mixed);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn valve_libraryfolders_descriptor_reader_nutzt_gemeinsamen_parser() {
-        let (root, steam) = valve_authority_fixture("libraryfolders-descriptor-reader");
-        std::fs::create_dir_all(steam.join("steamapps")).unwrap();
-        let libraryfolders = steam.join("config/libraryfolders.vdf");
-        std::fs::write(
-            &libraryfolders,
-            include_str!("../../../tests/fixtures/libraryfolders-parser.vdf"),
-        )
-        .unwrap();
-        let root_fd = open_absolute_dir(&steam).unwrap();
-
-        let libraries = read_library_folders_from_root_fd(&steam, &root_fd, &mut |_| {}).unwrap();
-        assert_eq!(
-            libraries,
-            vec![
-                PathBuf::from("/fixture/library-ten"),
-                PathBuf::from("/fixture/library-two"),
-            ]
-        );
-
-        std::fs::write(
-            &libraryfolders,
-            include_str!("../../../tests/fixtures/libraryfolders-parser-broken.vdf"),
-        )
-        .unwrap();
-        let error = read_library_folders_from_root_fd(&steam, &root_fd, &mut |_| {}).unwrap_err();
-        assert!(
-            error.starts_with("scan libraryfolders entries:"),
-            "error: {error}"
-        );
-
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn valve_libraryfolders_leerer_block_bleibt_leer() {
-        let (root, steam) = valve_authority_fixture("libraryfolders-empty");
-        std::fs::create_dir_all(steam.join("steamapps")).unwrap();
-        std::fs::write(
-            steam.join("config/libraryfolders.vdf"),
-            include_str!("../../../tests/fixtures/libraryfolders-parser-empty.vdf"),
-        )
-        .unwrap();
-        let root_fd = open_absolute_dir(&steam).unwrap();
-
-        let libraries = read_library_folders_from_root_fd(&steam, &root_fd, &mut |_| {}).unwrap();
-
-        assert!(libraries.is_empty());
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn valve_libraryfolders_fehlende_vdf_nutzt_steamapps_fallback() {
-        let (root, steam) = valve_authority_fixture("libraryfolders-missing");
-        std::fs::create_dir_all(steam.join("steamapps")).unwrap();
-        let root_fd = open_absolute_dir(&steam).unwrap();
-
-        let libraries = read_library_folders_from_root_fd(&steam, &root_fd, &mut |_| {}).unwrap();
-
-        assert_eq!(libraries, vec![steam.clone()]);
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn valve_authority_missing_local_compat_root_is_false() {
-        let (root, steam) = valve_authority_fixture("compat-missing-local-root");
-        let compat_root = steam.join("compatibilitytools.d");
-        let mut hook = |_| {};
-        assert!(
-            !compat_root_contains_name_linux_with_hook(&compat_root, "missing", &mut hook).unwrap()
-        );
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn steam_root_identity_swap_between_capture_and_open_fails_closed() {
-        let (root, steam) = valve_authority_fixture("valve-root-open-race");
-        let canonical = std::fs::canonicalize(&steam).unwrap();
-        let foreign = root.join("foreign-root");
-        std::fs::create_dir_all(&foreign).unwrap();
-        let mut swapped = false;
-        let result = open_bound_root_fd(&canonical, &mut || {
-            if !swapped {
-                std::fs::rename(&canonical, canonical.with_extension("old")).unwrap();
-                std::os::unix::fs::symlink(&foreign, &canonical).unwrap();
-                swapped = true;
-            }
-        });
-        assert!(
-            result.is_err(),
-            "Root-Identity-Swap muss fail-closed bleiben"
-        );
-        std::fs::remove_file(&canonical).unwrap();
-        std::fs::rename(canonical.with_extension("old"), &canonical).unwrap();
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn valve_authority_root_and_libraryfolders_race_use_bound_fds() {
-        let (root, steam) = valve_authority_fixture("valve-root-vdf-races");
-        let steamapps = steam.join("steamapps");
-        std::fs::create_dir_all(&steamapps).unwrap();
-        std::fs::write(
-            steamapps.join("appmanifest_1493710.acf"),
-            "\"AppState\" { \"appid\" \"1493710\" }",
-        )
-        .unwrap();
-        let libraryfolders = "\"libraryfolders\" { \"0\" { \"path\" \"";
-        let libraryfolders = format!("{libraryfolders}{}\" }} }}", steam.display());
-        let libraryfolders_path = steam.join("config/libraryfolders.vdf");
-        std::fs::write(&libraryfolders_path, &libraryfolders).unwrap();
-
-        let root_fd = open_absolute_dir(&steam).unwrap();
-        let external = root.join("foreign-steam-root");
-        std::fs::create_dir_all(&external).unwrap();
-        let mut swapped_root = false;
-        let result = valve_builtin_installed_from_fds(&steam, &root_fd, 1493710, &mut |stage| {
-            if stage == 1 && !swapped_root {
-                std::fs::rename(&steam, steam.with_extension("old")).unwrap();
-                std::os::unix::fs::symlink(&external, &steam).unwrap();
-                swapped_root = true;
-            }
-        })
-        .unwrap();
-        assert!(result, "gebundener Steam-root muss trotz Pfadtausch gelten");
-        std::fs::remove_file(&steam).unwrap();
-        std::fs::rename(steam.with_extension("old"), &steam).unwrap();
-
-        let mut swapped_vdf = false;
-        let foreign_vdf = root.join("foreign-libraryfolders.vdf");
-        std::fs::write(&foreign_vdf, "\"libraryfolders\" { \"0\" { unclosed").unwrap();
-        let result = valve_builtin_installed_from_fds(&steam, &root_fd, 1493710, &mut |stage| {
-            if stage == 2 && !swapped_vdf {
-                std::fs::rename(
-                    &libraryfolders_path,
-                    libraryfolders_path.with_extension("old"),
-                )
-                .unwrap();
-                std::os::unix::fs::symlink(&foreign_vdf, &libraryfolders_path).unwrap();
-                swapped_vdf = true;
-            }
-        })
-        .unwrap();
-        assert!(
-            result,
-            "libraryfolders muss aus dem bereits geöffneten fd kommen"
-        );
-        std::fs::remove_file(&libraryfolders_path).unwrap();
-        std::fs::rename(
-            libraryfolders_path.with_extension("old"),
-            &libraryfolders_path,
-        )
-        .unwrap();
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn valve_authority_external_library_identity_race_fails_closed() {
-        let (root, steam) = valve_authority_fixture("valve-external-library-race");
-        let external = root.join("library");
-        std::fs::create_dir_all(external.join("steamapps")).unwrap();
-        std::fs::write(
-            external.join("steamapps/appmanifest_1493710.acf"),
-            "\"AppState\" { \"appid\" \"1493710\" }",
-        )
-        .unwrap();
-        let libraryfolders_path = steam.join("config/libraryfolders.vdf");
-        std::fs::write(
-            &libraryfolders_path,
-            format!(
-                "\"libraryfolders\" {{ \"0\" {{ \"path\" \"{}\" }} }}",
-                external.display()
-            ),
-        )
-        .unwrap();
-        let root_fd = open_absolute_dir(&steam).unwrap();
-        let foreign = root.join("foreign-library");
-        std::fs::create_dir_all(foreign.join("steamapps")).unwrap();
-        std::fs::write(
-            foreign.join("steamapps/appmanifest_1493710.acf"),
-            "\"AppState\" { \"appid\" \"1493710\" }",
-        )
-        .unwrap();
-        let mut swapped = false;
-        let result = valve_builtin_installed_from_fds(&steam, &root_fd, 1493710, &mut |stage| {
-            if stage == 3 && !swapped {
-                std::fs::rename(&external, external.with_extension("old")).unwrap();
-                std::os::unix::fs::symlink(&foreign, &external).unwrap();
-                swapped = true;
-            }
-        });
-        assert!(
-            result.is_err(),
-            "fremde externe Library darf nicht autorisieren"
-        );
-        std::fs::remove_file(&external).unwrap();
-        std::fs::rename(external.with_extension("old"), &external).unwrap();
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn valve_authority_manifest_swap_reads_same_fd() {
-        let (root, steam) = valve_authority_fixture("valve-manifest-race");
-        let steamapps = steam.join("steamapps");
-        std::fs::create_dir_all(&steamapps).unwrap();
-        let manifest = steamapps.join("appmanifest_1493710.acf");
-        std::fs::write(&manifest, "\"AppState\" { \"appid\" \"1493710\" }").unwrap();
-        std::fs::write(
-            steam.join("config/libraryfolders.vdf"),
-            format!(
-                "\"libraryfolders\" {{ \"0\" {{ \"path\" \"{}\" }} }}",
-                steam.display()
-            ),
-        )
-        .unwrap();
-        let root_fd = open_absolute_dir(&steam).unwrap();
-        let mut swapped = false;
-        let result = valve_builtin_installed_from_fds(&steam, &root_fd, 1493710, &mut |stage| {
-            if stage == 4 && !swapped {
-                std::fs::rename(&manifest, manifest.with_extension("old")).unwrap();
-                std::fs::write(&manifest, "\"AppState\" { \"appid\" \"1\" }").unwrap();
-                swapped = true;
-            }
-        })
-        .unwrap();
-        assert!(result, "Manifest muss aus dem gebundenen fd gelesen werden");
-        std::fs::remove_file(&manifest).unwrap();
-        std::fs::rename(manifest.with_extension("old"), &manifest).unwrap();
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn compat_authority_bleibt_an_root_tooldir_und_vdf_fd_gebunden() {
-        let (home, _cache, steam) = wsg_env("compat-fd-races");
-        let root = steam.join("compatibilitytools.d");
-        let tool = root.join("GE-Proton9-27");
-        let external = home.parent().unwrap().join("compat-fd-external");
-        std::fs::create_dir_all(external.join("ExternalTool")).unwrap();
-        std::fs::write(
-            external.join("ExternalTool/compatibilitytool.vdf"),
-            "\"compatibilitytools\" { \"compat_tools\" { \"ExternalTool\" {} } }",
-        )
-        .unwrap();
-
-        let mut root_swapped = false;
-        let root_result =
-            compat_root_contains_name_linux_with_hook(&root, "ExternalTool", &mut |stage| {
-                if stage == 1 && !root_swapped {
-                    std::fs::rename(&root, root.with_extension("old")).unwrap();
-                    std::os::unix::fs::symlink(&external, &root).unwrap();
-                    root_swapped = true;
-                }
-            })
-            .unwrap();
-        assert!(
-            !root_result,
-            "root-swap darf keinen externen namen autorisieren"
-        );
-        std::fs::remove_file(&root).unwrap();
-        std::fs::rename(root.with_extension("old"), &root).unwrap();
-
-        let mut tool_swapped = false;
-        let tool_result =
-            compat_root_contains_name_linux_with_hook(&root, "ExternalTool", &mut |stage| {
-                if stage == 2 && !tool_swapped {
-                    std::fs::rename(&tool, tool.with_extension("old")).unwrap();
-                    std::os::unix::fs::symlink(external.join("ExternalTool"), &tool).unwrap();
-                    tool_swapped = true;
-                }
-            })
-            .unwrap();
-        assert!(
-            !tool_result,
-            "tooldir-swap darf keinen externen namen autorisieren"
-        );
-        std::fs::remove_file(&tool).unwrap();
-        std::fs::rename(tool.with_extension("old"), &tool).unwrap();
-
-        let vdf = tool.join("compatibilitytool.vdf");
-        let mut vdf_swapped = false;
-        let vdf_result =
-            compat_root_contains_name_linux_with_hook(&root, "GE-Proton9-27", &mut |stage| {
-                if stage == 3 && !vdf_swapped {
-                    std::fs::rename(&vdf, vdf.with_extension("old")).unwrap();
-                    std::fs::write(
-                        &vdf,
-                        "\"compatibilitytools\" { \"compat_tools\" { \"ExternalTool\" {} } }",
-                    )
-                    .unwrap();
-                    vdf_swapped = true;
-                }
-            })
-            .unwrap();
-        assert!(vdf_result, "vdf-swap muss am bereits geöffneten fd bleiben");
-        std::fs::remove_file(&vdf).unwrap();
-        std::fs::rename(vdf.with_extension("old"), &vdf).unwrap();
-        let _ = std::fs::remove_dir_all(home.parent().unwrap());
-    }
-
-    #[test]
-    fn is_managed_ge_name_validiert_exakte_muster() {
-        assert!(is_managed_ge_name("GE-Proton9-27"));
-        assert!(is_managed_ge_name("GE-Proton10-25"));
-        assert!(is_managed_ge_name("GE-Proton11-4-x86_64"));
-        assert!(is_managed_ge_name("GE-Proton11-5-aarch64"));
-        assert!(is_managed_ge_name("GE-Proton11-3"));
-        assert!(!is_managed_ge_name("Proton"));
-        assert!(!is_managed_ge_name("GE-Proton"));
-        assert!(!is_managed_ge_name("GE-Proton10"));
-        assert!(!is_managed_ge_name("ge-proton9-27"));
-        assert!(!is_managed_ge_name("GE-Proton9-27-custom"));
-        assert!(!is_managed_ge_name("GE-Proton11-5-arm64"));
-        assert!(!is_managed_ge_name("GE-Proton11-4"));
-        assert!(!is_managed_ge_name("GE-Proton9-"));
-        assert!(!is_managed_ge_name("GE-Proton-27"));
-    }
-}
-
-#[cfg(all(test, target_os = "linux"))]
-mod manifest_reader_tests {
-    use super::*;
-    use crate::commands::test_util::fixture_dir;
-
-    #[test]
-    fn shared_manifest_reader_preserves_library_results_and_errors() {
-        let root = fixture_dir("prefix", "manifest-reader");
-        let library = open_absolute_dir(&root).unwrap();
-        assert_eq!(
-            is_app_installed_in_library_fd(library.as_raw_fd(), 620, &mut |_| {}),
-            Ok(false)
-        );
-        fs::create_dir(root.join("steamapps")).unwrap();
-        let steamapps = open_dir_at(library.as_raw_fd(), OsStr::new("steamapps")).unwrap();
-        for (text, expected) in [
-            ("\"AppState\" { \"appid\" \"620\" }", Ok(true)),
-            ("\"AppState\" { \"appid\" \"570\" }", Err("blocked")),
-            ("\"AppState\" {", Err("unreadable")),
-        ] {
-            fs::write(root.join("steamapps/appmanifest_620.acf"), text).unwrap();
-            let shared = is_app_installed_in_steamapps_fd(steamapps.as_raw_fd(), 620, &mut |_| {});
-            assert_eq!(
-                shared
-                    .as_ref()
-                    .map(|value| *value)
-                    .map_err(|error| match error {
-                        ManifestReadError::Blocked(_) => "blocked",
-                        ManifestReadError::Unreadable(_) => "unreadable",
-                    }),
-                expected
-            );
-            assert_eq!(
-                is_app_installed_in_library_fd(library.as_raw_fd(), 620, &mut |_| {}),
-                shared.map_err(ManifestReadError::into_message)
-            );
-        }
-        fs::remove_dir_all(root).unwrap();
-    }
-}
+#[path = "compat_auth_tests.rs"]
+mod tests;

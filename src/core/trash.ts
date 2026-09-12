@@ -1,7 +1,7 @@
 import { errText } from "./errtext.js";
 import { joinPath } from "./paths.js";
 import type { System, TrashListing } from "./ports.js";
-import { parseSafeAppId } from "./types.js";
+import { type OrphanType, parseSafeAppId } from "./types.js";
 
 export interface TrashEntry {
   /** voller pfad des papierkorb-eintrags */
@@ -9,7 +9,7 @@ export interface TrashEntry {
   library: string;
   /** verzeichnisname, z. b. "compatdata_1091500_1753372800123" */
   name: string;
-  type: "compatdata" | "shadercache";
+  type: OrphanType;
   appId: number;
   /** unix-ms aus dem verzeichnisnamen */
   trashedAt: number;
@@ -35,7 +35,7 @@ export interface TrashLibraryStatus {
   duplicateOf?: string;
 }
 
-export interface TrashScanResult {
+interface TrashScanResult {
   entries: TrashEntry[];
   /** verzeichnisse im papierkorb, die dem muster NICHT entsprechen.
    *  werden nicht angeboten, aber gemeldet, damit nichts lautlos verschwindet. */

@@ -177,34 +177,29 @@ export function getVdfChildFieldValues(
     to = block.to;
   }
   let firstError: string | null = null;
+  // gesehene app-keys werden unabhängig vom treffer gemerkt: die
+  // first-match-semantik von `getVdfValue` und des rust-writers gilt auch,
+  // wenn der erste block keines der angefragten felder enthält. der
+  // schlüsselvergleich läuft wie `findEntry` case-insensitiv.
+  const seen = new Set<string>();
   for (const child of scanEntries(tokens, from, to)) {
     if (!child.block) continue;
+    const key = child.key.value.toLowerCase();
     try {
       const fields = new Map<string, string>();
       for (const leafKey of leafKeys) {
         const entry = findEntry(tokens, child.block.from, child.block.to, leafKey);
         if (entry && !entry.block) fields.set(leafKey, entry.value.value);
       }
+      // die prüfung liegt hinter dem parse: ein defekter doppelter block wird
+      // weiterhin gemeldet, trägt aber keine werte bei.
+      if (seen.has(key)) continue;
+      seen.add(key);
       // block ohne einen der leafs bleibt draußen, sonst ändert der wrapper sein verhalten
-      if (fields.size > 0 && !values.has(child.key.value)) values.set(child.key.value, fields);
+      if (fields.size > 0) values.set(child.key.value, fields);
     } catch (e) {
       if (firstError === null) firstError = errText(e);
     }
   }
   return { values, firstError };
-}
-
-/** einzelner leaf-key: dünner wrapper über `getVdfChildFieldValues`. */
-export function getVdfChildValues(
-  text: string,
-  path: readonly string[],
-  leafKey: string,
-): { values: Map<string, string>; firstError: string | null } {
-  const { values, firstError } = getVdfChildFieldValues(text, path, [leafKey]);
-  const flat = new Map<string, string>();
-  for (const [blockKey, fields] of values) {
-    const value = fields.get(leafKey);
-    if (value !== undefined) flat.set(blockKey, value);
-  }
-  return { values: flat, firstError };
 }

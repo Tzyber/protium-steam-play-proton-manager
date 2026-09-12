@@ -1,4 +1,10 @@
 // Rust-Commands für Operationen außerhalb des Webviews.
+//
+// Die Anwendung ist Linux-only. `#[cfg(not(target_os = "linux"))]`-Stellen in
+// den Command-Modulen sind keine Alternativpfade, sondern Fehlerstummel, damit
+// die Kiste auf anderen Hosts überhaupt kompiliert (`cargo check` in CI und
+// auf Entwicklerrechnern). Sie liefern durchgehend "unsupported on this
+// platform" und dürfen nie als funktionierende Degradation gelesen werden.
 
 pub(crate) mod cleanup;
 pub(crate) mod compat_auth;
@@ -42,5 +48,35 @@ pub(crate) mod test_util {
 
     pub(super) fn wsg_fixture(tag: &str) -> std::path::PathBuf {
         fixture_dir("wsg", tag)
+    }
+
+    /// Schneidet den Produktionsteil einer Quelldatei ab, die sich per
+    /// `include_str!` selbst einliest.
+    ///
+    /// Grenze ist ausschließlich die Moduldeklaration `#[cfg(test)]` direkt vor
+    /// `mod tests {`. Ein nacktes `split("#[cfg(test)]")` wäre still falsch:
+    /// `download.rs` trägt einen `#[cfg(test)]`-Import und einen
+    /// `#[cfg(test)]`-Testseam VOR dem Produktionscode, `steam.rs` mehrere
+    /// `#[cfg(test)]`-Blöcke. Ein zu früher Schnitt macht den geprüften Text
+    /// kürzer und den Test damit grün, ohne dass er noch etwas prüft. Deshalb
+    /// gilt: kein Treffer = Panik.
+    pub(super) fn production_source(source: &str) -> &str {
+        // Seit die Testmodule ausgelagert sind, endet der Produktionsteil an
+        // `#[cfg(test)]` vor `mod tests;` (Verweis auf die Testdatei) ODER vor
+        // einem eingebetteten `mod tests {`. Beide Formen sind gültig; ein
+        // fehlender Marker bleibt ein harter Fehler, damit ein still zu kurz
+        // geschnittener Text nicht als grüner Test durchgeht.
+        let module = source.find("\n#[cfg(test)]\n#[path =");
+        let inline = source.find("\n#[cfg(test)]\nmod tests {");
+        let end = match (module, inline) {
+            (Some(a), Some(b)) => a.min(b),
+            (Some(a), None) => a,
+            (None, Some(b)) => b,
+            // kein Testmodul im Text: der ganze text ist produktionscode. Die
+            // aufrufer prüfen ausschließlich verbote, ein zu kurzer text wäre
+            // still grün — deshalb bleibt der leere fall ein harter fehler.
+            (None, None) => panic!("source has no `#[cfg(test)]` test module"),
+        };
+        &source[..end]
     }
 }

@@ -1,33 +1,20 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { projectSupportFacts, type SupportInput } from "../../src/core/support.js";
-import type { CompatTool, Game, ScanResult } from "../../src/core/types.js";
+import type { Game, ScanResult } from "../../src/core/types.js";
 import { setLocale } from "../../src/ui/i18n/index.js";
 import { formatSupportFacts } from "../../src/ui/supportText.js";
+import { customTool, game as makeGame } from "../support/factories";
 
-function game(overrides: Partial<Game> = {}): Game {
-  return {
+const portal2 = (overrides: Partial<Game> = {}): Game =>
+  makeGame({
     appId: 620,
     name: "Portal 2",
     library: "/steam/library",
     compatTool: "proton_experimental",
     compatToolSource: "explicit",
     protonDb: { tier: "gold", confidence: "strong" },
-    localHeader: null,
-    headerImage: null,
     ...overrides,
-  };
-}
-
-function customTool(name: string, internalName = name): CompatTool {
-  return {
-    name,
-    internalName,
-    displayName: name,
-    sizeBytes: 100,
-    usedBy: [],
-    source: "user",
-  };
-}
+  });
 
 function result(overrides: Partial<ScanResult> = {}): ScanResult {
   return {
@@ -63,7 +50,7 @@ describe("formatSupportFacts", () => {
     const marker = "fixture-secret-934";
     const accountId = "76561198012345678";
     const privatePath = `/home/fixture-private-user/.steam/userdata/${accountId}`;
-    const currentGame = game({
+    const currentGame = portal2({
       name: `Game ${marker}`,
       library: privatePath,
       compatTool: name,
@@ -79,7 +66,9 @@ describe("formatSupportFacts", () => {
         steamUserId: accountId,
         libraries: [privatePath],
         games: [currentGame],
-        compatToolsInstalled: [{ ...customTool(marker, name), displayName: marker }],
+        compatToolsInstalled: [
+          { ...customTool(marker, { internalName: name }), displayName: marker },
+        ],
         warnings: [
           {
             type: "manifest",
@@ -124,7 +113,7 @@ describe("formatSupportFacts", () => {
     "exportiert einen unvollständigen Scan als unvollständig in %s",
     (locale, incomplete, limited, counts) => {
       setLocale(locale);
-      const currentGame = game();
+      const currentGame = portal2();
       const facts = projectSupportFacts({
         game: currentGame,
         result: result({
@@ -157,7 +146,7 @@ describe("formatSupportFacts", () => {
     "exportiert eine fehlende Config als eingeschränkt in %s",
     (locale, limited, counts) => {
       setLocale(locale);
-      const currentGame = game();
+      const currentGame = portal2();
       const facts = projectSupportFacts({
         game: currentGame,
         result: result({ games: [currentGame], compatConfigStatus: "missing" }),
@@ -175,7 +164,7 @@ describe("formatSupportFacts", () => {
 describe.each(["de", "en"] as const)("kompakter Support-Beleg in %s", (locale) => {
   function render(input: Partial<SupportInput> = {}): string {
     setLocale(locale);
-    const currentGame = input.game ?? game();
+    const currentGame = input.game ?? portal2();
     return formatSupportFacts(
       projectSupportFacts({
         game: currentGame,
@@ -187,7 +176,7 @@ describe.each(["de", "en"] as const)("kompakter Support-Beleg in %s", (locale) =
   }
 
   it("bewahrt die vollständige Normalform als Snapshot", () => {
-    const currentGame = game({
+    const currentGame = portal2({
       appId: 668580,
       compatTool: "GE-Proton10-12",
       protonDb: { tier: "platinum", confidence: "strong" },
@@ -208,7 +197,7 @@ describe.each(["de", "en"] as const)("kompakter Support-Beleg in %s", (locale) =
 
   it("bewahrt die degradierte Form als Snapshot ohne erfundene Scan-Unbekanntheit", () => {
     const text = render({
-      game: game({ compatToolSource: "unavailable", protonDb: null }),
+      game: portal2({ compatToolSource: "unavailable", protonDb: null }),
       result: result({ compatConfigStatus: "missing", launchConfigStatus: "ambiguous" }),
       cleanup: {},
     });
@@ -265,7 +254,7 @@ describe.each(["de", "en"] as const)("kompakter Support-Beleg in %s", (locale) =
     ["unavailable", "Zuordnung: nicht verfügbar", "Mapping: not available"],
   ] as const)("bindet die tatsächliche Quelle %s an die Toolzeile", (source, de, en) => {
     const text = render({
-      game: game({ compatToolSource: source }),
+      game: portal2({ compatToolSource: source }),
       result: result({ defaultCompatTool: "GE-Proton10-12" }),
     });
     const tool = {
@@ -284,7 +273,7 @@ describe.each(["de", "en"] as const)("kompakter Support-Beleg in %s", (locale) =
     ["not-recognized", "nicht erkannt", "not recognized"],
     ["unknown", "unbekannt", "unknown"],
   ] as const)("trennt Tool-Verfügbarkeit %s", (availability, de, en) => {
-    const currentGame = game();
+    const currentGame = portal2();
     const text = render({
       game: currentGame,
       result: result({
@@ -324,7 +313,9 @@ describe.each(["de", "en"] as const)("kompakter Support-Beleg in %s", (locale) =
     ["borked", "Borked"],
     ["unknown", null],
   ] as const)("formatiert Tier %s", (tier, label) => {
-    const text = render({ game: game({ protonDb: { tier, confidence: "private-confidence" } }) });
+    const text = render({
+      game: portal2({ protonDb: { tier, confidence: "private-confidence" } }),
+    });
     if (label === null) {
       // ohne befund bleibt die quellenklammer weg: sie würde eine aussage
       // behaupten, die diese quelle nicht geliefert hat.
@@ -477,7 +468,7 @@ describe.each(["de", "en"] as const)("kompakter Support-Beleg in %s", (locale) =
     "bewahrt den externen Compatdata-Hinweis bei Startoptionen-Status %s",
     (launchConfigStatus, launchOptions, de, en) => {
       const text = render({
-        game: game(launchOptions === undefined ? {} : { launchOptions }),
+        game: portal2(launchOptions === undefined ? {} : { launchOptions }),
         result: result({ launchConfigStatus }),
       });
       expect(text).toContain(

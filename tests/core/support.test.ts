@@ -1,32 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { BLOCKLIST } from "../../src/core/blocklist.js";
 import { projectSupportFacts } from "../../src/core/support.js";
-import type { CompatTool, Game, ScanResult } from "../../src/core/types.js";
+import type { Game, ScanResult } from "../../src/core/types.js";
+import { customTool, game as makeGame } from "../support/factories.js";
 
-function game(overrides: Partial<Game> = {}): Game {
-  return {
+const portal2 = (overrides: Partial<Game> = {}): Game =>
+  makeGame({
     appId: 620,
     name: "Portal 2",
     library: "/steam/library",
     compatTool: "proton_experimental",
     compatToolSource: "explicit",
     protonDb: { tier: "gold", confidence: "strong" },
-    localHeader: null,
-    headerImage: null,
     ...overrides,
-  };
-}
-
-function customTool(name: string, internalName = name): CompatTool {
-  return {
-    name,
-    internalName,
-    displayName: name,
-    sizeBytes: 100,
-    usedBy: [],
-    source: "user",
-  };
-}
+  });
 
 function result(overrides: Partial<ScanResult> = {}): ScanResult {
   return {
@@ -51,12 +38,12 @@ function result(overrides: Partial<ScanResult> = {}): ScanResult {
 
 describe("projectSupportFacts", () => {
   it("projiziert erlaubte Fakten für ein explizit zugeordnetes Custom-Tool", () => {
-    const currentGame = game({
+    const currentGame = portal2({
       launchOptions: "STEAM_COMPAT_DATA_PATH=/home/private/prefix %command%",
     });
     const scan = result({
       games: [currentGame],
-      compatToolsInstalled: [customTool("directory-name", "proton_experimental")],
+      compatToolsInstalled: [customTool("directory-name", { internalName: "proton_experimental" })],
     });
 
     expect(
@@ -99,7 +86,7 @@ describe("projectSupportFacts", () => {
   });
 
   it("belegt die Abdeckungszahlen nur bei gestörtem Scan", () => {
-    const currentGame = game();
+    const currentGame = portal2();
     const scan = result({
       games: [currentGame],
       skippedLibraries: [{ path: "/steam/other-library", reason: "path-missing" }],
@@ -118,7 +105,7 @@ describe("projectSupportFacts", () => {
   it.each(["manifestCounts", "compatToolCounts"] as const)(
     "verwirft bei ungültigem %s alle Abdeckungszahlen",
     (field) => {
-      const currentGame = game();
+      const currentGame = portal2();
       const overrides: Partial<ScanResult> =
         field === "manifestCounts"
           ? { manifestCounts: { read: 1, failed: -1 } }
@@ -138,7 +125,7 @@ describe("projectSupportFacts", () => {
   ] as const)(
     "trennt den externen Compatdata-Hinweis als %s bei %s",
     (expected, launchConfigStatus, launchOptions) => {
-      const currentGame = game(launchOptions === undefined ? {} : { launchOptions });
+      const currentGame = portal2(launchOptions === undefined ? {} : { launchOptions });
 
       expect(
         projectSupportFacts({ game: currentGame, result: result({ launchConfigStatus }) })
@@ -148,11 +135,11 @@ describe("projectSupportFacts", () => {
   );
 
   it("verwendet beim globalen Standard das Default-Tool und dessen Inventar", () => {
-    const currentGame = game({ compatTool: "default", compatToolSource: "default" });
+    const currentGame = portal2({ compatTool: "default", compatToolSource: "default" });
     const scan = result({
       games: [currentGame],
       defaultCompatTool: "proton_experimental",
-      compatToolsInstalled: [customTool("directory-name", "proton_experimental")],
+      compatToolsInstalled: [customTool("directory-name", { internalName: "proton_experimental" })],
     });
 
     expect(projectSupportFacts({ game: currentGame, result: scan })).toMatchObject({
@@ -163,7 +150,7 @@ describe("projectSupportFacts", () => {
   });
 
   it("gibt bei fehlender oder unlesbarer Config weder alten Alias noch Toolstatus aus", () => {
-    const currentGame = game({ compatTool: "old-private-tool", compatToolSource: "explicit" });
+    const currentGame = portal2({ compatTool: "old-private-tool", compatToolSource: "explicit" });
     const scan = result({
       games: [currentGame],
       compatConfigStatus: "unreadable",
@@ -183,7 +170,7 @@ describe("projectSupportFacts", () => {
     ["explizit bei unlesbarem Tool-Scan unbekannt", "explicit", "missing-tool", "unknown", true],
     ["globaler Standard ohne Inventarbeleg unbekannt", "default", "missing-tool", "unknown", false],
   ] as const)("trennt Toolstatus: %s", (_label, source, toolName, expected, unreadable) => {
-    const currentGame = game({
+    const currentGame = portal2({
       compatTool: source === "default" ? "default" : toolName,
       compatToolSource: source,
     });
@@ -201,7 +188,7 @@ describe("projectSupportFacts", () => {
   });
 
   it("erkennt ein Builtin nur über dessen internalName", () => {
-    const currentGame = game({ compatTool: "proton_experimental" });
+    const currentGame = portal2({ compatTool: "proton_experimental" });
     const scan = result({
       games: [currentGame],
       builtinProtonsInstalled: [
@@ -215,18 +202,18 @@ describe("projectSupportFacts", () => {
   });
 
   it("begrenzt Library auf exakten ersten Match und lässt fehlende Pfade unbekannt", () => {
-    const currentGame = game({ library: "/not-in-scan" });
+    const currentGame = portal2({ library: "/not-in-scan" });
     const scan = result({ games: [currentGame] });
     expect(projectSupportFacts({ game: currentGame, result: scan }).library).toBeNull();
 
     const duplicateScan = result({ libraries: ["/steam/library", "/steam/library"] });
-    expect(projectSupportFacts({ game: game(), result: duplicateScan }).library).toBe(
+    expect(projectSupportFacts({ game: portal2(), result: duplicateScan }).library).toBe(
       "<steam-library-1>",
     );
   });
 
   it("validiert AppID, Tier und Footprint statt ungültige Zahlen zu exportieren", () => {
-    const currentGame = game({
+    const currentGame = portal2({
       appId: Number.MAX_SAFE_INTEGER,
     });
     currentGame.protonDb = {
@@ -250,7 +237,7 @@ describe("projectSupportFacts", () => {
     ["nicht gemessen", { status: "not-measured" }],
     ["fehlerhafte Größe", { status: "partial", sizeBytes: -1 }],
   ] as const)("behandelt Footprint %s als nicht gemessen", (_label, summary) => {
-    const currentGame = game();
+    const currentGame = portal2();
     const facts = projectSupportFacts({
       game: currentGame,
       result: result({ games: [currentGame] }),
@@ -260,7 +247,7 @@ describe("projectSupportFacts", () => {
   });
 
   it("verwendet Game.sizeBytes nie als Mess-Fallback", () => {
-    const currentGame = game({ sizeBytes: 987654 });
+    const currentGame = portal2({ sizeBytes: 987654 });
     const facts = projectSupportFacts({
       game: currentGame,
       result: result({ games: [currentGame] }),
@@ -269,7 +256,7 @@ describe("projectSupportFacts", () => {
   });
 
   it("bewahrt positive Cleanup-Beobachtungen, markiert laufende Prüfung und validiert Claims", () => {
-    const currentGame = game();
+    const currentGame = portal2();
     const facts = projectSupportFacts({
       game: currentGame,
       result: result({ games: [currentGame] }),
@@ -295,7 +282,7 @@ describe("projectSupportFacts", () => {
   });
 
   it("verwirft unvalidierte Claim-Zahlen und gibt keine Cleanup-Pfade weiter", () => {
-    const currentGame = game();
+    const currentGame = portal2();
     const facts = projectSupportFacts({
       game: currentGame,
       result: result({ games: [currentGame], steamRoot: "/home/fixture-private-user/.steam" }),
@@ -309,7 +296,7 @@ describe("projectSupportFacts", () => {
   it("führt die vollständige Privacy-Projektion ohne untrusted Freitext aus", () => {
     const marker = "fixture-secret-934";
     const privatePath = "/home/fixture-private-user/.steam/userdata/76561198012345678";
-    const currentGame = game({
+    const currentGame = portal2({
       name: `Game ${marker}`,
       library: `${privatePath}/steamapps/common/Game`,
       compatTool: marker,
@@ -365,7 +352,7 @@ describe("projectSupportFacts", () => {
 
 describe.each(["explicit", "default"] as const)("Toolnamen-Freigabe bei %s", (source) => {
   function project(name: string, overrides: Partial<ScanResult> = {}) {
-    const currentGame = game({
+    const currentGame = portal2({
       compatToolSource: source,
       compatTool: source === "explicit" ? name : "proton_hotfix",
     });
@@ -411,7 +398,10 @@ describe.each(["explicit", "default"] as const)("Toolnamen-Freigabe bei %s", (so
     expect(
       project("private-tool", {
         compatToolsInstalled: [
-          { ...customTool("GE-Proton10-12", "private-tool"), displayName: "Proton Experimental" },
+          {
+            ...customTool("GE-Proton10-12", { internalName: "private-tool" }),
+            displayName: "Proton Experimental",
+          },
         ],
       }),
     ).toMatchObject({ compatToolAlias: "<compat-tool-1>", compatToolAvailability: "available" });
@@ -476,7 +466,10 @@ describe.each(["explicit", "default"] as const)("Toolnamen-Freigabe bei %s", (so
   ])("trennt Namensfreigabe und Inventarstatus für %s", (name, expected) => {
     const installed = {
       compatToolsInstalled: [
-        { ...customTool("private-directory", name), displayName: "fixture-private-display" },
+        {
+          ...customTool("private-directory", { internalName: name }),
+          displayName: "fixture-private-display",
+        },
       ],
     };
     expect(project(name, installed)).toMatchObject({
@@ -501,7 +494,7 @@ describe.each(["explicit", "default"] as const)("Toolnamen-Freigabe bei %s", (so
 it("exportiert bei nicht verfügbarer Quelle keine bekannte alte Zuordnung", () => {
   expect(
     projectSupportFacts({
-      game: game({ compatToolSource: "unavailable" }),
+      game: portal2({ compatToolSource: "unavailable" }),
       result: result({ defaultCompatTool: "GE-Proton10-12" }),
     }),
   ).toMatchObject({
@@ -512,7 +505,7 @@ it("exportiert bei nicht verfügbarer Quelle keine bekannte alte Zuordnung", () 
 });
 
 it.each(["explicit", "default"] as const)("bewahrt fehlende Namen bei %s als null", (source) => {
-  const currentGame = game({ compatToolSource: source });
+  const currentGame = portal2({ compatToolSource: source });
   Reflect.deleteProperty(currentGame, "compatTool");
   expect(
     projectSupportFacts({ game: currentGame, result: result({ defaultCompatTool: null }) }),

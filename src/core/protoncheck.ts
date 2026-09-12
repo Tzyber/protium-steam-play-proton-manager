@@ -1,6 +1,6 @@
 import type { ScanResult, ScanWarning } from "./types.js";
 
-export type ProtonCheckReason = "tier-bronze" | "tier-borked" | "tool-not-recognized";
+type ProtonCheckReason = "tier-bronze" | "tier-borked" | "tool-not-recognized";
 
 export interface ProtonCheck {
   appId: number;

@@ -6,7 +6,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export interface EnrichProtondbOptions {
+interface EnrichProtondbOptions {
   shouldApply?: () => boolean;
   onSettled?: (game: Game) => void;
 }

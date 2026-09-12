@@ -1,13 +1,50 @@
 // UI-freie Domänentypen ohne Vue- oder Tauri-Imports.
 
-export type Tier = "platinum" | "gold" | "silver" | "bronze" | "borked" | "unknown";
+/** Die Wertelisten sind die Wahrheit: die Union-Typen und die
+ *  Laufzeit-Validatoren leiten daraus ab. Eine neue stufe oder ein neuer
+ *  status wird hier ergänzt und ist damit überall bekannt; vorher stand
+ *  dieselbe menge in vier dateien. */
+const TIERS = ["platinum", "gold", "silver", "bronze", "borked", "unknown"] as const;
+export type Tier = (typeof TIERS)[number];
 
-export type CompatConfigStatus = "available" | "missing" | "unreadable";
+const COMPAT_CONFIG_STATUSES = ["available", "missing", "unreadable"] as const;
+const LAUNCH_CONFIG_STATUSES = [...COMPAT_CONFIG_STATUSES, "ambiguous"] as const;
+const COMPAT_TOOL_SOURCES = ["explicit", "default", "unavailable"] as const;
+export const ORPHAN_TYPES = ["compatdata", "shadercache"] as const;
+
+export type CompatConfigStatus = (typeof COMPAT_CONFIG_STATUSES)[number];
 
 /** launch-config zusätzlich "ambiguous": Datei lesbar, aber die Auswahl des
  *  aktiven Accounts (loginusers.vdf) war nicht eindeutig. Kein Read-Fehler,
  *  aber die Quelle ist nicht sicher bestimmt → Coverage limited. */
-export type LaunchConfigStatus = CompatConfigStatus | "ambiguous";
+export type LaunchConfigStatus = (typeof LAUNCH_CONFIG_STATUSES)[number];
+
+/** prüft einen rohwert gegen eine werteliste; `undefined` = unbekannt. */
+function oneOf<T extends string>(values: readonly T[], raw: unknown): T | undefined {
+  return typeof raw === "string" && (values as readonly string[]).includes(raw)
+    ? (raw as T)
+    : undefined;
+}
+
+/** protondb-stufe eines rohwerts; unbekanntes wird zu "unknown". */
+export function asTier(raw: unknown): Tier {
+  return oneOf(TIERS, raw) ?? "unknown";
+}
+
+/** compat-config-status aus einem rohwert (support-projektion, INV-3). */
+export function asCompatConfigStatus(raw: unknown): CompatConfigStatus | "unknown" {
+  return oneOf(COMPAT_CONFIG_STATUSES, raw) ?? "unknown";
+}
+
+/** launch-config-status aus einem rohwert; "ambiguous" ist ein eigener fall. */
+export function asLaunchConfigStatus(raw: unknown): LaunchConfigStatus | "unknown" {
+  return oneOf(LAUNCH_CONFIG_STATUSES, raw) ?? "unknown";
+}
+
+/** quelle einer compat-zuordnung; unbekanntes gilt als "unavailable". */
+export function asCompatToolSource(raw: unknown): CompatToolSource {
+  return oneOf(COMPAT_TOOL_SOURCES, raw) ?? "unavailable";
+}
 
 export type ScanWarning =
   | {
@@ -57,13 +94,26 @@ export type ScanWarning =
 
 export type CompatToolSource = "explicit" | "default" | "unavailable";
 
+/** installierter built-in proton (experimental, hotfix, proton_9/10/…): der
+ *  interne name steht im mapping, der display-name kommt aus der tool-vdf. */
+export interface BuiltinProton {
+  internalName: string;
+  displayName: string;
+}
+
+/** zähler eines scan-abschnitts: gelesen gegen fehlgeschlagen. */
+export interface ReadFailedCounts {
+  read: number;
+  failed: number;
+}
+
 export interface ScanCoverage {
   state: "complete" | "incomplete" | "limited";
   libraries: { total: number; read: number; unavailable: number };
   compatConfig: CompatConfigStatus;
   launchConfig: LaunchConfigStatus;
-  manifests: { read: number; failed: number };
-  tools: { read: number; failed: number };
+  manifests: ReadFailedCounts;
+  tools: ReadFailedCounts;
 }
 
 export interface Game {
@@ -101,15 +151,15 @@ export interface ScanResult {
   games: Game[];
   compatToolsInstalled: CompatTool[];
   /** installierte built-in protons (experimental, hotfix, proton_9/10/…). */
-  builtinProtonsInstalled: { internalName: string; displayName: string }[];
+  builtinProtonsInstalled: BuiltinProton[];
   /** globaler default aus CompatToolMapping[0] ("für alle spiele"), sonst null. */
   defaultCompatTool: string | null;
   compatConfigStatus: CompatConfigStatus;
   /** account, dessen localconfig.vdf gelesen wird (null = keiner gefunden → keine startoptionen). */
   steamUserId: string | null;
   launchConfigStatus: LaunchConfigStatus;
-  manifestCounts: { read: number; failed: number };
-  compatToolCounts: { read: number; failed: number };
+  manifestCounts: ReadFailedCounts;
+  compatToolCounts: ReadFailedCounts;
   warnings: ScanWarning[];
   skippedLibraries: SkippedLibrary[];
   cleanupUnsafeLibraries: string[];
@@ -119,7 +169,10 @@ export interface ScanResult {
   blockedAppIds: number[];
 }
 
-export type SkipReason = "path-missing" | "scope-failed" | "read-failed";
+/** `unverified` = das backend hat keinen grund geliefert (z. b. snapshot ohne
+ *  das feld); der zustand ist unbekannt und blockiert das cleanup wie ein
+ *  zugriffsfehler. */
+export type SkipReason = "path-missing" | "scope-failed" | "read-failed" | "unverified";
 
 export interface SkippedLibrary {
   path: string;
@@ -158,11 +211,4 @@ export function parseSafeAppId(str: string): number | null {
   const appId = Number.parseInt(str, 10);
   if (appId < 1 || appId > MAX_APP_ID || !Number.isSafeInteger(appId)) return null;
   return appId;
-}
-
-export class SteamNotFoundError extends Error {
-  constructor(triedPaths: string[]) {
-    super(`keine steam-installation gefunden. geprüfte pfade: ${triedPaths.join(", ")}`);
-    this.name = "SteamNotFoundError";
-  }
 }

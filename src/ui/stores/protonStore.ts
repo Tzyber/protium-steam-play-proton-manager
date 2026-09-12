@@ -1,4 +1,3 @@
-import { listen } from "@tauri-apps/api/event";
 import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
 import { errText, isSteamRunning, isToolAlreadyExists } from "../../core/errtext";
@@ -10,6 +9,11 @@ import {
   isManagedGeName,
 } from "../../core/geproton";
 import { joinPath, paths } from "../../core/paths";
+import type {
+  DownloadProgressEvent,
+  InstallPhaseEvent,
+  InstallPhase as Phase,
+} from "../../core/ports";
 import type { CompatTool } from "../../core/types";
 import { localizeConsequences } from "../consequences";
 import { t } from "../i18n";
@@ -17,7 +21,7 @@ import { useConfirmStore } from "./confirmStore";
 import { useScanStore } from "./scanStore";
 import { useUiStore } from "./uiStore";
 
-export type Phase = "queued" | "downloading" | "verifying" | "extracting";
+export type { Phase };
 
 interface Job {
   tag: string;
@@ -137,47 +141,44 @@ export const useProtonStore = defineStore("proton", {
       const token = {};
       const promise = (async () => {
         try {
-          const progressUnlisten = await listen<{
-            id: string;
-            downloaded: number;
-            total: number | null;
-          }>("download-progress", (e) => {
-            if (listenerOwnership.get(this)?.token !== token) return;
-            const job = Object.values(this.jobs).find(
-              (candidate) =>
-                candidate.downloadId === e.payload.id && this.activeTag === candidate.tag,
-            );
-            if (job) {
-              const now = Date.now();
-              if (job.speedLastTs) {
-                // instantan-rate aus dem event-abstand, weich geglättet
-                // events sind ~1-MB-throttled, rohwerte würden flackern
-                const inst =
-                  ((e.payload.downloaded - job.downloaded) * 1000) / (now - job.speedLastTs);
-                job.speed = job.speed ? 0.6 * job.speed + 0.4 * inst : inst;
+          const progressUnlisten = await tauriPorts.system.onDownloadProgress(
+            (payload: DownloadProgressEvent) => {
+              if (listenerOwnership.get(this)?.token !== token) return;
+              const job = Object.values(this.jobs).find(
+                (candidate) =>
+                  candidate.downloadId === payload.id && this.activeTag === candidate.tag,
+              );
+              if (job) {
+                const now = Date.now();
+                if (job.speedLastTs) {
+                  // instantan-rate aus dem event-abstand, weich geglättet
+                  // events sind ~1-MB-throttled, rohwerte würden flackern
+                  const inst =
+                    ((payload.downloaded - job.downloaded) * 1000) / (now - job.speedLastTs);
+                  job.speed = job.speed ? 0.6 * job.speed + 0.4 * inst : inst;
+                }
+                job.speedLastTs = now;
+                job.downloaded = payload.downloaded;
+                job.total = payload.total;
               }
-              job.speedLastTs = now;
-              job.downloaded = e.payload.downloaded;
-              job.total = e.payload.total;
-            }
-          });
+            },
+          );
           pending.add(progressUnlisten);
           if (lifecycle.disposed || lifecycle.generation !== generation) {
             progressUnlisten();
             pending.delete(progressUnlisten);
             return;
           }
-          const phaseUnlisten = await listen<{ id: string; phase: Phase; verified: boolean }>(
-            "install-phase",
-            (e) => {
+          const phaseUnlisten = await tauriPorts.system.onInstallPhase(
+            (payload: InstallPhaseEvent) => {
               if (listenerOwnership.get(this)?.token !== token) return;
               const job = Object.values(this.jobs).find(
                 (candidate) =>
-                  candidate.downloadId === e.payload.id && this.activeTag === candidate.tag,
+                  candidate.downloadId === payload.id && this.activeTag === candidate.tag,
               );
               if (job) {
-                job.phase = e.payload.phase;
-                if (e.payload.verified) {
+                job.phase = payload.phase;
+                if (payload.verified) {
                   job.verified = true;
                 }
               }
@@ -387,10 +388,8 @@ export const useProtonStore = defineStore("proton", {
           {
             onSuccess: async () => {
               try {
-                const res = await tauriPorts.system.executeDelete(pending.token);
-                if (res.success) {
-                  await scan.runScan();
-                }
+                await tauriPorts.system.executeDelete(pending.token);
+                await scan.runScan();
               } finally {
                 this.busyRemove = null;
               }
