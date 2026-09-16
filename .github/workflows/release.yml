@@ -80,6 +80,7 @@ jobs:
             build-essential \
             binutils \
             appstream \
+            libcap2-bin \
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
@@ -99,7 +100,11 @@ jobs:
           npm audit --omit=dev
           cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
           cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-          cargo test --manifest-path src-tauri/Cargo.toml
+          # Im Container laeuft alles als root, und root umgeht Dateirechte.
+          # Der Rechte-Test (unlesbarer Prefix) wuerde dadurch falsch bestehen;
+          # capsh nimmt der Teststufe DAC_OVERRIDE weg, damit sie sich wie auf
+          # dem Runner verhaelt.
+          capsh --drop=cap_dac_override -- -c 'cargo test --manifest-path src-tauri/Cargo.toml'
           cargo audit --file src-tauri/Cargo.lock
           appstreamcli validate src-tauri/packaging/com.protium.desktop.metainfo.xml
 
