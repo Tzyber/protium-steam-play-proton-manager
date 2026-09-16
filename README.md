@@ -53,25 +53,49 @@ rückfrage und nur, wenn protium sich sicher ist:
 AppImage oder Debian-Paket von der [releases-seite](https://github.com/Tzyber/protium-steam-play-proton-manager/releases)
 laden. die AppImage ausführbar machen und starten:
 
-aktuelle version: `v0.9.2`.
+aktuelle version: `v0.10.0`.
 
 ```sh
-chmod +x protium_0.9.2_amd64.AppImage
-./protium_0.9.2_amd64.AppImage
+chmod +x protium_0.10.0_amd64.AppImage
+./protium_0.10.0_amd64.AppImage
 ```
 
-die AppImage ist nicht signiert. wer das nicht mag, baut selbst (siehe
-dev-setup). für Debian-basierte systeme liegt zusätzlich ein Debian-paket bei:
+jedes release bringt AppImage, Debian-Paket, `SHA256SUMS` und `SHA256SUMS.asc`.
+die summendatei ist mit dem projektschlüssel signiert, und beide artefakte
+sind zusätzlich über eine GitHub-Build-Attestation an Workflow und Commit
+gebunden. lade alle vier dateien in denselben ordner und prüfe dort:
 
 ```sh
-sudo apt install ./protium_0.9.2_amd64.deb
+gpg --verify SHA256SUMS.asc SHA256SUMS
+sha256sum -c SHA256SUMS
+gh attestation verify protium_<version>_amd64.AppImage --repo Tzyber/protium-steam-play-proton-manager
+gh attestation verify protium_<version>_amd64.deb --repo Tzyber/protium-steam-play-proton-manager
+```
+
+die AppImage bringt GTK und WebKit mit, setzt aber die üblichen
+Desktop-Bibliotheken voraus (X11, GL, Fontconfig, Harfbuzz, FriBidi).
+
+fingerprint des schlüssels: `08C084ECC83DFDB10E5CF60A8B2CA074A44AC4FA`
+(auch in [SECURITY.md](SECURITY.md) und auf keys.openpgp.org). vergleiche ihn
+über einen zweiten kanal, bevor du der signatur vertraust.
+
+die attestation bindet an repository, workflow und commit, nicht an eine
+person: wer schreibzugriff auf repository und tag hat, kann eine passende
+attestation erzeugen. die GPG-signatur ist der einzige von GitHub unabhängige
+nachweis — aber nur, solange der fingerprint bestätigt ist.
+
+wer das nicht mag, baut selbst (siehe dev-setup). für Debian-basierte systeme
+liegt zusätzlich ein Debian-paket bei:
+
+```sh
+sudo apt install ./protium_0.10.0_amd64.deb
 ```
 
 startet nichts und es kommt keine fehlermeldung, fehlt meist fuse2. dann
 entweder `sudo pacman -S fuse2` oder einmalig ohne fuse starten:
 
 ```sh
-./protium_0.9.2_amd64.AppImage --appimage-extract-and-run
+./protium_0.10.0_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## was es kann

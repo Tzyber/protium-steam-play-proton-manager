@@ -4,25 +4,43 @@ on:
   push:
     tags:
       - "v*"
+  # Trockenlauf ohne Tag (A1b): baut im Zielcontainer, laesst aber das
+  # Versions-Gate und den Release-Schritt aus. Fuer Aenderungen an
+  # Bauumgebung und Smoke-Schritten, ohne einen Draft zu erzeugen.
+  workflow_dispatch:
 
 permissions:
   contents: write
+  # Integritäts-Assets (Entscheidung 2026-09-16): id-token mintet das
+  # OIDC-Token für das Sigstore-Zertifikat, attestations schreibt die
+  # Build-Provenance. `artifact-metadata` fehlt bewusst: den Storage-Record
+  # legt die Action nur beim Registry-Push und nur für Org-Repos an.
+  id-token: write
+  attestations: write
 
 jobs:
   appimage:
     name: Build AppImage
-    runs-on: ubuntu-22.04
+    # Der Host liefert nur noch Docker. Gebaut wird im gepinnten
+    # 22.04-Container, damit die glibc-Untergrenze der Artefakte (2.34)
+    # nicht mit dem Host-Image wandert. GitHub traegt das Label
+    # ubuntu-22.04 am 2027-04-17 ab (actions/runner-images#14254);
+    # Plan: docs/notizen/plaene/a1-runner-migration-2026-09-16.md
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7
 
     steps:
+      # Das jammy-Image bringt kein git; actions/checkout braucht es.
+      - name: Container bootstrap
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates curl wget
+
       # M4.5: action-tags auf commit-SHAs gepinnt (2026-07-31), mutable
       # tags sind supply-chain-risiko, SHAs sind immutabel.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Verify release version
-        run: |
-          node scripts/check-release-version.mjs --self-test
-          node scripts/check-release-version.mjs
 
       - name: Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -30,11 +48,19 @@ jobs:
           node-version: 22
           cache: npm
 
+      # Erst nach setup-node: im Container ist node nicht vorinstalliert.
+      - name: Verify release version
+        if: github.event_name != 'workflow_dispatch'
+        run: |
+          node scripts/check-release-version.mjs --self-test
+          node scripts/check-release-version.mjs
+
       - name: Rust
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable=v1
         with:
           toolchain: stable
-          components: clippy
+          # rustfmt fehlt im minimal-Profil; `cargo fmt --check` braucht es.
+          components: clippy, rustfmt
 
       - name: Rust cache
         uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
@@ -46,10 +72,14 @@ jobs:
         with:
           tool: cargo-audit
 
+      # Im Container laeuft alles als root, sudo gibt es dort nicht.
       - name: Linux dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          apt-get update
+          apt-get install -y \
+            build-essential \
+            binutils \
+            appstream \
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
@@ -71,6 +101,7 @@ jobs:
           cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
           cargo test --manifest-path src-tauri/Cargo.toml
           cargo audit --file src-tauri/Cargo.lock
+          appstreamcli validate src-tauri/packaging/com.protium.desktop.metainfo.xml
 
       # appimagetool 1.9.1 gepinnt (identisch zu continuous, gleiche
       # build-id 3431b179) → sha-verifizierbar, M4.5-konform. continuous
@@ -102,6 +133,20 @@ jobs:
         env:
           NO_STRIP: "true"
 
+      # ABI-Gate (A1): die Supportmatrix haengt an der glibc-Untergrenze des
+      # Binaries. Steigt sie ueber 2.34, ist die Bauumgebung gewandert und der
+      # Release muss stoppen, statt still neuere Systeme vorauszusetzen.
+      - name: Verify glibc floor
+        run: |
+          BIN=src-tauri/target/release/protium
+          MAX=$(readelf --version-info "$BIN" | grep -o 'GLIBC_[0-9.]*' | sort -V | tail -1)
+          [ -n "$MAX" ] || { echo "FEHLER: keine glibc-Symbole gelesen"; exit 1; }
+          echo "hoechste glibc-Anforderung: ${MAX}"
+          if [ "$(printf '%s\n%s\n' "$MAX" GLIBC_2.34 | sort -V | tail -1)" != "GLIBC_2.34" ]; then
+            echo "FEHLER: glibc-Untergrenze ueberschritten (${MAX} > GLIBC_2.34)"
+            exit 1
+          fi
+
       - name: Patch AppImage with Wayland/EGL fix
         run: |
           APPIMAGE=$(echo src-tauri/target/release/bundle/appimage/protium_*_amd64.AppImage)
@@ -122,7 +167,76 @@ jobs:
 
           echo "Gepatchtes AppImage: ${APPIMAGE}"
 
+      # SHA256SUMS über die FINALEN Artefakte: die AppImage wird nach dem
+      # tauri-build gepatcht und neu gepackt, alles davor wäre falsch. Die
+      # Liste entsteht in einem Staging-Verzeichnis, damit sie ohne
+      # Verzeichnispräfix auskommt und `sha256sum -c SHA256SUMS` im
+      # Download-Ordner funktioniert. Signiert wird lokal (Option A,
+      # 2026-09-16); SHA256SUMS.asc kommt vor dem Publish in den Draft.
+      # Artefakt-Smoke (A3): die fertige AppImage muss starten und ein Fenster
+      # zeigen. Geprueft wird damit die Verpackung (AppRun, Wayland-Hook,
+      # WebKit-Start), nicht die Vollstaendigkeit des Bibliotheks-Bundles: der
+      # Job-Container traegt die Build-Abhaengigkeiten bereits. Ein Smoke in
+      # einem frischen Container braucht Artefakt-Uebergabe zwischen Jobs und
+      # steht als Folgeschritt in der Akte. Lokal verifiziert am 2026-09-16:
+      # Fenster 1280x800, WM_CLASS "protium"/"Protium".
+      - name: Smoke test AppImage
+        timeout-minutes: 10
+        run: |
+          apt-get install -y --no-install-recommends \
+            xvfb xdotool x11-utils dbus-x11 \
+            libx11-6 libxcb1 libxau6 libxdmcp6 libx11-xcb1 libfontconfig1 \
+            libfreetype6 libharfbuzz0b libfribidi0 libexpat1 libgbm1 libdrm2 \
+            libgl1 libegl1 libglx0 libgles2 libgraphite2-3 libpng16-16 \
+            libbrotli1 libbz2-1.0
+
+          APPIMAGE=$(echo src-tauri/target/release/bundle/appimage/protium_*_amd64.AppImage)
+          cp "$APPIMAGE" /tmp/smoke.AppImage
+          chmod +x /tmp/smoke.AppImage
+
+          dbus-run-session -- bash -euc '
+            Xvfb :99 -screen 0 1280x800x24 >/tmp/xvfb.log 2>&1 &
+            sleep 2
+            export DISPLAY=:99 APPIMAGE_EXTRACT_AND_RUN=1 WEBKIT_DISABLE_COMPOSITING_MODE=1
+            /tmp/smoke.AppImage >/tmp/app.log 2>&1 &
+            for _ in $(seq 1 24); do
+              xdotool search --name protium >/dev/null 2>&1 && break
+              sleep 5
+            done
+            if ! xdotool search --name protium >/dev/null 2>&1; then
+              echo "FEHLER: kein protium-Fenster nach 120 s"
+              tail -20 /tmp/app.log
+              exit 1
+            fi
+            echo "Fenster gefunden:"
+            xwininfo -root -tree | grep -i protium || true
+          '
+
+      - name: Create SHA256SUMS
+        run: |
+          STAGE=$(mktemp -d)
+          cp src-tauri/target/release/bundle/appimage/protium_*_amd64.AppImage "$STAGE"/
+          cp src-tauri/target/release/bundle/deb/protium_*_amd64.deb "$STAGE"/
+          # Guard: ein fehlgeschlagenes sha256sum oder ein leerer Glob darf keine
+          # leere Summendatei hinterlassen, die sonst attestiert und veroeffentlicht
+          # wuerde (sha256sum -c bricht dann beim Nutzer).
+          ( cd "$STAGE" && sha256sum protium_*.AppImage protium_*.deb > SHA256SUMS ) || exit 1
+          [ -s "$STAGE/SHA256SUMS" ] || { echo "FEHLER: SHA256SUMS leer"; exit 1; }
+          cp "$STAGE/SHA256SUMS" src-tauri/target/release/bundle/SHA256SUMS
+          cat src-tauri/target/release/bundle/SHA256SUMS
+
+      # Build-Provenance bindet die Digests an Repo, Workflow und Commit
+      # (SLSA Level 2). Prüfung: gh attestation verify <datei> --repo …
+      - name: Attest build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            src-tauri/target/release/bundle/appimage/protium_*_amd64.AppImage
+            src-tauri/target/release/bundle/deb/protium_*_amd64.deb
+            src-tauri/target/release/bundle/SHA256SUMS
+
       - name: Create release and upload assets
+        if: github.event_name != 'workflow_dispatch'
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ github.ref_name }}
@@ -132,6 +246,7 @@ jobs:
           prerelease: false
           files: |
             src-tauri/target/release/bundle/appimage/protium_*_amd64.AppImage
-            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/deb/protium_*_amd64.deb
+            src-tauri/target/release/bundle/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

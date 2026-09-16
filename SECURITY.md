@@ -7,7 +7,7 @@ not receive a blanket support commitment.
 
 | Version | Supported |
 |---------|-----------|
-| latest (aktuell `v0.9.0`) | ✅ |
+| jeweils die letzte veröffentlichte Version | ✅ |
 | ältere versionen | ❌ keine pauschale supportzusage |
 
 ## Reporting a Vulnerability
@@ -251,6 +251,39 @@ Beleg enthalten; es gibt kein Rollback, keine Wiederholung und keine
 automatische Löschung der Zwischenablage. Fehlende Clipboard-API und
 Write-Fehler zeigen ausschließlich eine generische lokalisierte Meldung, nie
 eine rohe Exception.
+
+### Release-Integrität
+
+Ein Release entsteht aus einem Tag-Push. Der Workflow baut AppImage und deb,
+patcht die AppImage (Wayland/EGL) und lädt beide Artefakte plus `SHA256SUMS`
+in einen Draft; veröffentlicht wird der Draft von Hand. Die folgenden
+Prüfwege gelten ab dem ersten Release mit `SHA256SUMS`; die Releases bis
+`v0.9.2` haben weder Summendatei, noch Attestation, noch Signatur.
+
+- **Checksummen:** `sha256sum -c SHA256SUMS` prüft die Integrität des
+  Downloads. Die Datei gehört zum selben Asset-Satz wie die Artefakte.
+- **GPG-Signatur:** `gpg --verify SHA256SUMS.asc SHA256SUMS` prüft die
+  Signatur des Projektschlüssels `08C084ECC83DFDB10E5CF60A8B2CA074A44AC4FA`
+  (Signing-Subkey `1826455C6A359EDD`, Ablauf 2028-09-15). Der öffentliche
+  Schlüssel liegt als `docs/protium-release-key.asc` im Repository und auf
+  keys.openpgp.org, dort unter der bestätigten Adresse
+  `mail@dominik-webdeveloper.com` auffindbar. Signiert wird lokal; der private
+  Schlüssel liegt weder im Repository noch in der CI. Der Ablauf ist bewusst
+  zweistufig: der Workflow erzeugt `SHA256SUMS` im Draft, die Signatur
+  `SHA256SUMS.asc` entsteht danach auf dem Rechner des Maintainers und wird
+  vor dem Veröffentlichen in den Draft gelegt. Fehlt sie, ist der Draft noch
+  nicht veröffentlichungsreif.
+- **Provenienz:** `gh attestation verify <datei> --repo <owner/repo>` prüft
+  die Build-Attestation. Sie bindet den Digest an Repository, Workflow und
+  Commit (SLSA Build Level 2), nicht an eine Person.
+- **Grenze:** Checksummen und Attestation beweisen weder Gutartigkeit noch
+  Vertrauenswürdigkeit des Autors. Der Vertrauensanker der Attestation ist der
+  Workflow am Tag: wer Schreibzugriff auf Repository und Tag hat, kann eine
+  passende Attestation und eine passende `SHA256SUMS` erzeugen. Auch die
+  Repository-URL im Prüfbefehl muss deshalb aus einem zweiten Kanal kommen.
+  Die GPG-Signatur ist der einzige von GitHub unabhängige Herkunftsnachweis,
+  taugt aber nur so viel wie die Bestätigung des Fingerprints über einen
+  zweiten Kanal; ohne sie bleibt es TOFU.
 
 ### Bekannte Einschränkungen und akzeptierte Restrisiken
 

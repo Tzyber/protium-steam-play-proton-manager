@@ -49,23 +49,48 @@ when protium is sure:
 
 grab the AppImage or Debian package from the [releases page](https://github.com/Tzyber/protium-steam-play-proton-manager/releases). make the AppImage executable and run it:
 
-current version: `v0.9.2`.
+current version: `v0.10.0`.
 
 ```sh
-chmod +x protium_0.9.2_amd64.AppImage
-./protium_0.9.2_amd64.AppImage
+chmod +x protium_0.10.0_amd64.AppImage
+./protium_0.10.0_amd64.AppImage
 ```
 
-the AppImage is not signed. if you don't like that, build it yourself (see dev setup). Debian-based systems can install the accompanying Debian package:
+each release ships the AppImage, the Debian package, `SHA256SUMS` and
+`SHA256SUMS.asc`. the checksum file is signed with the project key, and both
+artifacts are additionally bound to the workflow and commit by a GitHub build
+attestation. put all four files in the same folder and verify there:
 
 ```sh
-sudo apt install ./protium_0.9.2_amd64.deb
+gpg --verify SHA256SUMS.asc SHA256SUMS
+sha256sum -c SHA256SUMS
+gh attestation verify protium_<version>_amd64.AppImage --repo Tzyber/protium-steam-play-proton-manager
+gh attestation verify protium_<version>_amd64.deb --repo Tzyber/protium-steam-play-proton-manager
+```
+
+the AppImage bundles GTK and WebKit but expects the usual desktop libraries
+(X11, GL, fontconfig, harfbuzz, FriBidi).
+
+key fingerprint: `08C084ECC83DFDB10E5CF60A8B2CA074A44AC4FA` (also in
+[SECURITY.md](SECURITY.md) and on keys.openpgp.org). compare it through a
+second channel before you trust the signature.
+
+the attestation binds to the repository, workflow and commit, not to a
+person: anyone with write access to repository and tag can produce a matching
+attestation. the GPG signature is the only GitHub-independent proof — but only
+as long as the fingerprint is confirmed.
+
+if you don't like that, build it yourself (see dev setup). Debian-based
+systems can install the accompanying Debian package:
+
+```sh
+sudo apt install ./protium_0.10.0_amd64.deb
 ```
 
 if nothing starts and no error message appears, fuse2 is usually missing. then either `sudo pacman -S fuse2` or run it once without fuse:
 
 ```sh
-./protium_0.9.2_amd64.AppImage --appimage-extract-and-run
+./protium_0.10.0_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## what it does

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.protium.desktop</id>
+
+  <name>protium</name>
+  <summary>Steam/Proton library manager</summary>
+  <summary xml:lang="de">Steam-/Proton-Bibliotheksverwaltung</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>
+      protium shows what Steam actually configured for Proton on this machine:
+      the compatibility tool assigned to each game, the launch options, the
+      ProtonDB tier and the local disk usage. Every statement names its source,
+      its meaning and its limits. Values protium cannot verify stay unknown
+      instead of being guessed.
+    </p>
+    <ul>
+      <li>Library overview across all Steam libraries with covers, size and the assigned tool</li>
+      <li>Install and remove GE-Proton releases from GitHub, with verified download</li>
+      <li>Set compatibility tool and launch options per game through a guarded write path</li>
+      <li>Find and clean up orphaned Wine prefixes, shader caches and the trash</li>
+      <li>Copy a privacy-preserving support record for bug reports</li>
+    </ul>
+    <p xml:lang="de">
+      protium zeigt, was Steam auf diesem Rechner wirklich für Proton eingestellt
+      hat: das zugeordnete Kompatibilitätswerkzeug je Spiel, die Startoptionen,
+      die ProtonDB-Bewertung und den lokalen Speicherbedarf. Jede Aussage nennt
+      Quelle, Bedeutung und Grenze; Werte, die protium nicht belegen kann,
+      bleiben unbekannt.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">protium.desktop</launchable>
+
+  <url type="homepage">https://github.com/Tzyber/protium-steam-play-proton-manager</url>
+  <url type="bugtracker">https://github.com/Tzyber/protium-steam-play-proton-manager/issues</url>
+  <url type="vcs-browser">https://github.com/Tzyber/protium-steam-play-proton-manager</url>
+
+  <developer id="io.github.tzyber">
+    <name>Dominik Dörrier</name>
+  </developer>
+
+  <categories>
+    <category>Utility</category>
+  </categories>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.10.0" date="2026-09-16">
+      <description>
+        <p>Signed checksums, build provenance attestation and a pinned build environment.</p>
+      </description>
+    </release>
+  </releases>
+</component>
