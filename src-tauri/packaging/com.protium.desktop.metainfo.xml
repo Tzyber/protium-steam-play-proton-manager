@@ -37,11 +37,6 @@
 
   <url type="homepage">https://github.com/Tzyber/protium-steam-play-proton-manager</url>
   <url type="bugtracker">https://github.com/Tzyber/protium-steam-play-proton-manager/issues</url>
-  <url type="vcs-browser">https://github.com/Tzyber/protium-steam-play-proton-manager</url>
-
-  <developer id="io.github.tzyber">
-    <name>Dominik Dörrier</name>
-  </developer>
 
   <categories>
     <category>Utility</category>
