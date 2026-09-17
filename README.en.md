@@ -69,7 +69,8 @@ gh attestation verify protium_<version>_amd64.deb --repo Tzyber/protium-steam-pl
 ```
 
 the AppImage bundles GTK and WebKit but expects the usual desktop libraries
-(X11, GL, fontconfig, harfbuzz, FriBidi).
+(X11, GL, fontconfig, harfbuzz, FriBidi). it starts under X11 or through
+XWayland; on a Wayland system without XWayland it does not start.
 
 key fingerprint: `08C084ECC83DFDB10E5CF60A8B2CA074A44AC4FA` (also in
 [SECURITY.md](SECURITY.md) and on keys.openpgp.org). compare it through a
