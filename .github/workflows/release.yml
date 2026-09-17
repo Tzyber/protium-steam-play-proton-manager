@@ -65,7 +65,8 @@ jobs:
       - name: Hook falls back to ldconfig
         run: |
           mkdir -p /usr/local/lib
-          cp /tmp/libwayland-client.so.0* /usr/local/lib/libwayland-client.so.0
+          cp -a /usr/lib/x86_64-linux-gnu/libwayland-client.so.0* /usr/local/lib/
+          mv /usr/lib/x86_64-linux-gnu/libwayland-client.so.0* /tmp/
           ldconfig
           ldconfig -p | grep libwayland-client
           out=$(
@@ -102,6 +103,8 @@ jobs:
 
   appimage:
     name: Build AppImage
+    # Kein Draft, wenn die Hook-Pruefung rot ist.
+    needs: hook
     # Der Host liefert nur noch Docker. Gebaut wird im gepinnten
     # 22.04-Container, damit die glibc-Untergrenze der Artefakte (2.34)
     # nicht mit dem Host-Image wandert. GitHub traegt das Label

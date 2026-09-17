@@ -13,13 +13,16 @@
 # x86_64, eine i386-Bibliothek würde den Start zerlegen.
 
 _protium_wayland_client=""
+# Reihenfolge nach Architektursicherheit: /usr/lib/x86_64-linux-gnu und
+# /usr/lib64 sind auf ihren Systemen die 64-Bit-Orte, /usr/lib ist auf
+# Fedora-multilib der 32-Bit-Ort und kommt deshalb zuletzt.
 for _protium_lib in \
-	/usr/lib/libwayland-client.so.0 \
-	/usr/lib64/libwayland-client.so.0 \
 	/usr/lib/x86_64-linux-gnu/libwayland-client.so.0 \
-	/usr/lib/libwayland-client.so \
+	/usr/lib64/libwayland-client.so.0 \
+	/usr/lib/libwayland-client.so.0 \
+	/usr/lib/x86_64-linux-gnu/libwayland-client.so \
 	/usr/lib64/libwayland-client.so \
-	/usr/lib/x86_64-linux-gnu/libwayland-client.so; do
+	/usr/lib/libwayland-client.so; do
 	if [ -f "$_protium_lib" ]; then
 		_protium_wayland_client="$_protium_lib"
 		break
@@ -27,7 +30,7 @@ for _protium_lib in \
 done
 
 if [ -z "$_protium_wayland_client" ] && command -v ldconfig >/dev/null 2>&1; then
-	_protium_wayland_client=$(ldconfig -p 2>/dev/null | awk '/libwayland-client\.so/ && !/i386|lib32/ {print $NF; exit}') || _protium_wayland_client=""
+	_protium_wayland_client=$(ldconfig -p 2>/dev/null | awk '/libwayland-client\.so/ && !/i386|i686|lib32/ {print $NF; exit}') || _protium_wayland_client=""
 	[ -f "$_protium_wayland_client" ] || _protium_wayland_client=""
 fi
 
