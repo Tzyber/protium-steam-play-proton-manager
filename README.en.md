@@ -235,23 +235,48 @@ rules for the implementation: writes to steam files go through the write gate wi
 - [x] v0.8.0: explainability (explanation buttons with source, meaning and
   limit), a data-minimal diagnostic record for copying and conservative
   launch-option/`PROTON_LOG` hints
+- [x] v0.8.1: smaller fixes after a review
+- [x] v0.9.0: readable support record, honest GE mapping summary and the
+  "open prefix folder" workflow
+- [x] v0.10.0: signed checksums, build attestation and immutable releases,
+  plus complete package metadata and AppStream data
+- [x] v0.10.1: the Wayland hook now finds the system library on distributions
+  without development packages
 
 version history lives in the [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 
-## next
+## what comes next
 
-protium does not need to finish quickly. new versions only belong here when
-they make local Steam data clearer without a daemon or auto-repair. with
-this plan ahead:
+protium does not need to finish quickly. 1.0 is not a deadline but the end of
+the journey: reached when the application is consistent with itself. new
+versions only belong here when they make local Steam data clearer, without a
+daemon and without auto-repair. the list grows when something turns up in use,
+and it is not a promise.
 
-- [x] before v0.8.0: [terminology glossary](docs/glossar.md)
-- a separate prefix metadata spike remains open and independent, without
-  claiming a runtime result in advance
-- [x] v0.9.0: readable support record, honest GE mapping summary and the
-  "open prefix folder" workflow (the scope last planned as v0.10.0 ships in
-  v0.9.0)
-- v1.0.0: consolidation (consistency, error semantics, security and
-  accessibility review)
+first:
+
+- **error messages in plain language.** today the interface sometimes shows a
+  raw string from the backend, sometimes German, sometimes English. the plan
+  is fixed classes (unavailable, unreadable, incomplete, not found, unknown,
+  blocked) maintained in both languages.
+- **"why is this blocked".** when protium refuses something, it should say
+  exactly what was checked and what is missing.
+- **go through accessibility** and check it automatically.
+- **a speed baseline** in CI so a scan that got slower is noticed.
+- **allow only one instance** and make the backups of Steam files visible.
+- **diagnostics on your own machine:** an error boundary and a log file that
+  stays local.
+
+later, if it is worth it:
+
+- remember language and window size, plus a language switch
+- updates from inside the application
+- apply one change to several games at once
+- find Flatpak and Snap installations of Steam
+- make the AppImage smaller or stay with the system WebKit
+
+at the end, as a highlight: an AUR package so Arch users can install protium
+through their package manager.
 
 the binding internal product plan is `protium-roadmap-v2(1).md`; older roadmap
 documents in the repository are historical. every release still needs its own
@@ -260,8 +285,12 @@ approval.
 
 ## open points
 
-open maintenance items. security boundaries are reviewed separately and before
-refactors. work proceeds as convenient; the order is not a priority.
+small maintenance items, done when convenient, no priority:
+
+- mention prefix and shader cache presence in the support record
+- show "still loading" instead of "no rating" while ProtonDB is fetching
+- cover loading time with large libraries
+- do not re-ask ProtonDB for games without a report on every scan
 
 ## status
 

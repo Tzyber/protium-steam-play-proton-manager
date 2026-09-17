@@ -306,28 +306,59 @@ die app blockieren. was sich nicht zuverlässig bestimmen lässt, heißt in der 
 - [x] v0.8.0: explainability (erklär-Buttons mit quelle, bedeutung und
   grenze), datensparsamer diagnosebeleg zum kopieren und konservative
   startoptionen-/`PROTON_LOG`-hinweise
+- [x] v0.8.1: kleinere Korrekturen nach einem Review
+- [x] v0.9.0: lesbarer support-beleg, ehrliche GE-zuordnungszusammenfassung
+  und „Prefix-Ordner öffnen"
+- [x] v0.10.0: signierte Prüfsummen, Build-Attestation und unveränderliche
+  releases; dazu vollständige Paketangaben und AppStream-Metadaten
+- [x] v0.10.1: der Wayland-Hook findet die Systembibliothek jetzt auch auf
+  Systemen ohne Entwicklerpaket
 
 versionshistorie steht in den [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 
-## weiter
+## was noch kommt
 
-protium muss nicht schnell fertig werden. neue versionen kommen nur dazu,
-wenn sie lokale steam-daten klarer machen, ohne daemon oder autoreparatur.
-als plan folgen:
+protium muss nicht schnell fertig werden. 1.0 ist kein Termin, sondern das
+Ende der Reise: erreicht, wenn die Anwendung in sich stimmig ist. Neue
+Versionen kommen nur dazu, wenn sie lokale Steam-Daten klarer machen, ohne
+Daemon und ohne Autoreparatur. Die Liste wächst, wenn beim Benutzen etwas
+auffällt, und ist kein Versprechen.
 
-- [x] vor v0.8.0: [terminologie-glossar](docs/glossar.md)
-- separater Prefix-Metadaten-Spike bleibt offen und unabhängig, ohne
-  vorweggenommene Runtime-Behauptung
-- [x] v0.9.0: lesbarer support-beleg, ehrliche GE-zuordnungszusammenfassung und
-  „Prefix-Ordner öffnen"-Workflow (der zuletzt als v0.10.0 geplante umfang ist
-  in v0.9.0 enthalten)
-- v1.0.0: konsolidierung (konsistenz, fehlersemantik, security- und
-  zugänglichkeits-review)
+zuerst:
+
+- **fehlermeldungen in klarer sprache.** heute steht in der oberfläche
+  manchmal ein roher text aus dem backend, mal deutsch, mal englisch. künftig
+  gibt es feste klassen (nicht verfügbar, unlesbar, unvollständig, nicht
+  gefunden, unbekannt, blockiert), in beiden sprachen gepflegt.
+- **„warum ist das blockiert".** wenn protium etwas verweigert, soll genau
+  dastehen, was geprüft wurde und was fehlt.
+- **barrierefreiheit durchgehen** und automatisch mitprüfen lassen.
+- **eine messlatte für die geschwindigkeit** in der CI, damit ein langsam
+  gewordener Scan auffällt.
+- **nur eine Instanz zulassen** und die Sicherungskopien der Steam-Dateien
+  sichtbar machen.
+- **diagnose auf dem eigenen rechner:** eine Fehlergrenze und ein Logfile, das
+  nur lokal bleibt.
+
+danach, wenn es sich lohnt:
+
+- sprache und fenstergröße merken, dazu ein Sprachumschalter
+- Updates aus der Anwendung heraus
+- eine Änderung auf mehrere Spiele gleichzeitig anwenden
+- Flatpak- und Snap-Installationen von Steam finden
+- die AppImage verkleinern oder beim System-WebKit bleiben
+
+zum schluss, als Highlight: ein Paket im AUR, damit Arch-Nutzer protium über
+ihren Paketmanager installieren können.
 
 ## offene punkte
 
-offene wartungspunkte. sicherheitsgrenzen werden separat und vor Refactors
-geprüft. abarbeitung bei gelegenheit, reihenfolge ist keine priorität.
+kleine Wartungspunkte, abarbeitung bei gelegenheit, keine priorität:
+
+- die Existenz von Prefix und Shadercache im Support-Beleg nennen
+- „lädt noch" statt „keine Bewertung", solange ProtonDB nachlädt
+- Ladezeit der Cover bei großen Bibliotheken
+- Spiele ohne ProtonDB-Report nicht bei jedem Scan erneut fragen
 
 ## status
 
