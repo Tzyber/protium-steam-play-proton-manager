@@ -53,11 +53,11 @@ rückfrage und nur, wenn protium sich sicher ist:
 AppImage oder Debian-Paket von der [releases-seite](https://github.com/Tzyber/protium-steam-play-proton-manager/releases)
 laden. die AppImage ausführbar machen und starten:
 
-aktuelle version: `v0.10.0`.
+aktuelle version: `v0.10.1`.
 
 ```sh
-chmod +x protium_0.10.0_amd64.AppImage
-./protium_0.10.0_amd64.AppImage
+chmod +x protium_0.10.1_amd64.AppImage
+./protium_0.10.1_amd64.AppImage
 ```
 
 jedes release bringt AppImage, Debian-Paket, `SHA256SUMS` und `SHA256SUMS.asc`.
@@ -82,20 +82,20 @@ fingerprint des schlüssels: `08C084ECC83DFDB10E5CF60A8B2CA074A44AC4FA`
 die attestation bindet an repository, workflow und commit, nicht an eine
 person: wer schreibzugriff auf repository und tag hat, kann eine passende
 attestation erzeugen. die GPG-signatur ist der einzige von GitHub unabhängige
-nachweis — aber nur, solange der fingerprint bestätigt ist.
+nachweis. sie gilt aber nur, solange der fingerprint bestätigt ist.
 
 wer das nicht mag, baut selbst (siehe dev-setup). für Debian-basierte systeme
 liegt zusätzlich ein Debian-paket bei:
 
 ```sh
-sudo apt install ./protium_0.10.0_amd64.deb
+sudo apt install ./protium_0.10.1_amd64.deb
 ```
 
 startet nichts und es kommt keine fehlermeldung, fehlt meist fuse2. dann
 entweder `sudo pacman -S fuse2` oder einmalig ohne fuse starten:
 
 ```sh
-./protium_0.10.0_amd64.AppImage --appimage-extract-and-run
+./protium_0.10.1_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## was es kann

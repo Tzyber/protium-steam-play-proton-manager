@@ -49,11 +49,11 @@ when protium is sure:
 
 grab the AppImage or Debian package from the [releases page](https://github.com/Tzyber/protium-steam-play-proton-manager/releases). make the AppImage executable and run it:
 
-current version: `v0.10.0`.
+current version: `v0.10.1`.
 
 ```sh
-chmod +x protium_0.10.0_amd64.AppImage
-./protium_0.10.0_amd64.AppImage
+chmod +x protium_0.10.1_amd64.AppImage
+./protium_0.10.1_amd64.AppImage
 ```
 
 each release ships the AppImage, the Debian package, `SHA256SUMS` and
@@ -77,20 +77,20 @@ second channel before you trust the signature.
 
 the attestation binds to the repository, workflow and commit, not to a
 person: anyone with write access to repository and tag can produce a matching
-attestation. the GPG signature is the only GitHub-independent proof — but only
-as long as the fingerprint is confirmed.
+attestation. the GPG signature is the only GitHub-independent proof. it holds
+only as long as the fingerprint is confirmed.
 
 if you don't like that, build it yourself (see dev setup). Debian-based
 systems can install the accompanying Debian package:
 
 ```sh
-sudo apt install ./protium_0.10.0_amd64.deb
+sudo apt install ./protium_0.10.1_amd64.deb
 ```
 
 if nothing starts and no error message appears, fuse2 is usually missing. then either `sudo pacman -S fuse2` or run it once without fuse:
 
 ```sh
-./protium_0.10.0_amd64.AppImage --appimage-extract-and-run
+./protium_0.10.1_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## what it does
