@@ -14,6 +14,19 @@ pub const MAX_LOG_GENERATIONS: usize = 3;
 /// Rotation nicht bis zum naechsten Aufruf aushebeln.
 pub const MAX_LOG_MESSAGE_CHARS: usize = 2000;
 
+/// Serialisiert Rotation, Append und Tail-Read derselben Logdatei: Rename und
+/// Append sind sonst nicht atomar zueinander, und ein Tail-Read könnte während
+/// der Rotation einen halben Zustand sehen. Der Panic-Hook nimmt die Sperre mit
+/// `into_inner`, damit eine Panik im geschützten Abschnitt ihn nicht blockiert.
+static LOG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn lock_log() -> std::sync::MutexGuard<'static, ()> {
+    LOG_LOCK.lock().unwrap_or_else(|error| error.into_inner())
+}
+
+/// Kaskadiert die Loggenerationen. Muss unter `LOG_LOCK` laufen; die Sperre
+/// nehmen die Aufrufer, damit Rotation und Append ein kritischer Abschnitt
+/// bleiben (kein verschachteltes Lock).
 pub fn rotate_logs_if_needed(log_dir: &Path) -> std::io::Result<()> {
     let main_log = log_dir.join("protium.log");
     if let Ok(metadata) = fs::metadata(&main_log) {
@@ -66,10 +79,25 @@ fn open_log_file_for_read(path: &Path) -> std::io::Result<std::fs::File> {
 }
 
 pub fn append_log_entry(log_dir: &Path, level: &str, message: &str) -> Result<(), String> {
+    let _guard = lock_log();
+    write_log_line(log_dir, level, message, true)
+}
+
+/// Pfad des Panic-Hooks: blockiert nie, denn der abstürzende Thread kann die
+/// Sperre selbst halten (`std::sync::Mutex` ist nicht reentrant) und würde
+/// sonst im Hook hängen bleiben. Ohne Rotation, reines Best effort.
+fn append_panic_entry(log_dir: &Path, message: &str) {
+    let _guard = LOG_LOCK.try_lock().ok();
+    let _ = write_log_line(log_dir, "error", message, false);
+}
+
+fn write_log_line(log_dir: &Path, level: &str, message: &str, rotate: bool) -> Result<(), String> {
     if !log_dir.exists() {
         fs::create_dir_all(log_dir).map_err(|e| format!("unavailable: {e}"))?;
     }
-    rotate_logs_if_needed(log_dir).map_err(|e| format!("unavailable: {e}"))?;
+    if rotate {
+        rotate_logs_if_needed(log_dir).map_err(|e| format!("unavailable: {e}"))?;
+    }
     let main_log = log_dir.join("protium.log");
     let mut file = open_log_file(&main_log).map_err(|e| format!("unreadable: {e}"))?;
     if !file.metadata().map(|m| m.is_file()).unwrap_or(false) {
@@ -101,7 +129,10 @@ pub const MAX_LOG_TAIL_BYTES: u64 = 32 * 1024;
 
 /// Liest den Schluss der aktuellen Logdatei. Fehlt sie, ist das leer (noch
 /// nichts passiert), kein Fehler; ein Symlink oder Nicht-Datei ist blockiert.
+/// Der Start liegt auf einer beliebigen Byteposition: begonnene Zeilen werden
+/// verworfen, statt mitten in einer UTF-8-Sequenz zu scheitern.
 pub fn read_log_tail_from_dir(log_dir: &Path) -> Result<String, String> {
+    let _guard = lock_log();
     let main_log = log_dir.join("protium.log");
     let metadata = match fs::symlink_metadata(&main_log) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
@@ -120,11 +151,19 @@ pub fn read_log_tail_from_dir(log_dir: &Path) -> Result<String, String> {
         file.seek(SeekFrom::Start(start))
             .map_err(|error| errcode::with_detail(errcode::UNREADABLE, error))?;
     }
-    let mut text = String::new();
+    let mut bytes = Vec::new();
     file.take(MAX_LOG_TAIL_BYTES)
-        .read_to_string(&mut text)
+        .read_to_end(&mut bytes)
         .map_err(|error| errcode::with_detail(errcode::UNREADABLE, error))?;
-    Ok(text)
+    let slice = if start > 0 {
+        match bytes.iter().position(|byte| *byte == b'\n') {
+            Some(newline) => &bytes[newline + 1..],
+            None => &[][..],
+        }
+    } else {
+        &bytes[..]
+    };
+    Ok(String::from_utf8_lossy(slice).into_owned())
 }
 
 #[tauri::command]
@@ -137,13 +176,12 @@ pub async fn read_log_tail(app: tauri::AppHandle) -> Result<String, String> {
     spawn_blocking_io(move || read_log_tail_from_dir(&log_dir)).await
 }
 
-/// Panic-Hook: schreibt in dieselbe rotierende Datei. Kein Lock und kein
-/// zusaetzlicher Zustand, damit der Hook auch dann laeuft, wenn der Panic
-/// einen Write-Gate-Lock haelt; eigene Fehler werden geschluckt.
+/// Panic-Hook: schreibt in dieselbe rotierende Datei, aber nie blockierend
+/// (siehe `append_panic_entry`). Eigene Fehler werden geschluckt.
 pub fn install_panic_hook(log_dir: std::path::PathBuf) {
     std::panic::set_hook(Box::new(move |info| {
         let message = info.to_string();
-        let _ = append_log_entry(&log_dir, "error", &format!("panic: {message}"));
+        append_panic_entry(&log_dir, &format!("panic: {message}"));
     }));
 }
 
@@ -264,6 +302,75 @@ mod tests {
         std::os::unix::fs::symlink(root.join("echt.log"), log_dir.join("protium.log")).unwrap();
 
         assert_eq!(read_log_tail_from_dir(&log_dir).unwrap_err(), "blocked");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn log_tail_startet_nicht_mitten_in_einer_utf8_sequenz() {
+        // Die tail-grenze liegt auf einer beliebigen byteposition. Beginnt sie
+        // im zweiten byte eines mehrbytezeichens, darf der read nicht scheitern.
+        let root = wsg_fixture("test_log_tail_utf8");
+        let log_dir = root.join("logs");
+        fs::create_dir_all(&log_dir).unwrap();
+        let tail_bytes = usize::try_from(MAX_LOG_TAIL_BYTES).unwrap();
+        let rest = format!("\n{}\n", "y".repeat(tail_bytes - 3));
+        assert_eq!(rest.len(), tail_bytes - 1);
+        let mut content = "x".repeat(10);
+        content.push('ä');
+        content.push_str(&rest);
+        fs::write(log_dir.join("protium.log"), &content).unwrap();
+
+        let start = content.len() - tail_bytes;
+        assert_eq!(
+            start, 11,
+            "die grenze muss in der mitte des mehrbytezeichens liegen"
+        );
+
+        let tail = read_log_tail_from_dir(&log_dir).unwrap();
+        assert!(tail.starts_with('y'), "tail beginnt mitten im zeichen");
+        assert!(!tail.contains('\u{FFFD}'));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn append_hinterlaesst_auch_beim_wechselnden_aufrufer_genau_eine_zeile() {
+        // Serialisierung: parallele Appends duerfen sich nicht verzahnen.
+        let root = wsg_fixture("test_log_serialized");
+        let log_dir = root.join("logs");
+        let mut handles = Vec::new();
+        for index in 0..4 {
+            let dir = log_dir.clone();
+            handles.push(std::thread::spawn(move || {
+                append_log_entry(&dir, "info", &format!("zeile-{index}")).unwrap();
+            }));
+        }
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let content = fs::read_to_string(log_dir.join("protium.log")).unwrap();
+        assert_eq!(content.lines().count(), 4);
+        for index in 0..4 {
+            assert!(content.contains(&format!("[INFO] zeile-{index}")));
+        }
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn panic_pfad_blockiert_nicht_wenn_die_sperre_gehalten_wird() {
+        // Der Hook laeuft im panischen Thread; haelt der die Sperre, darf er
+        // nicht darauf warten. try_lock schreibt die zeile trotzdem.
+        let root = wsg_fixture("test_log_panic_lock");
+        let log_dir = root.join("logs");
+        let guard = lock_log();
+        append_panic_entry(&log_dir, "panic: test");
+        drop(guard);
+
+        let content = fs::read_to_string(log_dir.join("protium.log")).unwrap();
+        assert!(content.contains("panic: test"));
+
         let _ = fs::remove_dir_all(&root);
     }
 
