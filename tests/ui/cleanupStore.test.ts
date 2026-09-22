@@ -237,10 +237,10 @@ describe("cleanupStore gate logic", () => {
     const scanStore = useScanStore();
     scanStore.result = fakeScan();
     const store = useCleanupStore();
-    mockFindOrphans.mockRejectedValue(new Error("orphan read failed"));
+    mockFindOrphans.mockRejectedValue(new Error("unreadable"));
 
     await store.scanOrphans();
-    expect(store.error).toContain("orphan read failed");
+    expect(store.error).toContain("unlesbar");
 
     mockFindTrashEntries.mockResolvedValue({
       entries: [],
@@ -250,7 +250,7 @@ describe("cleanupStore gate logic", () => {
     });
     await store.scanTrash();
 
-    expect(store.error).toContain("orphan read failed");
+    expect(store.error).toContain("unlesbar");
     expect(store.error).toContain("papierkorb");
   });
 
@@ -1009,7 +1009,7 @@ describe("cleanupStore, trash", () => {
       appId: 570,
     });
     mockPrepareDelete.mockImplementation(async (req) => {
-      if (req.path === e2.path) throw new Error("not readable");
+      if (req.path === e2.path) throw new Error("unreadable");
       return {
         token: `token-${req.path}`,
         expiresAt: Date.now() + 60000,
@@ -1026,7 +1026,7 @@ describe("cleanupStore, trash", () => {
     await store.deleteTrashEntries([e1, e2]);
 
     expect(store.error).toContain("compatdata_570_100");
-    expect(store.error).toContain("not readable");
+    expect(store.error).toContain("unlesbar");
     expect(useConfirmStore().pending?.message).toContain(
       "nicht vorbereitete Einträge (1) bleiben unverändert.",
     );
@@ -1094,7 +1094,7 @@ describe("cleanupStore, trash", () => {
   });
 
   it("ohne erfolgreiches prepare gibt es keinen dialog und kein execute", async () => {
-    mockPrepareDelete.mockRejectedValue(new Error("prepare failed"));
+    mockPrepareDelete.mockRejectedValue(new Error("unreadable"));
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
     const store = useCleanupStore();
@@ -1102,7 +1102,7 @@ describe("cleanupStore, trash", () => {
 
     await store.deleteTrashEntries([e1]);
 
-    expect(store.error).toContain("prepare failed");
+    expect(store.error).toContain("unlesbar");
     expect(useConfirmStore().pending).toBeNull();
     expect(mockExecuteDelete).not.toHaveBeenCalled();
   });
@@ -1224,7 +1224,7 @@ describe("cleanupStore, trash", () => {
     let callCount = 0;
     mockExecuteDelete.mockImplementation(async (token: string) => {
       callCount++;
-      if (callCount === 2) throw new Error("permission denied");
+      if (callCount === 2) throw new Error("unreadable");
       return { deletedPath: token };
     });
 
@@ -1239,7 +1239,7 @@ describe("cleanupStore, trash", () => {
     expect(store.trash).toHaveLength(1);
     expect(store.trash[0]?.appId).toBe(570); // der fehlgeschlagene bleibt
     expect(store.error).toContain("compatdata_570_100");
-    expect(store.error).toContain("permission denied");
+    expect(store.error).toContain("unlesbar");
   });
 
   it("behält vorbereitungs- und execute-fehler getrennt sichtbar", async () => {
@@ -1250,7 +1250,7 @@ describe("cleanupStore, trash", () => {
       appId: 570,
     });
     mockPrepareDelete.mockImplementation(async (req) => {
-      if (req.path === e2.path) throw new Error("not readable");
+      if (req.path === e2.path) throw new Error("unreadable");
       return {
         token: `token-${req.path}`,
         expiresAt: Date.now() + 60000,
@@ -1259,7 +1259,7 @@ describe("cleanupStore, trash", () => {
         consequences: [],
       };
     });
-    mockExecuteDelete.mockRejectedValue(new Error("permission denied"));
+    mockExecuteDelete.mockRejectedValue(new Error("unreadable"));
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
     const store = useCleanupStore();
@@ -1270,8 +1270,8 @@ describe("cleanupStore, trash", () => {
 
     expect(store.error).toContain("nicht vorbereitete Einträge (1)");
     expect(store.error).toContain("nicht gelöschte Einträge (1)");
-    expect(store.error).toContain("not readable");
-    expect(store.error).toContain("permission denied");
+    expect(store.error).toContain("unlesbar");
+    expect(store.error).toContain("unlesbar");
   });
 });
 
@@ -1362,7 +1362,7 @@ describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
   });
 
   it("löschfehler überlebt den internen orphan-rescan (scanOrphans setzt error zurück)", async () => {
-    mockExecuteDelete.mockRejectedValue(new Error("permission denied"));
+    mockExecuteDelete.mockRejectedValue(new Error("unreadable"));
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
     const store = useCleanupStore();
@@ -1381,7 +1381,7 @@ describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
     // darf davon nicht weggewischt worden sein
     expect(mockFindOrphans).toHaveBeenCalled();
     expect(store.error).toContain("888888");
-    expect(store.error).toContain("permission denied");
+    expect(store.error).toContain("unlesbar");
   });
 
   it("orphan-onError räumt deleting nach unerwartetem execute-folgefehler auf", async () => {
@@ -1389,7 +1389,7 @@ describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
     scanStore.result = fakeScan([]);
     const store = useCleanupStore();
     store.scanOrphans = vi.fn(async () => {
-      throw new Error("rescan failed");
+      throw new Error("unreadable");
     });
     const entry = {
       appId: 888888,
@@ -1402,7 +1402,7 @@ describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
     await useConfirmStore().confirm();
 
     expect(store.deleting.size).toBe(0);
-    expect(store.error).toContain("rescan failed");
+    expect(store.error).toContain("unlesbar");
   });
 
   it("alter orphan-delete-callback überschreibt keinen aktuellen scan-fehler", async () => {
@@ -1422,14 +1422,14 @@ describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
     const confirmPromise = useConfirmStore().confirm();
     await vi.waitFor(() => expect(mockExecuteDelete).toHaveBeenCalledTimes(1));
 
-    mockFindOrphans.mockRejectedValueOnce(new Error("aktueller scan-fehler"));
+    mockFindOrphans.mockRejectedValueOnce(new Error("unreadable"));
     await store.scanOrphans();
-    expect(store.error).toContain("aktueller scan-fehler");
+    expect(store.error).toContain("unlesbar");
 
     execute.reject(new Error("alter delete-fehler"));
     await confirmPromise;
 
-    expect(store.error).toContain("aktueller scan-fehler");
+    expect(store.error).toContain("unlesbar");
     expect(store.error).not.toContain("alter delete-fehler");
     expect(store.deleting.size).toBe(0);
     expect(useConfirmStore().reserved).toBe(false);
@@ -1447,14 +1447,14 @@ describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
     const confirmPromise = useConfirmStore().confirm();
     await vi.waitFor(() => expect(mockExecuteDelete).toHaveBeenCalledTimes(1));
 
-    mockFindTrashEntries.mockRejectedValueOnce(new Error("aktueller trash-scan-fehler"));
+    mockFindTrashEntries.mockRejectedValueOnce(new Error("unreadable"));
     await store.scanTrash();
-    expect(store.error).toContain("aktueller trash-scan-fehler");
+    expect(store.error).toContain("unlesbar");
 
     execute.reject(new Error("alter trash-delete-fehler"));
     await confirmPromise;
 
-    expect(store.error).toContain("aktueller trash-scan-fehler");
+    expect(store.error).toContain("unlesbar");
     expect(store.error).not.toContain("alter trash-delete-fehler");
     expect(useConfirmStore().reserved).toBe(false);
   });
@@ -1487,13 +1487,13 @@ describe("cleanupStore, S-02: Pfadbasierte Keys (A-04)", () => {
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
     const store = useCleanupStore();
-    mockPrepareDelete.mockRejectedValue(new Error("prepare failed"));
+    mockPrepareDelete.mockRejectedValue(new Error("unreadable"));
 
     await store.deleteOrphans([
       { appId: 999999, type: "compatdata", path: "/fake/wine", library: "/lib" },
     ]);
 
-    expect(store.error).toContain("prepare failed");
+    expect(store.error).toContain("unlesbar");
     expect(store.deleting.size).toBe(0);
     expect(useConfirmStore().pending).toBeNull();
 

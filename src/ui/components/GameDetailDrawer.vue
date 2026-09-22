@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { openExternal, tauriPorts } from "../../core/adapters/tauri";
-import { SteamRunningError } from "../../core/configwrite";
 import { errText } from "../../core/errtext";
 import { analyzeLaunchOptions, type LaunchHint } from "../../core/launchHints";
 import { protonDbAppUrl } from "../../core/protondb";
@@ -9,6 +8,7 @@ import type { LaunchConfigStatus, Tier } from "../../core/types";
 import { focusFirstFocusable, restoreFocus, trapFocus } from "../a11y";
 import type { ExplainTopic } from "../explain";
 import { formatBytes, formatKnownBytes } from "../format";
+import { formatError } from "../formatError";
 import { t } from "../i18n";
 import { useCleanupStore } from "../stores/cleanupStore";
 import { useConfigStore } from "../stores/configStore";
@@ -20,6 +20,7 @@ import { useGameFootprint } from "../useGameFootprint";
 import { useLatestRequest } from "../useLatestRequest";
 import { usePrefixOpen } from "../usePrefixOpen";
 import { useSupportCopy } from "../useSupportCopy";
+import BlockedExplanation from "./BlockedExplanation.vue";
 import ExplainInfo from "./ExplainInfo.vue";
 import PlayButton from "./PlayButton.vue";
 import SelectBox from "./SelectBox.vue";
@@ -44,11 +45,9 @@ const {
   summaryText: footprintSummaryText,
 } = useGameFootprint(game, scan);
 
-// fehlertext: SteamRunningError bekommt die übersetzte meldung, andere rohe errors
-// (z. b. schreibrechte) bleiben unverändert, weil sie aus dem system kommen.
+// fehlertext: einheitlich formatieren und uebersetzen (B1 Fehlersemantik).
 function errorText(e: unknown): string {
-  if (e instanceof SteamRunningError) return t("errors.steamRunning");
-  return errText(e);
+  return formatError(e);
 }
 
 // cover-kandidaten wie in der karte
@@ -621,14 +620,15 @@ watch(errorMessage, (msg) => {
         </a>
         <p class="hint">{{ t("drawer.protondbHint") }}</p>
 
-        <!-- fehler-toast: oben fixiert im drawer, direkt im blick der eingaben -->
-        <transition name="toast">
-          <div v-if="errorMessage" class="toast" role="alert">
-            <span class="toast-icon" aria-hidden="true">⚠</span>
-            <span class="toast-msg">{{ errorMessage }}</span>
-            <button class="toast-close" type="button" :aria-label="t('app.dismissNotification')" @click="dismissError">✕</button>
-          </div>
-        </transition>
+        <!-- Ablehnung im B2-Muster: Titel, Pruefbericht, Garantiesatz -->
+        <BlockedExplanation
+          v-if="errorMessage"
+          class="drawer-blocked"
+          :title="t('drawer.saveBlocked')"
+          :intro="t('common.couldNotVerify')"
+          :items="[errorMessage]"
+          :guarantee="t('common.nothingChanged')"
+        />
       </aside>
       </div>
     </transition>

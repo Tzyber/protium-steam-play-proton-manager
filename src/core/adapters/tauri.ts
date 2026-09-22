@@ -1,5 +1,6 @@
 // ports-implementierung gegen tauri-plugins + rust-commands.
 // Einzige Datei mit Tauri-Imports auf der Core-Seite.
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -201,4 +202,36 @@ export function launchGame(appId: number): Promise<void> {
 
 export function openPrefixFolder(library: string, appId: number): Promise<void> {
   return invoke("open_prefix_folder", { library, appId: String(appId) });
+}
+
+export interface ConfigBackupEntry {
+  fileName: string;
+  kind: "localconfig" | "config";
+  targetId: string;
+  timestampMs: number;
+  sizeBytes: number;
+}
+
+export function listConfigBackups(): Promise<ConfigBackupEntry[]> {
+  return invoke<ConfigBackupEntry[]>("list_config_backups");
+}
+
+export function openBackupsFolder(): Promise<void> {
+  return invoke("open_backups_folder");
+}
+
+export function logDiagnostic(level: "info" | "warn" | "error", message: string): Promise<void> {
+  return invoke("log_diagnostic", { level, message });
+}
+
+export function appVersion(): Promise<string> {
+  return getVersion();
+}
+
+export function readLogTail(): Promise<string> {
+  return invoke<string>("read_log_tail");
+}
+
+export function openLogsFolder(): Promise<void> {
+  return invoke("open_logs_folder");
 }

@@ -1,3 +1,4 @@
+use crate::commands::errcode;
 use crate::commands::scope::EnvironmentState;
 use tauri::State;
 
@@ -5,7 +6,7 @@ use tauri::State;
 use {
     crate::commands::{
         compat_auth::{is_app_installed_in_steamapps_fd, ManifestReadError},
-        external::spawn_detached_os,
+        external::{open_directory_with_handler, spawn_detached_os, SpawnOs},
         fd,
         scope::parse_app_id,
     },
@@ -44,10 +45,10 @@ impl PrefixError {
     // SECURITY: Nur diese Codes verlassen den Command, nie ein Pfad oder Rohtext.
     fn code(self) -> &'static str {
         match self {
-            Self::NotFound => "not-found",
-            Self::Unreadable => "unreadable",
-            Self::Blocked => "blocked",
-            Self::HandlerUnavailable => "handler-unavailable",
+            Self::NotFound => errcode::NOT_FOUND,
+            Self::Unreadable => errcode::UNREADABLE,
+            Self::Blocked => errcode::BLOCKED,
+            Self::HandlerUnavailable => errcode::HANDLER_UNAVAILABLE,
         }
     }
 }
@@ -88,15 +89,13 @@ fn validate_handler_path(path: &Path, library: &Path) -> Result<(), PrefixError>
 }
 
 #[cfg(target_os = "linux")]
-type SpawnHandler<'a> = dyn FnMut(&str, &[&str], &OsStr) -> io::Result<()> + 'a;
-
 #[cfg(target_os = "linux")]
 fn open_prefix_folder_with(
     state: &EnvironmentState,
     library: &str,
     app_id: &str,
     hook: &mut dyn FnMut(PrefixReadStage),
-    spawn: &mut SpawnHandler<'_>,
+    spawn: &mut SpawnOs<'_>,
 ) -> Result<(), &'static str> {
     let app_id = parse_app_id(app_id).map_err(|_| "blocked")?;
     // Der Snapshot bleibt bis zum Spawn gesperrt; Scope-Fehler verlassen diese Grenze nie.
@@ -112,7 +111,7 @@ fn open_authorized_prefix(
     library: &Path,
     app_id: u32,
     hook: &mut dyn FnMut(PrefixReadStage),
-    spawn: &mut SpawnHandler<'_>,
+    spawn: &mut SpawnOs<'_>,
 ) -> Result<(), PrefixError> {
     let metadata = fs::metadata(library)?;
     let expected = fd::FdIdentity {
@@ -145,12 +144,7 @@ fn open_authorized_prefix(
     validate_handler_path(&path, library)?;
     // SECURITY: Der Dateimanager löst den Pfad später erneut auf; kein fd-gebundenes Öffnen.
     hook(PrefixReadStage::BeforeHandler);
-    for (program, args) in [("xdg-open", &[][..]), ("gio", &["open"][..])] {
-        if spawn(program, args, path.as_os_str()).is_ok() {
-            return Ok(());
-        }
-    }
-    Err(PrefixError::HandlerUnavailable)
+    open_directory_with_handler(spawn, &path).map_err(|_| PrefixError::HandlerUnavailable)
 }
 
 #[tauri::command]

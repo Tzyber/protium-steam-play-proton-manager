@@ -16,6 +16,7 @@ use crate::commands::download::{
     CancelRegistry, CancelSignal, DownloadDirectoryBinding, DownloadStorage, Sha512FetchError,
     MAX_DOWNLOAD_BYTES,
 };
+use crate::commands::errcode;
 use crate::commands::extract::extract_blocking_with_tag;
 use crate::commands::path::{is_descendant_of, sanitize_path};
 
@@ -45,7 +46,7 @@ pub(super) fn normalize_target_arch(raw: &str) -> Result<TargetArch, String> {
     match raw {
         "x86_64" => Ok(TargetArch::X86_64),
         "aarch64" => Ok(TargetArch::Aarch64),
-        _ => Err(format!("unsupported GE target architecture: {raw}")),
+        _ => Err(errcode::with_detail(errcode::UNSUPPORTED_ARCH, raw)),
     }
 }
 
@@ -94,7 +95,7 @@ fn exact_release_url(url: &str, release_tag: &str, asset_name: &str) -> Result<(
     let expected_path =
         format!("/GloriousEggroll/proton-ge-custom/releases/download/{release_tag}/{asset_name}");
     if parsed.path() != expected_path {
-        return Err("release URL does not match tag and asset identity".into());
+        return Err(errcode::INVALID_URL.into());
     }
     Ok(())
 }
@@ -105,7 +106,7 @@ pub(super) fn validate_release_identity(
     download_url: &str,
 ) -> Result<GeReleaseIdentity, String> {
     if release_version(release_tag).is_none() {
-        return Err("invalid release tag: expected GE-Proton<major>-<minor>".into());
+        return Err(errcode::with_detail(errcode::INVALID_ID, "release tag"));
     }
     let parsed =
         reqwest::Url::parse(download_url).map_err(|e| format!("invalid download URL: {e}"))?;
@@ -151,7 +152,7 @@ fn is_missing_checksum_asset(error: &Sha512FetchError) -> bool {
 
 fn cancel_before_extract(cancel: &CancelSignal) -> Result<(), String> {
     if cancel.is_cancelled() {
-        return Err("cancelled".into());
+        return Err(errcode::CANCELLED.into());
     }
     Ok(())
 }
@@ -161,7 +162,7 @@ fn extract_after_cancel_check<T>(
     operation: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
     if cancel.is_cancelled() {
-        return Err("cancelled".into());
+        return Err(errcode::CANCELLED.into());
     }
     operation()
 }
@@ -208,7 +209,7 @@ pub(super) fn verify_file_hash_on_disk(
     let mut buf = [0u8; 64 * 1024];
     loop {
         if cancel.is_cancelled() {
-            return Err("cancelled".into());
+            return Err(errcode::CANCELLED.into());
         }
         let n = file
             .read(&mut buf)
@@ -317,7 +318,7 @@ pub(super) async fn install_ge_proton_inner(
         fs::canonicalize(steam_root).map_err(|e| format!("steam root canonicalize: {e}"))?;
     let tools_dir = root_canon.join("compatibilitytools.d");
     if !scope_ok(&tools_dir) || !scope_ok(&root_canon) {
-        return Err("steam root outside allowed scope".into());
+        return Err(errcode::BLOCKED_LOCATION.into());
     }
 
     // crash-reste früherer extraktionen (SIGKILL/Stromausfall zwischen temp
@@ -341,7 +342,10 @@ pub(super) async fn install_ge_proton_inner(
 
     let final_target = tools_dir.join(&identity.install_name);
     if final_target.exists() {
-        return Err("ToolAlreadyExists: target directory already exists".into());
+        return Err(errcode::with_detail(
+            errcode::TOOL_EXISTS,
+            "target directory",
+        ));
     }
 
     fs::create_dir_all(cache_dir).map_err(|e| format!("create app cache dir: {e}"))?;
@@ -352,12 +356,12 @@ pub(super) async fn install_ge_proton_inner(
     let downloads_dir =
         fs::canonicalize(&downloads_dir).map_err(|e| format!("downloads dir canonicalize: {e}"))?;
     if !is_descendant_of(&downloads_dir, &cache_canon) {
-        return Err("downloads dir outside canonical app cache".into());
+        return Err(errcode::BLOCKED_LOCATION.into());
     }
     let downloads_metadata = fs::symlink_metadata(&downloads_dir)
         .map_err(|e| format!("stat canonical downloads dir: {e}"))?;
     if downloads_metadata.file_type().is_symlink() || !downloads_metadata.is_dir() {
-        return Err("canonical downloads path is not a real directory".into());
+        return Err(errcode::NOT_A_DIRECTORY.into());
     }
     let expected_downloads_identity =
         crate::commands::download::metadata_identity(&downloads_metadata)
@@ -427,7 +431,7 @@ pub(super) async fn install_ge_proton_inner(
                 }
             };
             if cancel_flag.is_cancelled() {
-                return Err("cancelled".into());
+                return Err(errcode::CANCELLED.into());
             }
             if stream_hash.to_ascii_lowercase() != expected_hash {
                 return Err(format!(
@@ -470,15 +474,15 @@ pub(super) async fn install_ge_proton_inner(
                 }
             };
             if !confirmed {
-                return Err("unverified installation rejected".into());
+                return Err(errcode::UNVERIFIED_REJECTED.into());
             }
             InstallGeResult::Unverified
         }
         Err(Sha512FetchError::Cancelled) => {
-            return Err("cancelled".into());
+            return Err(errcode::CANCELLED.into());
         }
         Err(error) => {
-            return Err(format!("SHA512 checksum fetch failed: {error}"));
+            return Err(errcode::with_detail(errcode::CHECKSUM_FAILED, error));
         }
     };
 
@@ -522,18 +526,18 @@ pub(super) async fn install_ge_proton_inner(
         #[cfg(test)]
         None => {
             if !scope_ok(&dest_canon) || !scope_ok(&root_canon_clone) {
-                return Err("steam root outside allowed scope".into());
+                return Err(errcode::BLOCKED_LOCATION.into());
             }
             crate::commands::spawn_blocking_io(extract).await
         }
         #[cfg(not(test))]
-        None => Err("ge install without environment authority".into()),
+        None => Err(errcode::UNAVAILABLE.into()),
     };
 
     match extract_res {
         Ok((extract_result, _downloaded_file)) => match extract_result {
             Ok(_) => Ok(result_status),
-            Err(error) => Err(format!("extract failed: {error}")),
+            Err(error) => Err(errcode::with_detail(errcode::UNAVAILABLE, error)),
         },
         Err(error) => Err(error),
     }

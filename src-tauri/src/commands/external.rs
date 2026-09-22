@@ -1,4 +1,7 @@
 use std::ffi::OsStr;
+use std::path::Path;
+
+use crate::commands::errcode;
 use std::process::{Command, Stdio};
 
 // Externe URLs für Browser und Steam-Handler.
@@ -16,15 +19,16 @@ pub(super) fn validate_external_url(url: &str) -> Result<(), String> {
         return if !app_id.is_empty() && app_id.bytes().all(|b| b.is_ascii_digit()) {
             Ok(())
         } else {
-            Err("invalid steam app id".into())
+            Err(errcode::INVALID_APPID.into())
         };
     }
-    let parsed = reqwest::Url::parse(url).map_err(|e| format!("invalid external URL: {e}"))?;
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|error| errcode::with_detail(errcode::INVALID_URL, error))?;
     if parsed.scheme() != "https" {
-        return Err("only HTTPS URLs allowed".into());
+        return Err(errcode::UNALLOWED_SCHEME.into());
     }
     if !parsed.username().is_empty() || parsed.password().is_some() {
-        return Err("URL must not contain credentials".into());
+        return Err(errcode::CREDENTIALS_DISALLOWED.into());
     }
     match parsed.host_str().map(|h| h.to_ascii_lowercase()).as_deref() {
         // protondb: nur spielseiten /app/<appId> (das frontend baut genau diese)
@@ -32,11 +36,11 @@ pub(super) fn validate_external_url(url: &str) -> Result<(), String> {
             let rest = parsed
                 .path()
                 .strip_prefix("/app/")
-                .ok_or_else(|| "invalid protondb path".to_string())?;
+                .ok_or_else(|| errcode::with_detail(errcode::INVALID_URL, "protondb path"))?;
             if !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()) {
                 Ok(())
             } else {
-                Err("invalid protondb app id".into())
+                Err(errcode::INVALID_APPID.into())
             }
         }
         // protium-repo: exakt der repo-pfad oder ein nachfahre (präfix-tricks
@@ -51,11 +55,11 @@ pub(super) fn validate_external_url(url: &str) -> Result<(), String> {
             if ok {
                 Ok(())
             } else {
-                Err("github URL outside protium repo".into())
+                Err(errcode::INVALID_URL.into())
             }
         }
-        Some(host) => Err(format!("external URL host not allowed: {host}")),
-        None => Err("external URL has no host".into()),
+        Some(host) => Err(errcode::with_detail(errcode::HOST_DISALLOWED, host)),
+        None => Err(errcode::INVALID_URL.into()),
     }
 }
 
@@ -129,6 +133,24 @@ pub(super) fn spawn_detached_os(
     Ok(())
 }
 
+/// Ein Verzeichnis im System-Dateimanager oeffnen. Ein gemeinsamer Helfer fuer
+/// alle "im Dateimanager zeigen"-Aktionen, damit Handler-Reihenfolge,
+/// Prozess-Aufraeumen (Reaper) und Fehlercode ueberall gleich sind.
+/// `spawn` ist injizierbar, damit Tests das Starten beobachten koennen.
+pub(super) type SpawnOs<'a> = dyn FnMut(&str, &[&str], &OsStr) -> std::io::Result<()> + 'a;
+
+pub(super) fn open_directory_with_handler(
+    spawn: &mut SpawnOs<'_>,
+    directory: &Path,
+) -> Result<(), String> {
+    for (program, args) in [("xdg-open", &[][..]), ("gio", &["open"][..])] {
+        if spawn(program, args, directory.as_os_str()).is_ok() {
+            return Ok(());
+        }
+    }
+    Err("handler-unavailable".into())
+}
+
 fn detached_command(program: &str, args: &[&str], target: &OsStr) -> Command {
     let mut cmd = Command::new(program);
     cmd.args(args)
@@ -171,7 +193,7 @@ pub fn open_external(url: String) -> Result<(), String> {
             Err(e) => last_err = format!("{program}: {e}"),
         }
     }
-    Err(format!("no URL handler available ({last_err})"))
+    Err(errcode::with_detail(errcode::HANDLER_UNAVAILABLE, last_err))
 }
 
 #[cfg(test)]
@@ -301,5 +323,45 @@ mod detached_command_tests {
                 .get_envs()
                 .any(|(key, value)| key == name && value.is_none()));
         }
+    }
+}
+
+#[cfg(test)]
+mod open_directory_tests {
+    use super::*;
+
+    #[test]
+    fn probiert_xdg_open_und_bleibt_dabei() {
+        let mut calls: Vec<String> = Vec::new();
+        let mut ok = |program: &str, _args: &[&str], _target: &OsStr| {
+            calls.push(program.to_owned());
+            Ok(())
+        };
+
+        assert!(open_directory_with_handler(&mut ok, Path::new("/tmp")).is_ok());
+        assert_eq!(calls, vec!["xdg-open".to_owned()]);
+    }
+
+    #[test]
+    fn faellt_auf_gio_zurueck_und_meldet_handler_unavailable() {
+        let mut calls: Vec<String> = Vec::new();
+        let mut nur_gio = |program: &str, _args: &[&str], _target: &OsStr| {
+            calls.push(program.to_owned());
+            if program == "gio" {
+                Ok(())
+            } else {
+                Err(std::io::Error::other("kein handler"))
+            }
+        };
+        assert!(open_directory_with_handler(&mut nur_gio, Path::new("/tmp")).is_ok());
+        assert_eq!(calls, vec!["xdg-open".to_owned(), "gio".to_owned()]);
+
+        let mut keiner = |_program: &str, _args: &[&str], _target: &OsStr| {
+            Err(std::io::Error::other("kein handler"))
+        };
+        assert_eq!(
+            open_directory_with_handler(&mut keiner, Path::new("/tmp")),
+            Err("handler-unavailable".to_owned())
+        );
     }
 }

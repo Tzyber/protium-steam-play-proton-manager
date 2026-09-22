@@ -15,6 +15,8 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
+use crate::commands::errcode;
+
 #[cfg(target_os = "linux")]
 extern "C" {
     fn openat(dirfd: RawFd, pathname: *const i8, flags: i32, mode: u32) -> i32;
@@ -156,7 +158,7 @@ pub(super) fn read_fd_text(
 ) -> Result<String, String> {
     let length = ensure_regular_fd(file, label)?;
     if length > max_bytes {
-        return Err(format!("{label} exceeds read limit"));
+        return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
     }
     let read_limit = max_bytes
         .checked_add(1)
@@ -166,7 +168,7 @@ pub(super) fn read_fd_text(
         .read_to_string(&mut text)
         .map_err(|error| format!("cannot read {label}: {error}"))?;
     if text.len() as u64 > max_bytes {
-        return Err(format!("{label} exceeds read limit"));
+        return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
     }
     Ok(text)
 }

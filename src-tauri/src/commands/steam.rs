@@ -13,6 +13,7 @@ use std::os::unix::ffi::OsStrExt;
 use tauri::Manager;
 
 use crate::commands::compat_auth::is_authorized_compat_tool;
+use crate::commands::errcode;
 #[cfg(target_os = "linux")]
 use crate::commands::fd::{component_name, open_bound_root_fd, open_dir_at, read_fd_text};
 use crate::commands::fs_ops::is_process_running_sync;
@@ -43,14 +44,14 @@ fn read_config_text_bounded(path: &Path, label: &str) -> Result<String, String> 
         .map_err(|error| format!("{label}: {error}"))?
         .len();
     if length > MAX_CONFIG_VDF_BYTES {
-        return Err(format!("{label} exceeds read limit"));
+        return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
     }
     let mut text = String::new();
     file.take(MAX_CONFIG_VDF_BYTES + 1)
         .read_to_string(&mut text)
         .map_err(|error| format!("cannot read {label}: {error}"))?;
     if text.len() as u64 > MAX_CONFIG_VDF_BYTES {
-        return Err(format!("{label} exceeds read limit"));
+        return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
     }
     Ok(text)
 }
@@ -260,7 +261,10 @@ fn write_backup_no_follow(
     _backup_dir: &Path,
     _original: &str,
 ) -> Result<(), String> {
-    Err("backup write: no-follow open unsupported on this platform".into())
+    Err(errcode::with_detail(
+        errcode::UNSUPPORTED_PLATFORM,
+        "backup write without no-follow descriptors",
+    ))
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -390,12 +394,12 @@ where
 {
     sanitize_path(steam_root, "steam root")?;
     if account_id.parse::<u64>().map_or(true, |value| value == 0) {
-        return Err("invalid account id".into());
+        return Err(errcode::INVALID_ACCOUNT.into());
     }
     crate::commands::scope::parse_app_id(&app_id.to_string())
         .map_err(|_| "invalid app id".to_string())?;
     if process_reader()? {
-        return Err("steam is running, write refused".into());
+        return Err(errcode::STEAM_RUNNING.into());
     }
     let root = fs::canonicalize(steam_root).map_err(|e| format!("steam root canonicalize: {e}"))?;
     let target = root
@@ -405,10 +409,10 @@ where
         .join("localconfig.vdf");
     let canon = fs::canonicalize(&target).map_err(|e| format!("write target canonicalize: {e}"))?;
     if !is_safe_path(&canon.to_string_lossy()) {
-        return Err("write target in blocked location".into());
+        return Err(errcode::BLOCKED_LOCATION.into());
     }
     if !is_steam_config_path(&canon, home) {
-        return Err("write target is not a steam config file".into());
+        return Err(errcode::NOT_A_STEAM_CONFIG.into());
     }
     // der guard deckt read, patch, backup und target-write ab (INV-1)
     let _write_guard = lock_write_target(&canon);
@@ -457,7 +461,7 @@ where
     let backup_rel =
         Path::new("backups").join(format!("localconfig-{}-{}.vdf", account_id, timestamp));
     if process_reader()? {
-        return Err("steam is running, write refused".into());
+        return Err(errcode::STEAM_RUNNING.into());
     }
     write_backup_no_follow(&backup_rel, backup_dir, &original)?;
 
@@ -493,7 +497,7 @@ where
     crate::commands::scope::parse_app_id(&app_id.to_string())
         .map_err(|_| "invalid app id".to_string())?;
     if process_reader()? {
-        return Err("steam is running, write refused".into());
+        return Err(errcode::STEAM_RUNNING.into());
     }
     let root = fs::canonicalize(steam_root).map_err(|e| format!("steam root canonicalize: {e}"))?;
     #[cfg(target_os = "linux")]
@@ -501,10 +505,10 @@ where
     let target = root.join("config").join("config.vdf");
     let canon = fs::canonicalize(&target).map_err(|e| format!("write target canonicalize: {e}"))?;
     if !is_safe_path(&canon.to_string_lossy()) {
-        return Err("write target in blocked location".into());
+        return Err(errcode::BLOCKED_LOCATION.into());
     }
     if !is_steam_config_path(&canon, home) {
-        return Err("write target is not a steam config file".into());
+        return Err(errcode::NOT_A_STEAM_CONFIG.into());
     }
     // der guard deckt read, patch, backup und target-write ab (INV-1)
     let _write_guard = lock_write_target(&canon);
@@ -550,7 +554,7 @@ where
                 Some(&steam_root_fd),
                 tool,
             )? {
-                return Err("compat tool is not currently installed or backend-authorized".into());
+                return Err(errcode::UNKNOWN_TOOL.into());
             }
             if current_name.as_deref() == Some(tool) {
                 return Ok(WriteResult::Unchanged);
@@ -596,7 +600,7 @@ where
         .unwrap_or(0);
     let backup_rel = Path::new("backups").join(format!("config-{}-{}.vdf", app_id, timestamp));
     if process_reader()? {
-        return Err("steam is running, write refused".into());
+        return Err(errcode::STEAM_RUNNING.into());
     }
     write_backup_no_follow(&backup_rel, backup_dir, &original)?;
 
@@ -678,6 +682,112 @@ pub async fn save_compat_tool(
         )
     })
     .await
+}
+
+#[derive(serde::Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigBackupEntry {
+    pub file_name: String,
+    pub kind: String,
+    pub target_id: String,
+    pub timestamp_ms: u64,
+    pub size_bytes: u64,
+}
+
+pub(super) fn parse_backup_file_name(name: &str) -> Option<(String, String, u64)> {
+    let stem = name.strip_suffix(".vdf")?;
+    let parts: Vec<&str> = stem.split('-').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let kind = parts[0];
+    if kind != "localconfig" && kind != "config" {
+        return None;
+    }
+    let target_id = parts[1];
+    if target_id.is_empty() || !target_id.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let timestamp_ms = parts[2].parse::<u64>().ok()?;
+    Some((kind.to_string(), target_id.to_string(), timestamp_ms))
+}
+
+pub(super) fn list_config_backups_in_dir(
+    backup_dir: &Path,
+) -> Result<Vec<ConfigBackupEntry>, String> {
+    // WARUM eigene Pruefung statt prepare_app_dir: die Liste darf nichts
+    // anlegen (fehlender Ordner heisst "keine Backups") und muss einen
+    // symlinkten Ordner als Blockade melden.
+    match fs::symlink_metadata(backup_dir) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("unavailable: {error}")),
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err("blocked".into());
+        }
+        Ok(_) => {}
+    }
+    let entries = fs::read_dir(backup_dir).map_err(|e| format!("unreadable: {e}"))?;
+    let mut results = Vec::new();
+    for entry in entries.flatten() {
+        // Ein defekter Eintrag darf die Liste nicht als Ganzes verhindern.
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        let file_name = entry.file_name().to_string_lossy().into_owned();
+        if let Some((kind, target_id, timestamp_ms)) = parse_backup_file_name(&file_name) {
+            results.push(ConfigBackupEntry {
+                file_name,
+                kind,
+                target_id,
+                timestamp_ms,
+                size_bytes: metadata.len(),
+            });
+        }
+    }
+    results.sort_by_key(|entry| std::cmp::Reverse(entry.timestamp_ms));
+    Ok(results)
+}
+
+#[tauri::command]
+pub async fn list_config_backups(app: tauri::AppHandle) -> Result<Vec<ConfigBackupEntry>, String> {
+    let backup_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("cannot resolve app cache dir: {e}"))?
+        .join("backups");
+    spawn_blocking_io(move || list_config_backups_in_dir(&backup_dir)).await
+}
+
+#[tauri::command]
+pub async fn open_backups_folder(app: tauri::AppHandle) -> Result<(), String> {
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("unavailable: {e}"))?;
+    // WARUM prepare_app_dir und nicht der Environment-Snapshot: die Backups
+    // gehoeren der App, die Anzeige muss auch ohne Steam-Installation
+    // funktionieren. prepare_app_dir bringt dieselbe Haertung (keine
+    // Symlink-Komponenten, regulaeres Verzeichnis, kanonischer Pfad).
+    let backup_dir =
+        crate::commands::scope::prepare_app_dir(&cache_dir.join("backups"), "app backups")?;
+    #[cfg(target_os = "linux")]
+    {
+        spawn_blocking_io(move || {
+            crate::commands::external::open_directory_with_handler(
+                &mut crate::commands::external::spawn_detached_os,
+                &backup_dir,
+            )
+        })
+        .await
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = backup_dir;
+        Err("unsupported-platform".into())
+    }
 }
 
 // test-naht: meldet den erwerb des ziel-locks, damit ein regressionstest die

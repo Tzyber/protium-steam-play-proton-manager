@@ -82,7 +82,7 @@ describe("scanStore.runScan", () => {
   });
 
   it("SteamNotFoundError → status not-found, kein error-text", async () => {
-    mockDiscoverEnvironment.mockRejectedValue("steam installation not found");
+    mockDiscoverEnvironment.mockRejectedValue("steam-not-found");
     const store = useScanStore();
 
     await store.runScan();
@@ -94,24 +94,24 @@ describe("scanStore.runScan", () => {
   });
 
   it("generischer fehler → status error + meldung", async () => {
-    mockScanLocal.mockRejectedValue(new Error("kaputt"));
+    mockScanLocal.mockRejectedValue(new Error("unreadable"));
     const store = useScanStore();
 
     await store.runScan();
 
     expect(store.status).toBe("error");
-    expect(store.error).toBe("kaputt");
+    expect(store.error).toBe("unlesbar");
   });
 
   it("string-rejection (tauri-invoke) landet lesbar in error", async () => {
     // tauri-invoke rejectet mit strings, nicht mit Error-objekten (A3)
-    mockDiscoverEnvironment.mockRejectedValue("forbidden path: /home/u");
+    mockDiscoverEnvironment.mockRejectedValue("blocked-location: /home/u");
     const store = useScanStore();
 
     await store.runScan();
 
     expect(store.status).toBe("error");
-    expect(store.error).toBe("forbidden path: /home/u");
+    expect(store.error).toBe("Der Ort ist aus Sicherheitsgründen gesperrt.");
   });
 
   it("setzt lokales resultat vor dem deferred protondb-nachlauf", async () => {

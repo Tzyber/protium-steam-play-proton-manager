@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
+import { blockedReport } from "../../core/cleanupBlocked";
 import type { TrashEntry } from "../../core/trash";
 import type { OrphanEntry } from "../../core/types";
+import BlockedExplanation from "../components/BlockedExplanation.vue";
 import CleanupRow from "../components/CleanupRow.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import ExplainInfo from "../components/ExplainInfo.vue";
 import { formatBytes, formatKnownBytes } from "../format";
+import { formatError, formatErrorKind } from "../formatError";
 import { getLocale, t } from "../i18n";
 import { bySizeDesc, formatSizeSummary } from "../sizeSummary";
 import { toggleInSet } from "../stores/cleanupHelpers";
@@ -18,10 +21,7 @@ const confirm = useConfirmStore();
 const scan = useScanStore();
 
 // ---- tabs ----
-// drei listen auf einer seite waren nicht mehr bedienbar: bei 19 prefixes musste
-// man an der papierkorb-sektion vorbeiscrollen, und zwei sticky-aktionsleisten
-// (orphans + papierkorb) lagen übereinander. pro tab genau eine liste und genau
-// eine leiste, die sich auf DIESE liste bezieht.
+// pro tab genau eine liste und genau eine leiste, die sich auf DIESE liste bezieht.
 type Tab = "shaders" | "prefixes" | "trash";
 const TABS: Tab[] = ["shaders", "prefixes", "trash"];
 const tab = ref<Tab>("shaders");
@@ -256,6 +256,19 @@ const tabLabel = (id: Tab) =>
     : id === "prefixes"
       ? t("cleanup.winePrefixes")
       : t("cleanup.trash");
+
+const blockedItems = computed(() => {
+  const items = blockedReport(scan.result).map((item) =>
+    t("cleanup.blockedItem", { path: item.path, class: formatErrorKind(item.kind) }),
+  );
+  return items.length > 0 ? items : [t("cleanup.scanBlocked")];
+});
+
+const shortcutBlockedItems = computed(() =>
+  cleanup.shortcutUnreadablePaths.map((path) =>
+    t("cleanup.blockedItem", { path, class: formatErrorKind("unreadable") }),
+  ),
+);
 </script>
 
 <template>
@@ -308,11 +321,13 @@ const tabLabel = (id: Tab) =>
 
     <!-- alles zwischen kopf und aktionsleiste scrollt; leiste und tabs nicht -->
     <div class="scroller">
-        <div v-if="cleanup.blockedBySkipped" class="blocked">
-        {{ t("cleanup.scanBlocked") }}
-      </div>
-
-
+      <BlockedExplanation
+        v-if="cleanup.blockedBySkipped"
+        :title="t('cleanup.blockedTitle')"
+        :intro="t('common.couldNotVerify')"
+        :items="blockedItems"
+        :guarantee="t('cleanup.guaranteeScope')"
+      />
 
       <div v-if="cleanup.pathMissingLibs.length" class="pathmissing">
         <p class="pm-title">{{ t("cleanup.pathMissingTitle") }}</p>
@@ -325,12 +340,14 @@ const tabLabel = (id: Tab) =>
         </button>
       </div>
 
-      <div v-if="cleanup.shortcutUnreadable" class="blocked">
-        {{ t("cleanup.shortcutUnreadableMessage") }}
-        <ul class="pm-list">
-          <li v-for="p in cleanup.shortcutUnreadablePaths" :key="p" class="mono">{{ p }}</li>
-        </ul>
-      </div>
+      <BlockedExplanation
+        v-if="tab === 'prefixes' && cleanup.shortcutUnreadable"
+        :title="t('cleanup.blockedPrefixesTitle')"
+        :intro="t('common.couldNotVerify')"
+        :items="shortcutBlockedItems"
+        :guarantee="t('cleanup.guaranteeScope')"
+        tone="info"
+      />
 
       <div v-if="cleanup.incompleteDeletions.length" class="blocked">
         <strong>{{ t("cleanup.incompleteDeletionsTitle") }}</strong>
@@ -627,8 +644,6 @@ const tabLabel = (id: Tab) =>
   overflow-y: auto; overflow-x: hidden;
   padding-bottom: 8px;
 }
-.title h1 { margin: 2px 0 0; font-family: var(--font-display); font-size: 1.625rem; font-weight: 600; letter-spacing: -0.02em; }
-.title .label { font-family: var(--font-body); font-size: 0.8125rem; letter-spacing: 0.14em; color: var(--fg-2); text-transform: uppercase; }
 
 .scan-btn {
   align-self: flex-start;

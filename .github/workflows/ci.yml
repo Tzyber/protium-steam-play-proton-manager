@@ -21,6 +21,7 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+      - run: npm run bench:gate
       - run: npm run vite:build
       - run: npm audit --omit=dev
 

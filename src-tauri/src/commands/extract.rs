@@ -1,4 +1,5 @@
 use crate::commands::download::CancelSignal;
+use crate::commands::errcode;
 use crate::commands::path::{
     canonicalize_nearest_ancestor, is_safe_path, link_target_stays_inside, random_suffix,
 };
@@ -29,7 +30,7 @@ fn archive_entry_path(
 
 fn validate_link_target(path: &Path, target: &Path, kind: &str) -> Result<(), String> {
     if target.as_os_str().is_empty() {
-        return Err(format!("{kind} target is empty"));
+        return Err(errcode::with_detail(errcode::INVALID_ID, kind));
     }
     if target.is_absolute()
         || !link_target_stays_inside(path.parent().unwrap_or(Path::new("")), target)
@@ -96,13 +97,13 @@ pub(super) fn extract_blocking_with_tag_with_hook(
     let dest = Path::new(dest_dir);
     let dest_ancestor_canon = canonicalize_nearest_ancestor(dest, "extract dest")?;
     if !scope_ok(&dest_ancestor_canon) {
-        return Err("extract destination outside allowed scope".into());
+        return Err(errcode::BLOCKED_LOCATION.into());
     }
     fs::create_dir_all(dest).map_err(|error| format!("create extract destination: {error}"))?;
     let dest_canon = fs::canonicalize(dest)
         .map_err(|error| format!("canonicalize extract destination: {error}"))?;
     if !dest_canon.is_dir() || !is_safe_path(&dest_canon.to_string_lossy()) {
-        return Err("extract destination in blocked location".into());
+        return Err(errcode::BLOCKED_LOCATION.into());
     }
 
     let expected_tag =
@@ -119,11 +120,11 @@ pub(super) fn extract_blocking_with_tag_with_hook(
             [Component::Normal(_)]
         )
     {
-        return Err("invalid archive install name".into());
+        return Err(errcode::INVALID_ID.into());
     }
     let target = dest_canon.join(expected_tag);
     if path_exists_without_following(&target) {
-        return Err("extract target already exists".into());
+        return Err(errcode::with_detail(errcode::TOOL_EXISTS, "extract target"));
     }
 
     file.seek(SeekFrom::Start(0))
@@ -138,7 +139,7 @@ pub(super) fn extract_blocking_with_tag_with_hook(
             .map_err(|error| format!("read archive: {error}"))?
         {
             if cancel.is_cancelled() {
-                return Err("cancelled".into());
+                return Err(errcode::CANCELLED.into());
             }
             let entry = entry_result.map_err(|error| format!("read archive entry: {error}"))?;
             let entry_type = entry.header().entry_type();
@@ -148,14 +149,14 @@ pub(super) fn extract_blocking_with_tag_with_hook(
             let path = archive_entry_path(&entry)?;
             let mut components = path.components();
             let Some(Component::Normal(root)) = components.next() else {
-                return Err("archive entry has no top-level directory".into());
+                return Err(errcode::INCOMPLETE.into());
             };
             if root != expected_tag {
-                return Err(format!("archive top-level directory is not {expected_tag}"));
+                return Err(errcode::with_detail(errcode::INCOMPLETE, expected_tag));
             }
             if components.next().is_none() {
                 if entry_type != tar::EntryType::Directory || root_seen {
-                    return Err("archive must contain exactly one top-level directory".into());
+                    return Err(errcode::INCOMPLETE.into());
                 }
                 root_seen = true;
             }
@@ -178,7 +179,7 @@ pub(super) fn extract_blocking_with_tag_with_hook(
                         .into_owned();
                     validate_link_target(&path, &target, "symlink")?;
                     if path.components().count() == 1 {
-                        return Err("top-level symlink is not allowed".into());
+                        return Err(errcode::SYMLINK_REJECTED.into());
                     }
                 }
                 _ => {
@@ -197,12 +198,12 @@ pub(super) fn extract_blocking_with_tag_with_hook(
                 )
                 .ok_or_else(|| "archive size overflow".to_string())?;
             if total > max_unpack_bytes {
-                return Err(format!("extracted size limit exceeded ({total} bytes)"));
+                return Err(errcode::with_detail(errcode::SIZE_LIMIT, total));
             }
         }
     }
     if !root_seen {
-        return Err("archive must contain exactly one top-level directory".into());
+        return Err(errcode::INCOMPLETE.into());
     }
 
     extract_archive_into_bound_parent(
@@ -263,7 +264,7 @@ fn extract_archive_into_bound_parent(
             .map_err(|error| format!("read archive: {error}"))?
         {
             if cancel.is_cancelled() {
-                return Err("cancelled".into());
+                return Err(errcode::CANCELLED.into());
             }
             let mut entry = entry_result.map_err(|error| format!("read archive entry: {error}"))?;
             if is_archive_metadata(entry.header().entry_type()) {
@@ -274,16 +275,16 @@ fn extract_archive_into_bound_parent(
                 .map_err(|error| format!("unpack archive entry: {error}"))?;
         }
         if cancel.is_cancelled() {
-            return Err("cancelled".into());
+            return Err(errcode::CANCELLED.into());
         }
         let unpacked = temp_path.join(expected_tag);
         let metadata = fs::symlink_metadata(&unpacked)
             .map_err(|error| format!("inspect extracted top-level directory: {error}"))?;
         if !metadata.is_dir() || metadata.file_type().is_symlink() {
-            return Err("extracted top-level entry is not a regular directory".into());
+            return Err(errcode::INCOMPLETE.into());
         }
         if path_exists_without_following(&dest_canon.join(expected_tag)) {
-            return Err("extract target appeared during extraction".into());
+            return Err(errcode::TOOL_EXISTS.into());
         }
         before_rename();
         let mut relative_source = PathBuf::from(&temp_name);
@@ -310,7 +311,7 @@ fn extract_archive_into_bound_parent(
     _before_bind: &mut dyn FnMut(),
     _before_rename: &mut dyn FnMut(),
 ) -> Result<(), String> {
-    Err("extract: only supported on linux".into())
+    Err(errcode::UNSUPPORTED_PLATFORM.into())
 }
 
 #[cfg(test)]

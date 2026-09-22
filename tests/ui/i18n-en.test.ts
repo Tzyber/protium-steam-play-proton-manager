@@ -12,7 +12,7 @@ describe("i18n, locale-wechsel per setLocale (regression: englische UI rendert)"
     expect(t("drawer.play")).toBe("start game");
     expect(t("filter.sortSize")).toBe("size");
     expect(t("status.ready")).toBe("ready");
-    expect(t("errors.steamRunning")).toMatch(/steam is running/);
+    expect(t("errors.codes.steamRunning")).toMatch(/Steam is currently running/);
   });
 
   it("interpolation funktioniert in en", () => {

@@ -16,6 +16,7 @@ use crate::commands::compat_auth::is_managed_ge_name;
 #[cfg(target_os = "linux")]
 use crate::commands::compat_auth::open_external_library_fd_with_hook;
 #[cfg(target_os = "linux")]
+use crate::commands::errcode;
 use crate::commands::fd::{ensure_regular_fd, open_bound_root_fd, open_dir_at, open_file_at};
 use crate::commands::path::{is_safe_path, sanitize_path};
 use crate::commands::scope::{read_library_folders_with_failures, LibraryUnavailableReason};
@@ -87,7 +88,7 @@ where
 {
     let length = ensure_regular_fd(file, label)?;
     if length > max_bytes {
-        return Err(format!("{label} exceeds read limit"));
+        return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
     }
     let read_limit = max_bytes
         .checked_add(1)
@@ -98,7 +99,7 @@ where
         .read_to_string(&mut text)
         .map_err(|error| format!("cannot read {label}: {error}"))?;
     if text.len() as u64 > max_bytes {
-        return Err(format!("{label} exceeds read limit"));
+        return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
     }
     Ok(text)
 }
@@ -116,7 +117,7 @@ where
 {
     let length = ensure_regular_fd(file, label)?;
     if length > max_bytes {
-        return Err(format!("{label} exceeds read limit"));
+        return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
     }
     let read_limit = max_bytes
         .checked_add(1)
@@ -127,7 +128,7 @@ where
         .read_to_end(&mut bytes)
         .map_err(|error| format!("cannot read {label}: {error}"))?;
     if bytes.len() as u64 > max_bytes {
-        return Err(format!("{label} exceeds read limit"));
+        return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
     }
     Ok(bytes)
 }
@@ -210,7 +211,7 @@ where
                 DeleteReadStage::ManifestBeforeRead,
             )
             .map_err(|error| {
-                if error.contains("exceeds read limit") {
+                if errcode::has_code(&error, errcode::SIZE_LIMIT) {
                     format!("manifest {name_string} exceeds size limit")
                 } else {
                     error
@@ -374,7 +375,7 @@ where
             DeleteReadStage::ShortcutsBeforeRead,
         )
         .map_err(|error| {
-            if error.contains("exceeds read limit") {
+            if errcode::has_code(&error, errcode::SIZE_LIMIT) {
                 "shortcuts.vdf is too large".to_string()
             } else {
                 format!("cannot read shortcuts.vdf: {error}")
@@ -436,7 +437,7 @@ where
         DeleteReadStage::ConfigBeforeRead,
     )
     .map_err(|error| {
-        if error.contains("exceeds read limit") {
+        if errcode::has_code(&error, errcode::SIZE_LIMIT) {
             "config.vdf exceeds size limit".to_string()
         } else {
             error

@@ -348,8 +348,8 @@ danach, wenn es sich lohnt:
 - Flatpak- und Snap-Installationen von Steam finden
 - die AppImage verkleinern oder beim System-WebKit bleiben
 
-zum schluss, als Highlight: ein Paket im AUR, damit Arch-Nutzer protium über
-ihren Paketmanager installieren können.
+ganz zum schluss, und nur wenn überhaupt: ein Paket im AUR, damit Arch-Nutzer
+protium über ihren Paketmanager installieren können. Kein Termin, keine Zusage.
 
 ## offene punkte
 

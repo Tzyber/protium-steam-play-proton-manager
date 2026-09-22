@@ -269,7 +269,7 @@ fn steam_laeuft_zwischen_prepare_und_execute_blockiert_loeschung() {
     // Steam läuft beim Execute -> Abbruch
     let res = execute_delete_pipeline(&registry, &info.token, &|_| true, || Ok(true));
     assert!(res.is_err());
-    assert!(res.unwrap_err().contains("steam is running"));
+    assert!(res.unwrap_err().contains("steam-running"));
     assert!(compatdata.exists());
 
     let _ = std::fs::remove_dir_all(&root);
@@ -385,7 +385,7 @@ fn ino_mismatch_oder_symlink_mutation_zwischen_prepare_und_execute_wird_abgelehn
     let res = execute_delete_pipeline(&registry, &info.token, &|_| true, || Ok(false));
     let error = res.unwrap_err();
     assert!(
-        error.contains("identity changed"),
+        error.contains("target-changed"),
         "unexpected error: {error}"
     );
 

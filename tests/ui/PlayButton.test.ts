@@ -92,7 +92,7 @@ describe("PlayButton", () => {
 
   describe("fehlerpfad", () => {
     it("zeigt notification bei launchGame-fehler", async () => {
-      mockLaunchGame.mockRejectedValueOnce(new Error("steam not found"));
+      mockLaunchGame.mockRejectedValueOnce(new Error("steam-not-found"));
       const wrapper = mount(PlayButton, {
         props: { appId: 1, name: "x", variant: "compact" },
       });
@@ -101,7 +101,8 @@ describe("PlayButton", () => {
       await new Promise((r) => setTimeout(r, 0));
       const call = mockShowNotification.mock.calls[0]?.[0] ?? "";
       expect(call).toContain("drawer.launchFailed");
-      expect(call).toContain("steam not found");
+      // i18n ist in dieser Datei gemockt: der Code muss auf einen eigenen Key zeigen.
+      expect(call).toContain("errors.codes.steamNotFound");
     });
   });
 });

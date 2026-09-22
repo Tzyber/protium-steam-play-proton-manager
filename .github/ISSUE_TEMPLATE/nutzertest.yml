@@ -1,0 +1,71 @@
+name: Nutzertest Feedback
+description: Rueckmeldung oder Problembericht aus dem Nutzertest
+title: "[Test]: "
+labels: ["nutzertest", "feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Vielen Dank fuer deinen Test von Protium! Bitte fuelle dieses Formular so genau wie moeglich aus.
+  - type: input
+    id: env
+    attributes:
+      label: Systemumgebung
+      description: Welche Linux-Distribution und Desktop-Umgebung nutzt du?
+      placeholder: z. B. Fedora 40, GNOME 46 (Wayland) / Arch Linux, KDE Plasma 6 (X11)
+    validations:
+      required: true
+  - type: dropdown
+    id: steam-type
+    attributes:
+      label: Steam-Installationsart
+      options:
+        - Nativ (.deb, .rpm, pacman)
+        - Flatpak (Flathub)
+        - Snap
+        - Andere
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Getesteter Bereich
+      options:
+        - Library (Spieleliste, Suche, Filter, Spieldetails)
+        - Startoptionen und Compat-Tool Zuweisung
+        - Prefix im Dateimanager oeffnen
+        - Proton Manager (GE-Download, Installation, Entfernen)
+        - Bereinigung (Cleanup, Orphan-Scan, Papierkorb)
+        - Barrierefreiheit und Tastaturbedienung
+        - Anderes
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Was hast du ausgefuehrt?
+      description: Bitte beschreibe die Schritte, die du durchgefuehrt hast.
+      placeholder: 1. Spiel ausgewaehlt... 2. Startoptionen eingetragen...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Erwartetes Verhalten
+      description: Was haette passieren sollen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Tatsaechliches Verhalten / Fehlermeldung
+      description: Was ist stattdessen passiert? Bitte Fehlermeldung oder Bildschirmtext angeben.
+    validations:
+      required: true
+  - type: textarea
+    id: comments
+    attributes:
+      label: Zusaetzliche Anmerkungen
+      description: Lob, Kritik oder Vorschlaege zur Verstaendlichkeit.
+    validations:
+      required: false

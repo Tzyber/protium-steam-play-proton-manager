@@ -480,7 +480,7 @@ fn dir_size_begrenzt_die_walk_tiefe_fail_closed() {
         _ => "",
     };
     assert!(
-        detail.contains("too deep"),
+        detail.contains("walk depth"),
         "meldung soll die tiefe nennen: {result:?}"
     );
 
@@ -632,7 +632,7 @@ fn environment_read_file_begrenzt_wachstum_des_geoeffneten_deskriptors() {
         &mut || {},
         &mut hook,
     );
-    assert!(result.unwrap_err().contains("exceeds read limit"));
+    assert!(result.unwrap_err().contains("size-limit-exceeded"));
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -687,7 +687,7 @@ fn environment_read_dir_begrenzt_eintraege_auf_descriptor() {
 
     let result =
         read_environment_dir_with_hook(&state, library.to_str().unwrap(), "test", &mut || {});
-    assert!(result.unwrap_err().contains("entry limit exceeded"));
+    assert!(result.unwrap_err().contains("size-limit-exceeded"));
     let _ = std::fs::remove_dir_all(root);
 }
 

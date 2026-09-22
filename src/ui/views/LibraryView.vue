@@ -285,13 +285,6 @@ const libraryWarnings = computed(() =>
 .bar {
   gap: 16px;
 }
-.title h1 {
-  margin: 2px 0 0;
-  font-family: var(--font-display);
-  font-size: 1.625rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
 .title .unit { color: var(--fg-2); font-size: 0.9375rem; font-weight: 400; }
 
 .right { display: flex; align-items: center; gap: 12px; }

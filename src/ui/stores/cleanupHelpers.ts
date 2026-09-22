@@ -2,6 +2,7 @@
 // Fehlerzusammenfassung und die Basisfrage "gibt es einen Grund, der das
 // Cleanup sperrt". Kein Store-Zustand, kein Pinia — damit einzeln prüfbar.
 
+import { ProtiumError } from "../../core/errors";
 import type { DirectorySize } from "../../core/ports";
 import type { ShortcutResult } from "../../core/shortcuts";
 import type { ScanResult } from "../../core/types";
@@ -30,21 +31,37 @@ export function attachSizes(
   const updates: { entry: { path: string; sizeBytes?: number }; sizeBytes?: number }[] = [];
   for (const entry of entries) {
     if (!Object.hasOwn(sizes, entry.path)) {
-      throw new Error(`batchDirSizes: ergebnis für pfad fehlt: ${entry.path}`);
+      throw new ProtiumError(
+        "incomplete",
+        "size-missing",
+        `batchDirSizes: ergebnis für pfad fehlt: ${entry.path}`,
+      );
     }
     const size = sizes[entry.path];
     if (!size) {
-      throw new Error(`batchDirSizes: ungültiges ergebnis für pfad: ${entry.path}`);
+      throw new ProtiumError(
+        "incomplete",
+        "size-invalid",
+        `batchDirSizes: ungültiges ergebnis für pfad: ${entry.path}`,
+      );
     }
     if (size.status === "missing" || size.status === "failed") {
       updates.push({ entry, sizeBytes: undefined });
       continue;
     }
     if (size.status !== "measured") {
-      throw new Error(`batchDirSizes: ungültiger status für pfad: ${entry.path}`);
+      throw new ProtiumError(
+        "incomplete",
+        "size-invalid",
+        `batchDirSizes: ungültiger status für pfad: ${entry.path}`,
+      );
     }
     if (!Number.isSafeInteger(size.sizeBytes) || size.sizeBytes < 0) {
-      throw new Error(`batchDirSizes: ungültige größe für pfad: ${entry.path}`);
+      throw new ProtiumError(
+        "incomplete",
+        "size-invalid",
+        `batchDirSizes: ungültige größe für pfad: ${entry.path}`,
+      );
     }
     updates.push({ entry, sizeBytes: size.sizeBytes });
   }

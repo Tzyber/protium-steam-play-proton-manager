@@ -310,14 +310,14 @@ describe("cleanupStore, scan-generationen", () => {
     mockFindOrphans.mockImplementationOnce(() => second.promise);
     const staleErrorScan = store.scanOrphans();
     await vi.waitFor(() => expect(mockFindOrphans).toHaveBeenCalledTimes(3));
-    const currentError = "aktueller scan-fehler";
+    const currentError = "unreadable";
     mockFindOrphans.mockRejectedValueOnce(new Error(currentError));
     const currentScan = store.scanOrphans();
     await currentScan;
-    expect(store.error).toContain(currentError);
+    expect(store.error).toContain("unlesbar");
     second.reject(new Error("alter scan-fehler"));
     await staleErrorScan;
-    expect(store.error).toContain(currentError);
+    expect(store.error).toContain("unlesbar");
     expect(store.error).not.toContain("alter scan-fehler");
     expect(store.scanning).toBe(false);
   });

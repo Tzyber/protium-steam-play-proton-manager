@@ -7,14 +7,15 @@ import {
   type IncompleteDeletion,
   type SteamOwnedPrefix,
 } from "../../core/cleanup";
-import { errText } from "../../core/errtext";
 import { readAppName } from "../../core/localconfig";
 import { paths } from "../../core/paths";
 import { readAllShortcutAppIds, SHORTCUT_ID_THRESHOLD } from "../../core/shortcuts";
 import { findTrashEntries, type TrashEntry, type TrashLibraryStatus } from "../../core/trash";
 import type { OrphanEntry, ScanResult } from "../../core/types";
 import { localizeConsequences } from "../consequences";
+import { logError, logEvent } from "../diagnostics";
 import { formatBytes } from "../format";
+import { formatError } from "../formatError";
 import { t } from "../i18n";
 import {
   attachSizes,
@@ -310,7 +311,8 @@ export const useCleanupStore = defineStore("cleanup", {
         attachSizes(this.orphans, sizes);
         attachSizes(this.steamOwnedPrefixes, sizes);
       } catch (e) {
-        if (isCurrent()) this.setOrphanError(errText(e));
+        logError("Orphan-Scan fehlgeschlagen", e);
+        if (isCurrent()) this.setOrphanError(formatError(e));
       } finally {
         if (isCurrent()) this.scanning = false;
       }
@@ -404,7 +406,8 @@ export const useCleanupStore = defineStore("cleanup", {
           // prepare-fehler dauerhaft busy (kein cleanup in onSuccess/onError,
           // die nur keys aus prepared kennen).
           this.deleting.delete(k);
-          errors.push(`${entry.type}/${entry.appId}: ${errText(e)}`);
+          logEvent("error", `Loeschen vorbereiten fehlgeschlagen (${entry.type}/${entry.appId})`);
+          errors.push(`${entry.type}/${entry.appId}: ${formatError(e)}`);
         }
       }
       if (!isCurrent()) {
@@ -455,7 +458,7 @@ export const useCleanupStore = defineStore("cleanup", {
                   if (p.type === "compatdata") trashedCompatdata = true;
                 }
               } catch (e) {
-                if (isCurrent()) errors.push(`${p.type}/${p.key}: ${errText(e)}`);
+                if (isCurrent()) errors.push(`${p.type}/${p.key}: ${formatError(e)}`);
               } finally {
                 this.deleting.delete(p.key);
               }
@@ -478,9 +481,10 @@ export const useCleanupStore = defineStore("cleanup", {
             for (const p of prepared) this.deleting.delete(p.key);
           },
           onError: (e) => {
+            logError("Loeschen fehlgeschlagen", e);
             for (const p of prepared) this.deleting.delete(p.key);
             if (isCurrent()) {
-              errors.push(errText(e));
+              errors.push(formatError(e));
               this.setOrphanError(errors.join("; "));
             }
           },
@@ -580,7 +584,8 @@ export const useCleanupStore = defineStore("cleanup", {
         if (!isCurrent()) return;
         attachSizes(this.trash, sizes);
       } catch (e) {
-        if (isCurrent()) this.setTrashError(errText(e));
+        logError("Papierkorb-Scan fehlgeschlagen", e);
+        if (isCurrent()) this.setTrashError(formatError(e));
       } finally {
         if (isCurrent()) this.trashScanning = false;
       }
@@ -634,7 +639,7 @@ export const useCleanupStore = defineStore("cleanup", {
             descriptions: localizeConsequences(pending),
           });
         } catch (e) {
-          prepareErrors.push(`${entry.name}: ${errText(e)}`);
+          prepareErrors.push(`${entry.name}: ${formatError(e)}`);
         }
       }
 
@@ -689,14 +694,15 @@ export const useCleanupStore = defineStore("cleanup", {
                   this.trash = this.trash.filter((e) => e.path !== p.path);
                 }
               } catch (e) {
-                if (isCurrent()) executeErrors.push(`${p.name}: ${errText(e)}`);
+                if (isCurrent()) executeErrors.push(`${p.name}: ${formatError(e)}`);
               }
             }
             if (isCurrent()) this.setTrashError(formatTrashErrors(prepareErrors, executeErrors));
           },
           onError: (e) => {
+            logError("Papierkorb leeren fehlgeschlagen", e);
             if (isCurrent()) {
-              executeErrors.push(errText(e));
+              executeErrors.push(formatError(e));
               this.setTrashError(formatTrashErrors(prepareErrors, executeErrors));
             }
           },

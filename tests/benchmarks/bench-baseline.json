@@ -1,0 +1,12 @@
+{
+  "measuredAt": "2026-09-18",
+  "runner": "lokal, Linux, Node 22 (Referenzmessung)",
+  "commit": "4c69f57 + Welle B (uncommittet)",
+  "scenarios": {
+    "cold": { "local": 40, "scanGames": 40, "protonDb": 2600 },
+    "warm": { "local": 40, "scanGames": 40, "protonDb": 2 },
+    "offline": { "local": 40, "scanGames": 40, "protonDb": 2600 }
+  },
+  "maxThresholdMs": { "local": 120, "scanGames": 120, "protonDb": 3500 },
+  "maxAllowedRegressionPercent": 25
+}

@@ -398,7 +398,7 @@ async fn install_ge_proton_validiert_release_tag() {
     .await;
 
     assert!(res.is_err(), "non-GE tag muss abgewiesen werden: {res:?}");
-    assert!(res.unwrap_err().contains("invalid release tag"));
+    assert!(res.unwrap_err().contains("invalid-id"));
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
@@ -460,7 +460,7 @@ async fn install_ge_proton_lehnt_existierendes_ziel_ab() {
         res.is_err(),
         "bereits existierendes Ziel muss abgewiesen werden: {res:?}"
     );
-    assert!(res.unwrap_err().contains("ToolAlreadyExists"));
+    assert!(res.unwrap_err().contains("tool-already-exists"));
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
@@ -529,7 +529,7 @@ async fn install_ge_proton_lehnt_unscoped_steam_root_ab() {
         res.is_err(),
         "unscoped steam_root muss abgewiesen werden: {res:?}"
     );
-    assert!(res.unwrap_err().contains("outside allowed scope"));
+    assert!(res.unwrap_err().contains("blocked-location"));
 
     let _ = fs::remove_dir_all(&temp_dir);
 }

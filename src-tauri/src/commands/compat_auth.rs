@@ -5,6 +5,7 @@
 // delete_inspect.rs (GE-Tool-Identität); die fd-Helfer liegen in fd.rs.
 
 #[cfg(target_os = "linux")]
+use crate::commands::errcode;
 use crate::commands::fd::{
     fd_identity, open_absolute_dir, open_dir_at, open_file_at, read_fd_text, FdIdentity,
 };
@@ -130,7 +131,7 @@ where
             Ok(text) => text,
             Err(error)
                 if error.starts_with("cannot read compatibilitytool.vdf:")
-                    || error.contains("exceeds read limit")
+                    || errcode::has_code(&error, errcode::SIZE_LIMIT)
                     || error.ends_with("is not a regular file") =>
             {
                 continue;

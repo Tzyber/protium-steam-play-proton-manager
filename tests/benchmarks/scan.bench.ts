@@ -129,4 +129,10 @@ describe("scan performance fixture", () => {
   it("offline, five paired runs", () => measureScenario("offline"));
 });
 
-afterAll(() => writeFile("/tmp/protium-scan-benchmark.txt", `${output.join("\n")}\n`, "utf8"));
+afterAll(() =>
+  writeFile(
+    process.env.PROTIUM_BENCH_FILE ?? "/tmp/protium-scan-benchmark.txt",
+    `${output.join("\n")}\n`,
+    "utf8",
+  ),
+);

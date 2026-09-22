@@ -4,11 +4,13 @@ import { version as appVersion } from "../../package.json";
 import { openExternal, tauriPorts } from "../core/adapters/tauri";
 import { checkForUpdate, UPDATE_RELEASE_URL } from "../core/update";
 import ProtiumLogo from "./components/ProtiumLogo.vue";
+import { logError } from "./diagnostics";
 import { t } from "./i18n";
 import { useConfirmStore } from "./stores/confirmStore";
 import { useScanStore } from "./stores/scanStore";
 import { useUiStore, type ViewId } from "./stores/uiStore";
 import CleanupView from "./views/CleanupView.vue";
+import HistoryView from "./views/HistoryView.vue";
 import LibraryView from "./views/LibraryView.vue";
 import ProtonManagerView from "./views/ProtonManagerView.vue";
 
@@ -23,7 +25,7 @@ onMounted(() => {
     .then((version) => {
       updateVersion.value = version;
     })
-    .catch(() => {});
+    .catch((error: unknown) => logError("Update-Pruefung fehlgeschlagen", error));
 });
 
 function openUpdateRelease() {
@@ -66,6 +68,7 @@ const nav: { id: ViewId; label: string }[] = [
   { id: "library", label: t("app.navLibrary") },
   { id: "proton", label: t("app.navProton") },
   { id: "cleanup", label: t("app.navCleanup") },
+  { id: "history", label: t("app.navHistory") },
 ];
 
 const rootShort = computed(() => {
@@ -146,6 +149,7 @@ async function copyError() {
       <LibraryView v-if="ui.activeView === 'library'" />
       <ProtonManagerView v-else-if="ui.activeView === 'proton'" />
       <CleanupView v-else-if="ui.activeView === 'cleanup'" />
+      <HistoryView v-else-if="ui.activeView === 'history'" />
       </main>
     </div>
   </div>
@@ -322,5 +326,21 @@ nav { display: flex; flex-direction: column; gap: 2px; }
   align-items: flex-end;
   justify-content: space-between;
   margin-bottom: 16px;
+}
+
+/* Titelzeile aller Views: eine Quelle, damit kein View anders aussieht. */
+.bar .title h1 {
+  margin: 2px 0 0;
+  font-family: var(--font-display);
+  font-size: 1.625rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.bar .title .label {
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  letter-spacing: 0.14em;
+  color: var(--fg-2);
+  text-transform: uppercase;
 }
 </style>

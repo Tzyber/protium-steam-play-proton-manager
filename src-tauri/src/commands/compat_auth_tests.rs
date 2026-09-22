@@ -232,7 +232,7 @@ fn valve_libraryfolders_obergrenze_ist_die_der_discovery() {
     // 16 MiB liess die autorisierung scheitern, obwohl die Discovery sie
     // vollständig gelesen hatte. Jetzt greift dieselbe grenze.
     let error = read_library_folders_from_root_fd(&steam, &root_fd, &mut |_| {}).unwrap_err();
-    assert!(error.contains("exceeds read limit"), "error: {error}");
+    assert!(error.contains("size-limit-exceeded"), "error: {error}");
 
     // entfernte datei (nicht: übergrosse) nutzt weiter den root-fallback.
     std::fs::remove_file(&oversized).unwrap();
