@@ -55,6 +55,62 @@ describe("parseVdf prototype-safety", () => {
     }
   });
 
+  it("neutralisiert gefährliche keys hinter einem steam-conditional (R1)", () => {
+    // audit-fixture: der conditional-marker kippte `expectsKey`, danach lief
+    // der block-key "__proto__" ungefiltert in die lib und mutierte global
+    // Object.prototype.
+    const objectPrototype = Object.prototype as Record<string, unknown>;
+    const parsed = parseVdf(`"safe" "value" [$LINUX]
+"__proto__"
+{
+  "polluted" "yes"
+}`);
+    expect(objectPrototype.polluted).toBeUndefined();
+    expect(getPath(parsed, "safe")).toBe("value");
+    expect(Object.getOwnPropertyNames(parsed)).toContain("__x___proto____");
+  });
+
+  it("neutralisiert unquotierte gefährliche block-keys (R1)", () => {
+    for (const key of ["__proto__", "constructor", "prototype"] as const) {
+      const marker = `bare_${key}_polluted`;
+      const parsed = parseVdf(`"safe" "value"
+${key}
+{
+  "${marker}" "yes"
+}
+"normal" "value"`);
+
+      const objectPrototype = Object.prototype as Record<string, unknown>;
+      const objectConstructor = Object as unknown as Record<string, unknown>;
+      expect(objectPrototype[marker]).toBeUndefined();
+      expect(objectConstructor[marker]).toBeUndefined();
+      expect(getPath(parsed, "normal")).toBe("value");
+    }
+  });
+
+  it("neutralisiert gefährliche keys hinter bedingten markern in verschachtelten blöcken", () => {
+    const parsed = parseVdf(`"container"
+{
+  "a" "b" [$WIN32 || $OSX64]
+  "__proto__"
+  {
+    "nested_marker" "yes"
+  }
+  "constructor"
+  {
+    "ctor_marker" "yes"
+  }
+  "sibling" "readable"
+}`);
+
+    const objectPrototype = Object.prototype as Record<string, unknown>;
+    const objectConstructor = Object as unknown as Record<string, unknown>;
+    expect(objectPrototype.nested_marker).toBeUndefined();
+    expect(objectPrototype.ctor_marker).toBeUndefined();
+    expect(objectConstructor.ctor_marker).toBeUndefined();
+    expect(getPath(parsed, "container", "sibling")).toBe("readable");
+  });
+
   it("liest harmlose kommentierte VDF-keys weiter", () => {
     const parsed = parseVdf(`"root" // block-kommentar
 {

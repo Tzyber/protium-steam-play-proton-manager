@@ -6,9 +6,9 @@ export interface VdfNode {
   [key: string]: VdfValue;
 }
 
+/** Neutralisiert gefährliche Block-Keys vor dem Parse und überspringt
+ *  Steam-Conditionals; die einzige Pollutionsschranke dieses Pfads. */
 export function parseVdf(text: string): VdfNode {
-  // keys vor parse neutralisieren: die lib weist ungefiltert zu und würde
-  // "__proto__" als prototype-mutation behandeln (globale pollution).
   const safe = neutralizeDangerousBlockKeys(text);
   return sanitize(parse(safe));
 }
@@ -59,6 +59,19 @@ function neutralizeDangerousBlockKeys(text: string): string {
       continue;
     }
 
+    // Steam-Conditional (`[$WIN32]`) hängt am vorherigen Wert und ist kein
+    // Key-/Value-Token. Würde er wie ein Bare-Token zählen, kippte `expectsKey`
+    // und der nächste Block-Key liefe ungefiltert durch (R1).
+    if (character === "[") {
+      const closing = text.indexOf("]", cursor + 1);
+      const newline = text.indexOf("\n", cursor + 1);
+      const stop = closing !== -1 && (newline === -1 || closing < newline) ? closing + 1 : newline;
+      const end = stop === -1 ? text.length : stop;
+      output.push(text.slice(cursor, end));
+      cursor = end;
+      continue;
+    }
+
     if (character === "{" || character === "}") {
       output.push(character);
       expectsKey = true;
@@ -73,7 +86,12 @@ function neutralizeDangerousBlockKeys(text: string): string {
     }
 
     const end = bareTokenEnd(text, cursor);
-    output.push(text.slice(cursor, end));
+    // unquotierte Keys sind in VDF erlaubt und damit derselbe vektor wie
+    // quotierte (R1).
+    const bareValue = text.slice(cursor, end);
+    const isBareBlockKey =
+      expectsKey && DANGEROUS_BLOCK_KEYS.has(bareValue) && nextRelevantToken(text, end) === "{";
+    output.push(isBareBlockKey ? `__x_${bareValue}__` : bareValue);
     expectsKey = !expectsKey;
     cursor = end;
   }
@@ -135,9 +153,10 @@ function isWhitespace(character: string | undefined): character is string {
   return character !== undefined && character.trim() === "";
 }
 
-// die lib baut plain objects; ein key "__proto__" oder "constructor" würde
-// das prototype-objekt mutieren (getKeyInsensitive nutzt `in`). deep-copy auf
-// null-prototype-objects macht alle keys zu eigenen properties.
+// die lib baut plain objects. `sanitize` macht jeden key zu einer eigenen
+// property, damit `getKeyInsensitive` (nutzt `in`) nicht in die kette greift —
+// es ist KEIN pollutionsschutz: den leistet allein der pre-pass oben, weil die
+// mutation sonst schon während parse() passiert wäre.
 function sanitize(v: unknown): VdfNode {
   if (typeof v !== "object" || v === null) return {};
   const out: VdfNode = Object.create(null);
