@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { evaluateMeasurement } from "./bench-gate-lib.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -72,17 +73,19 @@ for (const match of outputContent.matchAll(linePattern)) {
     continue;
   }
 
-  const allowed = typeof baseMs === "number" ? baseMs * (1 + maxRegressionPct / 100) : maxThreshold;
-  if (medianMs > allowed) {
-    failed = true;
-    console.error(
-      `[bench:gate] FEHLER: ${key} = ${medianMs.toFixed(1)} ms, erlaubt ${allowed.toFixed(1)} ms ` +
-        `(Baseline ${baseMs ?? "-"} ms, plus ${maxRegressionPct} Prozent)`,
-    );
-  } else {
+  const result = evaluateMeasurement({ medianMs, baseMs, maxThreshold, maxRegressionPct });
+  const allowedText =
+    typeof result.allowed === "number" ? `${result.allowed.toFixed(1)} ms` : "unbekannt";
+  if (result.ok) {
     console.log(
       `[bench:gate] OK: ${key} = ${medianMs.toFixed(1)} ms ` +
-        `(Baseline: ${baseMs ?? "-"} ms, erlaubt: ${allowed.toFixed(1)} ms)`,
+        `(Baseline: ${baseMs ?? "-"} ms, erlaubt: ${allowedText})`,
+    );
+  } else {
+    failed = true;
+    console.error(
+      `[bench:gate] FEHLER: ${key} = ${medianMs.toFixed(1)} ms, erlaubt ${allowedText}; ` +
+        `gerissen: ${result.reason}`,
     );
   }
 }
