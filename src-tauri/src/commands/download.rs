@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+
+use crate::commands::errcode;
 use std::fs;
 use std::future::Future;
 use std::io;
@@ -18,18 +20,18 @@ use tokio::sync::Notify;
 /// `validate_redirect_url`, ein github.com-redirect wäre ein offener umweg.
 pub(super) fn validate_download_url(url: &str) -> Result<(), String> {
     if url.contains('%') {
-        return Err("download URL must not use percent-encoding".into());
+        return Err(errcode::INVALID_URL.into());
     }
     let parsed = reqwest::Url::parse(url).map_err(|e| format!("invalid download URL: {e}"))?;
     validate_secure_url(&parsed)?;
     if parsed.query().is_some() || parsed.fragment().is_some() {
-        return Err("download URL must not contain query or fragment".into());
+        return Err(errcode::INVALID_URL.into());
     }
     let host = parsed
         .host_str()
         .ok_or_else(|| "download URL has no host".to_string())?;
     if !host.eq_ignore_ascii_case("github.com") {
-        return Err(format!("download URL host not allowed: {host}"));
+        return Err(errcode::with_detail(errcode::HOST_DISALLOWED, host));
     }
 
     // pfad-pinning: GE hostet seine assets selbst; ein anderer github-pfad ist
@@ -42,7 +44,7 @@ pub(super) fn validate_download_url(url: &str) -> Result<(), String> {
     ];
     let comps: Vec<&str> = parsed.path().split('/').collect();
     if comps.len() != DOWNLOAD_URL_PATH_SEGMENTS || !comps[0].is_empty() || comps[6].is_empty() {
-        return Err("download URL must contain exactly one release asset path".into());
+        return Err(errcode::INVALID_URL.into());
     }
     let mut comps = comps.into_iter().skip(1);
     for expected in GE_PREFIX {
@@ -57,7 +59,7 @@ pub(super) fn validate_download_url(url: &str) -> Result<(), String> {
         }
     }
     if comps.next().is_none() || comps.next().is_none() || comps.next().is_some() {
-        return Err("download URL must contain exactly one release asset path".into());
+        return Err(errcode::INVALID_URL.into());
     }
     Ok(())
 }
@@ -75,19 +77,19 @@ pub(super) fn validate_redirect_url(url: &str) -> Result<(), String> {
     if host == "objects.githubusercontent.com" || host == "release-assets.githubusercontent.com" {
         Ok(())
     } else {
-        Err(format!("redirect target host not allowed: {host}"))
+        Err(errcode::with_detail(errcode::HOST_DISALLOWED, host))
     }
 }
 
 fn validate_secure_url(parsed: &reqwest::Url) -> Result<(), String> {
     if parsed.scheme() != "https" {
-        return Err("only HTTPS URLs allowed".into());
+        return Err(errcode::UNALLOWED_SCHEME.into());
     }
     if !parsed.username().is_empty() || parsed.password().is_some() {
-        return Err("URL must not contain credentials".into());
+        return Err(errcode::CREDENTIALS_DISALLOWED.into());
     }
     if parsed.port_or_known_default() != Some(443) {
-        return Err("HTTPS URL must use the default port".into());
+        return Err(errcode::INVALID_URL.into());
     }
     Ok(())
 }
@@ -144,7 +146,7 @@ pub(super) fn validate_download_id(download_id: &str) -> Result<(), String> {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
     {
-        return Err("invalid download id".into());
+        return Err(errcode::INVALID_ID.into());
     }
     Ok(())
 }
@@ -156,7 +158,7 @@ pub(super) fn register_download(
     validate_download_id(download_id)?;
     let mut map = registry.0.lock().map_err(|e| e.to_string())?;
     if !map.is_empty() {
-        return Err("another download is already active".into());
+        return Err(errcode::DOWNLOAD_ACTIVE.into());
     }
     let cancel_flag = Arc::new(CancelSignal::new());
     map.insert(download_id.to_owned(), Arc::clone(&cancel_flag));
@@ -240,14 +242,14 @@ pub(super) async fn download_stream_in_directory(
         let client = build_client(redirect_ok)?;
         let resp = client.get(url).send().await.map_err(|e| e.to_string())?;
         if !resp.status().is_success() {
-            return Err(format!("HTTP {}", resp.status()));
+            return Err(errcode::with_detail(errcode::UNAVAILABLE, resp.status()));
         }
 
         // content-length-prüfung (server kann lügen, also zählt der streaming-loop
         // zusätzlich die tatsächlich geschriebenen bytes mit)
         if let Some(len) = resp.content_length() {
             if len > storage.max_bytes {
-                return Err("content-length exceeds download size limit".into());
+                return Err(errcode::SIZE_LIMIT.into());
             }
         }
 
@@ -271,7 +273,7 @@ pub(super) async fn download_stream_in_directory(
             // (select auf das notify-signal statt nur synchroner flag-check)
             let chunk = tokio::select! {
                 biased;
-                _ = cancel.cancelled() => return Err("cancelled".into()),
+                _ = cancel.cancelled() => return Err(errcode::CANCELLED.to_owned()),
                 result = tokio::time::timeout(STALL_TIMEOUT, stream.next()) => {
                     result.map_err(|_| "download stalled".to_string())?
                 }
@@ -283,7 +285,7 @@ pub(super) async fn download_stream_in_directory(
 
                     downloaded += chunk.len() as u64;
                     if downloaded > storage.max_bytes {
-                        return Err("download size limit exceeded".into());
+                        return Err(errcode::SIZE_LIMIT.into());
                     }
 
                     hasher.update(&chunk);
@@ -510,7 +512,7 @@ where
             .checked_add(chunk.len())
             .ok_or_else(|| "hash asset exceeds size limit".to_string())?;
         if next_len > max_bytes {
-            return Err("hash asset exceeds size limit".into());
+            return Err(errcode::SIZE_LIMIT.into());
         }
         body.extend_from_slice(chunk);
     }

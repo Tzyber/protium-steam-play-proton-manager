@@ -1,3 +1,5 @@
+import { ManifestParseError } from "./errors.js";
+import { errText } from "./errtext.js";
 import { NUMERIC_RE, parseSafeAppId } from "./types.js";
 import { asString, getKeyInsensitive, parseVdf } from "./vdf.js";
 
@@ -152,15 +154,29 @@ function parseManifestInstallDir(value: string | undefined): string | undefined 
 
 // Wirft bei defektem Inhalt oder fehlender App-ID; der Scan meldet eine Warnung.
 export function parseManifest(text: string): ManifestData {
-  const root = parseVdf(text);
+  let root: ReturnType<typeof parseVdf>;
+  try {
+    root = parseVdf(text);
+  } catch (e) {
+    throw new ManifestParseError(
+      "manifest-missing-appstate",
+      "appmanifest ohne AppState-block",
+      errText(e),
+    );
+  }
   const app = getKeyInsensitive(root, "AppState");
+
   if (typeof app !== "object" || app === null) {
-    throw new Error("appmanifest ohne AppState-block");
+    throw new ManifestParseError("manifest-missing-appstate", "appmanifest ohne AppState-block");
   }
   const appIdRaw = asString(getKeyInsensitive(app, "appid"));
-  if (appIdRaw === undefined) throw new Error("appmanifest ohne gültige appid");
+  if (appIdRaw === undefined) {
+    throw new ManifestParseError("manifest-invalid-appid", "appmanifest ohne gültige appid");
+  }
   const appId = parseSafeAppId(appIdRaw);
-  if (appId === null) throw new Error("appmanifest ohne gültige appid");
+  if (appId === null) {
+    throw new ManifestParseError("manifest-invalid-appid", "appmanifest ohne gültige appid");
+  }
 
   const name = asString(getKeyInsensitive(app, "name")) ?? `app ${appId}`;
   const sizeBytes = parseManifestSize(rawManifestField(text, "SizeOnDisk"));

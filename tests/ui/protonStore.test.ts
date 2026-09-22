@@ -349,14 +349,14 @@ describe("protonStore init + pump-robustheit", () => {
   });
 
   it("loadReleases: unbekannte oder nicht lesbare backendarchitektur stoppt fail-closed", async () => {
-    mockGeTargetArch.mockRejectedValueOnce(new Error("unsupported target architecture"));
+    mockGeTargetArch.mockRejectedValueOnce(new Error("unsupported-arch"));
     const store = useProtonStore();
 
     await store.loadReleases();
 
     expect(mockHttpGet).not.toHaveBeenCalled();
     expect(store.releases).toEqual([]);
-    expect(store.loadError).toContain("unsupported target architecture");
+    expect(store.loadError).toContain("Prozessorarchitektur");
   });
 
   it("pump: release nicht (mehr) in der liste → job-leiche wird aufgeräumt, queue hängt nicht", async () => {
@@ -514,9 +514,7 @@ describe("protonStore pump-phasen", () => {
   it("bestehender zielordner → lokalisierter installExists-fehler", async () => {
     const scanStore = useScanStore();
     scanStore.result = fakeScanResult();
-    mockInstallGeProton.mockRejectedValueOnce(
-      new Error("ToolAlreadyExists: target directory already exists"),
-    );
+    mockInstallGeProton.mockRejectedValueOnce(new Error("tool-already-exists: target directory"));
 
     const store = useProtonStore();
     store.releases = [release];
@@ -597,7 +595,7 @@ describe("protonStore warnung (sha512-fetch-fehler)", () => {
   });
 
   it("install-fail → keine warning neben loadError", async () => {
-    mockInstallGeProton.mockRejectedValueOnce(new Error("install kaputt"));
+    mockInstallGeProton.mockRejectedValueOnce(new Error("unavailable: install"));
     const store = installWithSha();
 
     store.queueInstall(withSha);
@@ -692,7 +690,9 @@ describe("protonStore.remove", () => {
   it("gibt die reservierung nach einem prepare-fehler frei", async () => {
     const scan = useScanStore();
     scan.result = fakeScanResult();
-    vi.mocked(tauriPorts.system.prepareDelete).mockRejectedValueOnce(new Error("prepare kaputt"));
+    vi.mocked(tauriPorts.system.prepareDelete).mockRejectedValueOnce(
+      new Error("unreadable: prepare"),
+    );
     const store = useProtonStore();
 
     await store.remove({
@@ -706,15 +706,13 @@ describe("protonStore.remove", () => {
 
     expect(useConfirmStore().reserved).toBe(false);
     expect(store.busyRemove).toBeNull();
-    expect(store.loadError).toContain("prepare kaputt");
+    expect(store.loadError).toContain("unlesbar");
   });
 
   it("lokalisiert die steam-läuft-ablehnung beim vorbereiten", async () => {
     const scan = useScanStore();
     scan.result = fakeScanResult();
-    vi.mocked(tauriPorts.system.prepareDelete).mockRejectedValueOnce(
-      new Error("steam is running, deletion refused"),
-    );
+    vi.mocked(tauriPorts.system.prepareDelete).mockRejectedValueOnce(new Error("steam-running"));
     const store = useProtonStore();
 
     await store.remove({
@@ -804,7 +802,7 @@ describe("protonStore.remove", () => {
     scan.result = fakeScanResult();
     const store = useProtonStore();
     const { tauriPorts } = await import("../../src/core/adapters/tauri");
-    vi.spyOn(tauriPorts.system, "executeDelete").mockRejectedValueOnce(new Error("token expired"));
+    vi.spyOn(tauriPorts.system, "executeDelete").mockRejectedValueOnce(new Error("token-expired"));
 
     await store.remove({
       name: "GE-Proton9-27",
@@ -817,6 +815,6 @@ describe("protonStore.remove", () => {
     await useConfirmStore().confirm();
 
     expect(store.busyRemove).toBeNull();
-    expect(store.loadError).toContain("token expired");
+    expect(store.loadError).toContain("Bestätigung ist abgelaufen");
   });
 });

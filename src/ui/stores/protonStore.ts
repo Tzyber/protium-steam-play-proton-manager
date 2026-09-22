@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
-import { errText, isSteamRunning, isToolAlreadyExists } from "../../core/errtext";
+import { parseError } from "../../core/errtext";
 import {
   type FetchSource,
   fetchReleases,
@@ -16,6 +16,8 @@ import type {
 } from "../../core/ports";
 import type { CompatTool } from "../../core/types";
 import { localizeConsequences } from "../consequences";
+import { logError, logEvent } from "../diagnostics";
+import { formatError } from "../formatError";
 import { t } from "../i18n";
 import { useConfirmStore } from "./confirmStore";
 import { useScanStore } from "./scanStore";
@@ -51,9 +53,9 @@ function createDownloadId(): string {
 /** backend-ablehnungen beim löschen lokalisieren; das write-gate (steam läuft)
  *  bekommt einen eigenen text statt des rohen backend-strings. */
 function removeErrorText(e: unknown): string {
-  return isSteamRunning(e)
+  return parseError(e).code === "steam-running"
     ? t("proton.removeSteamRunning")
-    : t("proton.removeFailed", { msg: errText(e) });
+    : t("proton.removeFailed", { msg: formatError(e) });
 }
 
 interface ListenerOwnership {
@@ -105,11 +107,6 @@ export const useProtonStore = defineStore("proton", {
   getters: {
     installedTools(): CompatTool[] {
       return useScanStore().compatTools;
-    },
-    /** globaler standard aus config.vdf; spiele tragen dafür den literalstring
-     *  "default" in `compatTool`, nicht den toolnamen. */
-    defaultCompatTool(): string | null {
-      return useScanStore().result?.defaultCompatTool ?? null;
     },
   },
   actions: {
@@ -205,7 +202,10 @@ export const useProtonStore = defineStore("proton", {
           pending.clear();
           lifecycle.pending.delete(generation);
           if (!lifecycle.disposed && lifecycle.generation === generation) {
-            useUiStore().showNotification(t("proton.listenerUnavailable", { error: errText(e) }));
+            logError("Proton-Listener fehlgeschlagen", e);
+            useUiStore().showNotification(
+              t("proton.listenerUnavailable", { error: formatError(e) }),
+            );
             if (!this.releases.length) void this.loadReleases();
           }
         } finally {
@@ -257,7 +257,8 @@ export const useProtonStore = defineStore("proton", {
           this.loadError = t("proton.noReleases");
         }
       } catch (e) {
-        this.loadError = errText(e);
+        logError("GE-Releases laden fehlgeschlagen", e);
+        this.loadError = formatError(e);
       } finally {
         this.loading = false;
       }
@@ -343,17 +344,20 @@ export const useProtonStore = defineStore("proton", {
         await scan.runScan(); // frische compatToolsInstalled + usedBy
         this.loadError = null; // stale fehlermeldung eines früheren fehlschlags
         if (warned) {
+          logEvent("warn", `GE-Pruefsumme nicht verfuegbar (${tag})`);
           this.warning = { tag, msg: t("proton.checksumUnavailable", { tag }) };
         } else if (this.warning?.tag === tag) {
           this.warning = null; // verifizierter reinstall desselben tags räumt die alte warnung
         }
         delete this.jobs[tag];
       } catch (e) {
-        const msg = errText(e);
-        if (!/cancel/i.test(msg)) {
-          this.loadError = isToolAlreadyExists(e)
-            ? t("proton.installExists", { tag })
-            : t("proton.installFailed", { tag, msg });
+        const parsed = parseError(e);
+        if (parsed.code !== "cancelled") {
+          logError(`GE-Installation fehlgeschlagen (${tag})`, e);
+          this.loadError =
+            parsed.code === "tool-already-exists"
+              ? t("proton.installExists", { tag })
+              : t("proton.installFailed", { tag, msg: formatError(e) });
         }
         delete this.jobs[tag];
       } finally {

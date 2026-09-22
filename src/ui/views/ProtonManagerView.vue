@@ -19,6 +19,11 @@ const ui = useUiStore();
 
 onMounted(() => proton.init());
 
+/** Blockiert eine laufende oder reservierte Aktion das Entfernen? */
+const removeBlocked = computed(
+  () => proton.busyRemove !== null || confirm.reserved || confirm.busy,
+);
+
 function removable(tt: CompatTool): boolean {
   return tt.source === "user" && isManagedGeName(tt.name);
 }
@@ -108,9 +113,18 @@ const statusLine = computed(() => {
         <h1>{{ t("proton.versions") }}</h1>
       </div>
       <div class="update">
-        <button class="rescan" type="button" :disabled="proton.loading" @click="refreshReleases">
+        <button
+          class="rescan"
+          type="button"
+          :disabled="proton.loading"
+          :aria-describedby="proton.loading ? 'proton-rescan-reason' : undefined"
+          @click="refreshReleases"
+        >
           {{ proton.loading ? t("proton.loading") : t("proton.refreshReleases") }}
         </button>
+        <span v-if="proton.loading" id="proton-rescan-reason" class="sr-only">
+          {{ t("proton.rescanBlocked") }}
+        </span>
         <div
           v-if="statusLine"
           class="statusline"
@@ -148,23 +162,18 @@ const statusLine = computed(() => {
           </button>
           <span v-else class="used muted">{{ t("proton.unused") }}</span>
           <button
-            v-if="tt.internalName === proton.defaultCompatTool"
-            class="used"
-            type="button"
-            data-testid="global-default"
-            @click="ui.showLibraryForTool('default')"
-          >
-            {{ t("proton.globalDefault") }}
-          </button>
-          <button
             v-if="removable(tt)"
             class="rm"
             type="button"
-            :disabled="proton.busyRemove !== null || confirm.reserved || confirm.busy"
+            :disabled="removeBlocked"
+            :aria-describedby="removeBlocked ? 'proton-remove-reason' : undefined"
             @click="proton.remove(tt)"
           >
             {{ proton.busyRemove === tt.name ? "…" : t("common.delete") }}
           </button>
+          <span v-if="removeBlocked" id="proton-remove-reason" class="sr-only">
+            {{ t("proton.removeBlocked") }}
+          </span>
           <span v-else class="rm-lock" :title="t('proton.notManageable')"><span aria-hidden="true">🔒</span><span class="sr-only">{{ t('proton.notManageable') }}</span></span>
         </div>
       </li>
@@ -254,7 +263,6 @@ const statusLine = computed(() => {
   border-color: var(--signal);
   background: color-mix(in srgb, var(--signal) 16%, transparent);
 }
-.title h1 { margin: 2px 0 0; font-family: var(--font-display); font-size: 1.625rem; font-weight: 600; letter-spacing: -0.02em; }
 
 .rescan {
   background: var(--bg-2); color: var(--fg-1);

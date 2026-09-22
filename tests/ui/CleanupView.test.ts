@@ -603,7 +603,6 @@ describe("CleanupView Erklärungen", () => {
     const dialog = document.body.querySelector("[role='dialog']");
     expect(dialog).not.toBeNull();
     expect(dialog?.textContent).toContain(t("explain.topics.cleanupBlocked.meaning"));
-    expect(dialog?.textContent).toContain(t("explain.topics.cleanupBlocked.limit"));
     expect(dialog?.getAttribute("aria-modal")).toBe("true");
   });
 });

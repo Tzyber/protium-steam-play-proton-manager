@@ -1,4 +1,5 @@
 #[cfg(target_os = "linux")]
+use crate::commands::errcode;
 use crate::commands::fd::{ensure_regular_fd, open_bound_root_fd, open_dir_at, open_file_at};
 use crate::commands::scope::{EnvironmentState, MAX_ENVIRONMENT_READ_BYTES};
 use crate::commands::spawn_blocking_io;
@@ -82,7 +83,7 @@ fn read_environment_file_with_hook(
         after_open(&mut file);
         let length = ensure_regular_fd(&file, label)?;
         if length > MAX_ENVIRONMENT_READ_BYTES {
-            return Err(format!("{label}: file exceeds read limit"));
+            return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
         }
         let read_limit = MAX_ENVIRONMENT_READ_BYTES
             .checked_add(1)
@@ -92,7 +93,7 @@ fn read_environment_file_with_hook(
             .read_to_end(&mut bytes)
             .map_err(|error| format!("{label}: {error}"))?;
         if bytes.len() as u64 > MAX_ENVIRONMENT_READ_BYTES {
-            return Err(format!("{label}: file exceeds read limit"));
+            return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
         }
         Ok(bytes)
     })
@@ -106,7 +107,7 @@ fn read_environment_file_with_hook(
     _before_open: &mut dyn FnMut(),
     _after_open: &mut dyn FnMut(&mut std::fs::File),
 ) -> Result<Vec<u8>, String> {
-    Err(format!("{label}: only supported on linux"))
+    Err(errcode::with_detail(errcode::UNSUPPORTED_PLATFORM, label))
 }
 
 #[tauri::command]
@@ -178,7 +179,7 @@ fn read_environment_dir_with_hook(
             .enumerate()
         {
             if index >= MAX_ENVIRONMENT_DIR_ENTRIES {
-                return Err(format!("{label}: entry limit exceeded"));
+                return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
             }
             let entry = entry.map_err(|error| format!("{label}: {error}"))?;
             let file_type = entry
@@ -201,7 +202,7 @@ fn read_environment_dir_with_hook(
     label: &str,
     _before_open: &mut dyn FnMut(),
 ) -> Result<Vec<EnvironmentDirEntry>, String> {
-    Err(format!("{label}: only supported on linux"))
+    Err(errcode::with_detail(errcode::UNSUPPORTED_PLATFORM, label))
 }
 
 fn checked_size_add(total: u64, next: u64) -> Result<u64, String> {
@@ -209,7 +210,10 @@ fn checked_size_add(total: u64, next: u64) -> Result<u64, String> {
         .checked_add(next)
         .ok_or_else(|| "directory size sum overflow".to_string())?;
     if total > MAX_SAFE_JS_INTEGER {
-        return Err("directory size exceeds JavaScript safe integer".into());
+        return Err(errcode::with_detail(
+            errcode::SIZE_LIMIT,
+            "javascript safe integer",
+        ));
     }
     Ok(total)
 }
@@ -232,7 +236,7 @@ fn walk_directory_fd(
     total: &mut u64,
 ) -> Result<(), String> {
     if depth > MAX_DIRECTORY_WALK_DEPTH {
-        return Err("directory walk too deep".into());
+        return Err(errcode::with_detail(errcode::INCOMPLETE, "walk depth"));
     }
     let proc_path = Path::new("/proc/self/fd").join(dir_fd.as_raw_fd().to_string());
     let rd = fs::read_dir(&proc_path).map_err(|error| format!("read_dir {relative:?}: {error}"))?;
@@ -283,7 +287,7 @@ fn measure_directory_with_hook(
         }
     };
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Err("directory size: not a regular directory".into());
+        return Err(errcode::NOT_A_DIRECTORY.into());
     }
     let root_fd = open_bound_root_fd(path, before_bind)
         .map_err(|error| format!("directory size: {error}"))?;
@@ -305,7 +309,10 @@ fn measure_directory(path: &Path) -> Result<DirectorySize, String> {
 #[cfg(not(target_os = "linux"))]
 fn measure_directory(path: &Path) -> Result<DirectorySize, String> {
     let _ = path;
-    Err("directory size: only supported on linux".into())
+    Err(errcode::with_detail(
+        errcode::UNSUPPORTED_PLATFORM,
+        "directory size",
+    ))
 }
 
 /// Kanonischer Pfad und `(dev, ino)` zur Library-Deduplizierung.
@@ -322,7 +329,7 @@ pub(crate) struct PathIdentity {
 /// und dieser check steht vor JEDEM write-gate.
 pub(super) fn is_process_running_sync(name: &str) -> Result<bool, String> {
     if name.to_lowercase() != "steam" {
-        return Err("process check only allowed for steam".into());
+        return Err(errcode::BLOCKED.into());
     }
     // Substring-Match schließt absichtlich Steam-Helper wie steamwebhelper ein;
     // false-positive Blockade ist sicherer als false-negative während Writes.
@@ -374,7 +381,7 @@ pub async fn batch_dir_sizes(
     let state = state.inner().clone();
     spawn_blocking_io(move || {
         if paths.len() > MAX_BATCH_DIR_SIZE_PATHS {
-            return Err("too many paths for batch_dir_sizes".into());
+            return Err(errcode::with_detail(errcode::SIZE_LIMIT, "path batch"));
         }
         state.with_authorized_batch(&paths, |authorized| {
             let mut result = HashMap::with_capacity(authorized.len());

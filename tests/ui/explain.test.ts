@@ -33,12 +33,7 @@ describe("Explain-Registry", () => {
 
       for (const locale of ["de", "en"] as const) {
         setLocale(locale);
-        for (const key of [
-          definition.titleKey,
-          definition.sourceKey,
-          definition.meaningKey,
-          definition.limitKey,
-        ]) {
+        for (const key of [definition.titleKey, definition.sourceKey, definition.meaningKey]) {
           expect(t(key)).not.toBe(key);
           expect(t(key).trim().length).toBeGreaterThan(0);
         }

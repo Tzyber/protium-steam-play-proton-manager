@@ -76,7 +76,7 @@ fn save_launch_options_steam_laeuft_abgelehnt() {
         &mut reader,
     );
     assert!(res.is_err());
-    assert!(res.unwrap_err().contains("steam is running"));
+    assert!(res.unwrap_err().contains("steam-running"));
     let _ = std::fs::remove_dir_all(home.parent().unwrap());
 }
 
@@ -98,7 +98,7 @@ fn save_launch_options_prueft_prozess_zweimal_und_schreibt_nicht_bei_start_race(
         &mut reader,
     );
 
-    assert!(result.unwrap_err().contains("steam is running"));
+    assert!(result.unwrap_err().contains("steam-running"));
     assert_eq!(std::fs::read_to_string(&target).unwrap(), before);
     assert!(!cache.join("backups").exists());
     assert_eq!(states.next(), None);
@@ -287,7 +287,10 @@ fn save_launch_options_uebergroesse_lehnt_ab_ohne_seiteneffekt() {
         &mut reader,
     );
     let err = res.unwrap_err();
-    assert!(err.contains("read limit"), "unexpected error: {err}");
+    assert!(
+        err.contains("size-limit-exceeded"),
+        "unexpected error: {err}"
+    );
     // zieldatei unverändert (länge bleibt), kein backup, keine temp-datei
     assert_eq!(
         std::fs::metadata(&target).unwrap().len(),
@@ -326,7 +329,10 @@ fn save_launch_options_exakt_an_der_lesegrenze_kein_read_limit_fehler() {
     // die 16-MiB-grenze selbst ist kein read-limit-fehler (der strukturbruch
     // durch das nul-padding ist erwartbar und getrennt)
     let err = res.unwrap_err();
-    assert!(!err.contains("read limit"), "unexpected error: {err}");
+    assert!(
+        !err.contains("size-limit-exceeded"),
+        "unexpected error: {err}"
+    );
     let _ = std::fs::remove_dir_all(home.parent().unwrap());
 }
 
@@ -349,7 +355,10 @@ fn save_compat_tool_uebergroesse_lehnt_ab_ohne_seiteneffekt() {
         &mut reader,
     );
     let err = res.unwrap_err();
-    assert!(err.contains("read limit"), "unexpected error: {err}");
+    assert!(
+        err.contains("size-limit-exceeded"),
+        "unexpected error: {err}"
+    );
     assert_eq!(
         std::fs::metadata(&target).unwrap().len(),
         MAX_CONFIG_VDF_BYTES + 1
@@ -580,7 +589,7 @@ fn save_compat_tool_steam_laeuft_abgelehnt() {
         &mut reader,
     );
     assert!(res.is_err());
-    assert!(res.unwrap_err().contains("steam is running"));
+    assert!(res.unwrap_err().contains("steam-running"));
     let _ = std::fs::remove_dir_all(home.parent().unwrap());
 }
 
@@ -601,7 +610,7 @@ fn save_compat_tool_prueft_prozess_zweimal_und_schreibt_nicht_bei_start_race() {
         &mut reader,
     );
 
-    assert!(result.unwrap_err().contains("steam is running"));
+    assert!(result.unwrap_err().contains("steam-running"));
     assert_eq!(std::fs::read_to_string(&target).unwrap(), before);
     assert!(!cache.join("backups").exists());
     assert_eq!(states.next(), None);
@@ -836,7 +845,7 @@ fn save_compat_tool_fremder_root_abgelehnt() {
         &mut reader,
     );
     assert!(res.is_err());
-    assert!(res.unwrap_err().contains("not a steam config file"));
+    assert!(res.unwrap_err().contains("not-a-steam-config"));
     let _ = std::fs::remove_dir_all(home.parent().unwrap());
 }
 
@@ -1286,5 +1295,100 @@ fn root_kandidaten_kollabieren_auf_die_write_gate_wurzeln() {
         &home
     ));
 
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn test_parse_backup_file_name() {
+    assert_eq!(
+        parse_backup_file_name("localconfig-12345-1700000000.vdf"),
+        Some(("localconfig".to_string(), "12345".to_string(), 1700000000))
+    );
+    assert_eq!(
+        parse_backup_file_name("config-570-1700000001.vdf"),
+        Some(("config".to_string(), "570".to_string(), 1700000001))
+    );
+    assert_eq!(parse_backup_file_name("invalid-name.vdf"), None);
+    assert_eq!(parse_backup_file_name("localconfig-abc-17000.vdf"), None);
+    assert_eq!(parse_backup_file_name("other-123-17000.vdf"), None);
+    assert_eq!(
+        parse_backup_file_name("localconfig-123-notanumber.vdf"),
+        None
+    );
+    assert_eq!(parse_backup_file_name("localconfig-123-17000.txt"), None);
+}
+
+#[test]
+fn test_list_config_backups_in_dir() {
+    let root = wsg_fixture("test_backups_listing");
+    let backup_dir = root.join("backups");
+    std::fs::create_dir_all(&backup_dir).unwrap();
+
+    let file1 = backup_dir.join("localconfig-100-1000.vdf");
+    let file2 = backup_dir.join("config-200-2000.vdf");
+    let invalid = backup_dir.join("ignored.txt");
+
+    std::fs::write(&file1, b"localconfig data").unwrap();
+    std::fs::write(&file2, b"config data").unwrap();
+    std::fs::write(&invalid, b"random data").unwrap();
+
+    let list = list_config_backups_in_dir(&backup_dir).unwrap();
+    assert_eq!(list.len(), 2);
+    // Sortiert nach timestamp absteigend (2000 vor 1000)
+    assert_eq!(list[0].file_name, "config-200-2000.vdf");
+    assert_eq!(list[0].kind, "config");
+    assert_eq!(list[0].target_id, "200");
+    assert_eq!(list[0].timestamp_ms, 2000);
+    assert_eq!(list[0].size_bytes, 11);
+
+    assert_eq!(list[1].file_name, "localconfig-100-1000.vdf");
+    assert_eq!(list[1].kind, "localconfig");
+    assert_eq!(list[1].target_id, "100");
+    assert_eq!(list[1].timestamp_ms, 1000);
+    assert_eq!(list[1].size_bytes, 16);
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn list_config_backups_meldet_fehlenden_ordner_als_leer() {
+    let root = wsg_fixture("test_backups_missing");
+    let list = list_config_backups_in_dir(&root.join("backups")).unwrap();
+    assert!(list.is_empty());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Ein defekter Eintrag (Verzeichnis, baumelnder Symlink) darf die Liste nicht
+/// als Ganzes verhindern (INV-2).
+#[test]
+fn list_config_backups_ueberspringt_defekte_eintraege() {
+    let root = wsg_fixture("test_backups_defekt");
+    let backup_dir = root.join("backups");
+    std::fs::create_dir_all(backup_dir.join("localconfig-9-9.vdf")).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(
+        backup_dir.join("fehlt.vdf"),
+        backup_dir.join("config-7-7.vdf"),
+    )
+    .unwrap();
+    std::fs::write(backup_dir.join("config-200-2000.vdf"), b"x").unwrap();
+
+    let list = list_config_backups_in_dir(&backup_dir).unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].file_name, "config-200-2000.vdf");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Ein symlinkter Backup-Ordner ist eine Blockade, keine leere Liste.
+#[cfg(unix)]
+#[test]
+fn list_config_backups_lehnt_symlinkten_ordner_ab() {
+    let root = wsg_fixture("test_backups_symlink");
+    let real = root.join("echt");
+    std::fs::create_dir_all(&real).unwrap();
+    let link = root.join("backups");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+
+    assert_eq!(list_config_backups_in_dir(&link).unwrap_err(), "blocked");
     let _ = std::fs::remove_dir_all(&root);
 }

@@ -80,10 +80,8 @@ describe("ExplainInfo", () => {
       expect(document.getElementById(panel.getAttribute("aria-describedby") ?? "")).not.toBeNull();
       expect(panel.textContent).toContain(t("explain.sourceLabel"));
       expect(panel.textContent).toContain(t("explain.meaningLabel"));
-      expect(panel.textContent).toContain(t("explain.limitLabel"));
       expect(panel.textContent).toContain(t("explain.topics.compatTool.source"));
       expect(panel.textContent).toContain(t("explain.topics.compatTool.meaning"));
-      expect(panel.textContent).toContain(t("explain.topics.compatTool.limit"));
       expect(trigger.attributes("aria-expanded")).toBe("true");
       expect(document.activeElement).toBe(query("[data-testid='explain-close']"));
     },
@@ -101,7 +99,6 @@ describe("ExplainInfo", () => {
     expect(panel.textContent).toContain("Konfiguration");
     expect(panel.textContent).toContain(t("explain.topics.compatTool.title"));
     expect(panel.textContent).toContain(t("explain.topics.globalDefault.title"));
-    expect(panel.textContent).toContain(t("explain.topics.globalDefault.limit"));
     expect(panel.querySelectorAll("dl")).toHaveLength(2);
   });
 

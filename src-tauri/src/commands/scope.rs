@@ -1,3 +1,4 @@
+use crate::commands::errcode;
 use crate::commands::path::{
     canonicalize_nearest_ancestor, is_descendant_of, is_safe_path, sanitize_path,
 };
@@ -573,14 +574,14 @@ where
         };
         let length = ensure_regular_fd(&file, LABEL)?;
         if length > MAX_ENVIRONMENT_READ_BYTES {
-            return Err(format!("{LABEL} exceeds read limit"));
+            return Err(errcode::with_detail(errcode::SIZE_LIMIT, LABEL));
         }
         let mut bytes = Vec::new();
         file.take(MAX_ENVIRONMENT_READ_BYTES + 1)
             .read_to_end(&mut bytes)
             .map_err(|error| format!("cannot read {LABEL}: {error}"))?;
         if bytes.len() as u64 > MAX_ENVIRONMENT_READ_BYTES {
-            return Err(format!("{LABEL} exceeds read limit"));
+            return Err(errcode::with_detail(errcode::SIZE_LIMIT, LABEL));
         }
         let content =
             String::from_utf8(bytes).map_err(|error| format!("cannot decode {LABEL}: {error}"))?;
@@ -771,7 +772,10 @@ where
     Ok((unique, unavailable))
 }
 
-fn prepare_app_dir(path: &Path, label: &str) -> Result<PathBuf, String> {
+/// Legt ein App-Verzeichnis an und gibt den kanonischen Pfad zurueck. Auch von
+/// den Backup- und Log-Commands genutzt, damit Pfad-Haertung und Ableitung
+/// ueberall gleich sind.
+pub(crate) fn prepare_app_dir(path: &Path, label: &str) -> Result<PathBuf, String> {
     let raw = path.to_string_lossy();
     sanitize_path(&raw, label)?;
     if !is_safe_path(&raw) {
@@ -846,7 +850,7 @@ pub(crate) fn build_environment_snapshot(
             break;
         }
     }
-    let steam_root = steam_root.ok_or_else(|| "steam installation not found".to_string())?;
+    let steam_root = steam_root.ok_or_else(|| errcode::STEAM_NOT_FOUND.to_owned())?;
 
     let (unique, unavailable_libraries) = read_library_folders_with_failures(&steam_root)?;
 

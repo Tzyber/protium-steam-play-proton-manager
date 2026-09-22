@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { useLibraryStore } from "./libraryStore";
 
-export type ViewId = "library" | "proton" | "cleanup";
+export type ViewId = "library" | "proton" | "cleanup" | "history";
 
 export const useUiStore = defineStore("ui", {
   state: () => ({

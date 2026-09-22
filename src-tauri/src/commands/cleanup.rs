@@ -6,6 +6,7 @@ use std::path::Path;
 use serde::Serialize;
 use tauri::State;
 
+use crate::commands::errcode;
 use crate::commands::scope::EnvironmentState;
 use crate::commands::spawn_blocking_io;
 
@@ -40,12 +41,12 @@ pub(crate) struct TrashListing {
 fn list_trash_entries_at(real: &Path) -> Result<TrashListing, String> {
     let library_metadata = fs::symlink_metadata(real).map_err(|error| error.to_string())?;
     if library_metadata.file_type().is_symlink() || !library_metadata.is_dir() {
-        return Err("library path is not a regular directory".into());
+        return Err(errcode::NOT_A_DIRECTORY.into());
     }
     let steamapps = real.join("steamapps");
     let steamapps_metadata = fs::symlink_metadata(&steamapps).map_err(|error| error.to_string())?;
     if steamapps_metadata.file_type().is_symlink() || !steamapps_metadata.is_dir() {
-        return Err("library steamapps is not a regular directory".into());
+        return Err(errcode::NOT_A_DIRECTORY.into());
     }
     let trash_dir = steamapps.join(TRASH_DIR_NAME);
     let dir = trash_dir.to_string_lossy().into_owned();
@@ -63,10 +64,10 @@ fn list_trash_entries_at(real: &Path) -> Result<TrashListing, String> {
         Err(e) => return Err(e.to_string()),
     };
     if md.file_type().is_symlink() {
-        return Err("trash dir is a symlink, refusing to read".into());
+        return Err(errcode::SYMLINK_REJECTED.into());
     }
     if !md.is_dir() {
-        return Err("trash path is not a directory".into());
+        return Err(errcode::NOT_A_DIRECTORY.into());
     }
 
     let mut entries = Vec::new();

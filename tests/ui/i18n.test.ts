@@ -151,11 +151,5 @@ describe("Zuordnungsanalyse-Wording", () => {
         );
       }
     }
-    expect(de.explain.topics.explicitMappingCount.limit).toContain(
-      "bedeutet nicht, dass das Tool ungenutzt ist",
-    );
-    expect(en.explain.topics.explicitMappingCount.limit).toContain(
-      "does not mean the tool is unused",
-    );
   });
 });

@@ -106,8 +106,6 @@ watch(
                 <dd>{{ t(entry.sourceKey) }}</dd>
                 <dt>{{ t("explain.meaningLabel") }}</dt>
                 <dd>{{ t(entry.meaningKey) }}</dd>
-                <dt>{{ t("explain.limitLabel") }}</dt>
-                <dd>{{ t(entry.limitKey) }}</dd>
               </dl>
             </section>
           </div>

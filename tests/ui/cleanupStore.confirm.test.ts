@@ -335,7 +335,7 @@ describe("cleanupStore, batch_dir_sizes NotFound-Skip", () => {
 
     await store.scanOrphans();
 
-    expect(store.error).toContain("batchDirSizes");
+    expect(store.error).toContain("Größe fehlt");
     expect(store.orphans[0]?.sizeBytes).toBeUndefined();
   });
 
@@ -372,7 +372,7 @@ describe("cleanupStore, batch_dir_sizes NotFound-Skip", () => {
 
     await store.scanOrphans();
 
-    expect(store.error).toContain("ungültige größe");
+    expect(store.error).toContain("ungültig");
     expect(store.orphans[0]?.sizeBytes).toBeUndefined();
   });
 
@@ -394,7 +394,7 @@ describe("cleanupStore, batch_dir_sizes NotFound-Skip", () => {
 
     await store.scanOrphans();
 
-    expect(store.error).toContain("ungültige größe");
+    expect(store.error).toContain("ungültig");
     expect(store.orphans.map((entry) => entry.sizeBytes)).toEqual([undefined, undefined]);
   });
 

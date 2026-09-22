@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::commands::cleanup::TRASH_DIR_NAME;
 use crate::commands::delete_inspect::inspect_deletion_target;
 use crate::commands::delete_inspect::{DeleteConsequence, DeletionInspection};
+use crate::commands::errcode;
 use crate::commands::scope::EnvironmentState;
 
 pub const DELETE_TOKEN_TTL_SECS: u64 = 300;
@@ -87,9 +88,9 @@ fn open_delete_target_handle(path: &Path) -> Result<fs::File, String> {
         )
     };
     if raw < 0 {
-        return Err(format!(
-            "cannot bind delete target directory: {}",
-            std::io::Error::last_os_error()
+        return Err(errcode::with_detail(
+            errcode::UNREADABLE,
+            std::io::Error::last_os_error(),
         ));
     }
     let handle = fs::File::from(unsafe { OwnedFd::from_raw_fd(raw) });
@@ -98,14 +99,17 @@ fn open_delete_target_handle(path: &Path) -> Result<fs::File, String> {
         .map_err(|e| format!("cannot stat bound delete target: {e}"))?
         .is_dir()
     {
-        return Err("bound delete target is not a directory".into());
+        return Err(errcode::NOT_A_DIRECTORY.into());
     }
     Ok(handle)
 }
 
 #[cfg(not(target_os = "linux"))]
 fn open_delete_target_handle(_path: &Path) -> Result<fs::File, String> {
-    Err("delete target identity binding requires Linux directory descriptors".into())
+    Err(errcode::with_detail(
+        errcode::UNSUPPORTED_PLATFORM,
+        "delete target identity binding",
+    ))
 }
 
 #[cfg(target_os = "linux")]
@@ -116,7 +120,7 @@ fn delete_handle_identity(handle: &fs::File) -> Result<(u64, u64), String> {
         .metadata()
         .map_err(|e| format!("cannot stat bound delete target: {e}"))?;
     if !metadata.is_dir() {
-        return Err("bound delete target is not a directory".into());
+        return Err(errcode::NOT_A_DIRECTORY.into());
     }
     Ok((metadata.dev(), metadata.ino()))
 }
@@ -136,9 +140,9 @@ fn open_delete_child_handle(parent: &fs::File, name: &OsStr) -> Result<fs::File,
         )
     };
     if raw < 0 {
-        return Err(format!(
-            "cannot bind delete target entry: {}",
-            std::io::Error::last_os_error()
+        return Err(errcode::with_detail(
+            errcode::UNREADABLE,
+            std::io::Error::last_os_error(),
         ));
     }
     let handle = fs::File::from(unsafe { OwnedFd::from_raw_fd(raw) });
@@ -148,7 +152,10 @@ fn open_delete_child_handle(parent: &fs::File, name: &OsStr) -> Result<fs::File,
 
 #[cfg(not(target_os = "linux"))]
 fn open_delete_child_handle(_parent: &fs::File, _name: &OsStr) -> Result<fs::File, String> {
-    Err("delete target identity binding requires Linux directory descriptors".into())
+    Err(errcode::with_detail(
+        errcode::UNSUPPORTED_PLATFORM,
+        "delete target identity binding",
+    ))
 }
 
 #[cfg(target_os = "linux")]
@@ -194,7 +201,10 @@ pub(super) fn renameat2_no_replace(
     _target_dir: &fs::File,
     _target_name: &OsStr,
 ) -> Result<(), String> {
-    Err("delete target claim requires Linux directory descriptors".into())
+    Err(errcode::with_detail(
+        errcode::UNSUPPORTED_PLATFORM,
+        "delete target claim",
+    ))
 }
 
 #[cfg(target_os = "linux")]
@@ -267,15 +277,21 @@ fn claim_delete_target(pending: &PendingDelete) -> Result<ClaimedDeleteTarget, S
                 });
             }
             Err(error) if error.raw_os_error() == Some(libc::EEXIST) => continue,
-            Err(error) => return Err(format!("cannot claim delete target: {error}")),
+            Err(error) => return Err(errcode::with_detail(errcode::UNREADABLE, error)),
         }
     }
-    Err("cannot allocate unique delete claim name".into())
+    Err(errcode::with_detail(
+        errcode::UNAVAILABLE,
+        "unique claim name",
+    ))
 }
 
 #[cfg(not(target_os = "linux"))]
 fn claim_delete_target(_pending: &PendingDelete) -> Result<(), String> {
-    Err("delete target claim requires Linux directory descriptors".into())
+    Err(errcode::with_detail(
+        errcode::UNSUPPORTED_PLATFORM,
+        "delete target claim",
+    ))
 }
 
 /// Rückweg für einen geclaimten, aber nicht abgeschlossenen Löschvorgang.
@@ -331,7 +347,7 @@ pub(super) fn prepare_delete_inner(
 ) -> Result<PendingDeleteInfo, String> {
     let steam_running = is_steam_running_fn()?;
     if request.target_type != "trash" && steam_running {
-        return Err("steam is running, deletion refused".into());
+        return Err(errcode::STEAM_RUNNING.into());
     }
 
     let inspection = inspect_deletion_target(
@@ -360,7 +376,7 @@ fn prepare_delete_with_inspection(
     let target_handle = open_delete_child_handle(&parent_handle, &target_name)?;
     #[cfg(target_os = "linux")]
     if delete_handle_identity(&target_handle)? != (inspection.dev, inspection.ino) {
-        return Err("delete target changed while binding identity".into());
+        return Err(errcode::TARGET_CHANGED.into());
     }
 
     let token = generate_os_random_128()?;
@@ -430,7 +446,7 @@ where
 {
     let steam_running = is_steam_running_fn()?;
     if request.target_type != "trash" && steam_running {
-        return Err("steam is running, deletion refused".into());
+        return Err(errcode::STEAM_RUNNING.into());
     }
 
     let inspection = crate::commands::delete_inspect::inspect_deletion_target_with_test_hook(
@@ -473,12 +489,12 @@ fn execute_delete_pipeline_inner(
         .unwrap_or_default()
         .as_millis() as u64;
     if now_ms > pending.expires_at {
-        return Err("deletion token expired".into());
+        return Err(errcode::TOKEN_EXPIRED.into());
     }
 
     let steam_running = is_steam_running_fn()?;
     if pending.target_type != "trash" && steam_running {
-        return Err("steam is running, deletion refused".into());
+        return Err(errcode::STEAM_RUNNING.into());
     }
 
     // Die beiden Invarianten hängen nur am pending, nicht am Claim: sie VOR
@@ -502,7 +518,7 @@ fn execute_delete_pipeline_inner(
     inspect_pending_target(&pending, scope_ok)?;
     let steam_running = is_steam_running_fn()?;
     if pending.target_type != "trash" && steam_running {
-        return Err("steam is running, deletion refused".into());
+        return Err(errcode::STEAM_RUNNING.into());
     }
     inspect_pending_target(&pending, scope_ok)?;
     before_claim_fn();
@@ -548,7 +564,7 @@ fn execute_delete_pipeline_inner(
                     )
                     .map_err(|e| format!("cannot move to trash: {e}"))?;
                 }
-                _ => return Err("unsupported orphan type".into()),
+                _ => return Err(errcode::UNSUPPORTED_TARGET.into()),
             }
         }
         "trash" => {
@@ -559,7 +575,12 @@ fn execute_delete_pipeline_inner(
             fs::remove_dir_all(&claimed.path)
                 .map_err(|e| format!("cannot remove compat tool: {e}"))?;
         }
-        _ => return Err(format!("unknown target type: {}", pending.target_type)),
+        _ => {
+            return Err(errcode::with_detail(
+                errcode::UNSUPPORTED_TARGET,
+                &pending.target_type,
+            ));
+        }
     }
 
     // Ab hier ist die Mutation abgeschlossen; der Claim-Name ist weg.
@@ -589,17 +610,23 @@ fn inspect_pending_target(
     let canonical = pending.canonical_path.to_string_lossy();
     #[cfg(target_os = "linux")]
     if delete_handle_identity(target_handle)? != (inspection.dev, inspection.ino) {
-        return Err("target identity changed (bound handle mismatch), deletion refused".into());
+        return Err(errcode::with_detail(
+            errcode::TARGET_CHANGED,
+            "bound handle mismatch",
+        ));
     }
     if inspection.dev != pending.dev || inspection.ino != pending.ino {
-        return Err("target identity changed (dev/ino mismatch), deletion refused".into());
+        return Err(errcode::with_detail(
+            errcode::TARGET_CHANGED,
+            "dev/ino mismatch",
+        ));
     }
     if inspection.target_type != pending.target_type
         || inspection.target_path != pending.target_path
         || inspection.canonical_path != canonical
         || inspection.consequences != pending.consequences
     {
-        return Err("deletion target state changed, deletion refused".into());
+        return Err(errcode::TARGET_CHANGED.into());
     }
     Ok(())
 }

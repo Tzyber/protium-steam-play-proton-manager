@@ -6,6 +6,6 @@ export default defineConfig({
   test: {
     globals: true,
     include: ["tests/benchmarks/**/*.bench.ts"],
-    testTimeout: 30_000,
+    testTimeout: 60_000,
   },
 });

@@ -1,12 +1,14 @@
 import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
 import { recomputeToolUsedBy } from "../../core/compatTools";
-import { errText, isSteamNotFound } from "../../core/errtext";
+import { parseError } from "../../core/errtext";
 import { deriveProtonCheck } from "../../core/protoncheck";
 import { deriveScanCoverage } from "../../core/scan/coverage";
 import { scanLocal } from "../../core/scan/local";
 import { enrichProtondb } from "../../core/scan/protondb";
 import type { ScanResult } from "../../core/types";
+import { logError, logEvent } from "../diagnostics";
+import { formatError } from "../formatError";
 import { t } from "../i18n";
 import { useUiStore } from "./uiStore";
 
@@ -65,6 +67,10 @@ export const useScanStore = defineStore("scan", {
         const result = this.result;
         this.status = "done";
         this.statusText = t("status.ready");
+        logEvent(
+          "info",
+          `Scan abgeschlossen: ${result.games.length} Spiele, ${result.warnings.length} Warnungen`,
+        );
         this.protonDbRemaining = result.games.length;
         if (result.games.length === 0) return;
 
@@ -86,15 +92,17 @@ export const useScanStore = defineStore("scan", {
           });
       } catch (e) {
         if (!isCurrent()) return;
-        if (isSteamNotFound(e)) {
+        if (parseError(e).code === "steam-not-found") {
+          logEvent("info", "Scan: keine Steam-Installation gefunden");
           this.status = "not-found";
           this.statusText = t("status.noSteamInstallation");
         } else {
-          const msg = errText(e);
+          const msg = formatError(e);
           this.status = "error";
           this.statusText = t("status.error");
           this.error = msg;
           useUiStore().showNotification(t("status.scanFailed", { error: msg }));
+          logError("Scan fehlgeschlagen", e);
         }
       } finally {
         if (isCurrent()) this.elapsedMs = Math.round(performance.now() - t0);

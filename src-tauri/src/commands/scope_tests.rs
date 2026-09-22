@@ -221,7 +221,7 @@ fn discovery_rejects_documents_fake_steam() {
     std::fs::create_dir_all(home.join("Documents/fake-steam/steamapps")).unwrap();
     let result =
         build_environment_snapshot(&home, &home.join("app-cache"), &home.join("app-config"));
-    assert!(result.unwrap_err().contains("steam installation not found"));
+    assert!(result.unwrap_err().contains("steam-not-found"));
     let _ = std::fs::remove_dir_all(home);
 }
 
@@ -232,7 +232,7 @@ fn discovery_rejects_home_without_fixed_candidate() {
     std::fs::create_dir_all(&home).unwrap();
     let result =
         build_environment_snapshot(&home, &home.join("app-cache"), &home.join("app-config"));
-    assert!(result.unwrap_err().contains("steam installation not found"));
+    assert!(result.unwrap_err().contains("steam-not-found"));
     let _ = std::fs::remove_dir_all(home);
 }
 
@@ -473,7 +473,7 @@ fn read_library_folders_lehnt_dateien_ueber_dem_read_limit_ab() {
     file.set_len(16 * 1024 * 1024 + 1).unwrap();
 
     let error = read_library_folders(&steam).unwrap_err();
-    assert!(error.contains("read limit"), "error: {error}");
+    assert!(error.contains("size-limit-exceeded"), "error: {error}");
 
     let _ = std::fs::remove_dir_all(&root);
 }

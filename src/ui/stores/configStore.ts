@@ -1,14 +1,20 @@
 import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
-import { SteamRunningError } from "../../core/configwrite";
+import { SteamRunningError } from "../../core/errors";
+import { parseError } from "../../core/errtext";
 import type { WriteResult } from "../../core/ports";
+import { logError, logEvent } from "../diagnostics";
 import { t } from "../i18n";
 import { useScanStore } from "./scanStore";
 
-/** backend-fehler auf typen mappen; fehlertexte sind keine stabile api
- *  (sprachgrenze), der steam-läuft-fall ist der einzige, den die ui kennt. */
+/** Backend-Fehler auf Typen mappen. Der Fehlercode ist der Vertrag; aus dem
+ *  Meldungstext wird nichts geraten. */
 function mapWriteError(e: unknown): never {
-  if (String(e).includes("steam is running")) throw new SteamRunningError();
+  if (parseError(e).code === "steam-running") {
+    logEvent("warn", "Steam-Write abgelehnt: steam-running");
+    throw new SteamRunningError();
+  }
+  logError("Steam-Write fehlgeschlagen", e);
   throw e instanceof Error ? e : new Error(String(e));
 }
 

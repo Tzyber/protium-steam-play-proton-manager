@@ -21,6 +21,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-fs = "2"
 tauri-plugin-http = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
 getrandom = "0.4"
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }

@@ -275,8 +275,8 @@ later, if it is worth it:
 - find Flatpak and Snap installations of Steam
 - make the AppImage smaller or stay with the system WebKit
 
-at the end, as a highlight: an AUR package so Arch users can install protium
-through their package manager.
+at the very end, and only if it ever happens: an AUR package so Arch users can
+install protium through their package manager. No deadline, no promise.
 
 the binding internal product plan is `protium-roadmap-v2(1).md`; older roadmap
 documents in the repository are historical. every release still needs its own

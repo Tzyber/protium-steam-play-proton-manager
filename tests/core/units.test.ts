@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { availableBuiltinProtons, BLOCKLIST, isBlocked } from "../../src/core/blocklist.js";
 import { parseCompatToolMapping } from "../../src/core/compatTools.js";
-import { errText, isSteamRunning, isToolAlreadyExists } from "../../src/core/errtext.js";
+import { errText, parseError } from "../../src/core/errtext.js";
 import { parseManifest } from "../../src/core/manifest.js";
 import { joinPath } from "../../src/core/paths.js";
 import { parseSafeAppId } from "../../src/core/types.js";
@@ -234,13 +234,14 @@ describe("errText", () => {
     expect(errText(null)).toBe("null");
     expect(errText(undefined)).toBe("undefined");
   });
-  it("erkennt die write-gate-ablehnung (steam läuft)", () => {
-    expect(isSteamRunning("steam is running, deletion refused")).toBe(true);
-    expect(isSteamRunning(new Error("scope-fehler"))).toBe(false);
+  it("erkennt die write-gate-ablehnung am Code", () => {
+    expect(parseError("steam-running").code).toBe("steam-running");
+    expect(parseError("steam-running").kind).toBe("blocked");
+    expect(parseError(new Error("scope-fehler")).code).toBe("unknown");
   });
-  it("erkennt den bereits existierenden zielordner", () => {
-    expect(isToolAlreadyExists("ToolAlreadyExists: target directory already exists")).toBe(true);
-    expect(isToolAlreadyExists("install kaputt")).toBe(false);
+  it("erkennt den bereits existierenden zielordner am Code", () => {
+    expect(parseError("tool-already-exists: target directory").code).toBe("tool-already-exists");
+    expect(parseError("install kaputt").code).toBe("unknown");
   });
 });
 

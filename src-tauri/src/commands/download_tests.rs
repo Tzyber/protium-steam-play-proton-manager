@@ -28,7 +28,7 @@ fn registry_erlaubt_nur_einen_aktiven_download() {
     assert!(register_download(&registry, "GE-Proton10-1").is_ok());
     assert_eq!(
         register_download(&registry, "GE-Proton10-2").unwrap_err(),
-        "another download is already active",
+        "download-active",
     );
 }
 
@@ -655,7 +655,7 @@ async fn content_length_ueber_limit_wird_abgelehnt() {
         "content-length über limit muss Err liefern: {res:?}"
     );
     assert!(
-        res.as_ref().unwrap_err().contains("content-length"),
+        res.as_ref().unwrap_err().contains("size-limit-exceeded"),
         "fehler soll content-length nennen: {res:?}"
     );
     assert!(
@@ -683,7 +683,7 @@ async fn bytes_ueber_limit_raeumt_partielle_datei_auf() {
     .await;
     assert!(res.is_err(), "bytes über limit muss Err liefern: {res:?}");
     assert!(
-        res.as_ref().unwrap_err().contains("size limit"),
+        res.as_ref().unwrap_err().contains("size-limit-exceeded"),
         "fehler soll size-limit nennen: {res:?}"
     );
     assert!(!dest.exists(), "partielle datei muss weg sein");
@@ -786,10 +786,7 @@ async fn fetch_sha512_rejects_unpinned_github_path() {
     )
     .await
     .unwrap_err();
-    assert!(
-        err.to_string().contains("release asset path"),
-        "err was: {err}"
-    );
+    assert!(err.to_string().contains("invalid-url"), "err was: {err}");
 }
 
 #[tokio::test]
@@ -800,7 +797,10 @@ async fn fetch_sha512_rejects_non_https() {
     )
     .await
     .unwrap_err();
-    assert!(err.to_string().contains("only HTTPS"), "err was: {err}");
+    assert!(
+        err.to_string().contains("unallowed-scheme"),
+        "err was: {err}"
+    );
 }
 
 #[tokio::test]
@@ -824,7 +824,7 @@ async fn sha512_stream_rejects_chunked_body_over_limit() {
     let err = collect_limited_body(stream, MAX_HASH_BYTES)
         .await
         .unwrap_err();
-    assert_eq!(err, "hash asset exceeds size limit");
+    assert_eq!(err, "size-limit-exceeded");
 }
 
 #[tokio::test]

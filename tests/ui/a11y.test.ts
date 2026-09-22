@@ -1,6 +1,11 @@
 // @vitest-environment happy-dom
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { mount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { focusFirstFocusable, restoreFocus, trapFocus } from "../../src/ui/a11y";
+import BlockedExplanation from "../../src/ui/components/BlockedExplanation.vue";
+import ConfirmDialog from "../../src/ui/components/ConfirmDialog.vue";
 
 function tabEvent(shiftKey = false): KeyboardEvent {
   return new KeyboardEvent("keydown", { key: "Tab", shiftKey, cancelable: true });
@@ -178,5 +183,85 @@ describe("restoreFocus", () => {
   it("letzter fallback: body", () => {
     restoreFocus(null);
     expect(document.activeElement).toBe(document.body);
+  });
+});
+
+function rgb(hex: string): [number, number, number] {
+  const value = Number.parseInt(hex.replace("#", ""), 16);
+  return [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff];
+}
+
+function luminance(hex: string): number {
+  const channels = rgb(hex).map((channel) => {
+    const part = channel / 255;
+    return part <= 0.03928 ? part / 12.92 : ((part + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * (channels[0] ?? 0) + 0.7152 * (channels[1] ?? 0) + 0.0722 * (channels[2] ?? 0);
+}
+
+function contrast(foreground: string, background: string): number {
+  const first = luminance(foreground);
+  const second = luminance(background);
+  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+}
+
+const tokens = new Map<string, string>();
+for (const match of fs
+  .readFileSync(path.resolve(__dirname, "../../src/ui/tokens.css"), "utf-8")
+  .matchAll(/(--[a-z0-9-]+):\s*(#[0-9a-fA-F]{6})/g)) {
+  if (match[1] && match[2]) tokens.set(match[1], match[2]);
+}
+
+describe("a11y Gate: berechneter Kontrast aus den Tokens", () => {
+  it("primaerer und sekundaerer Text erfuellen WCAG AA auf ihrem Untergrund", () => {
+    const pairs: Array<[string, string, number]> = [
+      ["--fg-0", "--bg-0", 4.5],
+      ["--fg-0", "--bg-1", 4.5],
+      ["--fg-1", "--bg-1", 4.5],
+      ["--fg-1", "--bg-2", 4.5],
+    ];
+    for (const [fg, bg, minimum] of pairs) {
+      const foreground = tokens.get(fg);
+      const background = tokens.get(bg);
+      expect(foreground, `${fg} fehlt in tokens.css`).toBeDefined();
+      expect(background, `${bg} fehlt in tokens.css`).toBeDefined();
+      if (foreground === undefined || background === undefined) continue;
+      const ratio = contrast(foreground, background);
+      expect(ratio, `${fg} auf ${bg} = ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(minimum);
+    }
+  });
+
+  it("das Signal bleibt als Fokus- und Aktionsfarbe sichtbar", () => {
+    const signal = tokens.get("--signal");
+    const background = tokens.get("--bg-0");
+    expect(signal).toBeDefined();
+    expect(background).toBeDefined();
+    if (signal === undefined || background === undefined) return;
+    expect(contrast(signal, background)).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("a11y Gate: Dialoge und Live-Regionen", () => {
+  it("ConfirmDialog implementiert barrierefreie Dialog-Rollen und Labels", () => {
+    mount(ConfirmDialog, {
+      props: { title: "Test Dialog" },
+      slots: { default: "Inhalt" },
+    });
+
+    const element = document.body.querySelector(".dialog");
+    expect(element).not.toBeNull();
+    expect(element?.getAttribute("role")).toBe("dialog");
+    expect(element?.getAttribute("aria-modal")).toBe("true");
+    expect(element?.getAttribute("aria-labelledby")).toBeTruthy();
+    expect(element?.getAttribute("aria-describedby")).toBeTruthy();
+  });
+
+  it("BlockedExplanation ist eine Statusmeldung mit Garantiesatz", () => {
+    const wrapper = mount(BlockedExplanation, {
+      props: { title: "Blockiert", guarantee: "Es wurde nichts veraendert." },
+    });
+
+    expect(wrapper.attributes("role")).toBe("status");
+    expect(wrapper.text()).toContain("Es wurde nichts veraendert.");
   });
 });

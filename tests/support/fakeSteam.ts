@@ -362,7 +362,7 @@ export function fakeSystem(opts?: { environment?: EnvironmentSnapshot }): System
     onInstallPhase: async () => () => {},
     async prepareDelete(request) {
       if (request.targetType !== "trash" && (await this.isProcessRunning("steam"))) {
-        throw new Error("steam is running, deletion refused");
+        throw new Error("steam-running");
       }
       return {
         token: `token-${request.path}`,

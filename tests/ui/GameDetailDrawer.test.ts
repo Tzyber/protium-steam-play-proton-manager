@@ -941,7 +941,6 @@ describe("GameDetailDrawer Erklärungen", () => {
       const close = requireElement("[data-testid='explain-close']", dialog);
       expect(dialog.textContent).toContain(t("explain.sourceLabel"));
       expect(dialog.textContent).toContain(t("explain.meaningLabel"));
-      expect(dialog.textContent).toContain(t("explain.limitLabel"));
       for (const title of [
         "explain.topics.compatTool.title",
         "explain.topics.compatSource.title",

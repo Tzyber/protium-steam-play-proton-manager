@@ -361,7 +361,6 @@ describe("LibraryView Coverage-Erklärung", () => {
       const dialog = requireElement("[role='dialog']");
       expect(dialog.textContent).toContain(t("explain.topics.scanCoverage.source"));
       expect(dialog.textContent).toContain(t("explain.topics.scanCoverage.meaning"));
-      expect(dialog.textContent).toContain(t("explain.topics.scanCoverage.limit"));
       expect(dialog.getAttribute("aria-labelledby")).toMatch(/^explain-dialog-title-/);
       expect(dialog.getAttribute("aria-describedby")).toMatch(/^explain-dialog-description-/);
 
