@@ -122,6 +122,37 @@ describe("ProtonManagerView release install status", () => {
     expect(releaseRow.find(".install").exists()).toBe(false);
   });
 
+  it("gibt jedem Sperrgrund eine eigene id und zeigt ihn nur am entfernbaren Knopf", () => {
+    // mehrere gesperrte Zeilen dürfen keine doppelte id erzeugen
+    protonState.installedTools = [
+      makeInstalledTool("GE-Proton9-27"),
+      makeInstalledTool("GE-Proton10-1"),
+      { ...makeInstalledTool("proton_9"), source: "system" as const },
+    ];
+    confirmState.reserved = true;
+
+    const wrapper = mount(ProtonManagerView);
+    const reasons = wrapper
+      .findAll("span.sr-only")
+      .filter((span) => span.attributes("id") !== undefined);
+    const ids = reasons.map((span) => span.attributes("id"));
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+
+    // jede beschreibung zeigt auf einen vorhandenen grund
+    const described = wrapper
+      .findAll("button.rm")
+      .map((button) => button.attributes("aria-describedby"));
+    expect(described.every((value) => value !== undefined && ids.includes(value))).toBe(true);
+
+    // das nicht entfernbare tool trägt das Schloss, nicht die Begründung
+    const installedRow = wrapper.findAll("ul.list")[0]?.findAll("li").at(-1);
+    if (!installedRow) throw new Error("zeile fehlt");
+    const notManageable = installedRow;
+    expect(notManageable.find(".rm-lock").exists()).toBe(true);
+    expect(notManageable.find("button.rm").exists()).toBe(false);
+  });
+
   it("sperrt alle GE-entfernungen bei einer offenen dialog-reservierung", () => {
     protonState.installedTools = [
       makeInstalledTool("GE-Proton9-27"),

@@ -144,4 +144,37 @@ describe("configStore.saveLaunchOptions", () => {
     const game = scanStore.result?.games[0];
     expect(game?.launchOptions).toBe("-console");
   });
+
+  it("verwirft den wert, wenn zwischenzeitlich neu gescannt wurde (N6)", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScanResult();
+    const config = useConfigStore();
+    const { tauriPorts } = await import("../../src/core/adapters/tauri");
+
+    // der write läuft noch, als der rescan den snapshot ersetzt
+    vi.mocked(tauriPorts.system.saveLaunchOptions).mockImplementationOnce(async () => {
+      scanStore.result = scanResult({
+        games: [game({ appId: 730, launchOptions: "frischer-wert" })],
+        steamUserId: "12345",
+      });
+      scanStore.scanGeneration += 1;
+      return "written";
+    });
+
+    const r = await config.saveLaunchOptions(730, "gamemoderun %command%");
+
+    expect(r).toBe("written");
+    // der neue snapshot darf die änderung aus dem alten environment nicht zeigen
+    expect(scanStore.result?.games[0]?.launchOptions).toBe("frischer-wert");
+  });
+
+  it("wendet den wert bei unverändertem snapshot weiterhin an", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScanResult();
+    const config = useConfigStore();
+
+    await config.saveCompatTool(730, "GE-Proton9-27");
+
+    expect(scanStore.result?.games[0]?.compatTool).toBe("GE-Proton9-27");
+  });
 });
