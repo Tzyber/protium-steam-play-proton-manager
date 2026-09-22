@@ -60,3 +60,22 @@ describe("uiStore notification", () => {
     expect(() => ui.dismissNotification()).not.toThrow();
   });
 });
+
+describe("uiStore modal-zähler (V2)", () => {
+  beforeEach(() => setActivePinia(createPinia()));
+
+  it("zählt offene erklär-dialoge und läuft nicht ins negative", () => {
+    const ui = useUiStore();
+    expect(ui.explanationCount).toBe(0);
+
+    ui.openExplanation();
+    ui.openExplanation();
+    expect(ui.explanationCount).toBe(2);
+
+    ui.closeExplanation();
+    expect(ui.explanationCount).toBe(1);
+    ui.closeExplanation();
+    ui.closeExplanation();
+    expect(ui.explanationCount).toBe(0);
+  });
+});

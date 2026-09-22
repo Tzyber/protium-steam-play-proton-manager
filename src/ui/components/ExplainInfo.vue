@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, useId, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, useId, watch } from "vue";
 import { focusFirstFocusable, restoreFocus, trapFocus } from "../a11y";
 import { EXPLAIN_TOPICS, type ExplainTopic } from "../explain";
 import { t } from "../i18n";
+import { useUiStore } from "../stores/uiStore";
 
 const props = defineProps<{
   label: string;
@@ -10,6 +11,7 @@ const props = defineProps<{
   contextKey?: number | string;
 }>();
 
+const ui = useUiStore();
 const open = ref(false);
 const triggerRef = ref<HTMLButtonElement | null>(null);
 const dialogRef = ref<HTMLElement | null>(null);
@@ -24,6 +26,10 @@ function openExplanation(): void {
   if (open.value) return;
   opener = triggerRef.value;
   open.value = true;
+  // der dialog deklariert aria-modal; die sperre des hintergrunds leitet
+  // App.vue daraus ab (V2). zähler statt bool, weil drawer und dialog sich
+  // überlagern können.
+  ui.openExplanation();
   void nextTick(() => {
     if (open.value) focusFirstFocusable(dialogRef.value);
   });
@@ -32,9 +38,13 @@ function openExplanation(): void {
 function closeExplanation(restore = true): void {
   if (!open.value) return;
   open.value = false;
+  ui.closeExplanation();
   if (restore) restoreFocus(opener ?? triggerRef.value);
   opener = null;
 }
+
+// ein unmount mit offenem dialog darf die sperre nicht stehen lassen
+onBeforeUnmount(() => closeExplanation(false));
 
 function onDialogKeydown(event: KeyboardEvent): void {
   if (event.key === "Escape") {
