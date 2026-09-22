@@ -31,6 +31,27 @@ fn orphan_request(steam: &std::path::Path) -> PrepareDeleteRequest {
     }
 }
 
+/// Snapshot, der genau diese Wurzel als Steam-Root führt. Ersetzt das frühere
+/// permissive Prädikat, damit die Root-Bindung aus F1 wirklich greift.
+fn snapshot_for(steam_root: &std::path::Path) -> EnvironmentSnapshot {
+    EnvironmentSnapshot::for_test(
+        std::fs::canonicalize(steam_root).unwrap(),
+        Vec::new(),
+        Vec::new(),
+        std::path::PathBuf::from("/nonexistent-cache"),
+        std::path::PathBuf::from("/nonexistent-config"),
+    )
+}
+
+fn prepare_with_snapshot(
+    registry: &PendingDeleteRegistry,
+    request: &PrepareDeleteRequest,
+    is_steam_running_fn: impl Fn() -> Result<bool, String>,
+) -> Result<PendingDeleteInfo, String> {
+    let snapshot = snapshot_for(std::path::Path::new(&request.steam_root));
+    prepare_delete_inner(registry, request, &snapshot, is_steam_running_fn)
+}
+
 fn execute_confirmed(
     registry: &PendingDeleteRegistry,
     token: &str,
@@ -65,6 +86,79 @@ fn write_shortcuts_fixture(path: &std::path::Path, app_id: u32) {
     bytes.extend_from_slice(&app_id.to_le_bytes());
     bytes.extend_from_slice(&[0x08, 0x08]);
     std::fs::write(path, bytes).unwrap();
+}
+
+#[test]
+fn prepare_bindet_den_steam_root_exakt_an_den_snapshot() {
+    // F1: die externe library ist autorisiert, aber nicht der steam-root. Mit
+    // ihr als request-root läse die inspektion ein fremdes userdata, sähe die
+    // shortcuts des echten roots nicht und hielte einen echten shortcut für
+    // einen orphan. Der root-vergleich muss das vor der inspektion beenden.
+    let (root, steam) = orphan_fixture("prepare-root-binding");
+    let library = root.join("library-external");
+    let target = library.join("steamapps/compatdata/999999");
+    std::fs::create_dir_all(&target).unwrap();
+    let shortcuts = steam.join("userdata/123/config");
+    std::fs::create_dir_all(&shortcuts).unwrap();
+    write_shortcuts_fixture(&shortcuts.join("shortcuts.vdf"), 999999);
+
+    let snapshot = EnvironmentSnapshot::for_test(
+        std::fs::canonicalize(&steam).unwrap(),
+        vec![std::fs::canonicalize(&library).unwrap()],
+        Vec::new(),
+        std::path::PathBuf::from("/nonexistent-cache"),
+        std::path::PathBuf::from("/nonexistent-config"),
+    );
+    let request = PrepareDeleteRequest {
+        target_type: "orphan".to_string(),
+        path: target.to_string_lossy().into_owned(),
+        steam_root: library.to_string_lossy().into_owned(),
+    };
+    let registry = PendingDeleteRegistry::default();
+
+    let error = prepare_delete_inner(&registry, &request, &snapshot, || Ok(false)).unwrap_err();
+
+    assert!(
+        error.contains("blocked-location"),
+        "unexpected error: {error}"
+    );
+    assert!(
+        error.contains("not the current environment root"),
+        "unexpected error: {error}"
+    );
+    assert!(target.exists(), "nichts darf angefasst worden sein");
+
+    // gegenprobe: derselbe fall mit dem echten root erreicht die inspektion
+    // und wird dort als nicht-verwaister shortcut abgelehnt
+    let honest = orphan_request(&steam);
+    let error = prepare_delete_inner(&registry, &honest, &snapshot, || Ok(false)).unwrap_err();
+    assert!(error.contains("not an orphan"), "unexpected error: {error}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn prepare_lehnt_einen_nicht_aufloesbaren_steam_root_ab() {
+    let root = wsg_fixture("prepare-root-missing");
+    let snapshot = snapshot_for(&root);
+    let request = PrepareDeleteRequest {
+        target_type: "orphan".to_string(),
+        path: root
+            .join("steamapps/compatdata/999999")
+            .to_string_lossy()
+            .into_owned(),
+        steam_root: root.join("gibt-es-nicht").to_string_lossy().into_owned(),
+    };
+
+    let error = prepare_delete_inner(
+        &PendingDeleteRegistry::default(),
+        &request,
+        &snapshot,
+        || Ok(false),
+    )
+    .unwrap_err();
+
+    assert!(error.contains("not-found"), "unexpected error: {error}");
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -197,7 +291,7 @@ fn prepare_und_execute_happy_path_und_replay_schutz() {
     };
 
     // 1. Prepare
-    let info = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &req, || Ok(false)).unwrap();
     assert_eq!(info.target_type, "orphan");
     assert_eq!(info.consequences.len(), 1);
     assert_eq!(info.consequences[0].action, "trash");
@@ -264,7 +358,7 @@ fn steam_laeuft_zwischen_prepare_und_execute_blockiert_loeschung() {
         steam_root: steam.to_str().unwrap().to_string(),
     };
 
-    let info = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &req, || Ok(false)).unwrap();
 
     // Steam läuft beim Execute -> Abbruch
     let res = execute_delete_pipeline(&registry, &info.token, &|_| true, || Ok(true));
@@ -326,7 +420,7 @@ fn registry_groesse_bleibt_auf_32_und_verdrängt_aeltesten() {
         steam_root: steam.to_str().unwrap().to_string(),
     };
 
-    let info = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &req, || Ok(false)).unwrap();
     let map = registry.0.lock().unwrap();
     assert_eq!(map.len(), MAX_PENDING_DELETES);
     assert!(!map.contains_key("token_0"));
@@ -363,7 +457,7 @@ fn ino_mismatch_oder_symlink_mutation_zwischen_prepare_und_execute_wird_abgelehn
         steam_root: steam.to_str().unwrap().to_string(),
     };
 
-    let info = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &req, || Ok(false)).unwrap();
 
     // Ersetze Ordner durch neuen Ordner (neues Inode)
     std::fs::remove_dir_all(&compatdata).unwrap();
@@ -390,7 +484,7 @@ fn ino_mismatch_oder_symlink_mutation_zwischen_prepare_und_execute_wird_abgelehn
     );
 
     // Symlink mutation
-    let info2 = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
+    let info2 = prepare_with_snapshot(&registry, &req, || Ok(false)).unwrap();
     std::fs::remove_dir_all(&compatdata).unwrap();
     let target_real = root.join("real");
     std::fs::create_dir_all(&target_real).unwrap();
@@ -409,7 +503,7 @@ fn replacement_nach_letzter_inspektion_wird_vor_mutation_geclaimt_und_nicht_gelo
     let registry = PendingDeleteRegistry::default();
     let req = orphan_request(&steam);
     let target = steam.join("steamapps/compatdata/999999");
-    let info = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &req, || Ok(false)).unwrap();
 
     let result = execute_delete_after_inspection(
         &registry,
@@ -452,7 +546,7 @@ fn trash_revalidierung_lehnt_verschachteltes_ziel_vor_claim_ab() {
         path: target.to_string_lossy().into_owned(),
         steam_root: steam.to_string_lossy().into_owned(),
     };
-    let info = prepare_delete_inner(&registry, &request, &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &request, || Ok(false)).unwrap();
 
     let nested_parent = trash_dir.join("nested");
     let nested_target = nested_parent.join("compatdata_123_1700000000000");
@@ -493,7 +587,7 @@ fn neues_gueltiges_manifest_zwischen_prepare_und_execute_blockiert_orphan_delete
     let (root, steam) = orphan_fixture("delete-ops-live-manifest-valid");
     let registry = PendingDeleteRegistry::default();
     let req = orphan_request(&steam);
-    let info = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &req, || Ok(false)).unwrap();
 
     std::fs::write(
         steam.join("steamapps/appmanifest_999999.acf"),
@@ -515,7 +609,7 @@ fn neues_unlesbares_manifest_zwischen_prepare_und_execute_blockiert_fail_closed(
     let (root, steam) = orphan_fixture("delete-ops-live-manifest-unreadable");
     let registry = PendingDeleteRegistry::default();
     let req = orphan_request(&steam);
-    let info = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &req, || Ok(false)).unwrap();
 
     std::fs::create_dir(steam.join("steamapps/appmanifest_999999.acf")).unwrap();
 
@@ -530,7 +624,7 @@ fn neues_defektes_manifest_zwischen_prepare_und_execute_blockiert_fail_closed() 
     let (root, steam) = orphan_fixture("delete-ops-live-manifest-broken");
     let registry = PendingDeleteRegistry::default();
     let req = orphan_request(&steam);
-    let info = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &req, || Ok(false)).unwrap();
 
     std::fs::write(
         steam.join("steamapps/appmanifest_999999.acf"),
@@ -549,7 +643,7 @@ fn neues_dateiname_appid_inkonsistentes_manifest_blockiert_fail_closed() {
     let (root, steam) = orphan_fixture("delete-ops-live-manifest-mismatch");
     let registry = PendingDeleteRegistry::default();
     let req = orphan_request(&steam);
-    let info = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &req, || Ok(false)).unwrap();
 
     std::fs::write(
         steam.join("steamapps/appmanifest_999999.acf"),
@@ -589,12 +683,7 @@ fn delete_prepare_erlaubt_non_steam_shortcut_appid() {
         steam_root: steam.to_string_lossy().into_owned(),
     };
 
-    let result = prepare_delete_inner(
-        &PendingDeleteRegistry::default(),
-        &request,
-        &|_| true,
-        || Ok(false),
-    );
+    let result = prepare_with_snapshot(&PendingDeleteRegistry::default(), &request, || Ok(false));
     assert!(
         result.is_ok(),
         "delete darf bit-31-appids nicht ablehnen: {:?}",
@@ -610,7 +699,7 @@ fn neuer_non_steam_shortcut_zwischen_prepare_und_execute_blockiert_orphan_delete
     let (root, steam) = orphan_fixture("delete-ops-live-shortcut");
     let registry = PendingDeleteRegistry::default();
     let req = orphan_request(&steam);
-    let info = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &req, || Ok(false)).unwrap();
 
     let shortcuts = steam.join("userdata/123/config");
     std::fs::create_dir_all(&shortcuts).unwrap();
@@ -695,7 +784,7 @@ fn neue_gueltige_compat_mapping_aendert_folgen_und_blockiert_delete() {
         path: target.to_str().unwrap().to_string(),
         steam_root: steam.to_str().unwrap().to_string(),
     };
-    let info = prepare_delete_inner(&registry, &request, &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &request, || Ok(false)).unwrap();
 
     std::fs::create_dir_all(steam.join("config")).unwrap();
     std::fs::write(
@@ -766,7 +855,7 @@ fn neue_unlesbare_compat_config_blockiert_fail_closed() {
         path: target.to_str().unwrap().to_string(),
         steam_root: steam.to_str().unwrap().to_string(),
     };
-    let info = prepare_delete_inner(&registry, &request, &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &request, || Ok(false)).unwrap();
 
     std::fs::create_dir_all(steam.join("config/config.vdf")).unwrap();
 
@@ -791,7 +880,7 @@ fn neue_defekte_compat_config_blockiert_fail_closed() {
         path: target.to_str().unwrap().to_string(),
         steam_root: steam.to_str().unwrap().to_string(),
     };
-    let info = prepare_delete_inner(&registry, &request, &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &request, || Ok(false)).unwrap();
 
     std::fs::create_dir_all(steam.join("config")).unwrap();
     std::fs::write(steam.join("config/config.vdf"), "\"broken\" {").unwrap();
@@ -807,7 +896,7 @@ fn steam_start_zwischen_den_checks_blockiert_mutation() {
     let (root, steam) = orphan_fixture("delete-ops-live-steam-race");
     let registry = PendingDeleteRegistry::default();
     let req = orphan_request(&steam);
-    let info = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &req, || Ok(false)).unwrap();
     // erster steam-check: läuft nicht; zweiter: läuft — die pipeline
     // prüft zweimal (vor und nach der inspection), der start zwischen
     // den checks muss die mutation blockieren.
@@ -829,7 +918,7 @@ fn live_aenderung_zwischen_checks_wird_unmittelbar_vor_mutation_erkannt() {
     let (root, steam) = orphan_fixture("delete-ops-live-dialog-change");
     let registry = PendingDeleteRegistry::default();
     let req = orphan_request(&steam);
-    let info = prepare_delete_inner(&registry, &req, &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &req, || Ok(false)).unwrap();
     let manifest_path = steam.join("steamapps/appmanifest_999999.acf");
     // die änderung passiert im ersten steam-check (zwischen erster und
     // zweiter inspection): die zweite inspection muss sie sehen.
@@ -866,8 +955,7 @@ fn fehlgeschlagene_mutation_stellt_originalnamen_wieder_her() {
     std::fs::write(steam.join("steamapps/.protium-trash"), b"blockiert").unwrap();
 
     let registry = PendingDeleteRegistry::default();
-    let info =
-        prepare_delete_inner(&registry, &orphan_request(&steam), &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &orphan_request(&steam), || Ok(false)).unwrap();
 
     let error =
         execute_delete_pipeline(&registry, &info.token, &|_| true, || Ok(false)).unwrap_err();
@@ -897,8 +985,7 @@ fn claim_mismatch_benennt_replacement_zurueck() {
     let (root, steam) = orphan_fixture("delete-ops-restore-replacement");
     let target = steam.join("steamapps/compatdata/999999");
     let registry = PendingDeleteRegistry::default();
-    let info =
-        prepare_delete_inner(&registry, &orphan_request(&steam), &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &orphan_request(&steam), || Ok(false)).unwrap();
 
     let error = execute_delete_after_inspection(
         &registry,
@@ -939,8 +1026,7 @@ fn claim_restore_ueberschreibt_neues_original_nicht() {
     let (root, steam) = orphan_fixture("delete-ops-restore-blocked");
     let target = steam.join("steamapps/compatdata/999999");
     let registry = PendingDeleteRegistry::default();
-    let info =
-        prepare_delete_inner(&registry, &orphan_request(&steam), &|_| true, || Ok(false)).unwrap();
+    let info = prepare_with_snapshot(&registry, &orphan_request(&steam), || Ok(false)).unwrap();
     let registry_guard = registry.0.lock().unwrap();
     let pending = registry_guard.get(&info.token).unwrap();
     let claim = claim_delete_target(pending).unwrap();

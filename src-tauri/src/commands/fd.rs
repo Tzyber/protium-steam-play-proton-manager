@@ -18,11 +18,6 @@ use std::path::Path;
 use crate::commands::errcode;
 
 #[cfg(target_os = "linux")]
-extern "C" {
-    fn openat(dirfd: RawFd, pathname: *const i8, flags: i32, mode: u32) -> i32;
-}
-
-#[cfg(target_os = "linux")]
 pub(super) fn component_name(component: &OsStr) -> io::Result<CString> {
     CString::new(component.as_bytes())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path component contains NUL"))
@@ -36,7 +31,7 @@ pub(super) fn open_dir_at(parent_fd: RawFd, component: &OsStr) -> io::Result<Own
     const O_CLOEXEC: i32 = 0o2000000;
     let component = component_name(component)?;
     let fd = unsafe {
-        openat(
+        libc::openat(
             parent_fd,
             component.as_ptr(),
             O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC,
@@ -48,6 +43,106 @@ pub(super) fn open_dir_at(parent_fd: RawFd, component: &OsStr) -> io::Result<Own
     }
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
+
+/// fsync auf einem bereits geöffneten Deskriptor. Ein pfadbasiertes
+/// Nachöffnen würde genau die Identität verlieren, die die Deskriptorkette
+/// belegt (INV-1).
+#[cfg(target_os = "linux")]
+pub(super) fn sync_dir_fd(fd: RawFd) -> io::Result<()> {
+    loop {
+        let result = unsafe { libc::fsync(fd) };
+        if result == 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
+/// Öffnet oder erzeugt ein Unterverzeichnis relativ zu einem gebundenen
+/// Parent-Deskriptor. Anlegen und Öffnen bleiben damit an derselben
+/// Verzeichnisidentität; ein neu angelegtes Verzeichnis wird sofort
+/// synchronisiert.
+#[cfg(target_os = "linux")]
+pub(super) fn open_or_create_dir_at(parent_fd: RawFd, component: &OsStr) -> io::Result<OwnedFd> {
+    match open_dir_at(parent_fd, component) {
+        Ok(dir) => Ok(dir),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            const MODE_700: u32 = 0o700;
+            let component_name = component_name(component)?;
+            let created = unsafe { libc::mkdirat(parent_fd, component_name.as_ptr(), MODE_700) };
+            if created < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() != io::ErrorKind::AlreadyExists {
+                    return Err(error);
+                }
+            } else {
+                sync_dir_fd(parent_fd)?;
+            }
+            open_dir_at(parent_fd, component)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// Legt eine Datei exklusiv und symlinkfrei relativ zu einem gebundenen
+/// Parent-Deskriptor an. `O_EXCL` verhindert das Truncaten einer vorbereiteten
+/// Datei oder eines Symlinks, `O_NOFOLLOW` das Folgen eines solchen.
+#[cfg(target_os = "linux")]
+pub(super) fn create_exclusive_at(dir_fd: RawFd, name: &OsStr) -> io::Result<fs::File> {
+    const O_WRONLY: i32 = 1;
+    const O_CREAT: i32 = 0o100;
+    const O_EXCL: i32 = 0o200;
+    const O_NOFOLLOW: i32 = 0o400000;
+    const O_CLOEXEC: i32 = 0o2000000;
+    const MODE_600: u32 = 0o600;
+    let name = component_name(name)?;
+    let fd = unsafe {
+        libc::openat(
+            dir_fd,
+            name.as_ptr(),
+            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+            MODE_600,
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(unsafe { fs::File::from_raw_fd(fd) })
+}
+
+/// Benennt einen Eintrag relativ zu gebundenen Deskriptoren um. Beide Seiten
+/// bleiben an der geprüften Verzeichnisidentität; das Ziel wird ersetzt, ihm
+/// aber nicht gefolgt.
+#[cfg(target_os = "linux")]
+pub(super) fn rename_at(
+    from_dir_fd: RawFd,
+    from: &OsStr,
+    to_dir_fd: RawFd,
+    to: &OsStr,
+) -> io::Result<()> {
+    let from = component_name(from)?;
+    let to = component_name(to)?;
+    let result = unsafe { libc::renameat(from_dir_fd, from.as_ptr(), to_dir_fd, to.as_ptr()) };
+    if result < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Entfernt einen Eintrag relativ zu einem gebundenen Deskriptor.
+#[cfg(target_os = "linux")]
+pub(super) fn unlink_at(dir_fd: RawFd, name: &OsStr) -> io::Result<()> {
+    let name = component_name(name)?;
+    let result = unsafe { libc::unlinkat(dir_fd, name.as_ptr(), 0) };
+    if result < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "linux")]
 pub(super) fn open_absolute_dir(path: &Path) -> io::Result<OwnedFd> {
     const AT_FDCWD: RawFd = -100;
@@ -58,7 +153,7 @@ pub(super) fn open_absolute_dir(path: &Path) -> io::Result<OwnedFd> {
     let path = CString::new(path.as_os_str().as_bytes())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path contains NUL"))?;
     let fd = unsafe {
-        openat(
+        libc::openat(
             AT_FDCWD,
             path.as_ptr(),
             O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC,
@@ -77,9 +172,9 @@ where
     F: FnMut() + ?Sized,
 {
     let metadata = fs::metadata(canonical)
-        .map_err(|error| format!("cannot stat Steam root before open: {error}"))?;
+        .map_err(|error| format!("cannot stat {} before open: {error}", canonical.display()))?;
     if !metadata.is_dir() {
-        return Err("Steam root is not a directory".into());
+        return Err(format!("{} is not a directory", canonical.display()));
     }
     use std::os::unix::fs::MetadataExt;
     let expected = FdIdentity {
@@ -88,11 +183,18 @@ where
     };
     hook();
     let fd = open_absolute_dir(canonical)
-        .map_err(|error| format!("steam root descriptor open: {error}"))?;
-    let actual = fd_identity(fd.as_raw_fd())
-        .map_err(|error| format!("cannot stat Steam root descriptor: {error}"))?;
+        .map_err(|error| format!("{} descriptor open: {error}", canonical.display()))?;
+    let actual = fd_identity(fd.as_raw_fd()).map_err(|error| {
+        format!(
+            "cannot stat descriptor for {}: {error}",
+            canonical.display()
+        )
+    })?;
     if actual != expected {
-        return Err("Steam root changed while opening descriptor".into());
+        return Err(format!(
+            "{} changed while opening descriptor",
+            canonical.display()
+        ));
     }
     Ok(fd)
 }
@@ -104,7 +206,7 @@ pub(super) fn open_file_at(parent_fd: RawFd, name: &OsStr) -> io::Result<std::fs
     const O_CLOEXEC: i32 = 0o2000000;
     let name = component_name(name)?;
     let fd = unsafe {
-        openat(
+        libc::openat(
             parent_fd,
             name.as_ptr(),
             // FIFOs dürfen nicht schon vor der regulären Dateiprüfung blockieren.
