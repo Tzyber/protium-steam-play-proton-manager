@@ -4,11 +4,14 @@ export interface MeasurementInput {
   maxThreshold?: number;
   maxRegressionPct?: number;
   calibrationFactor?: number;
+  foreignHardwareFactor?: number;
+  maxRegressionPctForeign?: number;
 }
 
 export interface MeasurementResult {
   ok: boolean;
   allowed?: number;
+  tolerancePct?: number;
   reason?: string;
 }
 

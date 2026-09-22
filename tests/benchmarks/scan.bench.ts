@@ -16,7 +16,9 @@ import {
 } from "../support/scanPerformance";
 
 const MANUAL_RUNS = 5;
-const CALIBRATION_RUNS = 20;
+const CALIBRATION_RUNS = 5;
+/** Zehntel des Haupt-Fixtures: dieselbe Arbeit, kurz genug fuer jeden Lauf. */
+const CALIBRATION_GAME_COUNT = 50;
 const output: string[] = [];
 
 interface ScenarioMeasurements {
@@ -36,38 +38,33 @@ function printMeasurements(
   );
 }
 
-/** Kalibrierung: eine feste, rein lokale Rechenlast im selben Prozess. Sie
- *  macht die Schwellen maschinenunabhängig, weil ein langsamerer Rechner auch
- *  einen größeren Kalibrierwert liefert. Gemessen: der CI-Runner ist rund
- *  dreimal langsamer als der Entwicklungsrechner. */
-function measureCalibration(): number {
-  const line = `\t"AppID_0123456789"\t\t"Fester Wert mit Text und Zahlen 42"\n`;
-  const text = line.repeat(40000);
+/** Kalibrierung: dieselbe Arbeit wie im Scan (Manifeste von der Platte lesen
+ *  und parsen) an einem kleinen Fixture, im selben Prozess. Sie macht die
+ *  Schwellen maschinenunabhängig. Eine reine Rechenlast genügt dafür nicht:
+ *  gemessen war der CI-Runner bei einer Zeichenschleife nur 1,4-fach langsamer,
+ *  beim echten Scan aber 2,6-fach, weil dort Dateizugriffe und Allokationen
+ *  dazukommen. */
+async function measureCalibration(): Promise<number> {
   const values: number[] = [];
 
   for (let run = 0; run < CALIBRATION_RUNS; run += 1) {
-    const startedAt = performance.now();
-    let tokens = 0;
-    let inQuote = false;
-    let seen = 0;
-    for (let index = 0; index < text.length; index += 1) {
-      const character = text[index];
-      if (character === '"') {
-        inQuote = !inQuote;
-        continue;
+    const fixture = await buildScanPerformanceFixture({ gameCount: CALIBRATION_GAME_COUNT });
+    try {
+      const startedAt = performance.now();
+      const result = await scanGames(
+        nodeFs(),
+        fixture.root,
+        [fixture.root],
+        () => "default",
+        fixture.localConfigText,
+      );
+      values.push(performance.now() - startedAt);
+      if (result.games.length !== fixture.appIds.length) {
+        throw new Error("Kalibrierung ohne vollstaendiges Ergebnis");
       }
-      if (!inQuote && (character === "\t" || character === "\n")) {
-        if (seen > 0) {
-          tokens += seen;
-          seen = 0;
-        }
-        continue;
-      }
-      seen += 1;
+    } finally {
+      await fixture.cleanup();
     }
-    tokens += seen;
-    if (tokens === 0) throw new Error("Kalibrierung ohne Ergebnis");
-    values.push(performance.now() - startedAt);
   }
 
   return median(values);
@@ -154,8 +151,8 @@ async function measureScenario(scenario: ScanPerformanceScenario): Promise<void>
 }
 
 describe("scan performance fixture", () => {
-  it("kalibriert die Maschine", () => {
-    const value = measureCalibration();
+  it("kalibriert die Maschine", async () => {
+    const value = await measureCalibration();
     output.push(`[scan benchmark] calibrationMs raw=[] median=${value}`);
     expect(value).toBeGreaterThan(0);
   });

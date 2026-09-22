@@ -94,13 +94,15 @@ for (const match of outputContent.matchAll(linePattern)) {
     maxThreshold,
     maxRegressionPct,
     calibrationFactor,
+    foreignHardwareFactor: baseline.foreignHardwareFactor,
+    maxRegressionPctForeign: baseline.maxAllowedRegressionPercentOnForeignHardware,
   });
   const allowedText =
     typeof result.allowed === "number" ? `${result.allowed.toFixed(1)} ms` : "unbekannt";
   if (result.ok) {
     console.log(
       `[bench:gate] OK: ${key} = ${medianMs.toFixed(1)} ms ` +
-        `(Baseline: ${baseMs ?? "-"} ms, erlaubt: ${allowedText})`,
+        `(Baseline: ${baseMs ?? "-"} ms, Toleranz: ${result.tolerancePct ?? maxRegressionPct} Prozent, erlaubt: ${allowedText})`,
     );
   } else {
     failed = true;

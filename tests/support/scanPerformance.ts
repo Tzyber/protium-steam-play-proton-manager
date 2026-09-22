@@ -105,17 +105,20 @@ ${apps}\t\t\t\t}
 `;
 };
 
-export async function buildScanPerformanceFixture(): Promise<ScanPerformanceFixture> {
+/** `gameCount` verkleinert das Fixture für die Kalibrierung des Bench-Gates:
+ *  dieselbe Arbeit an weniger Spielen, damit die Messung die Maschine
+ *  widerspiegelt, ohne den Durchlauf zu verlängern. */
+export async function buildScanPerformanceFixture(options?: {
+  gameCount?: number;
+}): Promise<ScanPerformanceFixture> {
+  const gameCount = options?.gameCount ?? SCAN_FIXTURE_GAME_COUNT;
   const tempRoot = await mkdtemp(join(tmpdir(), "protium-scan-"));
   const root = join(tempRoot, "Steam");
   const appsDir = join(root, "steamapps");
   const configDir = join(root, "config");
   const userConfigDir = join(root, "userdata", "1", "config");
   const cacheDir = join(root, "appcache", "librarycache");
-  const appIds = Array.from(
-    { length: SCAN_FIXTURE_GAME_COUNT },
-    (_, index) => SCAN_FIXTURE_FIRST_APP_ID + index,
-  );
+  const appIds = Array.from({ length: gameCount }, (_, index) => SCAN_FIXTURE_FIRST_APP_ID + index);
   const headerAppIds = appIds.slice(0, SCAN_FIXTURE_HEADER_COUNT);
   const launchOptionAppIds = appIds.filter(
     (_, index) => index % SCAN_FIXTURE_LAUNCH_OPTION_EVERY === 0,

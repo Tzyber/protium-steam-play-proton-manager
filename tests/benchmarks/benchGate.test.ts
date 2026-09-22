@@ -73,6 +73,37 @@ describe("bench-gate schwellen (N5)", () => {
     expect(tooSlow.reason).toContain("kalibriert");
   });
 
+  it("nutzt auf fremder hardware die weitere toleranz aus der baseline", () => {
+    // Der CI-Laeufer streut staerker; dort gilt die dokumentierte Toleranz
+    // aus der Baseline statt der 25 Prozent der Referenzmaschine.
+    const foreign = evaluateMeasurement({
+      medianMs: 120,
+      baseMs: 45,
+      maxThreshold: 120,
+      maxRegressionPct: 25,
+      calibrationFactor: 2.6,
+      foreignHardwareFactor: 1.5,
+      maxRegressionPctForeign: 40,
+    });
+    expect(foreign.ok).toBe(true);
+    expect(foreign.tolerancePct).toBe(40);
+    expect(foreign.allowed).toBeCloseTo(163.8, 1);
+
+    // Auf der Referenzmaschine bleibt es bei 25 Prozent (erlaubt 67,5 ms).
+    const reference = evaluateMeasurement({
+      medianMs: 70,
+      baseMs: 45,
+      maxThreshold: 120,
+      maxRegressionPct: 25,
+      calibrationFactor: 1.2,
+      foreignHardwareFactor: 1.5,
+      maxRegressionPctForeign: 40,
+    });
+    expect(reference.ok).toBe(false);
+    expect(reference.tolerancePct).toBe(25);
+    expect(reference.allowed).toBeCloseTo(67.5, 1);
+  });
+
   it("behandelt einen fehlenden oder unsinnigen faktor als 1", () => {
     const withoutFactor = evaluateMeasurement({
       medianMs: 45,
