@@ -14,8 +14,12 @@ use tauri::Manager;
 
 use crate::commands::compat_auth::is_authorized_compat_tool;
 use crate::commands::errcode;
+use crate::commands::fd;
 #[cfg(target_os = "linux")]
-use crate::commands::fd::{component_name, open_bound_root_fd, open_dir_at, read_fd_text};
+use crate::commands::fd::{
+    component_name, open_absolute_dir, open_bound_root_fd, open_or_create_dir_at, read_fd_text,
+    sync_dir_fd,
+};
 use crate::commands::fs_ops::is_process_running_sync;
 use crate::commands::path::{is_safe_path, random_suffix, sanitize_path};
 use crate::commands::spawn_blocking_io;
@@ -28,6 +32,21 @@ const STEAM_COMPAT_PRIORITY: &str = "250";
 /// Eine präparierte oder aufgeblähte Datei darf keinen Speicherversuch
 /// in eine Voll-Allokation (OOM) treiben.
 const MAX_CONFIG_VDF_BYTES: u64 = crate::commands::scope::MAX_VDF_READ_BYTES;
+
+/// Gedeckelter Eingabewert des Write-Gate-IPC. Der Wert wird gepatcht,
+/// mehrfach kopiert und landet in der Config; ein beliebig großer String ist
+/// weder ein realistischer Startoptionen-Wert noch ein realistischer Toolname.
+const MAX_PATCH_VALUE_BYTES: u64 = 16 * 1024;
+
+/// Das Write-Gate schreibt nur Text, den es anschließend selbst wieder lesen
+/// kann: ein gepatchter Text über der Lesegrenze erzeugte sonst eine dauerhaft
+/// unlesbare Config.
+fn ensure_size(text: &str, limit: u64, label: &str) -> Result<(), String> {
+    if text.len() as u64 > limit {
+        return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
+    }
+    Ok(())
+}
 
 #[cfg(target_os = "linux")]
 fn read_config_text_bounded(path: &Path, label: &str) -> Result<String, String> {
@@ -98,49 +117,6 @@ fn is_steam_config_path(file: &Path, home: &Path) -> bool {
 }
 
 #[cfg(target_os = "linux")]
-fn sync_dir_fd(fd: RawFd) -> io::Result<()> {
-    loop {
-        let result = unsafe { libc::fsync(fd) };
-        if result == 0 {
-            return Ok(());
-        }
-        let error = io::Error::last_os_error();
-        if error.kind() != io::ErrorKind::Interrupted {
-            return Err(error);
-        }
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn open_or_create_dir_at(parent_fd: RawFd, component: &OsStr) -> io::Result<OwnedFd> {
-    match open_dir_at(parent_fd, component) {
-        Ok(dir) => Ok(dir),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            const MODE_700: u32 = 0o700;
-            let component_name = component_name(component)?;
-            let created = unsafe { mkdirat(parent_fd, component_name.as_ptr(), MODE_700) };
-            if created < 0 {
-                let error = io::Error::last_os_error();
-                if error.kind() != io::ErrorKind::AlreadyExists {
-                    return Err(error);
-                }
-            } else {
-                sync_dir_fd(parent_fd)?;
-            }
-            open_dir_at(parent_fd, component)
-        }
-        Err(error) => Err(error),
-    }
-}
-
-#[cfg(target_os = "linux")]
-extern "C" {
-    fn openat(dirfd: RawFd, pathname: *const i8, flags: i32, mode: u32) -> i32;
-    fn mkdirat(dirfd: RawFd, pathname: *const i8, mode: u32) -> i32;
-    fn unlinkat(dirfd: RawFd, pathname: *const i8, flags: i32) -> i32;
-}
-
-#[cfg(target_os = "linux")]
 fn open_backup_target_no_follow(
     relative: &Path,
     backup_dir: &Path,
@@ -163,22 +139,7 @@ fn open_backup_target_no_follow(
         }
     };
 
-    let backup_dir_c = CString::new(backup_dir.as_os_str().as_bytes())
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "backup_dir contains NUL byte"))?;
-    const O_RDONLY: i32 = 0;
-    const O_DIRECTORY: i32 = 0o200000;
-    let root_fd = unsafe {
-        openat(
-            -100, // AT_FDCWD
-            backup_dir_c.as_ptr(),
-            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC,
-            0,
-        )
-    };
-    if root_fd < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let mut current_dir = unsafe { OwnedFd::from_raw_fd(root_fd) };
+    let mut current_dir = open_absolute_dir(backup_dir)?;
 
     for component in components {
         let name = match component {
@@ -194,7 +155,7 @@ fn open_backup_target_no_follow(
     }
 
     let raw_fd = unsafe {
-        openat(
+        libc::openat(
             current_dir.as_raw_fd(),
             file_name.as_ptr(),
             O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
@@ -210,9 +171,7 @@ fn open_backup_target_no_follow(
 
 #[cfg(target_os = "linux")]
 fn unlink_backup_entry(dir_fd: RawFd, file_name: &CString) {
-    unsafe {
-        let _ = unlinkat(dir_fd, file_name.as_ptr(), 0);
-    }
+    let _ = fd::unlink_at(dir_fd, OsStr::from_bytes(file_name.as_bytes()));
 }
 
 #[cfg(target_os = "linux")]
@@ -269,6 +228,9 @@ fn write_backup_no_follow(
 
 #[derive(Debug, PartialEq, Eq)]
 enum PersistAtomicError {
+    /// Vor dem rename abgebrochen (z. B. Steam gestartet): das Ziel ist
+    /// byteidentisch, der Fehler trägt einen kanonischen Code.
+    Aborted(String),
     BeforeRename(String),
     AfterRename(String),
 }
@@ -276,6 +238,7 @@ enum PersistAtomicError {
 impl std::fmt::Display for PersistAtomicError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Aborted(error) => write!(formatter, "{error}"),
             Self::BeforeRename(error) => write!(formatter, "write not applied: {error}"),
             Self::AfterRename(error) => {
                 write!(formatter, "write may have been applied: {error}")
@@ -284,23 +247,48 @@ impl std::fmt::Display for PersistAtomicError {
     }
 }
 
-fn persist_atomic_with_ops<S, R, D>(
-    tmp: &Path,
-    canon: &Path,
+// Testhaken der descriptorgebundenen Sequenz: im Bindefenster (zwischen Stat
+// und Open des Parents), unmittelbar vor der Temp-Anlage und unmittelbar vor
+// dem Rename. Produktionsbuilds enthalten sie nicht, damit es dort keinen
+// Aufsatzpunkt gibt, über den sich der Pfad austauschen ließe.
+#[cfg(test)]
+type PersistProbe = Box<dyn FnMut()>;
+#[cfg(test)]
+type PersistTempProbe = Box<dyn FnMut(&OsStr)>;
+
+#[cfg(test)]
+thread_local! {
+    static PERSIST_BIND_PROBE: std::cell::RefCell<Option<PersistProbe>> =
+        const { std::cell::RefCell::new(None) };
+    static PERSIST_TEMP_PROBE: std::cell::RefCell<Option<PersistTempProbe>> =
+        const { std::cell::RefCell::new(None) };
+    static PERSIST_RENAME_PROBE: std::cell::RefCell<Option<PersistProbe>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Die fehler-injizierbaren Schritte der Sequenz. Produktiv sind sie die
+/// echten Deskriptor-Operationen; Fehlerpfadtests ersetzen einzelne davon.
+struct PersistOps<'a> {
+    sync_file: &'a mut dyn FnMut(&mut fs::File) -> io::Result<()>,
+    before_rename: &'a mut dyn FnMut() -> Result<(), String>,
+    rename: &'a mut dyn FnMut(RawFd, &OsStr, RawFd, &OsStr) -> io::Result<()>,
+    sync_parent: &'a mut dyn FnMut(RawFd) -> io::Result<()>,
+}
+
+/// Crash-durable Sequenz über den gebundenen Parent-Deskriptor: exklusive und
+/// symlinkfreie Temp-Anlage, Daten-fsync, Prüfung unmittelbar vor der
+/// irreversiblen Mutation, `renameat` auf denselben Deskriptor und Parent-fsync
+/// über denselben Deskriptor. Ein Fehler vor dem Rename lässt das Ziel
+/// unverändert und räumt die Temp-Datei auf; nach dem Rename meldet ein
+/// Parent-fsync-Fehler eine mögliche Mutation.
+fn persist_atomic_with_ops(
+    dir_fd: RawFd,
+    tmp_name: &OsStr,
+    target_name: &OsStr,
     bytes: &[u8],
-    sync_file: &mut S,
-    rename: &mut R,
-    sync_parent: &mut D,
-) -> Result<(), PersistAtomicError>
-where
-    S: FnMut(&mut fs::File) -> io::Result<()>,
-    R: FnMut(&Path, &Path) -> io::Result<()>,
-    D: FnMut(&Path) -> io::Result<()>,
-{
-    let parent = canon
-        .parent()
-        .ok_or_else(|| PersistAtomicError::BeforeRename("atomic write: no parent dir".into()))?;
-    let mut file = match fs::File::create(tmp) {
+    ops: &mut PersistOps<'_>,
+) -> Result<(), PersistAtomicError> {
+    let mut file = match fd::create_exclusive_at(dir_fd, tmp_name) {
         Ok(file) => file,
         Err(error) => {
             return Err(PersistAtomicError::BeforeRename(format!(
@@ -308,21 +296,28 @@ where
             )))
         }
     };
-    if let Err(error) = file.write_all(bytes).and_then(|()| sync_file(&mut file)) {
+    if let Err(error) = file
+        .write_all(bytes)
+        .and_then(|()| (ops.sync_file)(&mut file))
+    {
         drop(file);
-        let _ = fs::remove_file(tmp);
+        let _ = fd::unlink_at(dir_fd, tmp_name);
         return Err(PersistAtomicError::BeforeRename(format!(
             "atomic write: {error}"
         )));
     }
     drop(file);
-    if let Err(error) = rename(tmp, canon) {
-        let _ = fs::remove_file(tmp);
+    if let Err(error) = (ops.before_rename)() {
+        let _ = fd::unlink_at(dir_fd, tmp_name);
+        return Err(PersistAtomicError::Aborted(error));
+    }
+    if let Err(error) = (ops.rename)(dir_fd, tmp_name, dir_fd, target_name) {
+        let _ = fd::unlink_at(dir_fd, tmp_name);
         return Err(PersistAtomicError::BeforeRename(format!(
             "atomic write: {error}"
         )));
     }
-    if let Err(error) = sync_parent(parent) {
+    if let Err(error) = (ops.sync_parent)(dir_fd) {
         return Err(PersistAtomicError::AfterRename(format!(
             "atomic write (parent sync): {error}"
         )));
@@ -330,23 +325,68 @@ where
     Ok(())
 }
 
-/// Schreibt die gepatchte Config crash-durable: Daten-fsync vor dem Rename,
-/// fsync des Parent-Verzeichnisses danach. Ein Fehler vor dem Rename lässt
-/// das Ziel unverändert und räumt die Temp-Datei auf. Nach dem Rename wird
-/// ein Parent-fsync-Fehler als mögliche Mutation gemeldet.
-fn persist_atomic(tmp: &Path, canon: &Path, bytes: &[u8]) -> Result<(), PersistAtomicError> {
+/// Bindet den Parent-Deskriptor des Ziels und führt die Sequenz mit den
+/// produktiven Operationen aus. `process_reader` wird unmittelbar vor dem
+/// Rename ein letztes Mal befragt: startet Steam in diesem Fenster, endet der
+/// Vorgang ohne Mutation.
+fn persist_atomic<F>(
+    target: &Path,
+    bytes: &[u8],
+    process_reader: &mut F,
+) -> Result<(), PersistAtomicError>
+where
+    F: FnMut() -> Result<bool, String>,
+{
+    let parent = target
+        .parent()
+        .ok_or_else(|| PersistAtomicError::BeforeRename("atomic write: no parent dir".into()))?;
+    let target_name = target
+        .file_name()
+        .ok_or_else(|| PersistAtomicError::BeforeRename("atomic write: no file name".into()))?;
+    let dir = open_bound_root_fd(parent, &mut || {
+        #[cfg(test)]
+        PERSIST_BIND_PROBE.with(|slot| {
+            if let Some(hook) = slot.borrow_mut().as_mut() {
+                hook();
+            }
+        });
+    })
+    .map_err(PersistAtomicError::BeforeRename)?;
+    let tmp_name = std::ffi::OsString::from(format!(
+        ".{}.{}.tmp",
+        target_name.to_string_lossy(),
+        random_suffix()
+    ));
+    #[cfg(test)]
+    PERSIST_TEMP_PROBE.with(|slot| {
+        if let Some(hook) = slot.borrow_mut().as_mut() {
+            hook(&tmp_name);
+        }
+    });
     let mut sync_file = |file: &mut fs::File| file.sync_all();
-    let mut rename = |from: &Path, to: &Path| fs::rename(from, to);
-    let mut sync_parent =
-        |parent: &Path| fs::File::open(parent).and_then(|directory| directory.sync_all());
-    persist_atomic_with_ops(
-        tmp,
-        canon,
-        bytes,
-        &mut sync_file,
-        &mut rename,
-        &mut sync_parent,
-    )
+    let mut before_rename = || {
+        if process_reader()? {
+            return Err(errcode::STEAM_RUNNING.to_string());
+        }
+        #[cfg(test)]
+        PERSIST_RENAME_PROBE.with(|slot| {
+            if let Some(hook) = slot.borrow_mut().as_mut() {
+                hook();
+            }
+        });
+        Ok(())
+    };
+    let mut rename = |from_dir: RawFd, from: &OsStr, to_dir: RawFd, to: &OsStr| {
+        fd::rename_at(from_dir, from, to_dir, to)
+    };
+    let mut sync_parent = fd::sync_dir_fd;
+    let mut ops = PersistOps {
+        sync_file: &mut sync_file,
+        before_rename: &mut before_rename,
+        rename: &mut rename,
+        sync_parent: &mut sync_parent,
+    };
+    persist_atomic_with_ops(dir.as_raw_fd(), &tmp_name, target_name, bytes, &mut ops)
 }
 
 /// Serialisiert den Read–Modify–Write-vorgang pro zieldatei (INV-1): zwei
@@ -398,6 +438,7 @@ where
     }
     crate::commands::scope::parse_app_id(&app_id.to_string())
         .map_err(|_| "invalid app id".to_string())?;
+    ensure_size(launch_options, MAX_PATCH_VALUE_BYTES, "launch options")?;
     if process_reader()? {
         return Err(errcode::STEAM_RUNNING.into());
     }
@@ -453,6 +494,7 @@ where
     if patched == original {
         return Ok(WriteResult::Unchanged);
     }
+    ensure_size(&patched, MAX_CONFIG_VDF_BYTES, "patched config")?;
 
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -465,16 +507,7 @@ where
     }
     write_backup_no_follow(&backup_rel, backup_dir, &original)?;
 
-    let parent = canon.parent().ok_or_else(|| "no parent dir".to_string())?;
-    let name = canon
-        .file_name()
-        .ok_or_else(|| "no file name".to_string())?;
-    let tmp = parent.join(format!(
-        ".{}.{}.tmp",
-        name.to_string_lossy(),
-        random_suffix()
-    ));
-    let write_result = persist_atomic(&tmp, &canon, patched.as_bytes());
+    let write_result = persist_atomic(&canon, patched.as_bytes(), process_reader);
     if let Err(e) = write_result {
         return Err(e.to_string());
     }
@@ -496,6 +529,11 @@ where
     sanitize_path(steam_root, "steam root")?;
     crate::commands::scope::parse_app_id(&app_id.to_string())
         .map_err(|_| "invalid app id".to_string())?;
+    ensure_size(
+        tool_name.unwrap_or_default(),
+        MAX_PATCH_VALUE_BYTES,
+        "compat tool name",
+    )?;
     if process_reader()? {
         return Err(errcode::STEAM_RUNNING.into());
     }
@@ -593,6 +631,7 @@ where
     if patched == original {
         return Ok(WriteResult::Unchanged);
     }
+    ensure_size(&patched, MAX_CONFIG_VDF_BYTES, "patched config")?;
 
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -604,16 +643,7 @@ where
     }
     write_backup_no_follow(&backup_rel, backup_dir, &original)?;
 
-    let parent = canon.parent().ok_or_else(|| "no parent dir".to_string())?;
-    let name = canon
-        .file_name()
-        .ok_or_else(|| "no file name".to_string())?;
-    let tmp = parent.join(format!(
-        ".{}.{}.tmp",
-        name.to_string_lossy(),
-        random_suffix()
-    ));
-    let write_result = persist_atomic(&tmp, &canon, patched.as_bytes());
+    let write_result = persist_atomic(&canon, patched.as_bytes(), process_reader);
     if let Err(e) = write_result {
         return Err(e.to_string());
     }

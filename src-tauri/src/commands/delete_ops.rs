@@ -12,7 +12,7 @@ use crate::commands::cleanup::TRASH_DIR_NAME;
 use crate::commands::delete_inspect::inspect_deletion_target;
 use crate::commands::delete_inspect::{DeleteConsequence, DeletionInspection};
 use crate::commands::errcode;
-use crate::commands::scope::EnvironmentState;
+use crate::commands::scope::{EnvironmentSnapshot, EnvironmentState};
 
 pub const DELETE_TOKEN_TTL_SECS: u64 = 300;
 
@@ -339,22 +339,44 @@ impl Drop for ClaimRestoreGuard<'_> {
     }
 }
 
+/// Bindet den angeforderten Steam-Root an den aktuellen Snapshot (F1): ein
+/// autorisierter Nachbarpfad — etwa eine externe Library — darf nicht als Root
+/// für die Lösch-Inspektion dienen, sonst liest die Inspektion `userdata`
+/// unter einem fremden Verzeichnis und hält echte Einträge für verwaist.
+fn ensure_current_steam_root(
+    steam_root: &str,
+    snapshot: &EnvironmentSnapshot,
+) -> Result<(), String> {
+    let canonical = fs::canonicalize(steam_root).map_err(|error| {
+        errcode::with_detail(errcode::NOT_FOUND, format!("steam root: {error}"))
+    })?;
+    if canonical != snapshot.steam_root {
+        return Err(errcode::with_detail(
+            errcode::BLOCKED_LOCATION,
+            "steam root is not the current environment root",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn prepare_delete_inner(
     registry: &PendingDeleteRegistry,
     request: &PrepareDeleteRequest,
-    scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
+    snapshot: &EnvironmentSnapshot,
     is_steam_running_fn: impl Fn() -> Result<bool, String>,
 ) -> Result<PendingDeleteInfo, String> {
     let steam_running = is_steam_running_fn()?;
     if request.target_type != "trash" && steam_running {
         return Err(errcode::STEAM_RUNNING.into());
     }
+    ensure_current_steam_root(&request.steam_root, snapshot)?;
 
+    let scope_ok = |path: &Path| snapshot.authorizes(path);
     let inspection = inspect_deletion_target(
         &request.steam_root,
         &request.target_type,
         &request.path,
-        scope_ok,
+        &scope_ok,
     )?;
     prepare_delete_with_inspection(registry, request, inspection)
 }
@@ -643,7 +665,7 @@ pub async fn prepare_delete(
     let snapshot = env.current()?;
     let registry = (*state).clone();
     crate::commands::spawn_blocking_io(move || {
-        prepare_delete_inner(&registry, &request, &|p| snapshot.authorizes(p), || {
+        prepare_delete_inner(&registry, &request, &snapshot, || {
             crate::commands::fs_ops::is_process_running_sync("steam")
         })
     })

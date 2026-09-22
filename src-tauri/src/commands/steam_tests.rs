@@ -308,6 +308,141 @@ fn save_launch_options_uebergroesse_lehnt_ab_ohne_seiteneffekt() {
 }
 
 #[test]
+fn save_launch_options_zu_grosser_eingabewert_lehnt_ab_ohne_seiteneffekt() {
+    // N8: das 16-MiB-limit gilt nur für den read; ein beliebig großer
+    // IPC-wert würde mehrfach kopiert und die config aufblähen.
+    let (home, cache, steam) = wsg_env("launch-value-oversize");
+    let target = steam.join("userdata/123/config/localconfig.vdf");
+    let before = std::fs::read_to_string(&target).unwrap();
+    let oversized = "x".repeat(usize::try_from(MAX_PATCH_VALUE_BYTES).unwrap() + 1);
+    let mut reader = || Ok(false);
+
+    let res = save_launch_options_inner(
+        steam.to_str().unwrap(),
+        "123",
+        620,
+        &oversized,
+        &cache,
+        &home,
+        &mut reader,
+    );
+    let err = res.unwrap_err();
+    assert!(
+        err.contains("size-limit-exceeded"),
+        "unexpected error: {err}"
+    );
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), before);
+    assert!(!cache.join("backups").exists());
+    let _ = std::fs::remove_dir_all(home.parent().unwrap());
+}
+
+#[test]
+fn save_launch_options_exakt_an_der_eingabegrenze_wird_geschrieben() {
+    let (home, cache, steam) = wsg_env("launch-value-boundary");
+    let target = steam.join("userdata/123/config/localconfig.vdf");
+    let boundary = "x".repeat(usize::try_from(MAX_PATCH_VALUE_BYTES).unwrap());
+    let mut reader = || Ok(false);
+
+    let res = save_launch_options_inner(
+        steam.to_str().unwrap(),
+        "123",
+        620,
+        &boundary,
+        &cache,
+        &home,
+        &mut reader,
+    );
+
+    assert_eq!(res.unwrap(), WriteResult::Written);
+    assert!(std::fs::read_to_string(&target)
+        .unwrap()
+        .contains(&boundary));
+    let _ = std::fs::remove_dir_all(home.parent().unwrap());
+}
+
+#[test]
+fn save_launch_options_lehnt_gepatchten_text_ueber_der_lesegrenze_ab() {
+    // N8: der gepatchte text muss unter der lesegrenze bleiben, sonst
+    // entstünde eine config, die protium selbst nicht mehr liest.
+    let (home, cache, steam) = wsg_env("launch-patched-oversize");
+    let target = steam.join("userdata/123/config/localconfig.vdf");
+    let head = r#""UserLocalConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"Apps"
+				{
+					"620"
+					{
+						"LaunchOptions"		"alt"
+					}
+				}
+			}
+		}
+	}
+	"Pad"		""
+}
+"#;
+    let pad_len = usize::try_from(MAX_CONFIG_VDF_BYTES).unwrap() - head.len() - 256;
+    let padded = head.replace(
+        "\"Pad\"\t\t\"\"",
+        &format!("\"Pad\"\t\t\"{}\"", "p".repeat(pad_len)),
+    );
+    assert!(padded.len() as u64 <= MAX_CONFIG_VDF_BYTES);
+    std::fs::write(&target, &padded).unwrap();
+    let mut reader = || Ok(false);
+    let growing = "y".repeat(usize::try_from(MAX_PATCH_VALUE_BYTES).unwrap());
+
+    let res = save_launch_options_inner(
+        steam.to_str().unwrap(),
+        "123",
+        620,
+        &growing,
+        &cache,
+        &home,
+        &mut reader,
+    );
+    let err = res.unwrap_err();
+    assert!(
+        err.contains("size-limit-exceeded"),
+        "unexpected error: {err}"
+    );
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), padded);
+    assert!(!cache.join("backups").exists());
+    let _ = std::fs::remove_dir_all(home.parent().unwrap());
+}
+
+#[test]
+fn save_compat_tool_zu_langer_name_lehnt_ab_ohne_seiteneffekt() {
+    let (home, cache, steam) = wsg_env("compat-name-oversize");
+    let target = steam.join("config/config.vdf");
+    let before = std::fs::read_to_string(&target).unwrap();
+    let oversized = "x".repeat(usize::try_from(MAX_PATCH_VALUE_BYTES).unwrap() + 1);
+    let mut reader = || Ok(false);
+
+    let res = save_compat_tool_inner(
+        steam.to_str().unwrap(),
+        620,
+        Some(&oversized),
+        &cache,
+        &home,
+        &mut reader,
+    );
+    let err = res.unwrap_err();
+    assert!(
+        err.contains("size-limit-exceeded"),
+        "unexpected error: {err}"
+    );
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), before);
+    assert!(!cache.join("backups").exists());
+    let _ = std::fs::remove_dir_all(home.parent().unwrap());
+}
+
+#[test]
 fn save_launch_options_exakt_an_der_lesegrenze_kein_read_limit_fehler() {
     let (home, cache, steam) = wsg_env("launch-boundary");
     let target = steam.join("userdata/123/config/localconfig.vdf");
@@ -371,33 +506,51 @@ fn save_compat_tool_uebergroesse_lehnt_ab_ohne_seiteneffekt() {
 fn write_gate_bleibt_crash_durable_gesichert() {
     // statischer schutz: die dokumentierte write-gate-garantie (atomarer
     // rename PLUS durable inhalte) darf nicht still auf temp+rename
-    // ohne fsync zurückfallen.
+    // ohne fsync zurückfallen. seit N1 muss die sequenz zusätzlich
+    // descriptorgebunden sein: keine pfadbasierten operationen mehr.
     let source = include_str!("steam.rs");
     let production = production_source(source);
     let persist_body = production
-        .split("fn persist_atomic(")
+        .split("fn persist_atomic_with_ops")
         .nth(1)
-        .expect("persist_atomic must exist in production source")
-        .split("pub(super) fn save_launch_options_inner")
+        .expect("persist_atomic_with_ops must exist in production source")
+        .split("fn persist_atomic<")
         .next()
-        .expect("persist_atomic must be defined before the write paths");
+        .expect("persist_atomic_with_ops must be defined before persist_atomic");
 
-    let tmp_sync = persist_body.find("file.sync_all()");
-    let rename = persist_body.find("fs::rename");
+    let tmp_sync = persist_body.find("(ops.sync_file)(&mut file)");
+    let check = persist_body.find("(ops.before_rename)()");
+    let rename = persist_body.find("(ops.rename)(dir_fd, tmp_name, dir_fd, target_name)");
     assert!(
-        tmp_sync.is_some() && rename.is_some() && tmp_sync.unwrap() < rename.unwrap(),
+        tmp_sync.is_some() && check.is_some() && rename.is_some(),
+        "temp-sync, letzte prüfung und rename müssen vorhanden sein"
+    );
+    assert!(
+        tmp_sync.unwrap() < rename.unwrap(),
         "temp-sync muss vor dem rename laufen"
     );
-    let parent_sync = persist_body.find("File::open(parent)");
-    assert!(parent_sync.is_some(), "parent-fsync nach rename fehlt");
     assert!(
-        persist_body.matches("sync_all()").count() >= 2,
-        "tmp- und parent-sync müssen beide vorhanden sein"
+        check.unwrap() < rename.unwrap(),
+        "die letzte prüfung muss unmittelbar vor dem rename laufen"
     );
+    assert!(
+        persist_body.contains("(ops.sync_parent)(dir_fd)"),
+        "parent-fsync muss über den gebundenen deskriptor laufen"
+    );
+    assert!(
+        persist_body.contains("fd::create_exclusive_at") && persist_body.contains("fd::unlink_at"),
+        "temp-anlage und aufräumen müssen über die deskriptor-helfer laufen"
+    );
+    for verboten in ["fs::File::create", "fs::rename", "fs::remove_file"] {
+        assert!(
+            !persist_body.contains(verboten),
+            "pfadbasierte operation im persist-pfad: {verboten}"
+        );
+    }
     // beide write-pfade nutzen die gemeinsame funktion
     assert_eq!(
         production
-            .matches("persist_atomic(&tmp, &canon, patched.as_bytes())")
+            .matches("persist_atomic(&canon, patched.as_bytes(), process_reader)")
             .count(),
         2,
         "beide write-pfade müssen persist_atomic nutzen"
@@ -415,19 +568,22 @@ fn write_gate_bleibt_crash_durable_gesichert() {
         production.contains("let mut sync_directory = sync_dir_fd"),
         "produktiver backup-pfad muss den echten descriptor-fsync verwenden"
     );
+    // die deskriptor-helfer selbst liegen in fd.rs; neu angelegte verzeichnisse
+    // syncen ihren parent, und der directory-fsync ist kein follow-open
+    let fd_source = include_str!("fd.rs");
     assert!(
-        production.contains("sync_dir_fd(parent_fd)"),
-        "neu angelegte backup-verzeichnisse müssen ihren parent synchronisieren"
+        fd_source.contains("sync_dir_fd(parent_fd)"),
+        "neu angelegte verzeichnisse müssen ihren parent synchronisieren"
     );
     assert!(
-        production.contains("libc::fsync(fd)"),
+        fd_source.contains("libc::fsync(fd)"),
         "directory-fsync darf nicht auf einem pfad-basierten follow-open beruhen"
     );
     let backup_call = production
         .find("write_backup_no_follow(&backup_rel, backup_dir, &original)?;")
         .expect("backup muss vor dem target-write abgeschlossen werden");
     let target_call = production
-        .find("let write_result = persist_atomic(&tmp, &canon, patched.as_bytes());")
+        .find("let write_result = persist_atomic(&canon, patched.as_bytes(), process_reader);")
         .expect("target-write muss im write-gate vorhanden sein");
     assert!(
         backup_call < target_call,
@@ -435,95 +591,292 @@ fn write_gate_bleibt_crash_durable_gesichert() {
     );
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn persist_atomic_temp_sync_fehler_laesst_ziel_unveraendert_und_raeumt_temp() {
     let root = wsg_fixture("persist-temp-sync-error");
     let target = root.join("config.vdf");
-    let temp = root.join(".config.vdf.tmp");
+    let tmp_name = OsStr::new(".config.vdf.tmp");
     std::fs::write(&target, "alt").unwrap();
+    let dir = open_absolute_dir(&root).unwrap();
 
     let mut sync_file =
         |_file: &mut std::fs::File| Err(std::io::Error::other("injected temp sync failure"));
-    let mut rename = |_from: &std::path::Path, _to: &std::path::Path| {
+    let mut before_rename =
+        || -> Result<(), String> { panic!("prüfung darf vor temp-sync nicht erreicht werden") };
+    let mut rename = |_from_dir: RawFd, _from: &OsStr, _to_dir: RawFd, _to: &OsStr| {
         panic!("rename darf vor temp-sync nicht erreicht werden")
     };
-    let mut sync_parent =
-        |_parent: &std::path::Path| panic!("parent-sync darf vor rename nicht erreicht werden");
+    let mut sync_parent = |_fd: RawFd| panic!("parent-sync darf vor rename nicht erreicht werden");
 
     let error = persist_atomic_with_ops(
-        &temp,
-        &target,
+        dir.as_raw_fd(),
+        tmp_name,
+        OsStr::new("config.vdf"),
         b"neu",
-        &mut sync_file,
-        &mut rename,
-        &mut sync_parent,
+        &mut PersistOps {
+            sync_file: &mut sync_file,
+            before_rename: &mut before_rename,
+            rename: &mut rename,
+            sync_parent: &mut sync_parent,
+        },
     )
     .unwrap_err();
 
     assert!(matches!(error, PersistAtomicError::BeforeRename(_)));
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "alt");
-    assert!(!temp.exists());
+    assert!(!root.join(tmp_name).exists());
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn persist_atomic_rename_fehler_laesst_ziel_unveraendert_und_raeumt_temp() {
     let root = wsg_fixture("persist-rename-error");
     let target = root.join("config.vdf");
-    let temp = root.join(".config.vdf.tmp");
+    let tmp_name = OsStr::new(".config.vdf.tmp");
     std::fs::write(&target, "alt").unwrap();
+    let dir = open_absolute_dir(&root).unwrap();
 
     let mut sync_file = |file: &mut std::fs::File| file.sync_all();
-    let mut rename = |_from: &std::path::Path, _to: &std::path::Path| {
+    let mut before_rename = || -> Result<(), String> { Ok(()) };
+    let mut rename = |_from_dir: RawFd, _from: &OsStr, _to_dir: RawFd, _to: &OsStr| {
         Err(std::io::Error::other("injected rename failure"))
     };
-    let mut sync_parent = |_parent: &std::path::Path| {
-        panic!("parent-sync darf nach fehlgeschlagenem rename nicht erreicht werden")
-    };
+    let mut sync_parent =
+        |_fd: RawFd| panic!("parent-sync darf nach fehlgeschlagenem rename nicht erreicht werden");
 
     let error = persist_atomic_with_ops(
-        &temp,
-        &target,
+        dir.as_raw_fd(),
+        tmp_name,
+        OsStr::new("config.vdf"),
         b"neu",
-        &mut sync_file,
-        &mut rename,
-        &mut sync_parent,
+        &mut PersistOps {
+            sync_file: &mut sync_file,
+            before_rename: &mut before_rename,
+            rename: &mut rename,
+            sync_parent: &mut sync_parent,
+        },
     )
     .unwrap_err();
 
     assert!(matches!(error, PersistAtomicError::BeforeRename(_)));
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "alt");
-    assert!(!temp.exists());
+    assert!(!root.join(tmp_name).exists());
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn persist_atomic_parent_sync_fehler_signalisiert_moegliche_mutation() {
     let root = wsg_fixture("persist-parent-sync-error");
     let target = root.join("config.vdf");
-    let temp = root.join(".config.vdf.tmp");
+    let tmp_name = OsStr::new(".config.vdf.tmp");
     std::fs::write(&target, "alt").unwrap();
+    let dir = open_absolute_dir(&root).unwrap();
 
     let mut sync_file = |file: &mut std::fs::File| file.sync_all();
-    let mut rename = |from: &std::path::Path, to: &std::path::Path| std::fs::rename(from, to);
-    let mut sync_parent =
-        |_parent: &std::path::Path| Err(std::io::Error::other("injected parent sync failure"));
+    let mut before_rename = || -> Result<(), String> { Ok(()) };
+    let mut rename = |from_dir: RawFd, from: &OsStr, to_dir: RawFd, to: &OsStr| {
+        fd::rename_at(from_dir, from, to_dir, to)
+    };
+    let mut sync_parent = |_fd: RawFd| Err(std::io::Error::other("injected parent sync failure"));
 
     let error = persist_atomic_with_ops(
-        &temp,
-        &target,
+        dir.as_raw_fd(),
+        tmp_name,
+        OsStr::new("config.vdf"),
         b"neu",
-        &mut sync_file,
-        &mut rename,
-        &mut sync_parent,
+        &mut PersistOps {
+            sync_file: &mut sync_file,
+            before_rename: &mut before_rename,
+            rename: &mut rename,
+            sync_parent: &mut sync_parent,
+        },
     )
     .unwrap_err();
 
     assert!(matches!(error, PersistAtomicError::AfterRename(_)));
     assert!(error.to_string().contains("write may have been applied"));
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "neu");
-    assert!(!temp.exists());
+    assert!(!root.join(tmp_name).exists());
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn write_gate_folgt_keinem_vorbereiteten_temp_symlink() {
+    // N1: der Temp-pfad ist vorhersagbar genug, um ihn vorzubereiten. O_EXCL
+    // verhindert das folgen und damit das truncaten einer fremddatei.
+    let root = wsg_fixture("persist-temp-symlink");
+    let target = root.join("config.vdf");
+    let victim = root.join("opfer.vdf");
+    std::fs::write(&target, "alt").unwrap();
+    std::fs::write(&victim, "opfer").unwrap();
+    let link_parent = root.clone();
+    PERSIST_TEMP_PROBE.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(move |tmp_name: &OsStr| {
+            std::os::unix::fs::symlink("opfer.vdf", link_parent.join(tmp_name)).unwrap();
+        }));
+    });
+    let mut reader = || Ok(false);
+    let error = persist_atomic(&target, b"neu", &mut reader).unwrap_err();
+    PERSIST_TEMP_PROBE.with(|slot| *slot.borrow_mut() = None);
+
+    assert!(matches!(error, PersistAtomicError::BeforeRename(_)));
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "opfer");
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "alt");
+    // ziel, opferdatei und der fremde symlink bleiben liegen: einen eintrag,
+    // den dieser vorgang nicht angelegt hat, räumt er auch nicht weg
+    let entries: Vec<_> = std::fs::read_dir(&root)
+        .unwrap()
+        .map(|entry| entry.unwrap())
+        .collect();
+    assert_eq!(entries.len(), 3);
+    assert_eq!(
+        entries
+            .iter()
+            .filter(|entry| entry.file_type().unwrap().is_symlink())
+            .count(),
+        1,
+        "der vorbereitete symlink bleibt unangetastet liegen"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn write_gate_meldet_parent_tausch_ohne_fremdmutation() {
+    // N1: der Parent wird im Bindefenster zwischen Stat und Open getauscht.
+    // Die Identitätsprüfung plus O_NOFOLLOW muss fail-closed enden.
+    let root = wsg_fixture("persist-parent-swap");
+    let parent = root.join("steamdata");
+    std::fs::create_dir_all(&parent).unwrap();
+    let target = parent.join("config.vdf");
+    std::fs::write(&target, "alt").unwrap();
+    let moved = root.join("echt");
+    let fremd = root.join("fremd");
+    std::fs::create_dir_all(&fremd).unwrap();
+    std::fs::write(fremd.join("config.vdf"), "fremd").unwrap();
+
+    let (swap_parent, swap_moved, swap_fremd) = (parent.clone(), moved.clone(), fremd.clone());
+    PERSIST_BIND_PROBE.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(move || {
+            std::fs::rename(&swap_parent, &swap_moved).unwrap();
+            std::os::unix::fs::symlink(&swap_fremd, &swap_parent).unwrap();
+        }));
+    });
+    let mut reader = || Ok(false);
+    let error = persist_atomic(&target, b"neu", &mut reader).unwrap_err();
+    PERSIST_BIND_PROBE.with(|slot| *slot.borrow_mut() = None);
+
+    assert!(matches!(error, PersistAtomicError::BeforeRename(_)));
+    assert_eq!(
+        std::fs::read_to_string(fremd.join("config.vdf")).unwrap(),
+        "fremd",
+        "das fremde verzeichnis darf nicht beschrieben werden"
+    );
+    assert_eq!(
+        std::fs::read_to_string(moved.join("config.vdf")).unwrap(),
+        "alt"
+    );
+    assert_eq!(
+        std::fs::read_dir(&moved).unwrap().count(),
+        1,
+        "im echten verzeichnis darf kein temp-rest liegen bleiben"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn write_gate_ersetzt_einen_zwischendurch_gesetzten_ziel_symlink_ohne_zu_folgen() {
+    // N1: das Ziel wird unmittelbar vor dem Rename durch einen Symlink auf eine
+    // fremddatei ersetzt. rename ersetzt den link selbst und folgt ihm nicht.
+    let root = wsg_fixture("persist-target-symlink");
+    let target = root.join("config.vdf");
+    let victim = root.join("opfer.vdf");
+    std::fs::write(&target, "alt").unwrap();
+    std::fs::write(&victim, "opfer").unwrap();
+    let (link_parent, link_target) = (root.clone(), target.clone());
+    PERSIST_RENAME_PROBE.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(move || {
+            std::fs::remove_file(&link_target).unwrap();
+            std::os::unix::fs::symlink("opfer.vdf", link_parent.join("config.vdf")).unwrap();
+        }));
+    });
+    let mut reader = || Ok(false);
+    let result = persist_atomic(&target, b"neu", &mut reader);
+    PERSIST_RENAME_PROBE.with(|slot| *slot.borrow_mut() = None);
+
+    assert!(result.is_ok(), "rename muss den link selbst ersetzen");
+    assert_eq!(
+        std::fs::read_to_string(&victim).unwrap(),
+        "opfer",
+        "die verlinkte fremddatei darf unberührt bleiben"
+    );
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "neu");
+    assert!(!std::fs::symlink_metadata(&target).unwrap().is_symlink());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn write_gate_bricht_vor_dem_rename_ab_wenn_steam_startet() {
+    // N2: der letzte check liegt unmittelbar vor der irreversiblen mutation.
+    let root = wsg_fixture("persist-steam-start");
+    let target = root.join("config.vdf");
+    std::fs::write(&target, "alt").unwrap();
+
+    let mut reader = || Ok(true);
+    let error = persist_atomic(&target, b"neu", &mut reader).unwrap_err();
+
+    assert_eq!(error.to_string(), "steam-running");
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "alt");
+    assert_eq!(
+        std::fs::read_dir(&root).unwrap().count(),
+        1,
+        "nach dem abbruch darf kein temp-rest liegen bleiben"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn save_launch_options_prueft_vor_dem_rename_und_laesst_ziel_unveraendert() {
+    let (home, cache, steam) = wsg_env("launch-rename-race");
+    let target = steam.join("userdata/123/config/localconfig.vdf");
+    let before = std::fs::read_to_string(&target).unwrap();
+    let mut states = [false, false, true].into_iter();
+    let mut reader = || Ok(states.next().expect("process reader call"));
+
+    let result = save_launch_options_inner(
+        steam.to_str().unwrap(),
+        "123",
+        620,
+        "neu %command%",
+        &cache,
+        &home,
+        &mut reader,
+    );
+
+    assert_eq!(result.unwrap_err(), "steam-running");
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), before);
+    assert!(
+        cache.join("backups").exists(),
+        "der abbruch greift nach dem backup, das backup bleibt liegen"
+    );
+    assert_eq!(states.next(), None);
+    let mut entries: Vec<String> = std::fs::read_dir(target.parent().unwrap())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    entries.sort();
+    assert_eq!(
+        entries,
+        vec!["localconfig.vdf".to_string()],
+        "nach dem abbruch darf kein temp-rest liegen bleiben"
+    );
+    let _ = std::fs::remove_dir_all(home.parent().unwrap());
 }
 
 #[cfg(target_os = "linux")]
