@@ -12,7 +12,12 @@ export const useUiStore = defineStore("ui", {
      *  nie an. die appId bleibt über rescans stabil, der drawer löst sie live
      *  gegen scan.result.games auf. */
     selectedAppId: null as number | null,
-    /** modal/drawer offen → hauptinhalt + sidebar via inert stilllegen */
+    /** anzahl offener erklär-dialoge. die sperre des hauptinhalts leitet sich
+     *  daraus zusammen mit drawer und bestätigungsdialog ab (siehe App.vue);
+     *  so hebt das schließen eines verschachtelten dialogs die sperre des
+     *  anderen nicht auf. */
+    explanationCount: 0,
+    /** modal/drawer/dialog offen → hauptinhalt + sidebar via inert stillgelegt */
     inertMain: false,
     /** globale notification-toast. neueste überschreibt, 30s auto-dismiss. */
     notification: null as { message: string } | null,
@@ -27,6 +32,12 @@ export const useUiStore = defineStore("ui", {
     },
     closeGame() {
       this.selectedAppId = null;
+    },
+    openExplanation() {
+      this.explanationCount += 1;
+    },
+    closeExplanation() {
+      this.explanationCount = Math.max(0, this.explanationCount - 1);
     },
     // aus dem proton-manager in die nach compat-tool gefilterte library springen
     showLibraryForTool(internalName: string) {

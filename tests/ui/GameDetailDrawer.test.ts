@@ -24,8 +24,11 @@ const {
   uiState: {
     selectedAppId: 42 as number | null,
     inertMain: false,
+    explanationCount: 0,
     closeGame: vi.fn(),
     showNotification: vi.fn(),
+    openExplanation: vi.fn(),
+    closeExplanation: vi.fn(),
   },
   configState: {
     saveLaunchOptions: vi.fn(async (): Promise<WriteResult> => "unchanged"),

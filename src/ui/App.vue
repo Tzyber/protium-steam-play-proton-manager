@@ -34,15 +34,19 @@ function openUpdateRelease() {
   void openExternal(url).catch(() => {});
 }
 
-// confirm-dialog sperrt den hintergrund für screenreader + tab (inert), wie
-// der drawer. zentral hier, weil der dialog in zwei views lebt; der dialog
-// selbst liegt per teleport ausserhalb von .app-background und bleibt
-// fokussierbar. beim schliessen (pending → null) räumt der watch auf.
+// dialoge (bestätigung, detail-drawer, erklär-panel) sperren den hintergrund
+// für screenreader + tab (inert). zentral hier, weil die dialoge in mehreren
+// views leben und per teleport ausserhalb von .app-background liegen und
+// fokussierbar bleiben. die sperre wird aus dem zustand abgeleitet, statt von
+// jedem dialog gesetzt und geräumt zu werden: sonst hebt das schliessen eines
+// verschachtelten dialogs (erklärung im offenen drawer) die sperre des anderen
+// auf.
 watch(
-  () => confirm.pending,
-  (pending) => {
-    ui.inertMain = pending !== null;
+  () => [confirm.pending !== null, ui.selectedAppId !== null, ui.explanationCount > 0] as const,
+  ([confirmOpen, drawerOpen, explanationOpen]) => {
+    ui.inertMain = confirmOpen || drawerOpen || explanationOpen;
   },
+  { immediate: true },
 );
 
 // view-wechsel: h1 der neuen view fokussieren, damit screenreader den titel ansagen

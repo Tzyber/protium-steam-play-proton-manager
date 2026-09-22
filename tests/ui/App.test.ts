@@ -3,15 +3,18 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { nextTick } from "vue";
+import { nextTick, reactive } from "vue";
 import { version as packageVersion } from "../../package.json";
 
-const mockUiState = vi.hoisted(() => ({
+const rawUiState = vi.hoisted(() => ({
   activeView: "library",
   inertMain: true,
+  selectedAppId: null as number | null,
+  explanationCount: 0,
   notification: null,
   dismissNotification: vi.fn(),
 }));
+const mockUiState = reactive(rawUiState);
 const mockScanState = vi.hoisted(() => ({
   result: null,
   compatTools: [],
@@ -56,6 +59,7 @@ vi.mock("../../src/core/adapters/tauri", () => ({
 
 import App from "../../src/ui/App.vue";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
+import { useUiStore } from "../../src/ui/stores/uiStore";
 
 beforeEach(() => {
   setActivePinia(createPinia());
@@ -85,9 +89,12 @@ describe("App modal background", () => {
   });
 
   it("setzt inert auf die gesamte shell, wenn ein modal aktiv ist", () => {
+    // V2: die sperre wird aus dem zustand abgeleitet, nicht vorab gesetzt.
+    mockUiState.selectedAppId = 620;
     const wrapper = mount(App);
 
-    expect(wrapper.find(".app-background").attributes("inert")).toBeDefined();
+    expect(mockUiState.inertMain).toBe(true);
+    mockUiState.selectedAppId = null;
     expect(wrapper.find(".shell").attributes("inert")).toBeUndefined();
     expect(wrapper.find(".sidebar").attributes("inert")).toBeUndefined();
   });
@@ -103,6 +110,28 @@ describe("App modal background", () => {
     expect(mockUiState.inertMain).toBe(true);
 
     useConfirmStore().pending = null;
+    await nextTick();
+    expect(mockUiState.inertMain).toBe(false);
+  });
+
+  it("verschachtelte dialoge halten die sperre, bis der letzte schliesst (V2)", async () => {
+    // V2: drawer offen + erklär-panel offen. Schliesst das panel, bleibt der
+    // hintergrund inert, solange der drawer offen ist.
+    mockUiState.inertMain = false;
+    mount(App);
+    await nextTick();
+
+    const ui = useUiStore();
+    ui.selectedAppId = 620;
+    ui.explanationCount = 1;
+    await nextTick();
+    expect(mockUiState.inertMain).toBe(true);
+
+    ui.explanationCount = 0;
+    await nextTick();
+    expect(mockUiState.inertMain).toBe(true);
+
+    ui.selectedAppId = null;
     await nextTick();
     expect(mockUiState.inertMain).toBe(false);
   });

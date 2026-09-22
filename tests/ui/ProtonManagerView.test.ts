@@ -32,6 +32,9 @@ const { protonState, scanState, uiState, confirmState } = vi.hoisted(() => ({
   },
   uiState: {
     inertMain: false,
+    explanationCount: 0,
+    openExplanation: vi.fn(),
+    closeExplanation: vi.fn(),
     showLibraryForTool: vi.fn(),
   },
   confirmState: {

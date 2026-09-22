@@ -71,7 +71,6 @@ function onKeydown(event: KeyboardEvent) {
 watch(
   game,
   async (current) => {
-    ui.inertMain = !!current;
     if (current) {
       lastFocusedElement =
         document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -95,7 +94,6 @@ onBeforeUnmount(() => {
   invalidateFootprint();
   invalidateSupportCopy();
   if (toastTimer) clearTimeout(toastTimer);
-  ui.inertMain = false;
   restoreFocus(lastFocusedElement);
 });
 

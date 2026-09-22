@@ -1,11 +1,13 @@
 // @vitest-environment happy-dom
 
 import { mount } from "@vue/test-utils";
-import { afterEach, describe, expect, it } from "vitest";
+import { createPinia, setActivePinia } from "pinia";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineComponent, nextTick, ref } from "vue";
 import { trapFocus } from "../../src/ui/a11y.js";
 import ExplainInfo from "../../src/ui/components/ExplainInfo.vue";
 import { setLocale, t } from "../../src/ui/i18n/index.js";
+import { useUiStore } from "../../src/ui/stores/uiStore.js";
 
 const parentEvents = { keydown: 0 };
 
@@ -44,6 +46,10 @@ function query(selector: string): HTMLElement {
   return element;
 }
 
+beforeEach(() => {
+  setActivePinia(createPinia());
+});
+
 afterEach(() => {
   document.body.innerHTML = "";
   parentEvents.keydown = 0;
@@ -51,6 +57,27 @@ afterEach(() => {
 });
 
 describe("ExplainInfo", () => {
+  it("meldet den offenen dialog an den ui-store (V2)", async () => {
+    const wrapper = mount(ParentTrap, { attachTo: document.body });
+    const ui = useUiStore();
+    expect(ui.explanationCount).toBe(0);
+
+    await wrapper.get("[data-testid='explain-trigger']").trigger("click");
+    await nextTick();
+    expect(ui.explanationCount).toBe(1);
+
+    // schliessen per Escape räumt den zähler wieder auf
+    openDialog().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await nextTick();
+    expect(ui.explanationCount).toBe(0);
+
+    // ein unmount mit offenem dialog darf die sperre nicht stehen lassen
+    await wrapper.get("[data-testid='explain-trigger']").trigger("click");
+    await nextTick();
+    wrapper.unmount();
+    expect(ui.explanationCount).toBe(0);
+  });
+
   it("rendert einen kontextuellen trigger mit eindeutigen ARIA-Referenzen", () => {
     const wrapper = mount(ParentTrap, { attachTo: document.body });
     const trigger = wrapper.get("[data-testid='explain-trigger']");
