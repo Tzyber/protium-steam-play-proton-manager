@@ -91,6 +91,16 @@ fn append_panic_entry(log_dir: &Path, message: &str) {
     let _ = write_log_line(log_dir, "error", message, false);
 }
 
+/// Ersetzt vollständige Home-Pfade durch `~`. Das lokale Protokoll wird bei
+/// einer Fehlermeldung weitergereicht; die Aussage der Zeile bleibt erhalten,
+/// der Benutzername nicht.
+fn redact_home(text: &str, home: Option<&str>) -> String {
+    match home {
+        Some(home) if !home.is_empty() => text.replace(home, "~"),
+        _ => text.to_string(),
+    }
+}
+
 fn write_log_line(log_dir: &Path, level: &str, message: &str, rotate: bool) -> Result<(), String> {
     if !log_dir.exists() {
         fs::create_dir_all(log_dir).map_err(|e| format!("unavailable: {e}"))?;
@@ -119,6 +129,7 @@ fn write_log_line(log_dir: &Path, level: &str, message: &str, rotate: bool) -> R
         .take(MAX_LOG_MESSAGE_CHARS)
         .collect::<String>()
         .replace('\n', " ");
+    let clean_msg = redact_home(&clean_msg, std::env::var("HOME").ok().as_deref());
     writeln!(file, "[{now}] [{clean_level}] {clean_msg}")
         .map_err(|e| format!("cannot write to log file: {e}"))?;
     Ok(())
@@ -372,6 +383,21 @@ mod tests {
         assert!(content.contains("panic: test"));
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn log_redigiert_home_pfade_und_laesst_den_rest_stehen() {
+        let with_home = redact_home(
+            "unreadable: /home/nutzer/.local/share/Steam/config/config.vdf: Permission denied",
+            Some("/home/nutzer"),
+        );
+        assert!(with_home.starts_with("unreadable: ~/.local/share/Steam"));
+        assert!(with_home.ends_with("Permission denied"));
+        assert!(!with_home.contains("/home/nutzer"));
+
+        // ohne bekanntes home bleibt die zeile unverändert
+        let without_home = redact_home("unreadable: /srv/steam/x", None);
+        assert_eq!(without_home, "unreadable: /srv/steam/x");
     }
 
     #[test]

@@ -64,3 +64,15 @@ export function formatError(e: unknown): string {
   const key = CODE_KEYS[parsed.code] ?? KIND_KEYS[parsed.kind] ?? "errors.kinds.unknown";
   return t(key);
 }
+
+/**
+ * Detailklammer fuer gespeicherte Rohwerte (Scan-Warnungen): uebersetzt nur,
+ * was als kanonischer Code erkennbar ist. Ein unbekannter Rohtext verschwindet
+ * aus der Oberflaeche — der klassifizierte Grund bleibt sichtbar, der Rohtext
+ * bleibt im lokalen Protokoll.
+ */
+export function formatDetail(raw: string | undefined): string | undefined {
+  if (raw === undefined || raw.trim() === "") return undefined;
+  if (parseError(raw).code === "unknown") return undefined;
+  return formatError(raw);
+}

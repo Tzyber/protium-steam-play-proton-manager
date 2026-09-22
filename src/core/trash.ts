@@ -1,4 +1,4 @@
-import { errText } from "./errtext.js";
+import { parseError } from "./errtext.js";
 import { joinPath } from "./paths.js";
 import type { System, TrashListing } from "./ports.js";
 import { type OrphanType, parseSafeAppId } from "./types.js";
@@ -28,7 +28,8 @@ export interface TrashLibraryStatus {
   present: boolean;
   /** anzahl erkannter einträge in dieser library */
   count: number;
-  /** gesetzt, wenn das lesen fehlgeschlagen ist (rechte, io) */
+  /** gesetzt, wenn das lesen fehlgeschlagen ist (rechte, io): kanonischer
+   *  Fehlercode; die oberfläche übersetzt ihn, Rohtext zeigt sie nie. */
   error?: string;
   /** gesetzt, wenn diese library denselben papierkorb-pfad hat wie eine
    *  frühere (symlink-library): eigene einträge zählt sie keine. */
@@ -70,8 +71,13 @@ export async function findTrashEntries(
       // obwohl prefixes darin lagen. rust hat keinen webview-scope.
       listing = await system.listTrashEntries(lib);
     } catch (e) {
-      const msg = errText(e);
-      status.push({ library: lib, dir: "", present: true, count: 0, error: msg });
+      status.push({
+        library: lib,
+        dir: "",
+        present: true,
+        count: 0,
+        error: parseError(e).code,
+      });
       unreadable.push(lib);
       continue;
     }
