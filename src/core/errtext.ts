@@ -39,6 +39,7 @@ const CODE_KINDS: Record<string, ProtiumErrorKind> = {
   "not-an-orphan": "blocked",
   "library-not-listed": "blocked",
   "not-a-managed-tool": "blocked",
+  "write-may-have-applied": "incomplete",
   "unverified-rejected": "blocked",
   cancelled: "unavailable",
   "checksum-failed": "incomplete",

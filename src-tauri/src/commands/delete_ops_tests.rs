@@ -73,6 +73,24 @@ fn execute_delete_after_inspection(
         scope_ok,
         is_steam_running_fn,
         before_claim_fn,
+        || {},
+    )
+}
+
+/// Wie `execute_delete_after_inspection`, aber mit Haken zwischen Claim und
+/// Identitätsprüfung des Claims.
+fn execute_delete_after_claim(
+    registry: &PendingDeleteRegistry,
+    token: &str,
+    after_claim_fn: impl FnOnce(),
+) -> Result<DeleteResult, String> {
+    execute_delete_pipeline_inner(
+        registry,
+        token,
+        &|_| true,
+        || Ok(false),
+        || {},
+        after_claim_fn,
     )
 }
 
@@ -982,6 +1000,68 @@ fn fehlgeschlagene_mutation_stellt_originalnamen_wieder_her() {
         "kein .protium-delete-claim-* darf zurückbleiben"
     );
 
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Review C: der Claim-Name ist im Verzeichnis sichtbar. Wird er zwischen
+/// Claim und Mutation durch ein gleichnamiges Fremdverzeichnis ersetzt, muss
+/// die Identitaetspruefung fail-closed enden — der Ersatz bleibt erhalten.
+#[cfg(target_os = "linux")]
+#[test]
+fn claim_identitaet_wird_unmittelbar_vor_der_mutation_geprueft() {
+    let (root, steam) = orphan_fixture("delete-ops-claim-identity");
+    let target = steam.join("steamapps/compatdata/999999");
+    std::fs::write(target.join("savegame-marker"), b"must survive").unwrap();
+    let parent = target.parent().unwrap().to_path_buf();
+
+    let registry = PendingDeleteRegistry::default();
+    let info = prepare_with_snapshot(&registry, &orphan_request(&steam), || Ok(false)).unwrap();
+
+    // im fenster nach dem claim: das geclaimte verzeichnis beiseite schieben und
+    // ein gleichnamiges fremdverzeichnis an seine stelle setzen
+    let swap_parent = parent.clone();
+    let claim_path = Arc::new(Mutex::new(None));
+    let claim_path_for_hook = Arc::clone(&claim_path);
+    let result = execute_delete_after_claim(&registry, &info.token, move || {
+        let entry = std::fs::read_dir(&swap_parent)
+            .unwrap()
+            .map(|entry| entry.unwrap())
+            .find(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".protium-delete-claim-")
+            })
+            .expect("claim-verzeichnis fehlt");
+        let path = entry.path();
+        *claim_path_for_hook.lock().unwrap() = Some(path.clone());
+        std::fs::rename(&path, swap_parent.join("beiseite")).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        std::fs::write(path.join("fremd-marker"), b"fremd").unwrap();
+    });
+
+    assert!(
+        result.unwrap_err().contains("target-changed"),
+        "der ersetzte claim muss abgelehnt werden"
+    );
+
+    // nichts wurde geloescht: der fremde marker liegt noch da, entweder unter
+    // dem claim-namen oder unter dem originalnamen (der restore-guard benennt
+    // best effort zurueck und ueberschreibt dabei nichts)
+    let original_path = parent.join("999999");
+    let foreign_marker = claim_path
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("claim-pfad wurde nicht gesehen");
+    assert!(
+        foreign_marker.join("fremd-marker").exists() || original_path.join("fremd-marker").exists(),
+        "der fremde ersatz darf nicht geloescht werden"
+    );
+    assert!(
+        parent.join("beiseite").join("savegame-marker").exists(),
+        "das echte ziel muss erhalten bleiben"
+    );
     let _ = std::fs::remove_dir_all(root);
 }
 

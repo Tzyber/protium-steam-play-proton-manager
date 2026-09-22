@@ -212,7 +212,9 @@ where
             )
             .map_err(|error| {
                 if errcode::has_code(&error, errcode::SIZE_LIMIT) {
-                    format!("manifest {name_string} exceeds size limit")
+                    // Code erhalten: die Oberflaeche uebersetzt den Grund, das
+                    // Detail (welche Datei) bleibt im Protokoll.
+                    errcode::with_detail(errcode::SIZE_LIMIT, format!("manifest {name_string}"))
                 } else {
                     error
                 }
@@ -376,9 +378,9 @@ where
         )
         .map_err(|error| {
             if errcode::has_code(&error, errcode::SIZE_LIMIT) {
-                "shortcuts.vdf is too large".to_string()
+                errcode::with_detail(errcode::SIZE_LIMIT, "shortcuts.vdf")
             } else {
-                format!("cannot read shortcuts.vdf: {error}")
+                errcode::with_detail(errcode::UNREADABLE, format!("shortcuts.vdf: {error}"))
             }
         })?;
         let ids = parse_binary_shortcut_ids(&bytes)
@@ -438,7 +440,7 @@ where
     )
     .map_err(|error| {
         if errcode::has_code(&error, errcode::SIZE_LIMIT) {
-            "config.vdf exceeds size limit".to_string()
+            errcode::with_detail(errcode::SIZE_LIMIT, "config.vdf")
         } else {
             error
         }

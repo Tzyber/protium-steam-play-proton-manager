@@ -255,6 +255,8 @@ export const de = {
   drawer: {
     close: "schließen",
     saveBlocked: "Speichern blockiert",
+    saveUncertain:
+      "Der Abschluss ließ sich nicht bestätigen. Bitte den Wert in Steam prüfen, bevor du erneut speicherst.",
     srDescription: "details zu {name}. größe {size}, proton {compatTool}, app-id {appId}.",
     configuration: "konfiguration",
     prefixOpen: "Prefix-Ordner öffnen",
@@ -513,6 +515,8 @@ export const de = {
         "Kein verwaister Eintrag: Das Ziel gehört noch zu einem installierten Spiel oder Shortcut.",
       libraryNotListed: "Die Library steht nicht in libraryfolders.vdf. Nichts wurde verändert.",
       notAManagedTool: "Nur von Protium verwaltete GE-Proton-Versionen können gelöscht werden.",
+      writeMayHaveApplied:
+        "Die Änderung wurde möglicherweise geschrieben, der Abschluss ließ sich aber nicht bestätigen.",
       unverifiedRejected: "Die Installation ohne Prüfsumme wurde abgelehnt.",
       cancelled: "Der Vorgang wurde abgebrochen.",
       checksumFailed: "Die Prüfsumme konnte nicht geprüft werden.",

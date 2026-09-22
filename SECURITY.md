@@ -197,14 +197,14 @@ einen blockierten SHA-Abruf aktiv auf und räumt Descriptor sowie Registry auf.
 ### VDF-Write-Gate und Compat-Tool-Autorität
 
 `save_launch_options` und `save_compat_tool` lesen den Steam-Prozess über
-einen synchronen Backend-Leser frisch vor dem VDF-Read/Patch, erneut vor
-Backup und temporärer Datei und ein drittes Mal unmittelbar vor dem
-`renameat`. Bei `false, true` entstehen weder Backup noch Tempdatei; ein
-byteidentischer No-op beendet den Vorgang vor dem zweiten Check. Zwischen der
-letzten Prüfung und dem Rename bleibt ein Fenster von wenigen Mikrosekunden —
-es ist nicht ausgeschlossen, sondern durch die dritte Prüfung so klein wie
-technisch möglich; eine Atomizität über den ganzen Vorgang behauptet Protium
-nicht.
+einen synchronen Backend-Leser frisch vor dem VDF-Read/Patch, ein zweites Mal
+vor Backup und Temp-Anlage und ein drittes Mal nach dem Daten-fsync der
+Temp-Datei, unmittelbar vor dem `renameat`. Bei `false, true` entstehen weder
+Backup noch Tempdatei; ein byteidentischer No-op beendet den Vorgang vor dem
+zweiten Check. Zwischen der letzten Prüfung und dem Rename bleibt ein Fenster
+von wenigen Mikrosekunden — es ist nicht ausgeschlossen, sondern durch die
+dritte Prüfung so klein wie technisch möglich; eine Atomizität über den ganzen
+Vorgang behauptet Protium nicht.
 
 `save_compat_tool` akzeptiert ausschließlich `null`/`default`, einen internen
 Namen aus einer nicht-symlinkenden, backendgelesenen `compatibilitytool.vdf`

@@ -1097,6 +1097,44 @@ describe("GameDetailDrawer Speicherstatus", () => {
     expect(launchSaveButton(wrapper).text()).toBe(t("drawer.save"));
   });
 
+  it("nennt bei write-may-have-applied nicht 'nichts verändert' (Review A)", async () => {
+    // Nach dem Rename ist der Abschluss offen; die Ablehnungsansicht darf dann
+    // nicht den Garantiesatz des sauberen Abbruchs zeigen.
+    configState.saveLaunchOptions.mockRejectedValueOnce(
+      "write-may-have-applied: atomic write (parent sync): injected failure",
+    );
+    const wrapper = mountDrawer(
+      result("available", "default", "default", null, { launchOptions: "" }),
+    );
+    const input = wrapper.get<HTMLInputElement>("#launch-options");
+
+    await input.setValue("gamemoderun %command%");
+    await launchSaveButton(wrapper).trigger("click");
+    await flushPromises();
+    await nextTick();
+
+    const blocked = wrapper.get(".blocked-explanation");
+    expect(blocked.text()).toContain(t("drawer.saveUncertain"));
+    expect(blocked.text()).not.toContain(t("common.nothingChanged"));
+  });
+
+  it("bleibt beim sauberen Abbruch bei 'nichts verändert'", async () => {
+    configState.saveLaunchOptions.mockRejectedValueOnce("steam-running");
+    const wrapper = mountDrawer(
+      result("available", "default", "default", null, { launchOptions: "" }),
+    );
+    const input = wrapper.get<HTMLInputElement>("#launch-options");
+
+    await input.setValue("gamemoderun %command%");
+    await launchSaveButton(wrapper).trigger("click");
+    await flushPromises();
+    await nextTick();
+
+    const blocked = wrapper.get(".blocked-explanation");
+    expect(blocked.text()).toContain(t("common.nothingChanged"));
+    expect(blocked.text()).not.toContain(t("drawer.saveUncertain"));
+  });
+
   it("verwirft ein Startoptionen-Ergebnis nach Änderung des sichtbaren Werts", async () => {
     const pending = deferred<WriteResult>();
     configState.saveLaunchOptions.mockReturnValueOnce(pending.promise);

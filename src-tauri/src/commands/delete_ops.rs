@@ -523,7 +523,7 @@ pub(crate) fn execute_delete_pipeline(
     scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
     is_steam_running_fn: impl Fn() -> Result<bool, String>,
 ) -> Result<DeleteResult, String> {
-    execute_delete_pipeline_inner(registry, token, scope_ok, is_steam_running_fn, || {})
+    execute_delete_pipeline_inner(registry, token, scope_ok, is_steam_running_fn, || {}, || {})
 }
 
 fn execute_delete_pipeline_inner(
@@ -532,6 +532,7 @@ fn execute_delete_pipeline_inner(
     scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
     is_steam_running_fn: impl Fn() -> Result<bool, String>,
     before_claim_fn: impl FnOnce(),
+    after_claim_fn: impl FnOnce(),
 ) -> Result<DeleteResult, String> {
     let pending = {
         let mut map = registry
@@ -581,13 +582,26 @@ fn execute_delete_pipeline_inner(
     inspect_pending_target(&pending, scope_ok)?;
     before_claim_fn();
     let claimed = claim_delete_target(&pending)?;
-    let _bound_claim_handle = &claimed.handle;
     let mut restore = ClaimRestoreGuard {
         parent: claim_parent,
         claim_name: &claimed.name,
         original_name,
         armed: true,
     };
+    // Der Claim-Name ist im Verzeichnis sichtbar. Zwischen Claim und Mutation
+    // wird er deshalb ein zweites Mal geöffnet und gegen den gehaltenen Handle
+    // geprüft: ein gleichnamiger Ersatz darf nicht gelöscht werden.
+    after_claim_fn();
+    #[cfg(target_os = "linux")]
+    {
+        let current = open_delete_child_handle(claim_parent, &claimed.name)?;
+        if delete_handle_identity(&current)? != delete_handle_identity(&claimed.handle)? {
+            return Err(errcode::with_detail(
+                errcode::TARGET_CHANGED,
+                "claim handle mismatch",
+            ));
+        }
+    }
     let deleted_path = pending.target_path.clone();
 
     match pending.target_type.as_str() {

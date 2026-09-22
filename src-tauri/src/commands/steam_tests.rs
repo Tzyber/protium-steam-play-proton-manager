@@ -697,7 +697,11 @@ fn persist_atomic_parent_sync_fehler_signalisiert_moegliche_mutation() {
     .unwrap_err();
 
     assert!(matches!(error, PersistAtomicError::AfterRename(_)));
-    assert!(error.to_string().contains("write may have been applied"));
+    // Der Code muss durchkommen, sonst zeigt die Oberflaeche "nichts veraendert".
+    assert!(
+        error.to_string().starts_with("write-may-have-applied"),
+        "unexpected error: {error}"
+    );
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "neu");
     assert!(!root.join(tmp_name).exists());
     let _ = std::fs::remove_dir_all(root);
@@ -784,6 +788,53 @@ fn write_gate_meldet_parent_tausch_ohne_fremdmutation() {
         std::fs::read_dir(&moved).unwrap().count(),
         1,
         "im echten verzeichnis darf kein temp-rest liegen bleiben"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn write_gate_meldet_einen_parent_tausch_gegen_ein_echtes_verzeichnis() {
+    // Der Symlink-Fall wird schon von O_NOFOLLOW abgewiesen. Hier wird der
+    // Parent gegen ein ECHTES anderes Verzeichnis getauscht, damit die
+    // dev/ino-Prüfung selbst greift (nur so ist sie gedeckt).
+    let root = wsg_fixture("persist-parent-swap-real");
+    let parent = root.join("steamdata");
+    std::fs::create_dir_all(&parent).unwrap();
+    let target = parent.join("config.vdf");
+    std::fs::write(&target, "alt").unwrap();
+    let moved = root.join("echt");
+    let fremd = root.join("fremd");
+    std::fs::create_dir_all(&fremd).unwrap();
+    std::fs::write(fremd.join("config.vdf"), "fremd").unwrap();
+
+    let (swap_parent, swap_moved, swap_fremd) = (parent.clone(), moved.clone(), fremd.clone());
+    PERSIST_BIND_PROBE.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(move || {
+            std::fs::rename(&swap_parent, &swap_moved).unwrap();
+            std::fs::rename(&swap_fremd, &swap_parent).unwrap();
+        }));
+    });
+    let mut reader = || Ok(false);
+    let error = persist_atomic(&target, b"neu", &mut reader).unwrap_err();
+    PERSIST_BIND_PROBE.with(|slot| *slot.borrow_mut() = None);
+
+    assert!(
+        error
+            .to_string()
+            .contains("changed while opening descriptor"),
+        "unexpected error: {error}"
+    );
+    // nach dem tausch liegt das untergeschobene verzeichnis unter dem
+    // originalnamen des parents; es darf nicht beschrieben worden sein
+    assert_eq!(
+        std::fs::read_to_string(parent.join("config.vdf")).unwrap(),
+        "fremd",
+        "das untergeschobene verzeichnis darf nicht beschrieben werden"
+    );
+    assert_eq!(
+        std::fs::read_to_string(moved.join("config.vdf")).unwrap(),
+        "alt"
     );
     let _ = std::fs::remove_dir_all(root);
 }

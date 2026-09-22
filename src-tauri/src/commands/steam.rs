@@ -240,8 +240,10 @@ impl std::fmt::Display for PersistAtomicError {
         match self {
             Self::Aborted(error) => write!(formatter, "{error}"),
             Self::BeforeRename(error) => write!(formatter, "write not applied: {error}"),
+            // Der Code muss bis in die Oberfläche durchkommen: dieser Fall ist
+            // kein "nichts verändert" (SECURITY.md).
             Self::AfterRename(error) => {
-                write!(formatter, "write may have been applied: {error}")
+                write!(formatter, "{}: {error}", errcode::WRITE_UNCERTAIN)
             }
         }
     }

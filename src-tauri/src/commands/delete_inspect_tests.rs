@@ -101,7 +101,7 @@ fn uebergrosses_manifest_blockiert_delete_inspektion() {
     std::fs::write(steamapps.join("appmanifest_570.acf"), oversized).unwrap();
 
     let error = is_app_installed_in_libraries(&[lib], 570).unwrap_err();
-    assert!(error.contains("exceeds size limit"), "error: {error}");
+    assert!(error.contains("size-limit-exceeded"), "error: {error}");
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -115,7 +115,7 @@ fn uebergrosse_config_vdf_blockiert_compat_tool_suche() {
     std::fs::write(steam_root.join("config/config.vdf"), oversized).unwrap();
 
     let error = find_apps_using_compat_tool(&steam_root, "GE-Proton9-27").unwrap_err();
-    assert!(error.contains("exceeds size limit"), "error: {error}");
+    assert!(error.contains("size-limit-exceeded"), "error: {error}");
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -147,7 +147,7 @@ fn delete_reads_begrenzen_wachstum_nach_fd_pruefung() {
         is_app_installed_in_libraries_linux_with_hook(&[library], 570, &mut manifest_hook)
             .unwrap_err();
     assert!(
-        manifest_error.contains("exceeds size limit"),
+        manifest_error.contains("size-limit-exceeded"),
         "error: {manifest_error}"
     );
 
@@ -172,7 +172,7 @@ fn delete_reads_begrenzen_wachstum_nach_fd_pruefung() {
         find_apps_using_compat_tool_linux_with_hook(&root_fd, "GE-Proton9-27", &mut config_hook)
             .unwrap_err();
     assert!(
-        config_error.contains("exceeds size limit"),
+        config_error.contains("size-limit-exceeded"),
         "error: {config_error}"
     );
 
@@ -199,7 +199,7 @@ fn delete_reads_begrenzen_wachstum_nach_fd_pruefung() {
         read_all_shortcut_app_ids_linux_with_hook(&shortcuts_root_fd, &mut shortcuts_hook)
             .unwrap_err();
     assert!(
-        shortcuts_error.contains("too large"),
+        shortcuts_error.contains("size-limit-exceeded"),
         "error: {shortcuts_error}"
     );
 
@@ -232,7 +232,7 @@ fn manifest_read_bleibt_am_geoeffneten_fd_bei_pfadtausch() {
         &mut before_open,
     )
     .unwrap_err();
-    assert!(error.contains("exceeds size limit"), "error: {error}");
+    assert!(error.contains("size-limit-exceeded"), "error: {error}");
 
     std::fs::write(&manifest, "\"AppState\" { \"appid\" \"570\" }").unwrap();
     let after_path = manifest.clone();
@@ -282,7 +282,7 @@ fn config_read_bleibt_am_geoeffneten_fd_bei_pfadtausch() {
     let error =
         find_apps_using_compat_tool_linux_with_hook(&root_fd, "GE-Proton9-27", &mut before_open)
             .unwrap_err();
-    assert!(error.contains("exceeds size limit"), "error: {error}");
+    assert!(error.contains("size-limit-exceeded"), "error: {error}");
 
     std::fs::write(&config, content).unwrap();
     let after_path = config.clone();
@@ -325,7 +325,7 @@ fn shortcuts_read_bleibt_am_geoeffneten_fd_bei_pfadtausch() {
         }
     };
     let error = read_all_shortcut_app_ids_linux_with_hook(&root_fd, &mut before_open).unwrap_err();
-    assert!(error.contains("too large"), "error: {error}");
+    assert!(error.contains("size-limit-exceeded"), "error: {error}");
 
     std::fs::write(&shortcuts, make_test_bin_shortcuts(&[42])).unwrap();
     let after_path = shortcuts.clone();
@@ -357,7 +357,7 @@ fn read_all_shortcut_app_ids_lehnt_riesige_datei_ab() {
     file.set_len(17 * 1024 * 1024).unwrap();
     drop(file);
     let err = read_all_shortcut_app_ids(&steam).unwrap_err();
-    assert!(err.contains("too large"), "err: {err}");
+    assert!(err.contains("size-limit-exceeded"), "err: {err}");
     let _ = std::fs::remove_dir_all(&root);
 }
 

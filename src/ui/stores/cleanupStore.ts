@@ -14,7 +14,7 @@ import { findTrashEntries, type TrashEntry, type TrashLibraryStatus } from "../.
 import type { OrphanEntry, ScanResult } from "../../core/types";
 import { localizeConsequences } from "../consequences";
 import { logError, logEvent } from "../diagnostics";
-import { formatError } from "../formatError";
+import { formatDetail, formatError } from "../formatError";
 import { t } from "../i18n";
 import { formatSizeSummary } from "../sizeSummary";
 import {
@@ -104,9 +104,12 @@ export const useCleanupStore = defineStore("cleanup", {
     },
 
     syncError() {
+      // Der Detailwert kommt als kanonischer Code aus dem Core; ein unbekannter
+      // Rohtext faellt weg (V1), die Klassifikation bleibt sichtbar.
+      const shortcutDetail = formatDetail(this.shortcutUnreadableDetail ?? undefined);
       const shortcutError = this.shortcutUnreadable
-        ? this.shortcutUnreadableDetail
-          ? t("errors.userdataUnreadableWithDetail", { detail: this.shortcutUnreadableDetail })
+        ? shortcutDetail
+          ? t("errors.userdataUnreadableWithDetail", { detail: shortcutDetail })
           : t("errors.shortcutsUnreadable")
         : null;
       this.error = combineErrors([this.orphanError, shortcutError, this.trashError]);
