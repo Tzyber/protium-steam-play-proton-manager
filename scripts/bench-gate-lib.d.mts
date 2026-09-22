@@ -3,6 +3,7 @@ export interface MeasurementInput {
   baseMs?: number;
   maxThreshold?: number;
   maxRegressionPct?: number;
+  calibrationFactor?: number;
 }
 
 export interface MeasurementResult {

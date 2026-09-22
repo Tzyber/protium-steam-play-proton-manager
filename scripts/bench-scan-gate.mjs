@@ -52,6 +52,21 @@ if (!fs.existsSync(benchOutputFile)) {
 const outputContent = fs.readFileSync(benchOutputFile, "utf-8");
 const linePattern =
   /\[scan benchmark\]\s+([a-zA-Z0-9]+)\.([a-zA-Z0-9]+)Ms\s+raw=.*?\s+median=([0-9.]+)/g;
+const calibrationPattern = /\[scan benchmark\]\s+calibrationMs\s+raw=.*?\s+median=([0-9.]+)/;
+
+// Der Kalibrierwert kommt aus demselben Lauf und skaliert die Baseline auf die
+// aktuelle Maschine. Fehlt er (alte Baseline, alter Benchmark), bleibt der
+// Faktor 1 und das Gate verhaelt sich wie vorher.
+const calibrationNow = Number.parseFloat(outputContent.match(calibrationPattern)?.[1] ?? "");
+const calibrationBase = baseline.calibrationMs;
+const calibrationFactor =
+  Number.isFinite(calibrationNow) && typeof calibrationBase === "number" && calibrationBase > 0
+    ? calibrationNow / calibrationBase
+    : 1;
+console.log(
+  `[bench:gate] Kalibrierung: aktuell ${Number.isFinite(calibrationNow) ? calibrationNow.toFixed(2) : "?"} ms, ` +
+    `Baseline ${typeof calibrationBase === "number" ? calibrationBase.toFixed(2) : "?"} ms, Faktor ${calibrationFactor.toFixed(2)}`,
+);
 
 const seen = new Set();
 let failed = false;
@@ -73,7 +88,13 @@ for (const match of outputContent.matchAll(linePattern)) {
     continue;
   }
 
-  const result = evaluateMeasurement({ medianMs, baseMs, maxThreshold, maxRegressionPct });
+  const result = evaluateMeasurement({
+    medianMs,
+    baseMs,
+    maxThreshold,
+    maxRegressionPct,
+    calibrationFactor,
+  });
   const allowedText =
     typeof result.allowed === "number" ? `${result.allowed.toFixed(1)} ms` : "unbekannt";
   if (result.ok) {
