@@ -2,18 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BLOCKLIST } from "../../src/core/blocklist.js";
 import { projectSupportFacts } from "../../src/core/support.js";
 import type { Game, ScanResult } from "../../src/core/types.js";
-import { customTool, game as makeGame } from "../support/factories.js";
-
-const portal2 = (overrides: Partial<Game> = {}): Game =>
-  makeGame({
-    appId: 620,
-    name: "Portal 2",
-    library: "/steam/library",
-    compatTool: "proton_experimental",
-    compatToolSource: "explicit",
-    protonDb: { tier: "gold", confidence: "strong" },
-    ...overrides,
-  });
+import { customTool, portal2 } from "../support/factories.js";
 
 function result(overrides: Partial<ScanResult> = {}): ScanResult {
   return {

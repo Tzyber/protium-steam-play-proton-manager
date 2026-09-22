@@ -54,7 +54,7 @@ const CODE_KINDS: Record<string, ProtiumErrorKind> = {
 /** Format aus Spec 1.3: reiner Code oder "code: detail". */
 const CODE_PATTERN = /^([a-z][a-z0-9-]*)(?::\s*([\s\S]*))?$/;
 
-export interface ParsedError {
+interface ParsedError {
   kind: ProtiumErrorKind;
   code: string;
   message: string;

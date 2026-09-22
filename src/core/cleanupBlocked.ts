@@ -3,7 +3,7 @@ import { skipReasonKind } from "./skipReason.js";
 import type { ScanResult } from "./types.js";
 
 /** Ein Eintrag des Pruefberichts fuer "warum ist das blockiert" (B2). */
-export interface BlockedReportItem {
+interface BlockedReportItem {
   path: string;
   kind: ProtiumErrorKind;
 }

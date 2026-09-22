@@ -1,20 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { projectSupportFacts, type SupportInput } from "../../src/core/support.js";
-import type { Game, ScanResult } from "../../src/core/types.js";
+import type { ScanResult } from "../../src/core/types.js";
 import { setLocale } from "../../src/ui/i18n/index.js";
 import { formatSupportFacts } from "../../src/ui/supportText.js";
-import { customTool, game as makeGame } from "../support/factories";
-
-const portal2 = (overrides: Partial<Game> = {}): Game =>
-  makeGame({
-    appId: 620,
-    name: "Portal 2",
-    library: "/steam/library",
-    compatTool: "proton_experimental",
-    compatToolSource: "explicit",
-    protonDb: { tier: "gold", confidence: "strong" },
-    ...overrides,
-  });
+import { customTool, portal2 } from "../support/factories";
 
 function result(overrides: Partial<ScanResult> = {}): ScanResult {
   return {

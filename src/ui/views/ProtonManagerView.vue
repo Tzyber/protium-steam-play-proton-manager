@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { isManagedGeName } from "../../core/geproton";
 import type { CompatTool } from "../../core/types";
-import ConfirmDialog from "../components/ConfirmDialog.vue";
+import ConfirmDialogHost from "../components/ConfirmDialogHost.vue";
 import ExplainInfo from "../components/ExplainInfo.vue";
 import { formatBytes, formatKnownBytes } from "../format";
 import type { Key } from "../i18n";
@@ -238,16 +238,7 @@ const statusLine = computed(() => {
 
   </section>
 
-  <ConfirmDialog
-    v-if="confirm.pending"
-    :title="confirm.pending.title"
-    :busy="confirm.busy"
-    :confirm-label="t('common.delete')"
-    @confirm="confirm.confirm()"
-    @cancel="confirm.cancel()"
-  >
-    <p class="consequences">{{ confirm.pending.message }}</p>
-  </ConfirmDialog>
+  <ConfirmDialogHost />
 </template>
 
 <style scoped>

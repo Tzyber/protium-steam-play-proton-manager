@@ -1,14 +1,12 @@
 // Steam-Write-Gate für Konfigurationsdateien und Compat-Tools.
 
-use std::ffi::{CString, OsStr};
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
 #[cfg(target_os = "linux")]
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
-#[cfg(target_os = "linux")]
-use std::os::unix::ffi::OsStrExt;
+use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 
 use tauri::Manager;
 
@@ -17,8 +15,7 @@ use crate::commands::errcode;
 use crate::commands::fd;
 #[cfg(target_os = "linux")]
 use crate::commands::fd::{
-    component_name, open_absolute_dir, open_bound_root_fd, open_or_create_dir_at, read_fd_text,
-    sync_dir_fd,
+    open_absolute_dir, open_bound_root_fd, open_or_create_dir_at, read_fd_text, sync_dir_fd,
 };
 use crate::commands::fs_ops::is_process_running_sync;
 use crate::commands::path::{is_safe_path, random_suffix, sanitize_path};
@@ -116,21 +113,17 @@ fn is_steam_config_path(file: &Path, home: &Path) -> bool {
     false
 }
 
+/// Öffnet das Backup-Ziel exklusiv und symlinkfrei entlang gebundener
+/// Deskriptoren. Die Datei selbst legt `fd::create_exclusive_at` an, damit es
+/// nur eine Stelle mit diesen Flags gibt.
 #[cfg(target_os = "linux")]
 fn open_backup_target_no_follow(
     relative: &Path,
     backup_dir: &Path,
-) -> io::Result<(std::fs::File, OwnedFd, CString)> {
-    const O_WRONLY: i32 = 1;
-    const O_CREAT: i32 = 0o100;
-    const O_EXCL: i32 = 0o200;
-    const O_NOFOLLOW: i32 = 0o400000;
-    const O_CLOEXEC: i32 = 0o2000000;
-    const MODE_600: u32 = 0o600;
-
+) -> io::Result<(std::fs::File, OwnedFd, OsString)> {
     let mut components = relative.components().peekable();
     let file_name = match components.next_back() {
-        Some(std::path::Component::Normal(name)) => component_name(name)?,
+        Some(std::path::Component::Normal(name)) => name.to_os_string(),
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -154,24 +147,13 @@ fn open_backup_target_no_follow(
         current_dir = open_or_create_dir_at(current_dir.as_raw_fd(), name)?;
     }
 
-    let raw_fd = unsafe {
-        libc::openat(
-            current_dir.as_raw_fd(),
-            file_name.as_ptr(),
-            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
-            MODE_600,
-        )
-    };
-    if raw_fd < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let file = unsafe { std::fs::File::from_raw_fd(raw_fd) };
+    let file = fd::create_exclusive_at(current_dir.as_raw_fd(), &file_name)?;
     Ok((file, current_dir, file_name))
 }
 
 #[cfg(target_os = "linux")]
-fn unlink_backup_entry(dir_fd: RawFd, file_name: &CString) {
-    let _ = fd::unlink_at(dir_fd, OsStr::from_bytes(file_name.as_bytes()));
+fn unlink_backup_entry(dir_fd: RawFd, file_name: &OsStr) {
+    let _ = fd::unlink_at(dir_fd, file_name);
 }
 
 #[cfg(target_os = "linux")]
@@ -354,7 +336,7 @@ where
         });
     })
     .map_err(PersistAtomicError::BeforeRename)?;
-    let tmp_name = std::ffi::OsString::from(format!(
+    let tmp_name = OsString::from(format!(
         ".{}.{}.tmp",
         target_name.to_string_lossy(),
         random_suffix()

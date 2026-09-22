@@ -5,7 +5,7 @@ import type { TrashEntry } from "../../core/trash";
 import type { OrphanEntry } from "../../core/types";
 import BlockedExplanation from "../components/BlockedExplanation.vue";
 import CleanupRow from "../components/CleanupRow.vue";
-import ConfirmDialog from "../components/ConfirmDialog.vue";
+import ConfirmDialogHost from "../components/ConfirmDialogHost.vue";
 import ExplainInfo from "../components/ExplainInfo.vue";
 import { formatBytes, formatKnownBytes } from "../format";
 import { formatError, formatErrorKind } from "../formatError";
@@ -617,16 +617,7 @@ const shortcutBlockedItems = computed(() =>
 
   </section>
 
-  <ConfirmDialog
-    v-if="confirm.pending"
-    :title="confirm.pending.title"
-    :busy="confirm.busy"
-    :confirm-label="confirm.pending.confirmLabel ?? t('common.delete')"
-    @confirm="confirm.confirm()"
-    @cancel="confirm.cancel()"
-  >
-    <p class="consequences">{{ confirm.pending.message }}</p>
-  </ConfirmDialog>
+  <ConfirmDialogHost />
 </template>
 
 <style scoped>

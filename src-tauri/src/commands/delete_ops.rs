@@ -12,6 +12,8 @@ use crate::commands::cleanup::TRASH_DIR_NAME;
 use crate::commands::delete_inspect::inspect_deletion_target;
 use crate::commands::delete_inspect::{DeleteConsequence, DeletionInspection};
 use crate::commands::errcode;
+#[cfg(target_os = "linux")]
+use crate::commands::fd::component_name;
 use crate::commands::scope::{EnvironmentSnapshot, EnvironmentState};
 
 pub const DELETE_TOKEN_TTL_SECS: u64 = 300;
@@ -195,13 +197,6 @@ fn open_delete_child_handle(_parent: &fs::File, _name: &OsStr) -> Result<fs::Fil
 }
 
 #[cfg(target_os = "linux")]
-fn os_name(name: &OsStr, label: &str) -> Result<std::ffi::CString, String> {
-    use std::os::unix::ffi::OsStrExt;
-
-    std::ffi::CString::new(name.as_bytes()).map_err(|_| format!("{label} contains NUL"))
-}
-
-#[cfg(target_os = "linux")]
 pub(super) fn renameat2_no_replace(
     source_dir: &fs::File,
     source_name: &OsStr,
@@ -210,10 +205,8 @@ pub(super) fn renameat2_no_replace(
 ) -> Result<(), std::io::Error> {
     use std::os::fd::AsRawFd;
 
-    let source_name = os_name(source_name, "delete source name")
-        .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
-    let target_name = os_name(target_name, "delete target name")
-        .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
+    let source_name = component_name(source_name)?;
+    let target_name = component_name(target_name)?;
     let result = unsafe {
         libc::syscall(
             libc::SYS_renameat2,

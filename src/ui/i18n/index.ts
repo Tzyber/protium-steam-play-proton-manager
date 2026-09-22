@@ -9,7 +9,7 @@
 import { de } from "./de.js";
 import { en } from "./en.js";
 
-export type Locale = "de" | "en";
+type Locale = "de" | "en";
 
 // struktur-sync: `de` ist die wahrheit, `en` muss die gleiche form haben
 // (gleiche keys, gleiche nesting-tiefe). `Dict` ist absichtlich generisch

@@ -1,13 +1,14 @@
 #[cfg(target_os = "linux")]
 use crate::commands::errcode;
-use crate::commands::fd::{ensure_regular_fd, open_bound_root_fd, open_dir_at, open_file_at};
+use crate::commands::fd::{
+    ensure_regular_fd, open_bound_root_fd, open_dir_at, open_file_at, read_fd_bytes,
+};
 use crate::commands::scope::{EnvironmentState, MAX_ENVIRONMENT_READ_BYTES};
 use crate::commands::spawn_blocking_io;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
 #[cfg(target_os = "linux")]
-use std::io::Read;
 #[cfg(target_os = "linux")]
 use std::os::unix::io::AsRawFd;
 use std::path::Path;
@@ -81,21 +82,7 @@ fn read_environment_file_with_hook(
         let mut file = open_file_at(parent_fd.as_raw_fd(), file_name)
             .map_err(|error| format!("{label}: {error}"))?;
         after_open(&mut file);
-        let length = ensure_regular_fd(&file, label)?;
-        if length > MAX_ENVIRONMENT_READ_BYTES {
-            return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
-        }
-        let read_limit = MAX_ENVIRONMENT_READ_BYTES
-            .checked_add(1)
-            .ok_or_else(|| format!("{label}: read limit overflows"))?;
-        let mut bytes = Vec::new();
-        file.take(read_limit)
-            .read_to_end(&mut bytes)
-            .map_err(|error| format!("{label}: {error}"))?;
-        if bytes.len() as u64 > MAX_ENVIRONMENT_READ_BYTES {
-            return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
-        }
-        Ok(bytes)
+        read_fd_bytes(&mut file, label, MAX_ENVIRONMENT_READ_BYTES, &mut |_| {})
     })
 }
 

@@ -1,7 +1,7 @@
 use super::*;
 #[cfg(target_os = "linux")]
 use crate::commands::fd::{open_absolute_dir, open_bound_root_fd};
-use crate::commands::test_util::wsg_fixture;
+use crate::commands::test_util::{write_appmanifest, wsg_fixture};
 
 #[cfg(target_os = "linux")]
 fn valve_authority_fixture(tag: &str) -> (PathBuf, PathBuf) {
@@ -313,13 +313,7 @@ fn steam_root_identity_swap_between_capture_and_open_fails_closed() {
 #[test]
 fn valve_authority_root_and_libraryfolders_race_use_bound_fds() {
     let (root, steam) = valve_authority_fixture("valve-root-vdf-races");
-    let steamapps = steam.join("steamapps");
-    std::fs::create_dir_all(&steamapps).unwrap();
-    std::fs::write(
-        steamapps.join("appmanifest_1493710.acf"),
-        "\"AppState\" { \"appid\" \"1493710\" }",
-    )
-    .unwrap();
+    write_appmanifest(&steam.join("steamapps"), 1493710);
     let libraryfolders = "\"libraryfolders\" { \"0\" { \"path\" \"";
     let libraryfolders = format!("{libraryfolders}{}\" }} }}", steam.display());
     let libraryfolders_path = steam.join("config/libraryfolders.vdf");
