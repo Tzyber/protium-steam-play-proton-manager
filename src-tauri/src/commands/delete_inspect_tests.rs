@@ -33,10 +33,7 @@ fn delete_livepruefung_verwirft_nachtraeglich_ungescopte_library() {
         &|path| path.starts_with(&steam_owned),
     )
     .unwrap_err();
-    assert!(
-        error.contains("deletion target outside allowed scope"),
-        "error: {error}"
-    );
+    assert!(error.contains("blocked-location"), "error: {error}");
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -544,10 +541,7 @@ fn inspect_deletion_target_lehnt_target_ausserhalb_scope_ab() {
         &|p| p == steam_root_path,
     );
     let err = result.unwrap_err();
-    assert!(
-        err.contains("deletion target outside allowed scope"),
-        "err: {err}"
-    );
+    assert!(err.contains("blocked-location"), "err: {err}");
 
     // kontrast: scope der das target einschliesst → ok
     let steam_owned = steam.clone();
@@ -707,10 +701,7 @@ fn orphan_inspektion_bricht_bei_geschaedigter_gelisteter_library_ab() {
         &all_in_scope,
     )
     .unwrap_err();
-    assert!(
-        error.contains("library unavailable: scope-failed"),
-        "error: {error}"
-    );
+    assert!(error.contains("unavailable"), "error: {error}");
     assert!(
         error.contains(broken.to_string_lossy().as_ref()),
         "error: {error}"

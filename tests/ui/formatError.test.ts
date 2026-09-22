@@ -22,6 +22,17 @@ describe("formatError (B1)", () => {
     expect(formatError("tool-already-exists")).toContain("Tool already exists");
   });
 
+  it("formatiert die live-ablehnungen der löschinspektion ohne rohtext", () => {
+    setLocale("de");
+    expect(formatError('not-an-orphan: game "Portal" (400)')).toContain("Kein verwaister Eintrag");
+    expect(formatError("library-not-listed")).toContain("libraryfolders.vdf");
+    expect(formatError("not-a-managed-tool")).toContain("GE-Proton");
+    expect(formatError("invalid-id")).toBe("Ungültige Kennung.");
+
+    setLocale("en");
+    expect(formatError("not-an-orphan")).toContain("Not an orphaned entry");
+  });
+
   it("zeigt nie einen rohen Backend-Text", () => {
     setLocale("de");
     const raw = formatError("steam is running, write refused");

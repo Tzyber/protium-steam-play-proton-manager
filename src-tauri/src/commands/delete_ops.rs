@@ -539,7 +539,7 @@ fn execute_delete_pipeline_inner(
             .lock()
             .map_err(|e| format!("mutex lock error: {e}"))?;
         map.remove(token)
-            .ok_or_else(|| "invalid deletion token".to_string())?
+            .ok_or_else(|| errcode::INVALID_ID.to_string())?
     };
 
     let now_ms = SystemTime::now()

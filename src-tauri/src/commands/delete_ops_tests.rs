@@ -132,7 +132,7 @@ fn prepare_bindet_den_steam_root_exakt_an_den_snapshot() {
     // und wird dort als nicht-verwaister shortcut abgelehnt
     let honest = orphan_request(&steam);
     let error = prepare_delete_inner(&registry, &honest, &snapshot, || Ok(false)).unwrap_err();
-    assert!(error.contains("not an orphan"), "unexpected error: {error}");
+    assert!(error.contains("not-an-orphan"), "unexpected error: {error}");
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -315,7 +315,7 @@ fn prepare_und_execute_happy_path_und_replay_schutz() {
     // 3. Execute 2nd time (Replay) -> Fails with invalid token
     let res_replay = execute_delete_pipeline(&registry, &info.token, &|_| true, || Ok(false));
     assert!(res_replay.is_err());
-    assert!(res_replay.unwrap_err().contains("invalid deletion token"));
+    assert!(res_replay.unwrap_err().contains("invalid-id"));
 
     let _ = std::fs::remove_dir_all(&root);
 }

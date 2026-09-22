@@ -31,6 +31,12 @@ pub(crate) const UNSUPPORTED_TARGET: &str = "unsupported-target";
 pub(crate) const NOT_A_DIRECTORY: &str = "not-a-directory";
 pub(crate) const SYMLINK_REJECTED: &str = "symlink-rejected";
 pub(crate) const INVALID_ID: &str = "invalid-id";
+/// Live-Ablehnungen der Löschinspektion: das Ziel ist kein verwaister Eintrag.
+pub(crate) const NOT_AN_ORPHAN: &str = "not-an-orphan";
+/// Die Ziel-Library steht nicht (mehr) in `libraryfolders.vdf`.
+pub(crate) const LIBRARY_NOT_LISTED: &str = "library-not-listed";
+/// Nur verwaltete GE-Proton-Tools dürfen gelöscht werden.
+pub(crate) const NOT_A_MANAGED_TOOL: &str = "not-a-managed-tool";
 
 pub(crate) const CANCELLED: &str = "cancelled";
 pub(crate) const CHECKSUM_FAILED: &str = "checksum-failed";
