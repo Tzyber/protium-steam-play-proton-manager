@@ -1,6 +1,6 @@
 // Lesende Compat-Tool-Regeln: Mapping aus config.vdf, Identität aus der
 // tool-vdf und die eine usedBy-Regel. Bewusst getrennt vom Verzeichnis-Scan in
-// `compat.ts` — hier steht nur Parsing und Zuordnung, dort Dateisystem und
+// `compat.ts`, hier steht nur Parsing und Zuordnung, dort Dateisystem und
 // Größenmessung.
 
 import { asNode, asString, getPath, parseVdf } from "./vdf.js";

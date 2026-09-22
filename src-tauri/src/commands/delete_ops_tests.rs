@@ -926,7 +926,7 @@ fn steam_start_zwischen_den_checks_blockiert_mutation() {
     let registry = PendingDeleteRegistry::default();
     let req = orphan_request(&steam);
     let info = prepare_with_snapshot(&registry, &req, || Ok(false)).unwrap();
-    // erster steam-check: läuft nicht; zweiter: läuft — die pipeline
+    // erster steam-check: läuft nicht; zweiter: läuft, die pipeline
     // prüft zweimal (vor und nach der inspection), der start zwischen
     // den checks muss die mutation blockieren.
     let checks = Arc::new(AtomicUsize::new(0));
@@ -1005,7 +1005,7 @@ fn fehlgeschlagene_mutation_stellt_originalnamen_wieder_her() {
 
 /// Review C: der Claim-Name ist im Verzeichnis sichtbar. Wird er zwischen
 /// Claim und Mutation durch ein gleichnamiges Fremdverzeichnis ersetzt, muss
-/// die Identitaetspruefung fail-closed enden — der Ersatz bleibt erhalten.
+/// die Identitaetspruefung fail-closed enden, der Ersatz bleibt erhalten.
 #[cfg(target_os = "linux")]
 #[test]
 fn claim_identitaet_wird_unmittelbar_vor_der_mutation_geprueft() {
@@ -1101,7 +1101,7 @@ fn trash_anlage_bleibt_an_die_gebundene_library_gebunden() {
 /// Regression: Wird zwischen letzter Inspektion und Claim ein Replacement
 /// untergeschoben, claimt Protium es und erkennt den Identity-Mismatch.
 /// Der Claim-Restore benennt das Replacement best-effort per NOREPLACE auf
-/// den Originalnamen zurück — fremde Daten bleiben am sichtbaren Ort
+/// den Originalnamen zurück, fremde Daten bleiben am sichtbaren Ort
 /// statt unter .protium-delete-claim-*.
 #[cfg(target_os = "linux")]
 #[test]

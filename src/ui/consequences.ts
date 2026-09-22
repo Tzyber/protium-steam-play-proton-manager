@@ -1,7 +1,7 @@
 // Lokalisiert die Backend-Konsequenzen für den destruktiven Bestätigungsdialog.
 // Das Backend liefert in `DeleteConsequence` strukturierte Fakten (action,
 // path, affectedAppIds) plus einen rohen description-String; die Struktur
-// wird hier auf i18n-Keys gemappt. Der Backend-String bleibt als Fallback —
+// wird hier auf i18n-Keys gemappt. Der Backend-String bleibt als Fallback:
 // das Backend ist die Autorität für WAS passiert, das Frontend lokalisiert
 // nur die Darstellung.
 import type { PendingDeleteInfo } from "../core/ports.js";

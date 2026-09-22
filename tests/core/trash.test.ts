@@ -219,7 +219,7 @@ describe("findTrashEntries", () => {
     expect(r.libraries[0]?.count).toBeGreaterThan(0);
   });
 
-  it("present-flag ist true bei lesefehler (74:53) — fehler != leerer papierkorb", async () => {
+  it("present-flag ist true bei lesefehler (74:53), fehler != leerer papierkorb", async () => {
     const sys = fakeSystem(async () => {
       throw "blocked";
     });

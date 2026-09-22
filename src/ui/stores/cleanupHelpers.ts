@@ -1,6 +1,6 @@
 // Reine Helfer des Cleanup-Stores: Installationsstand, Größenübernahme,
 // Fehlerzusammenfassung und die Basisfrage "gibt es einen Grund, der das
-// Cleanup sperrt". Kein Store-Zustand, kein Pinia — damit einzeln prüfbar.
+// Cleanup sperrt". Kein Store-Zustand, kein Pinia, damit einzeln prüfbar.
 
 import { ProtiumError } from "../../core/errors";
 import type { DirectorySize } from "../../core/ports";
@@ -22,7 +22,7 @@ export function collectInstalledAppIds(
 }
 
 /** übernimmt ausschließlich bestätigte messwerte. Jeder fehlende, unbekannte
- *  oder ungültige wert ist ein harter fehler — still 0 zu setzen würde einen
+ *  oder ungültige wert ist ein harter fehler, still 0 zu setzen würde einen
  *  unbekannten platzbedarf als gemessen darstellen. */
 export function attachSizes(
   entries: { path: string; sizeBytes?: number }[],

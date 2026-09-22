@@ -142,11 +142,7 @@ describe("Zuordnungsanalyse-Wording", () => {
         ...Object.values(locale.explain.topics.geDeleteScope),
       ];
       for (const text of values) {
-        const affirmative = text.replace(
-          /bedeutet nicht, dass das Tool ungenutzt ist|does not mean the tool is unused/gi,
-          "",
-        );
-        expect(affirmative).not.toMatch(
+        expect(text).not.toMatch(
           /ist ungenutzt|is unused|kann gelöscht werden|safe to delete|verschwendet|wasted|Bereinigung empfohlen/i,
         );
       }

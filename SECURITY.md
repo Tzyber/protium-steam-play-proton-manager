@@ -129,15 +129,15 @@ autorisierte Ziel. Der Claim ist selbst eine Namespace-Mutation; er macht das
 Ziel für Steam unsichtbar und verhindert, dass eine zwischen Prüfung und
 Mutation eingeschobene Ersetzung gelöscht wird.
 
-Scheitert nach dem eigenen Claim-Rename etwas — die Identitätsprüfung oder
-die nachfolgende Mutation —, versucht ein best-effort Restore-Guard, den
+Scheitert nach dem eigenen Claim-Rename etwas (die Identitätsprüfung oder
+die nachfolgende Mutation), versucht ein best-effort Restore-Guard, den
 Claim per `RENAME_NOREPLACE` auf den Originalnamen zurückzubenennen. Ist der
 Originalname inzwischen wieder belegt, schlägt NOREPLACE fehl und nichts wird
 überschrieben; der Claim-Rest bleibt liegen. Der ursprüngliche Fehler wird
 nie vom Restore verdeckt.
 
 Liegengebliebene `.protium-delete-claim-*`-Verzeichnisse werden bei späteren
-Cleanup-Scans als incomplete deletions sichtbar gemacht — in allen vier
+Cleanup-Scans als incomplete deletions sichtbar gemacht, in allen vier
 Parent-Locations der Delete-Pipeline: `compatdata`, `shadercache`,
 `.protium-trash` und `compatibilitytools.d`. Sie sind keine normalen Orphans
 und Protium bietet für sie aktuell keine automatische Restore- oder
@@ -148,8 +148,8 @@ keine dedizierte Confirm-Capability. `tauri-plugin-dialog` bleibt ausschließlic
 für die native Warnbestätigung im GE-Installationspfad ohne Prüfsumme aktiv.
 
 `prepare_delete` bindet den angeforderten `steam_root` exakt an
-`snapshot.steam_root`. Ein autorisierter Nachbarpfad — etwa eine externe
-Library — wird abgelehnt, bevor die Inspektion läuft: sonst läse sie
+`snapshot.steam_root`. Ein autorisierter Nachbarpfad (etwa eine externe
+Library) wird abgelehnt, bevor die Inspektion läuft: sonst läse sie
 `userdata` unter einem fremden Verzeichnis und hielte einen echten Shortcut
 für eine Waise. Die Ablehnungen der Live-Inspektion (kein verwaister Eintrag,
 Library nicht gelistet, Tool nicht verwaltet) tragen kanonische Fehlercodes;
@@ -219,8 +219,8 @@ vor Backup und Temp-Anlage und ein drittes Mal nach dem Daten-fsync der
 Temp-Datei, unmittelbar vor dem `renameat`. Bei `false, true` entstehen weder
 Backup noch Tempdatei; ein byteidentischer No-op beendet den Vorgang vor dem
 zweiten Check. Zwischen der letzten Prüfung und dem Rename bleibt ein Fenster
-von wenigen Mikrosekunden — es ist nicht ausgeschlossen, sondern durch die
-dritte Prüfung so klein wie technisch möglich; eine Atomizität über den ganzen
+von wenigen Mikrosekunden. Es ist nicht ausgeschlossen, aber durch die dritte
+Prüfung so klein wie technisch möglich; eine Atomizität über den ganzen
 Vorgang behauptet Protium nicht.
 
 `save_compat_tool` akzeptiert ausschließlich `null`/`default`, einen internen
@@ -259,8 +259,8 @@ Parent-Verzeichnis danach. Das Backup wird ebenfalls über
 no-follow-Deskriptoren geschrieben; sowohl seine Datei als auch der
 Verzeichniseintrag und neu angelegte Backup-Verzeichnisse werden synchronisiert.
 Bei erfolgreichem Abschluss ist nach einem Stromausfall damit entweder der
-alte oder der neue vollständige Stand durable — eine leere/verkürzte Config
-durch den Ausfall selbst ist ausgeschlossen. Ein Fehler vor dem Rename meldet,
+alte oder der neue vollständige Stand durable; eine leere oder verkürzte
+Config durch den Ausfall selbst ist ausgeschlossen. Ein Fehler vor dem Rename meldet,
 dass der Write nicht angewendet wurde, und räumt die Temp-Datei auf. Ein
 Fehler beim Parent-fsync nach dem Rename meldet ausdrücklich eine mögliche
 Mutation; er darf nicht als unveränderter Zielstand behandelt werden.

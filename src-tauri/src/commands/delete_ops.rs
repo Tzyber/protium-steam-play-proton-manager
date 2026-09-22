@@ -339,7 +339,7 @@ fn claim_delete_target(_pending: &PendingDelete) -> Result<(), String> {
 /// `findOrphans` auf numerische Namen filtert. Bei compatdata bedeutet
 /// unsichtbar = Savegames verloren.
 ///
-/// Der Rückweg ist NOREPLACE — ist am Originalnamen inzwischen etwas Neues
+/// Der Rückweg ist NOREPLACE: ist am Originalnamen inzwischen etwas Neues
 /// entstanden, bleibt der Claim liegen, statt das Neue zu überschreiben.
 /// Best effort: ein fehlgeschlagener Rückweg darf den ursprünglichen Fehler
 /// nicht verdecken.
@@ -355,7 +355,7 @@ struct ClaimRestoreGuard<'a> {
 
 impl ClaimRestoreGuard<'_> {
     /// Nach erfolgreicher Mutation existiert der Claim-Name nicht mehr
-    /// (gelöscht oder in den Trash verschoben) — es gibt nichts zurückzuholen.
+    /// (gelöscht oder in den Trash verschoben); es gibt nichts zurückzuholen.
     fn disarm(&mut self) {
         self.armed = false;
     }
@@ -376,7 +376,7 @@ impl Drop for ClaimRestoreGuard<'_> {
 }
 
 /// Bindet den angeforderten Steam-Root an den aktuellen Snapshot (F1): ein
-/// autorisierter Nachbarpfad — etwa eine externe Library — darf nicht als Root
+/// autorisierter Nachbarpfad (etwa eine externe Library) darf nicht als Root
 /// für die Lösch-Inspektion dienen, sonst liest die Inspektion `userdata`
 /// unter einem fremden Verzeichnis und hält echte Einträge für verwaist.
 fn ensure_current_steam_root(
@@ -571,7 +571,7 @@ fn execute_delete_pipeline_inner(
     // Letzte Zustandsprüfung unmittelbar vor dem Claim: zwischen Token-Ausgabe
     // und hier kann sich alles geändert haben. Steam-Lauf und Zielzustand
     // werden nach der Inspection direkt vor dem Claim ein zweites Mal geprüft
-    // — die Inspection (VDF-Parsing) kann dauern, in diesem Fenster darf sich
+    // die Inspection (VDF-Parsing) kann dauern, in diesem Fenster darf sich
     // weder Steam noch das Ziel ändern (steam_start_zwischen_den_checks_...,
     // live_aenderung_zwischen_checks_...).
     inspect_pending_target(&pending, scope_ok)?;

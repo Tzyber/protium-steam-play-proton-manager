@@ -40,7 +40,7 @@ fn libraryfolders_parser_ignoriert_leeren_block_und_defekte_roots() {
 #[test]
 fn parse_compat_id_begrenzt_appid_exakt_auf_uint32() {
     // appIDs sind unsigned 32-bit. non-steam-shortcuts setzen bit 31
-    // (2^31 + n) — die müssen compatdata/shadercache-löschpfade und die
+    // (2^31 + n), die müssen compatdata/shadercache-löschpfade und die
     // config-zuordnung erreichen können.
     assert_eq!(
         parse_compat_id(("compatdata", "2207218128")),
@@ -647,7 +647,7 @@ fn library_unavailable_reason_traegt_die_drahtwerte() {
 }
 
 /// F1: eine gelistete library außerhalb der erlaubten pfade darf nie in den
-/// scope (`libraries`) gelangen — die liste ist das gate für lese- und
+/// scope (`libraries`) gelangen, die liste ist das gate für lese- und
 /// löschpfade, `is_safe_path` lehnt `/etc`, `/proc`, `/sys` und `/dev` ab.
 #[test]
 fn read_library_folders_lehnt_blockierte_library_pfade_ab() {

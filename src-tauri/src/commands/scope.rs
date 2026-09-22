@@ -953,7 +953,7 @@ pub(super) fn parse_app_id(app_id_str: &str) -> Result<u32, String> {
         .parse::<u64>()
         .map_err(|_| format!("appId out of range: {app_id_str}"))?;
     // appIDs sind unsigned 32-bit. non-steam-shortcuts setzen bit 31 (2^31+n)
-    // und bleiben unterhalb u32::MAX — nur 0 (reserviert) und 2^32+ sind
+    // und bleiben unterhalb u32::MAX, nur 0 (reserviert) und 2^32+ sind
     // ungültig. ein i32-cap würde legitime shortcut-ids ausschließen.
     if !(1..=u32::MAX as u64).contains(&app_id) {
         return Err(if app_id == 0 {

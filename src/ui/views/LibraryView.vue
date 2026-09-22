@@ -196,7 +196,7 @@ const libraryWarnings = computed(() =>
                   {{ t("library.coverageLibraryUnavailable", { path: library.path }) }}
                 </span>
                 <span v-else>{{ t("library.coverageLibraryRead", { path: library.path }) }}</span>
-                <span v-if="library.reason"> — {{ formatLibraryReason(library.reason) }}</span>
+                <span v-if="library.reason"> · {{ formatLibraryReason(library.reason) }}</span>
               </li>
               <li v-for="(warning, index) in libraryWarnings" :key="`library-warning-${index}`">
                 {{ formatWarning(warning) }}

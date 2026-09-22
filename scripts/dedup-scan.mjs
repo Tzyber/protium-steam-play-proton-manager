@@ -56,7 +56,7 @@ function normalizeLine(raw) {
 // Block-duplikate über alle Dateien (auch innerdatei). Verglichen wird auf
 // normalisierten Zeilen: eine Zeile gilt als "geteilt", wenn dieselbe
 // normalisierte Fassung in mindestens zwei Dateien an einer beliebigen Stelle
-// vorkommt. Gemeldet werden maximale Folgen geteilter Zeilen ab MIN_BLOCK —
+// vorkommt. Gemeldet werden maximale Folgen geteilter Zeilen ab MIN_BLOCK:
 // ohne Gleitfenster, damit derselbe Fund nicht dutzendfach mit verschobenem
 // Start erscheint.
 function findBlocks(files) {

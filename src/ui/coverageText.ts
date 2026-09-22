@@ -69,7 +69,7 @@ export function formatConfigStatus(
 /** Hängt eine geprüfte Detailklammer an; ein unbekannter Rohtext entfällt. */
 function withDetail(base: string, ...parts: (string | undefined)[]): string {
   const shown = parts.filter((part): part is string => part !== undefined && part !== "");
-  return shown.length === 0 ? base : `${base} — ${shown.join(" · ")}`;
+  return shown.length === 0 ? base : `${base} · ${shown.join(" · ")}`;
 }
 
 function formatLibraryWarning(warning: LibraryWarning): string {

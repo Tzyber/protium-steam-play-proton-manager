@@ -195,7 +195,7 @@ where
             let mut manifest = match open_file_at(steamapps_fd.as_raw_fd(), &name) {
                 Ok(file) => file,
                 // manifest zwischen read_dir und openat verschwunden: skip
-                // (INV-2) statt fail — die löschpipeline revalidiert das ziel
+                // (INV-2) statt fail, die löschpipeline revalidiert das ziel
                 // ohnehin erneut und der claim bindet die identität.
                 Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
                 Err(error) => {
@@ -491,7 +491,7 @@ where
                 if let vdf_patch::TokenKind::String(app_key) = &app_entry.key.kind {
                     if app_key.chars().all(|c| c.is_ascii_digit()) {
                         // steam schreibt selbst einen default-eintrag mit appId 0
-                        // (globale standard-zuordnung, kein spiel) — der darf
+                        // (globale standard-zuordnung, kein spiel), der darf
                         // den lösch-durchlauf nicht brechen.
                         if app_key == "0" {
                             continue;
