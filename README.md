@@ -51,11 +51,11 @@ rückfrage und nur, wenn protium sich sicher ist:
 AppImage oder Debian-Paket von der [releases-seite](https://github.com/Tzyber/protium-steam-play-proton-manager/releases)
 laden. die AppImage ausführbar machen und starten:
 
-aktuelle version: `v0.10.1`.
+aktuelle version: `v0.11.0`.
 
 ```sh
-chmod +x protium_0.10.1_amd64.AppImage
-./protium_0.10.1_amd64.AppImage
+chmod +x protium_0.11.0_amd64.AppImage
+./protium_0.11.0_amd64.AppImage
 ```
 
 jedes release bringt AppImage, Debian-Paket, `SHA256SUMS` und `SHA256SUMS.asc`.
@@ -88,14 +88,14 @@ wer das nicht mag, baut selbst (siehe dev-setup). für Debian-basierte systeme
 liegt zusätzlich ein Debian-paket bei:
 
 ```sh
-sudo apt install ./protium_0.10.1_amd64.deb
+sudo apt install ./protium_0.11.0_amd64.deb
 ```
 
 startet nichts und es kommt keine fehlermeldung, fehlt meist fuse2. dann
 entweder `sudo pacman -S fuse2` oder einmalig ohne fuse starten:
 
 ```sh
-./protium_0.10.1_amd64.AppImage --appimage-extract-and-run
+./protium_0.11.0_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## was es kann
@@ -310,6 +310,10 @@ die app blockieren. was sich nicht zuverlässig bestimmen lässt, heißt in der 
   releases; dazu vollständige Paketangaben und AppStream-Metadaten
 - [x] v0.10.1: der Wayland-Hook findet die Systembibliothek jetzt auch auf
   Systemen ohne Entwicklerpaket
+- [x] v0.11.0: fehlermeldungen in beiden sprachen, „warum ist das blockiert“,
+  barrierefreiheit mit automatischem gate, eine messlatte für die geschwindigkeit,
+  nur eine instanz, sicherungskopien und lokales protokoll im neuen verlaufsbereich;
+  dazu der gehärtete schreibpfad für steam-konfigurationen
 
 versionshistorie steht in den [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 
@@ -323,19 +327,8 @@ auffällt, und ist kein Versprechen.
 
 zuerst:
 
-- **fehlermeldungen in klarer sprache.** heute steht in der oberfläche
-  manchmal ein roher text aus dem backend, mal deutsch, mal englisch. künftig
-  gibt es feste klassen (nicht verfügbar, unlesbar, unvollständig, nicht
-  gefunden, unbekannt, blockiert), in beiden sprachen gepflegt.
-- **„warum ist das blockiert".** wenn protium etwas verweigert, soll genau
-  dastehen, was geprüft wurde und was fehlt.
-- **barrierefreiheit durchgehen** und automatisch mitprüfen lassen.
-- **eine messlatte für die geschwindigkeit** in der CI, damit ein langsam
-  gewordener Scan auffällt.
-- **nur eine Instanz zulassen** und die Sicherungskopien der Steam-Dateien
-  sichtbar machen.
-- **diagnose auf dem eigenen rechner:** eine Fehlergrenze und ein Logfile, das
-  nur lokal bleibt.
+- die realen Nachweise nachholen: ein Lauf der AppImage auf fremder Hardware,
+  ein englischer Sprachdurchgang von Hand und die verbliebenen Störfälle.
 
 danach, wenn es sich lohnt:
 
