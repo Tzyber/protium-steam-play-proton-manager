@@ -45,6 +45,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.11.0" date="2026-09-22">
+      <description>
+        <p>Translated error messages, a new history view with the local log, a single-instance guard and a descriptor-bound write path.</p>
+      </description>
+    </release>
     <release version="0.10.1" date="2026-09-17">
       <description>
         <p>Wayland hook finds the system library on distributions without development packages.</p>
