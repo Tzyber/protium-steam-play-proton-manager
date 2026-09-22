@@ -25,6 +25,20 @@ describe("errtext und parseError (B1)", () => {
     expect(parsed.detail).toBe("libraryfolders.vdf");
   });
 
+  it("parseError klassifiziert die live-ablehnungen der löschinspektion", () => {
+    // N9: diese sicherheitsrelevanten Ablehnungen trugen früher nur einen
+    // englischen Satz und landeten als "unknown" in der oberfläche.
+    expect(parseError("not-an-orphan").kind).toBe("blocked");
+    expect(parseError("library-not-listed").kind).toBe("blocked");
+    expect(parseError("not-a-managed-tool").kind).toBe("blocked");
+    expect(parseError("invalid-id").kind).toBe("unknown");
+
+    const parsed = parseError('not-an-orphan: game "Portal" (400) is currently installed');
+    expect(parsed.code).toBe("not-an-orphan");
+    expect(parsed.kind).toBe("blocked");
+    expect(parsed.detail).toBe('game "Portal" (400) is currently installed');
+  });
+
   it("unbekannte Texte bleiben unknown, ohne zu raten", () => {
     // Ein alter englischer Satz ist kein Code und wird nicht klassifiziert.
     const parsed = parseError("steam is running, write refused");

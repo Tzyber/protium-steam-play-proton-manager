@@ -509,6 +509,10 @@ export const de = {
       tokenExpired: "Die Bestätigung ist abgelaufen. Bitte erneut starten.",
       targetChanged: "Das Ziel hat sich seit der Bestätigung geändert. Nichts wurde verändert.",
       unsupportedTarget: "Dieser Zieltyp wird nicht unterstützt.",
+      notAnOrphan:
+        "Kein verwaister Eintrag: Das Ziel gehört noch zu einem installierten Spiel oder Shortcut.",
+      libraryNotListed: "Die Library steht nicht in libraryfolders.vdf. Nichts wurde verändert.",
+      notAManagedTool: "Nur von Protium verwaltete GE-Proton-Versionen können gelöscht werden.",
       unverifiedRejected: "Die Installation ohne Prüfsumme wurde abgelehnt.",
       cancelled: "Der Vorgang wurde abgebrochen.",
       checksumFailed: "Die Prüfsumme konnte nicht geprüft werden.",

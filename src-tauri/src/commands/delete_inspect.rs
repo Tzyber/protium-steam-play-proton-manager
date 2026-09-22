@@ -248,7 +248,7 @@ pub(super) fn validate_trash_target(canon_str: &str, meta: &fs::Metadata) -> Res
         return Err("trash target must not be a symlink".into());
     }
     if !meta.is_dir() {
-        return Err("trash target must be a directory".into());
+        return Err(errcode::NOT_A_DIRECTORY.into());
     }
 
     let suffix = crate::commands::scope::suffix_after_steamapps(canon_str)?;
@@ -565,19 +565,19 @@ where
 
     let steam_root_input = Path::new(steam_root_str);
     if !scope_ok(steam_root_input) {
-        return Err("steam root outside allowed scope".into());
+        return Err(errcode::BLOCKED_LOCATION.into());
     }
     let steam_root = fs::canonicalize(steam_root_input)
         .map_err(|error| format!("cannot canonicalize Steam root: {error}"))?;
     if !scope_ok(&steam_root) {
-        return Err("steam root outside allowed scope".into());
+        return Err(errcode::BLOCKED_LOCATION.into());
     }
     let steam_root_fd = open_bound_root_fd(&steam_root, &mut || {})?;
 
     let canonical = crate::commands::path::canonicalize_no_symlink(target_path_str)?;
     let canon_str = canonical.to_string_lossy();
     if !is_safe_path(&canon_str) {
-        return Err("blocked path".into());
+        return Err(errcode::BLOCKED_LOCATION.into());
     }
 
     // das target selbst muss im scope liegen, nicht nur der root: sonst wäre
@@ -585,12 +585,12 @@ where
     // suffix-anchor reicht nicht). die scope_ok-closure ist backend-seitig
     // gegen den environment-snapshot gebunden (kein webview-fs-grant).
     if !scope_ok(&canonical) {
-        return Err("deletion target outside allowed scope".into());
+        return Err(errcode::BLOCKED_LOCATION.into());
     }
 
     let meta = fs::symlink_metadata(&canonical).map_err(|e| e.to_string())?;
     if meta.file_type().is_symlink() {
-        return Err("symlink rejected, will not delete".into());
+        return Err(errcode::SYMLINK_REJECTED.into());
     }
 
     #[cfg(unix)]
@@ -604,7 +604,7 @@ where
     match target_type {
         "orphan" => {
             if !meta.is_dir() {
-                return Err("orphan target must be a directory".into());
+                return Err(errcode::NOT_A_DIRECTORY.into());
             }
             let suffix = crate::commands::scope::suffix_after_steamapps(&canon_str)?;
             let (typ, app_id_str) = crate::commands::scope::parse_compat_id(
@@ -622,17 +622,16 @@ where
                 .iter()
                 .find(|entry| entry.reason != LibraryUnavailableReason::PathMissing)
             {
-                return Err(format!(
-                    "library unavailable: {}: {}",
-                    entry.reason.as_str(),
-                    entry.path
+                return Err(errcode::with_detail(
+                    errcode::UNAVAILABLE,
+                    format!("library {} ({})", entry.path, entry.reason.as_str()),
                 ));
             }
 
             let lib_str = crate::commands::scope::library_of(&canon_str)?;
             let lib_path = PathBuf::from(lib_str);
             if !libraries.iter().any(|l| l == &lib_path) {
-                return Err("target library is not listed in libraryfolders.vdf".into());
+                return Err(errcode::with_detail(errcode::LIBRARY_NOT_LISTED, lib_str));
             }
 
             if let Some(game_name) =
@@ -643,15 +642,17 @@ where
                 } else {
                     game_name
                 };
-                return Err(format!(
-                    "target is not an orphan: game \"{display}\" ({app_id}) is currently installed"
+                return Err(errcode::with_detail(
+                    errcode::NOT_AN_ORPHAN,
+                    format!("game \"{display}\" ({app_id}) is currently installed"),
                 ));
             }
 
             let shortcut_ids = read_all_shortcut_app_ids_linux_with_hook(&steam_root_fd, hook)?;
             if shortcut_ids.contains(&app_id) {
-                return Err(format!(
-                    "target is not an orphan: app {app_id} exists as a non-steam shortcut"
+                return Err(errcode::with_detail(
+                    errcode::NOT_AN_ORPHAN,
+                    format!("app {app_id} exists as a non-steam shortcut"),
                 ));
             }
 
@@ -664,7 +665,7 @@ where
                     "permanentDelete",
                     format!("Shader-Cache von app {app_id} dauerhaft löschen"),
                 ),
-                _ => return Err("unsupported orphan type".into()),
+                _ => return Err(errcode::UNSUPPORTED_TARGET.into()),
             };
 
             let consequences = vec![DeleteConsequence {
@@ -706,7 +707,7 @@ where
         }
         "compatTool" => {
             if !meta.is_dir() {
-                return Err("compat tool target must be a directory".into());
+                return Err(errcode::NOT_A_DIRECTORY.into());
             }
             let tool_name = canonical
                 .file_name()
@@ -714,14 +715,18 @@ where
                 .ok_or_else(|| "invalid tool folder name".to_string())?;
 
             if !is_managed_ge_name(tool_name) {
-                return Err(format!(
-                    "only managed GE-Proton tools can be deleted, got: {tool_name}"
+                return Err(errcode::with_detail(
+                    errcode::NOT_A_MANAGED_TOOL,
+                    format!("got: {tool_name}"),
                 ));
             }
 
             let expected_parent = steam_root.join("compatibilitytools.d");
             if canonical.parent() != Some(&expected_parent) {
-                return Err("compat tool must be directly inside compatibilitytools.d".into());
+                return Err(errcode::with_detail(
+                    errcode::BLOCKED_LOCATION,
+                    "compat tool must be directly inside compatibilitytools.d",
+                ));
             }
 
             let affected_apps =
@@ -746,7 +751,10 @@ where
                 consequences,
             })
         }
-        _ => Err(format!("unknown target type: {target_type}")),
+        _ => Err(errcode::with_detail(
+            errcode::UNSUPPORTED_TARGET,
+            target_type,
+        )),
     }
 }
 

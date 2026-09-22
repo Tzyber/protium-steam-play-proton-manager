@@ -508,6 +508,10 @@ export const en = {
       tokenExpired: "The confirmation expired. Please start again.",
       targetChanged: "The target changed since confirmation. Nothing was changed.",
       unsupportedTarget: "This target type is not supported.",
+      notAnOrphan:
+        "Not an orphaned entry: the target still belongs to an installed game or shortcut.",
+      libraryNotListed: "The library is not listed in libraryfolders.vdf. Nothing was changed.",
+      notAManagedTool: "Only GE-Proton versions managed by Protium can be deleted.",
       unverifiedRejected: "Installation without a checksum was rejected.",
       cancelled: "The operation was cancelled.",
       checksumFailed: "The checksum could not be verified.",
