@@ -6,11 +6,36 @@ export interface VdfNode {
   [key: string]: VdfValue;
 }
 
-/** Neutralisiert gefährliche Block-Keys vor dem Parse und überspringt
- *  Steam-Conditionals; die einzige Pollutionsschranke dieses Pfads. */
+/** Neutralisiert gefährliche Block-Keys vor dem Parse und stellt den globalen
+ *  Zustand nach dem Parse exakt wieder her. */
 export function parseVdf(text: string): VdfNode {
-  const safe = neutralizeDangerousBlockKeys(text);
-  return sanitize(parse(safe));
+  // Die Bibliothek weist Keys ungefiltert zu und kann dabei `Object.prototype`
+  // bzw. `Object` mutieren. Der Pre-Pass fängt die belegten Formen ab, bildet
+  // die zeilenweise Grammatik der Bibliothek aber nicht vollständig ab. Deshalb
+  // liegt um den Parse zusätzlich ein Containment: der globale Zustand wird
+  // vorher festgehalten und danach exakt zurückgesetzt. Der Pre-Pass bleibt die
+  // erste Schranke (er verhindert die Mutation im Normalfall), das Containment
+  // ist die zweite, die von den Parse-Eigenheiten unabhängig ist.
+  const prototypes = Object.getOwnPropertyDescriptors(Object.prototype);
+  const constructorProperties = Object.getOwnPropertyDescriptors(Object);
+  try {
+    return sanitize(parse(neutralizeDangerousBlockKeys(text)));
+  } finally {
+    restoreProperties(Object.prototype, prototypes);
+    restoreProperties(Object, constructorProperties);
+  }
+}
+
+/** Setzt genau die eigenen Properties zurück, die vor dem Parse bestanden. */
+function restoreProperties(target: object, saved: PropertyDescriptorMap): void {
+  for (const key of Object.getOwnPropertyNames(target)) {
+    if (!Object.hasOwn(saved, key)) {
+      delete (target as Record<string, unknown>)[key];
+    }
+  }
+  for (const [key, descriptor] of Object.entries(saved)) {
+    Object.defineProperty(target, key, descriptor);
+  }
 }
 
 const DANGEROUS_BLOCK_KEYS = new Set(["__proto__", "constructor", "prototype"]);

@@ -111,6 +111,38 @@ ${key}
     expect(getPath(parsed, "container", "sibling")).toBe("readable");
   });
 
+  it.each([
+    ["ungerade tokenzahl in der zeile", '"a" "b" "c"\n"__proto__"\n{\n  "polluted" "yes"\n}'],
+    ["ungerade tokenzahl bare", 'a b c\n"__proto__"\n{\n  "polluted" "yes"\n}'],
+    ["verirrtes kommentarende", '*/\n"__proto__"\n{\n  "polluted" "yes"\n}'],
+    ["zeile endet auf kommentarende", '"a" "b" */\n"__proto__"\n{\n  "polluted" "yes"\n}'],
+    [
+      "offenes blockkommentar am dateiende",
+      '"x" "y"\n/* offen\n"__proto__"\n{\n  "polluted" "yes"\n}',
+    ],
+    ["escaptes quote in der zeile", '"a\\" "b"\n"__proto__"\n{\n  "polluted" "yes"\n}'],
+    [
+      "constructor-kette",
+      '"a" "b" "c"\n"constructor"\n{\n  "prototype"\n  {\n    "polluted" "yes"\n  }\n}',
+    ],
+  ])("lässt auch in der form '%s' keine pollution durch", (_name, text) => {
+    // Der Pre-Pass bildet die zeilenweise Grammatik der Bibliothek nicht
+    // vollständig ab. Das Containment um den Parse muss die Klasse deshalb
+    // unabhängig von der Eingabeform schließen.
+    const before = Object.getOwnPropertyNames(Object.prototype).join(",");
+    try {
+      parseVdf(text);
+    } catch {
+      // ein Syntaxfehler ist zulässig, solange nichts mutiert wird
+    }
+
+    const objectPrototype = Object.prototype as Record<string, unknown>;
+    const objectConstructor = Object as unknown as Record<string, unknown>;
+    expect(objectPrototype.polluted).toBeUndefined();
+    expect(objectConstructor.polluted).toBeUndefined();
+    expect(Object.getOwnPropertyNames(Object.prototype).join(",")).toBe(before);
+  });
+
   it("liest harmlose kommentierte VDF-keys weiter", () => {
     const parsed = parseVdf(`"root" // block-kommentar
 {

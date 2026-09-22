@@ -41,10 +41,20 @@ function openUpdateRelease() {
 // jedem dialog gesetzt und geräumt zu werden: sonst hebt das schliessen eines
 // verschachtelten dialogs (erklärung im offenen drawer) die sperre des anderen
 // auf.
+// Der Drawer zählt nur als offen, solange seine Auswahl im aktuellen Scan
+// auflösbar ist: fällt das Spiel durch einen Rescan aus dem Snapshot (oder
+// wurde die Ansicht gewechselt), bliebe die Sperre sonst stehen und der
+// Hauptinhalt wäre dauerhaft inert.
+const drawerOpen = computed(() => {
+  const appId = ui.selectedAppId;
+  if (appId === null) return false;
+  return scan.result?.games.some((entry) => entry.appId === appId) === true;
+});
+
 watch(
-  () => [confirm.pending !== null, ui.selectedAppId !== null, ui.explanationCount > 0] as const,
-  ([confirmOpen, drawerOpen, explanationOpen]) => {
-    ui.inertMain = confirmOpen || drawerOpen || explanationOpen;
+  () => [confirm.pending !== null, drawerOpen.value, ui.explanationCount > 0] as const,
+  ([confirmOpen, gameOpen, explanationOpen]) => {
+    ui.inertMain = confirmOpen || gameOpen || explanationOpen;
   },
   { immediate: true },
 );

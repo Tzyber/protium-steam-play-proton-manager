@@ -136,6 +136,8 @@ export const de = {
     openSnapshotsFolder: "Ordner öffnen",
     logTitle: "Protokoll",
     logHint: "Nur lokal, keine Übertragung. Zeigt den Schluss der Datei.",
+    rawHint:
+      "Rohes lokales Protokoll: Zeilen stehen wortgetreu hier, damit eine Fehlermeldung nachvollziehbar bleibt. Die übrige Oberfläche zeigt übersetzte Texte; Home-Pfade sind im Protokoll durch ~ ersetzt.",
     logEmpty: "Noch keine Einträge.",
     openLogsFolder: "Ordner öffnen",
     refresh: "Aktualisieren",

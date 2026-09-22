@@ -153,6 +153,7 @@ onMounted(() => {
           </div>
         </div>
 
+        <p class="hint mono">{{ t("history.rawHint") }}</p>
         <ol v-if="logLines.length" class="log">
           <li v-for="line in logLines" :key="line.key" :class="line.level">
             <span class="log-time">{{ line.time }}</span>

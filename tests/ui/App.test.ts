@@ -13,14 +13,22 @@ const rawUiState = vi.hoisted(() => ({
   explanationCount: 0,
   notification: null,
   dismissNotification: vi.fn(),
+  // Der Store setzt die Auswahl beim Verlassen der Library zurück; der Mock
+  // bildet das nach, sonst wäre der Lockout im Test unsichtbar (V2).
+  go(this: { activeView: string; selectedAppId: number | null }, view: string) {
+    this.activeView = view;
+    if (view !== "library") this.selectedAppId = null;
+  },
 }));
 const mockUiState = reactive(rawUiState);
-const mockScanState = vi.hoisted(() => ({
-  result: null,
+const rawScanState = vi.hoisted(() => ({
+  result: null as { games: { appId: number }[]; libraries: string[] } | null,
   compatTools: [],
   elapsedMs: null,
   runScan: vi.fn(async () => {}),
 }));
+// reaktiv, weil die inert-Ableitung den Scan-Stand liest (V2)
+const mockScanState = reactive(rawScanState);
 const mockCheckForUpdate = vi.hoisted(() => vi.fn());
 const mockOpenExternal = vi.hoisted(() => vi.fn());
 
@@ -90,11 +98,14 @@ describe("App modal background", () => {
 
   it("setzt inert auf die gesamte shell, wenn ein modal aktiv ist", () => {
     // V2: die sperre wird aus dem zustand abgeleitet, nicht vorab gesetzt.
+    // Der Drawer zählt nur, wenn seine Auswahl im Scan auflösbar ist.
     mockUiState.selectedAppId = 620;
+    mockScanState.result = { games: [{ appId: 620 }], libraries: [] };
     const wrapper = mount(App);
 
     expect(mockUiState.inertMain).toBe(true);
     mockUiState.selectedAppId = null;
+    mockScanState.result = null;
     expect(wrapper.find(".shell").attributes("inert")).toBeUndefined();
     expect(wrapper.find(".sidebar").attributes("inert")).toBeUndefined();
   });
@@ -123,6 +134,7 @@ describe("App modal background", () => {
 
     const ui = useUiStore();
     ui.selectedAppId = 620;
+    mockScanState.result = { games: [{ appId: 620 }], libraries: [] };
     ui.explanationCount = 1;
     await nextTick();
     expect(mockUiState.inertMain).toBe(true);
@@ -132,8 +144,44 @@ describe("App modal background", () => {
     expect(mockUiState.inertMain).toBe(true);
 
     ui.selectedAppId = null;
+    mockScanState.result = null;
     await nextTick();
     expect(mockUiState.inertMain).toBe(false);
+  });
+
+  it("gibt die sperre frei, wenn die auswahl im scan nicht mehr existiert (Review V2)", async () => {
+    // Rescan ohne das offene Spiel: der Drawer rendert nichts, die Sperre darf
+    // nicht stehen bleiben (sonst ist die Navigation gesperrt).
+    mockUiState.inertMain = false;
+    const ui = useUiStore();
+    ui.selectedAppId = 620;
+    mockScanState.result = { games: [{ appId: 620 }], libraries: [] };
+    await nextTick();
+    expect(mockUiState.inertMain).toBe(true);
+
+    mockScanState.result = { games: [{ appId: 999 }], libraries: [] };
+    await nextTick();
+    expect(mockUiState.inertMain).toBe(false);
+
+    ui.selectedAppId = null;
+    mockScanState.result = null;
+  });
+
+  it("gibt die sperre beim ansichtswechsel frei (Review V2)", async () => {
+    mockUiState.inertMain = false;
+    const ui = useUiStore();
+    ui.selectedAppId = 620;
+    mockScanState.result = { games: [{ appId: 620 }], libraries: [] };
+    await nextTick();
+    expect(mockUiState.inertMain).toBe(true);
+
+    ui.go("cleanup");
+    await nextTick();
+    expect(ui.selectedAppId).toBeNull();
+    expect(mockUiState.inertMain).toBe(false);
+
+    mockScanState.result = null;
+    ui.activeView = "library";
   });
 });
 
