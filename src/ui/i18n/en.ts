@@ -255,6 +255,8 @@ export const en = {
   drawer: {
     close: "close",
     saveBlocked: "Saving blocked",
+    saveUncertain:
+      "Completion could not be confirmed. Check the value in Steam before saving again.",
     srDescription: "details for {name}. size {size}, proton {compatTool}, AppID {appId}.",
     configuration: "configuration",
     prefixOpen: "Open prefix folder",
@@ -512,6 +514,8 @@ export const en = {
         "Not an orphaned entry: the target still belongs to an installed game or shortcut.",
       libraryNotListed: "The library is not listed in libraryfolders.vdf. Nothing was changed.",
       notAManagedTool: "Only GE-Proton versions managed by Protium can be deleted.",
+      writeMayHaveApplied:
+        "The change may have been written, but completion could not be confirmed.",
       unverifiedRejected: "Installation without a checksum was rejected.",
       cancelled: "The operation was cancelled.",
       checksumFailed: "The checksum could not be verified.",

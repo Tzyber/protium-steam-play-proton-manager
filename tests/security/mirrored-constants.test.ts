@@ -2,9 +2,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BLOCKLIST } from "../../src/core/blocklist.js";
+import { parseError } from "../../src/core/errtext.js";
 import { SYSTEM_COMPAT_DIRS } from "../../src/core/paths.js";
 import { MAX_BINARY_VDF_DEPTH } from "../../src/core/shortcuts.js";
 import { MAX_APP_ID } from "../../src/core/types.js";
+import { formatError } from "../../src/ui/formatError.js";
+import { setLocale, t } from "../../src/ui/i18n/index.js";
 import { MAX_PENDING_DELETES } from "../../src/ui/stores/cleanupStore.js";
 
 const repo = process.cwd();
@@ -69,6 +72,26 @@ describe("TypeScript-/Rust-Spiegelwerte", () => {
     expect(MAX_PENDING_DELETES).toBe(32);
     expect(deleteOps).toContain("pub const MAX_PENDING_DELETES: usize = 32;");
     expect(deleteOps).toContain("pub const DELETE_TOKEN_TTL_SECS: u64 = 300;");
+  });
+
+  it("bindet jeden Rust-Fehlercode an Klasse und Text der Oberflaeche", () => {
+    // Die Codes liegen in vier Stellen (errcode.rs, CODE_KINDS, CODE_KEYS,
+    // i18n de/en). Der Test haelt sie zusammen: ein neuer Code ohne
+    // Uebersetzung oder ohne Klassifikation faellt hier auf.
+    const errcode = readFileSync(join(repo, "src-tauri/src/commands/errcode.rs"), "utf8");
+    const codes = [
+      ...errcode.matchAll(/pub\(crate\) const [A-Z0-9_]+: &str = "([a-z0-9-]+)";/g),
+    ].map((match) => match[1] ?? "");
+    expect(codes.length).toBeGreaterThan(20);
+
+    setLocale("de");
+    for (const code of codes) {
+      expect(parseError(code).code, `Code ${code} fehlt in CODE_KINDS`).toBe(code);
+      expect(
+        formatError(code),
+        `Code ${code} hat keinen eigenen Text (Fallback auf unknown)`,
+      ).not.toBe(t("errors.kinds.unknown"));
+    }
   });
 
   it("bindet die Token-TTL der Doku an den Rust-Wert (C1)", () => {

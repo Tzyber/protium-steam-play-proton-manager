@@ -30,6 +30,7 @@ const CODE_KEYS: Record<string, Key> = {
   "not-an-orphan": "errors.codes.notAnOrphan",
   "library-not-listed": "errors.codes.libraryNotListed",
   "not-a-managed-tool": "errors.codes.notAManagedTool",
+  "write-may-have-applied": "errors.codes.writeMayHaveApplied",
   "unverified-rejected": "errors.codes.unverifiedRejected",
   cancelled: "errors.codes.cancelled",
   "checksum-failed": "errors.codes.checksumFailed",

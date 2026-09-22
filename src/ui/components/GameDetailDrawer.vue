@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { openExternal, tauriPorts } from "../../core/adapters/tauri";
-import { errText } from "../../core/errtext";
+import { parseError } from "../../core/errtext";
 import { analyzeLaunchOptions, type LaunchHint } from "../../core/launchHints";
 import { protonDbAppUrl } from "../../core/protondb";
 import type { LaunchConfigStatus, Tier } from "../../core/types";
@@ -108,10 +108,19 @@ async function openProtonDb() {
 
 // Status eines Speichervorgangs: bekannte schlagworte ODER die fehlermeldung.
 // Als tagged union, damit `stateError` nicht aus einem freien string raten muss.
-type SaveState = { kind: "idle" | "saving" | "saved" } | { kind: "error"; message: string };
+type SaveState =
+  | { kind: "idle" | "saving" | "saved" }
+  | { kind: "error"; message: string; uncertain: boolean };
 
 const save = (kind: "idle" | "saving" | "saved"): SaveState => ({ kind });
-const saveError = (message: string): SaveState => ({ kind: "error", message });
+// `uncertain` unterscheidet den Fall "möglicherweise geschrieben" (Code
+// write-may-have-applied) vom belegten "nichts verändert": der Garantiesatz
+// darf dort nicht stehen (SECURITY.md).
+const saveError = (e: unknown): SaveState => ({
+  kind: "error",
+  message: formatError(e),
+  uncertain: parseError(e).code === "write-may-have-applied",
+});
 
 // Status für das Speichern von Startoptionen.
 const launchInput = ref("");
@@ -182,7 +191,7 @@ async function saveLaunch() {
     launchState.value = save(result === "written" ? "saved" : "idle");
   } catch (e) {
     if (!stillMatches()) return;
-    launchState.value = saveError(errorText(e));
+    launchState.value = saveError(e);
   }
 }
 
@@ -303,7 +312,7 @@ async function saveCompat() {
     compatState.value = save(result === "written" ? "saved" : "idle");
   } catch (e) {
     if (!stillMatches()) return;
-    compatState.value = saveError(errorText(e));
+    compatState.value = saveError(e);
   }
 }
 
@@ -335,6 +344,12 @@ function stateError(s: SaveState): string | null {
   return s.kind === "error" ? s.message : null;
 }
 const errorMessage = computed(() => stateError(compatState.value) ?? stateError(launchState.value));
+const errorUncertain = computed(() => {
+  const compat = compatState.value;
+  if (compat.kind === "error") return compat.uncertain;
+  const launch = launchState.value;
+  return launch.kind === "error" ? launch.uncertain : false;
+});
 function dismissError() {
   if (stateError(compatState.value)) compatState.value = save("idle");
   if (stateError(launchState.value)) launchState.value = save("idle");
@@ -625,7 +640,7 @@ watch(errorMessage, (msg) => {
           :title="t('drawer.saveBlocked')"
           :intro="t('common.couldNotVerify')"
           :items="[errorMessage]"
-          :guarantee="t('common.nothingChanged')"
+          :guarantee="errorUncertain ? t('drawer.saveUncertain') : t('common.nothingChanged')"
         />
       </aside>
       </div>

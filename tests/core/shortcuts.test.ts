@@ -541,7 +541,7 @@ describe("readAllShortcutAppIds", () => {
     }
   });
 
-  it("unlesbares userdata → status unreadable mit detail", async () => {
+  it("unlesbares userdata → status unreadable mit klassifiziertem detail", async () => {
     const { root } = await buildFakeSteam();
     const fs = fsWithUnreadableUserdata(nodeFs());
 
@@ -549,7 +549,24 @@ describe("readAllShortcutAppIds", () => {
     expect(result.status).toBe("unreadable");
     if (result.status === "unreadable") {
       expect(result.paths).toEqual([]);
-      expect(result.detail).toContain("permission denied");
+      // V1: der detailwert ist ein kanonischer code, kein roher backendsatz
+      expect(result.detail).toBe("unknown");
+      expect(result.detail).not.toContain("permission denied");
     }
+  });
+
+  it("gibt einen bekannten fehlercode als detail weiter", async () => {
+    const { root } = await buildFakeSteam();
+    const inner = nodeFs();
+    const fs = {
+      ...inner,
+      exists: async () => {
+        throw "unreadable: userdata";
+      },
+    };
+
+    const result = await readAllShortcutAppIds(fs, root);
+    if (result.status !== "unreadable") throw new Error("status unreadable erwartet");
+    expect(result.detail).toBe("unreadable");
   });
 });
