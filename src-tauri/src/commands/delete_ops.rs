@@ -112,6 +112,42 @@ fn open_delete_target_handle(_path: &Path) -> Result<fs::File, String> {
     ))
 }
 
+/// Öffnet oder erzeugt `<library>/steamapps/.protium-trash` entlang gebundener
+/// Deskriptoren (N3): die Library wird identitätsgeprüft geöffnet, `steamapps`
+/// und der Papierkorb folgen relativ dazu mit `O_NOFOLLOW`. Damit gibt es kein
+/// Fenster, in dem ein ausgetauschter Parent den Papierkorb außerhalb der
+/// autorisierten Library anlegen könnte; `hook` ist der Testhaken in genau
+/// diesem Bindefenster.
+#[cfg(target_os = "linux")]
+fn open_trash_dir<F>(library: &Path, hook: &mut F) -> Result<fs::File, String>
+where
+    F: FnMut() + ?Sized,
+{
+    use std::os::fd::AsRawFd;
+
+    let library_fd = crate::commands::fd::open_bound_root_fd(library, hook)?;
+    let steamapps_fd =
+        crate::commands::fd::open_dir_at(library_fd.as_raw_fd(), OsStr::new("steamapps"))
+            .map_err(|error| format!("cannot open steamapps: {error}"))?;
+    let trash_fd = crate::commands::fd::open_or_create_dir_at(
+        steamapps_fd.as_raw_fd(),
+        OsStr::new(TRASH_DIR_NAME),
+    )
+    .map_err(|error| format!("cannot create trash dir: {error}"))?;
+    Ok(fs::File::from(trash_fd))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn open_trash_dir<F>(_library: &Path, _hook: &mut F) -> Result<fs::File, String>
+where
+    F: FnMut() + ?Sized,
+{
+    Err(errcode::with_detail(
+        errcode::UNSUPPORTED_PLATFORM,
+        "trash directory binding",
+    ))
+}
+
 #[cfg(target_os = "linux")]
 fn delete_handle_identity(handle: &fs::File) -> Result<(u64, u64), String> {
     use std::os::unix::fs::MetadataExt;
@@ -570,11 +606,8 @@ fn execute_delete_pipeline_inner(
                 }
                 "compatdata" => {
                     let lib_str = crate::commands::scope::library_of(&canon_str)?;
-                    let trash_dir = Path::new(lib_str).join("steamapps").join(TRASH_DIR_NAME);
-                    fs::create_dir_all(&trash_dir)
-                        .map_err(|e| format!("cannot create trash dir: {e}"))?;
+                    let trash_parent = open_trash_dir(Path::new(lib_str), &mut || {})?;
                     let trash_name = format!("compatdata_{app_id_str}_{now_ms}");
-                    let trash_parent = open_delete_target_handle(&trash_dir)?;
                     let source_parent = pending.parent_handle.as_ref().ok_or_else(|| {
                         "pending delete has no bound parent directory".to_string()
                     })?;

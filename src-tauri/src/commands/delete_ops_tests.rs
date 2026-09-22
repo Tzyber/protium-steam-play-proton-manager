@@ -301,6 +301,17 @@ fn prepare_und_execute_happy_path_und_replay_schutz() {
     assert_eq!(res.deleted_path, compatdata.to_string_lossy());
     assert!(!compatdata.exists());
 
+    // N3: der orphan landet im papierkorb der gebundenen library, nicht daneben
+    let trash_entries: Vec<String> = std::fs::read_dir(steamapps.join(".protium-trash"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(trash_entries.len(), 1);
+    assert!(
+        trash_entries[0].starts_with("compatdata_999999_"),
+        "unerwarteter papierkorbeintrag: {trash_entries:?}"
+    );
+
     // 3. Execute 2nd time (Replay) -> Fails with invalid token
     let res_replay = execute_delete_pipeline(&registry, &info.token, &|_| true, || Ok(false));
     assert!(res_replay.is_err());
@@ -971,6 +982,39 @@ fn fehlgeschlagene_mutation_stellt_originalnamen_wieder_her() {
         "kein .protium-delete-claim-* darf zurückbleiben"
     );
 
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// N3: der library-parent wird im bindefenster ausgetauscht. Die kette
+/// library, steamapps, papierkorb muss fail-closed enden und darf im fremden
+/// verzeichnis keinen papierkorb anlegen.
+#[cfg(target_os = "linux")]
+#[test]
+fn trash_anlage_bleibt_an_die_gebundene_library_gebunden() {
+    let root = wsg_fixture("delete-ops-trash-binding");
+    let library = root.join("steam");
+    std::fs::create_dir_all(library.join("steamapps")).unwrap();
+    let moved = root.join("echte-library");
+    let fremd = root.join("fremd");
+    std::fs::create_dir_all(&fremd).unwrap();
+
+    let (swap_library, swap_moved, swap_fremd) = (library.clone(), moved.clone(), fremd.clone());
+    let mut hook = move || {
+        std::fs::rename(&swap_library, &swap_moved).unwrap();
+        std::os::unix::fs::symlink(&swap_fremd, &swap_library).unwrap();
+    };
+
+    let error = open_trash_dir(Path::new(&library), &mut hook).unwrap_err();
+
+    assert!(error.contains("descriptor open"), "error: {error}");
+    assert!(
+        !fremd.join("steamapps").join(TRASH_DIR_NAME).exists(),
+        "im fremden verzeichnis darf kein papierkorb entstehen"
+    );
+    assert!(
+        !moved.join("steamapps").join(TRASH_DIR_NAME).exists(),
+        "der papierkorb entsteht erst im gebundenen verzeichnis, hier gar nicht"
+    );
     let _ = std::fs::remove_dir_all(root);
 }
 
