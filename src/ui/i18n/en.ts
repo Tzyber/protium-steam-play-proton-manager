@@ -141,6 +141,8 @@ export const en = {
     openSnapshotsFolder: "Open folder",
     logTitle: "log",
     logHint: "Local only, never transmitted. Shows the end of the file.",
+    rawHint:
+      "Raw local log: lines appear verbatim so an error report stays traceable. The rest of the interface shows translated text; home paths are replaced with ~ in the log.",
     logEmpty: "No entries yet.",
     openLogsFolder: "Open folder",
     refresh: "Refresh",

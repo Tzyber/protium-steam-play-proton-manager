@@ -71,6 +71,15 @@ export const useScanStore = defineStore("scan", {
           "info",
           `Scan abgeschlossen: ${result.games.length} Spiele, ${result.warnings.length} Warnungen`,
         );
+        // Die Oberfläche zeigt vom Warnungs-Detail nur, was als bekannter
+        // Fehlercode übersetzbar ist. Der Rohtext bleibt hier im lokalen
+        // Protokoll erhalten, sonst wäre die Ursache (z. B. EACCES auf einer
+        // Config) nirgends nachvollziehbar (V1).
+        for (const warning of result.warnings) {
+          if (warning.detail) {
+            logEvent("warn", `Scan-Warnung ${warning.type}: ${warning.detail}`);
+          }
+        }
         this.protonDbRemaining = result.games.length;
         if (result.games.length === 0) return;
 

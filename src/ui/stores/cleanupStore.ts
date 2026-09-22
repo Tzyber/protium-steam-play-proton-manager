@@ -14,6 +14,7 @@ import { findTrashEntries, type TrashEntry, type TrashLibraryStatus } from "../.
 import type { OrphanEntry, ScanResult } from "../../core/types";
 import { localizeConsequences } from "../consequences";
 import { logError, logEvent } from "../diagnostics";
+import { formatKnownBytes } from "../format";
 import { formatDetail, formatError } from "../formatError";
 import { t } from "../i18n";
 import { formatSizeSummary } from "../sizeSummary";
@@ -678,7 +679,8 @@ export const useCleanupStore = defineStore("cleanup", {
       // ausgewiesen.
       const preparedPaths = new Set(prepared.map((p) => p.path));
       const preparedEntries = entries.filter((entry) => preparedPaths.has(entry.path));
-      const sizeText = formatSizeSummary(preparedEntries);
+      // formatKnownBytes: eine gemessene 0 ist "0 B", nicht "nicht gemessen"
+      const sizeText = formatSizeSummary(preparedEntries, formatKnownBytes);
       const accepted = confirm.ask(
         {
           title:

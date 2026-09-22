@@ -758,6 +758,7 @@ describe("GameDetailDrawer Startoptionen-Hinweise", () => {
     cleanupState.trashUnavailable = false;
     cleanupState.incompleteDeletions = [];
     cleanupState.incompleteDeletionsUnreadable = [];
+    uiState.closeGame.mockClear();
     configState.saveLaunchOptions.mockReset();
     configState.saveCompatTool.mockReset();
     configState.saveLaunchOptions.mockResolvedValue("written");
