@@ -99,7 +99,7 @@ kompromittierte Webview könnte ein gültiges Token selbst an `execute_delete`
 übergeben; Backend-Revalidierung, Claim und Replay-Schutz bleiben die
 Sicherheitsgrenzen. Zustandsdrift oder defekte Live-Daten vor dem Claim
 beenden den Vorgang ohne Mutation. Tokens verwenden 128 Bit OS-Zufall, haben
-60 Sekunden TTL und werden in einer Registry mit maximal 32 aktiven Einträgen
+300 Sekunden TTL und werden in einer Registry mit maximal 32 aktiven Einträgen
 gehalten; bei voller Registry verdrängt ein neues Prepare atomar den ältesten
 aktiven Eintrag.
 
@@ -129,6 +129,22 @@ Delete-Aktion an.
 Es gibt kein separates Confirm-Fenster, keine `confirm_window_*`-Commands und
 keine dedizierte Confirm-Capability. `tauri-plugin-dialog` bleibt ausschließlich
 für die native Warnbestätigung im GE-Installationspfad ohne Prüfsumme aktiv.
+
+`prepare_delete` bindet den angeforderten `steam_root` exakt an
+`snapshot.steam_root`. Ein autorisierter Nachbarpfad — etwa eine externe
+Library — wird abgelehnt, bevor die Inspektion läuft: sonst läse sie
+`userdata` unter einem fremden Verzeichnis und hielte einen echten Shortcut
+für eine Waise. Die Ablehnungen der Live-Inspektion (kein verwaister Eintrag,
+Library nicht gelistet, Tool nicht verwaltet) tragen kanonische Fehlercodes;
+die Oberfläche zeigt übersetzten Text, das englische Detail bleibt im
+Protokoll.
+
+Das Papierkorb-Ziel `<library>/steamapps/.protium-trash` entsteht ebenfalls
+entlang gebundener Deskriptoren: Die Library wird identitätsgeprüft geöffnet,
+`steamapps` und der Papierkorb folgen relativ dazu mit `O_NOFOLLOW`, und die
+Verschiebung nutzt `renameat2(RENAME_NOREPLACE)` mit dem gebundenen
+Quell-Handle. Ein ausgetauschter Parent kann den Papierkorb damit nicht
+außerhalb der autorisierten Library anlegen.
 
 ### Neubewertung der Bestätigungsgrenze
 
@@ -181,10 +197,14 @@ einen blockierten SHA-Abruf aktiv auf und räumt Descriptor sowie Registry auf.
 ### VDF-Write-Gate und Compat-Tool-Autorität
 
 `save_launch_options` und `save_compat_tool` lesen den Steam-Prozess über
-einen synchronen Backend-Leser frisch vor dem VDF-Read/Patch und erneut direkt
-vor Backup, temporärer Datei und atomarem Rename. Bei `false, true` entstehen
-weder Backup noch Tempdatei; ein byteidentischer No-op beendet den Vorgang vor
-dem zweiten Check.
+einen synchronen Backend-Leser frisch vor dem VDF-Read/Patch, erneut vor
+Backup und temporärer Datei und ein drittes Mal unmittelbar vor dem
+`renameat`. Bei `false, true` entstehen weder Backup noch Tempdatei; ein
+byteidentischer No-op beendet den Vorgang vor dem zweiten Check. Zwischen der
+letzten Prüfung und dem Rename bleibt ein Fenster von wenigen Mikrosekunden —
+es ist nicht ausgeschlossen, sondern durch die dritte Prüfung so klein wie
+technisch möglich; eine Atomizität über den ganzen Vorgang behauptet Protium
+nicht.
 
 `save_compat_tool` akzeptiert ausschließlich `null`/`default`, einen internen
 Namen aus einer nicht-symlinkenden, backendgelesenen `compatibilitytool.vdf`
@@ -209,8 +229,16 @@ Voll-Allokation. Unicode-Control-Characters (NUL, C0, DEL, C1) in
 Startoptionen oder Toolnamen lehnt das Backend ab, bevor irgendein Byte
 geschrieben wird.
 
-Die Write-Sequenz ist crash-durable: Daten-fsync der Temp-Datei vor dem
-atomaren Rename, fsync des Parent-Verzeichnisses danach. Das Backup wird über
+Die Write-Sequenz ist descriptorgebunden und crash-durable: Der
+Parent-Deskriptor des Ziels wird identitätsgeprüft geöffnet
+(`O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC`, dev/ino-Vergleich vor und nach dem Open).
+Die Temp-Datei entsteht relativ zu diesem Deskriptor mit
+`O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC`, der Rename läuft per
+`renameat` auf denselben Deskriptor, und der Parent-fsync nutzt genau diesen
+Deskriptor. Ein vorhandener Symlink oder eine vorbereitete Temp-Datei wird
+damit weder gefolgt noch truncatet; ein ausgetauschter Parent lässt den
+Vorgang fail-closed enden. Die Daten werden vor dem Rename gefsynct, das
+Parent-Verzeichnis danach. Das Backup wird ebenfalls über
 no-follow-Deskriptoren geschrieben; sowohl seine Datei als auch der
 Verzeichniseintrag und neu angelegte Backup-Verzeichnisse werden synchronisiert.
 Bei erfolgreichem Abschluss ist nach einem Stromausfall damit entweder der
@@ -284,11 +312,17 @@ Prüfwege gelten ab dem ersten Release mit `SHA256SUMS`; die Releases bis
   Die GPG-Signatur ist der einzige von GitHub unabhängige Herkunftsnachweis,
   taugt aber nur so viel wie die Bestätigung des Fingerprints über einen
   zweiten Kanal; ohne sie bleibt es TOFU.
+- **Tag-Herkunft und Gate-Umfang:** Der Workflow prüft in einem eigenen Job,
+  dass der Tag-Commit auf `origin/main` liegt; jeder `v*`-Tag startete sonst
+  einen Release aus einem beliebigen Stand. Dass die vollständige CI zum selben
+  Commit grün war, bleibt prozessual und wird nicht automatisch erzwungen.
+  `bench:gate` und der Mutationslauf laufen nur in der CI: das Bench-Gate ist
+  maschinengebunden und der Mutationslauf dauert ein Vielfaches des Builds.
 
 ### Bekannte Einschränkungen und akzeptierte Restrisiken
 
 - **File-Locking & TOCTOU Steam-Start:**
-  - *Trigger:* Steam startet exakt im Zeitfenster zwischen der Steam-läuft-Prüfung (`is_process_running`) und dem Schreiben/Umbenennen (`save_launch_options`, `save_compat_tool`).
+  - *Trigger:* Steam startet exakt im Zeitfenster zwischen der letzten Steam-läuft-Prüfung (unmittelbar vor dem `renameat`) und dem Umbenennen selbst.
   - *Wirkung:* Steam überschreibt beim Beenden die von Protium geschriebene Konfiguration. Kein korruptes Dateisystem, da der Schreibvorgang atomar erfolgt (Temp-Datei + Rename) und ein Backup angelegt wurde.
 - **Prozess-Substring-Matching:**
   - *Trigger:* Ein fremder Prozess enthält `"steam"` im Namen (z. B. `steam-idle` oder Entwicklungswerkzeuge).
@@ -296,5 +330,8 @@ Prüfwege gelten ab dem ersten Release mit `SHA256SUMS`; die Releases bis
 - **Upstream-Advisories (Stryker / transitive Dev-Dependencies):**
   - *Trigger:* Bekannte Advisories in Entwicklungs-/Mutations-Testwerkzeugen (z. B. `qs` in `@stryker-mutator/core`).
   - *Wirkung:* Betrifft ausschließlich lokale Testläufe und Build-Pipelines zur Entwicklungszeit, hat keinen Einfluss auf das kompilierte Protium-Binary oder die Laufzeitumgebung der Endanwender.
+- **Lokales Diagnoseprotokoll:**
+  - *Trigger:* Fehlertexte des Backends werden in `$APPLOCALDATA/logs` protokolliert; der Nutzer kann den Ordner über die Oberfläche öffnen und die Datei weitergeben.
+  - *Wirkung:* Das Protokoll ist lokal und enthält bewusst die rohe Backend-Meldung samt Fehlercode (die Oberfläche zeigt nur übersetzten Text). Das Backend ersetzt darin Home-Pfade durch `~`; absolute Pfade außerhalb des Home-Verzeichnisses können dennoch vorkommen. Wer das Protokoll weitergibt, gibt damit eigene Pfade weiter.
 
 Fixes und private reproduzierbare Nachweise zu diesen Punkten sind willkommen.

@@ -165,7 +165,7 @@ important: the target `compatdata/<appId>` must not already exist. if it does, y
 
 tauri v2 as the shell, vue 3 and typescript for UI and domain logic, rust only for what the webview is not allowed to do. no electron; the binary stays small and uses the system webview (webkit2gtk).
 
-concretely, rust only handles: just over 1000 productive lines for environment discovery and snapshot-authorised reads, path validation, streaming downloads with hashing, tarball extraction, the two delete commands and the process check. domain logic and UI decisions do not live in this layer. plus nearly 1800 lines of tests, almost twice as many as production code, because these paths modify and delete files.
+concretely, rust only handles: roughly 7700 productive lines for environment discovery and snapshot-authorised reads, path validation, streaming downloads with hashing, tarball extraction, the delete commands, the write gate and the process check. domain logic and UI decisions do not live in this layer. plus roughly 9100 lines of tests: the paths that modify or delete files carry more tests than the rest. Counted on 2026-09-22, production lines without test modules, `*_tests.rs` counted as tests.
 
 the domain logic in `src/core/` is entirely UI-free and talks to the system only through ports and adapters. that lets the whole core test suite run headless against fixtures, no tauri, no steam, no network.
 

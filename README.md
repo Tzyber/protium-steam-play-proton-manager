@@ -218,13 +218,13 @@ tauri v2 als shell, vue 3 und typescript für UI und domänenlogik, rust nur fü
 das, was die webview nicht darf. kein electron, das binary bleibt klein und
 nutzt die system-webview (webkit2gtk).
 
-konkret übernimmt rust nur: etwas über 1000 produktive zeilen für
+konkret übernimmt rust nur: rund 7700 produktive zeilen für
 Environment-Discovery und snapshotautorisierte Reads, Pfadvalidierung,
-streaming-downloads mit hash, tarball-extraktion, die beiden Löschbefehle und
-den Prozess-Check. geschäftslogik und
-UI-entscheidungen liegen nicht in dieser schicht. dazu kommen knapp 1800
-testzeilen, fast doppelt so viele wie produktivcode, denn diese pfade verändern
-und löschen dateien.
+streaming-downloads mit hash, tarball-extraktion, die Löschbefehle, das
+Write-Gate und den Prozess-Check. geschäftslogik und UI-entscheidungen liegen
+nicht in dieser schicht. dazu kommen rund 9100 testzeilen: die pfade, die
+dateien verändern oder löschen, sind testlastiger als der rest. gezählt am
+2026-09-22, produktive zeilen ohne testmodule, `*_tests.rs` zählt als test.
 
 die domänenlogik in `src/core/` ist komplett UI-frei und redet mit dem system
 nur über ports und adapter. dadurch läuft die gesamte core-testsuite headless
