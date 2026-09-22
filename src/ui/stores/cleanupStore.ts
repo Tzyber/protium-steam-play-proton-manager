@@ -14,9 +14,9 @@ import { findTrashEntries, type TrashEntry, type TrashLibraryStatus } from "../.
 import type { OrphanEntry, ScanResult } from "../../core/types";
 import { localizeConsequences } from "../consequences";
 import { logError, logEvent } from "../diagnostics";
-import { formatBytes } from "../format";
 import { formatError } from "../formatError";
 import { t } from "../i18n";
+import { formatSizeSummary } from "../sizeSummary";
 import {
   attachSizes,
   collectInstalledAppIds,
@@ -669,7 +669,13 @@ export const useCleanupStore = defineStore("cleanup", {
               }),
             ]
           : [];
-      const total = entries.reduce((s, e) => s + (e.sizeBytes ?? 0), 0);
+      // Die Summe beschreibt genau die bestätigten Ziele: nur die tatsächlich
+      // vorbereiteten Einträge zählen, und unbekannte Größen werden nicht als
+      // 0 mitgezählt (Q3/INV-6), sondern als "nicht gemessen"/"teilweise"
+      // ausgewiesen.
+      const preparedPaths = new Set(prepared.map((p) => p.path));
+      const preparedEntries = entries.filter((entry) => preparedPaths.has(entry.path));
+      const sizeText = formatSizeSummary(preparedEntries);
       const accepted = confirm.ask(
         {
           title:
@@ -677,7 +683,7 @@ export const useCleanupStore = defineStore("cleanup", {
               ? t("cleanup.trashDeleteConfirmSingle", { n: prepared.length })
               : t("cleanup.trashDeleteConfirmTitle", { n: prepared.length }),
           message: [
-            t("cleanup.trashDeleteWarning", { size: formatBytes(total) }),
+            t("cleanup.trashDeleteWarning", { size: sizeText }),
             partialPrepareMessage,
             ...batchInfo,
             ...prepared.flatMap((p) => p.descriptions),

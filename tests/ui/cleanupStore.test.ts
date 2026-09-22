@@ -1093,6 +1093,73 @@ describe("cleanupStore, trash", () => {
     expect(message).toContain(formatBytes(8192 + 1048576));
   });
 
+  it("nennt in der bestätigung nur die größe der tatsächlich vorbereiteten einträge (N7)", async () => {
+    const e1 = fakeTrashEntry({ sizeBytes: 4096 });
+    const e2 = fakeTrashEntry({
+      path: "/lib/steamapps/.protium-trash/compatdata_570_100",
+      name: "compatdata_570_100",
+      appId: 570,
+      sizeBytes: 1048576,
+    });
+    mockPrepareDelete.mockImplementation(async (req) => {
+      if (req.path === e2.path) throw new Error("unreadable");
+      return {
+        token: `token-${req.path}`,
+        expiresAt: Date.now() + 60000,
+        targetType: req.targetType,
+        targetPath: req.path,
+        consequences: [],
+      };
+    });
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    store.trash = [e1, e2];
+
+    await store.deleteTrashEntries([e1, e2]);
+
+    const message = useConfirmStore().pending?.message ?? "";
+    expect(message).toContain(formatBytes(4096));
+    expect(message).not.toContain(formatBytes(4096 + 1048576));
+    expect(message).toContain("nicht vorbereitete Einträge (1) bleiben unverändert.");
+  });
+
+  it("weist teilweise unbekannte größen als teilweise aus, nicht als 0 (N7)", async () => {
+    const measured = fakeTrashEntry({ sizeBytes: 4096 });
+    const unmeasured = fakeTrashEntry({
+      path: "/lib/steamapps/.protium-trash/compatdata_570_100",
+      name: "compatdata_570_100",
+      appId: 570,
+    });
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    store.trash = [measured, unmeasured];
+
+    await store.deleteTrashEntries([measured, unmeasured]);
+
+    const message = useConfirmStore().pending?.message ?? "";
+    expect(message).toContain(t("cleanup.partialSize", { size: formatBytes(4096) }));
+  });
+
+  it("nennt eine durchgehend unbekannte größe nicht gemessen, nicht 0 B (N7)", async () => {
+    const unmeasured = fakeTrashEntry({
+      path: "/lib/steamapps/.protium-trash/compatdata_730_100",
+      name: "compatdata_730_100",
+      appId: 730,
+    });
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    store.trash = [unmeasured];
+
+    await store.deleteTrashEntries([unmeasured]);
+
+    const message = useConfirmStore().pending?.message ?? "";
+    expect(message).toContain(t("common.notMeasured"));
+    expect(message).not.toContain("0 B");
+  });
+
   it("ohne erfolgreiches prepare gibt es keinen dialog und kein execute", async () => {
     mockPrepareDelete.mockRejectedValue(new Error("unreadable"));
     const scanStore = useScanStore();

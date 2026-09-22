@@ -166,15 +166,26 @@ const statusLine = computed(() => {
             class="rm"
             type="button"
             :disabled="removeBlocked"
-            :aria-describedby="removeBlocked ? 'proton-remove-reason' : undefined"
+            :aria-describedby="removeBlocked ? `proton-remove-reason-${tt.name}` : undefined"
             @click="proton.remove(tt)"
           >
             {{ proton.busyRemove === tt.name ? "…" : t("common.delete") }}
           </button>
-          <span v-if="removeBlocked" id="proton-remove-reason" class="sr-only">
+          <!-- Sperrgrund bzw. Schloss gehören zum selben Zustand: an `removable`,
+               nicht aneinander. Sonst zeigt ein nicht entfernbares Tool bei
+               globaler Sperre die Begründung ohne Knopf, und bei aufgehobener
+               Sperre erscheint das Schloss ohne Aussage. -->
+          <span
+            v-if="removable(tt) && removeBlocked"
+            :id="`proton-remove-reason-${tt.name}`"
+            class="sr-only"
+          >
             {{ t("proton.removeBlocked") }}
           </span>
-          <span v-else class="rm-lock" :title="t('proton.notManageable')"><span aria-hidden="true">🔒</span><span class="sr-only">{{ t('proton.notManageable') }}</span></span>
+          <span v-else-if="!removable(tt)" class="rm-lock" :title="t('proton.notManageable')"
+            ><span aria-hidden="true">🔒</span
+            ><span class="sr-only">{{ t("proton.notManageable") }}</span></span
+          >
         </div>
       </li>
     </ul>
