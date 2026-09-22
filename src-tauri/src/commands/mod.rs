@@ -52,6 +52,17 @@ pub(crate) mod test_util {
         fixture_dir("wsg", tag)
     }
 
+    /// Legt ein minimales App-Manifest an; compat_auth- und Write-Gate-Tests
+    /// brauchen denselben Nachweis einer installierten Steam-App.
+    pub(super) fn write_appmanifest(steamapps: &std::path::Path, app_id: u32) {
+        std::fs::create_dir_all(steamapps).unwrap();
+        std::fs::write(
+            steamapps.join(format!("appmanifest_{app_id}.acf")),
+            format!("\"AppState\" {{ \"appid\" \"{app_id}\" }}"),
+        )
+        .unwrap();
+    }
+
     /// Schneidet den Produktionsteil einer Quelldatei ab, die sich per
     /// `include_str!` selbst einliest.
     ///

@@ -16,7 +16,7 @@ export type ExplainTopic =
   | "explicit-mapping-count"
   | "ge-delete-scope";
 
-export interface ExplainGlossaryAnchor {
+interface ExplainGlossaryAnchor {
   readonly de: string;
   readonly en: string;
 }

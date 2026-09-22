@@ -7,7 +7,7 @@
 
 import type { Game } from "../core/types";
 
-export interface RequestToken {
+interface RequestToken {
   readonly requestId: number;
   readonly appId: number | undefined;
 }

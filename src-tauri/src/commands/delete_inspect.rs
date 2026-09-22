@@ -6,7 +6,6 @@ use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::io;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 #[cfg(target_os = "linux")]
@@ -17,7 +16,7 @@ use crate::commands::compat_auth::is_managed_ge_name;
 use crate::commands::compat_auth::open_external_library_fd_with_hook;
 #[cfg(target_os = "linux")]
 use crate::commands::errcode;
-use crate::commands::fd::{ensure_regular_fd, open_bound_root_fd, open_dir_at, open_file_at};
+use crate::commands::fd::{open_bound_root_fd, open_dir_at, open_file_at};
 use crate::commands::path::{is_safe_path, sanitize_path};
 use crate::commands::scope::{read_library_folders_with_failures, LibraryUnavailableReason};
 use crate::commands::shortcuts_bin::parse_binary_shortcut_ids;
@@ -75,6 +74,8 @@ pub(crate) enum DeleteReadStage {
     ConfigBeforeRead,
 }
 
+/// Gedeckelter Read mit Testhaken vor dem Lesen. Die Längen- und Limitprüfung
+/// liegt in `fd::read_fd_bytes`, damit es nur eine Cap-Read-Stelle gibt.
 #[cfg(target_os = "linux")]
 fn read_fd_text_with_hook<F>(
     file: &mut std::fs::File,
@@ -86,22 +87,8 @@ fn read_fd_text_with_hook<F>(
 where
     F: FnMut(DeleteReadStage, Option<&mut std::fs::File>),
 {
-    let length = ensure_regular_fd(file, label)?;
-    if length > max_bytes {
-        return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
-    }
-    let read_limit = max_bytes
-        .checked_add(1)
-        .ok_or_else(|| format!("{label} read limit overflows"))?;
-    hook(stage, Some(file));
-    let mut text = String::new();
-    file.take(read_limit)
-        .read_to_string(&mut text)
-        .map_err(|error| format!("cannot read {label}: {error}"))?;
-    if text.len() as u64 > max_bytes {
-        return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
-    }
-    Ok(text)
+    let bytes = read_fd_bytes_with_hook(file, label, max_bytes, hook, stage)?;
+    String::from_utf8(bytes).map_err(|error| format!("cannot read {label}: {error}"))
 }
 
 #[cfg(target_os = "linux")]
@@ -115,22 +102,9 @@ fn read_fd_bytes_with_hook<F>(
 where
     F: FnMut(DeleteReadStage, Option<&mut std::fs::File>),
 {
-    let length = ensure_regular_fd(file, label)?;
-    if length > max_bytes {
-        return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
-    }
-    let read_limit = max_bytes
-        .checked_add(1)
-        .ok_or_else(|| format!("{label} read limit overflows"))?;
-    hook(stage, Some(file));
-    let mut bytes = Vec::new();
-    file.take(read_limit)
-        .read_to_end(&mut bytes)
-        .map_err(|error| format!("cannot read {label}: {error}"))?;
-    if bytes.len() as u64 > max_bytes {
-        return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
-    }
-    Ok(bytes)
+    crate::commands::fd::read_fd_bytes(file, label, max_bytes, &mut |file| {
+        hook(stage, Some(file));
+    })
 }
 
 #[cfg(test)]

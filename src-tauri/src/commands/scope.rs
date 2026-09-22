@@ -11,11 +11,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use tauri::Manager;
 
 #[cfg(target_os = "linux")]
-use crate::commands::fd::{ensure_regular_fd, open_bound_root_fd, open_dir_at, open_file_at};
+use crate::commands::fd::{open_bound_root_fd, open_dir_at, open_file_at};
 #[cfg(target_os = "linux")]
 use std::ffi::OsStr;
 #[cfg(target_os = "linux")]
-use std::io::{self, Read};
+use std::io;
 #[cfg(target_os = "linux")]
 use std::os::fd::AsRawFd;
 
@@ -567,24 +567,13 @@ where
             Err(error) => return Err(format!("{LABEL}: {error}")),
         };
         hook();
-        let file = match open_file_at(parent_fd.as_raw_fd(), OsStr::new(NAME)) {
+        let mut file = match open_file_at(parent_fd.as_raw_fd(), OsStr::new(NAME)) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
             Err(error) => return Err(libraryfolders_open_error(error)),
         };
-        let length = ensure_regular_fd(&file, LABEL)?;
-        if length > MAX_ENVIRONMENT_READ_BYTES {
-            return Err(errcode::with_detail(errcode::SIZE_LIMIT, LABEL));
-        }
-        let mut bytes = Vec::new();
-        file.take(MAX_ENVIRONMENT_READ_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|error| format!("cannot read {LABEL}: {error}"))?;
-        if bytes.len() as u64 > MAX_ENVIRONMENT_READ_BYTES {
-            return Err(errcode::with_detail(errcode::SIZE_LIMIT, LABEL));
-        }
         let content =
-            String::from_utf8(bytes).map_err(|error| format!("cannot decode {LABEL}: {error}"))?;
+            crate::commands::fd::read_fd_text(&mut file, LABEL, MAX_ENVIRONMENT_READ_BYTES)?;
         return Ok(Some(content));
     }
     if open_dir_at(root_fd.as_raw_fd(), OsStr::new("steamapps")).is_err() {

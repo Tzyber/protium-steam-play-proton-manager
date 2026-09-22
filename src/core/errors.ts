@@ -34,7 +34,7 @@ export class SteamRunningError extends ProtiumError {
   }
 }
 
-export type ManifestParseErrorCode = "manifest-missing-appstate" | "manifest-invalid-appid";
+type ManifestParseErrorCode = "manifest-missing-appstate" | "manifest-invalid-appid";
 
 export class ManifestParseError extends ProtiumError {
   constructor(code: ManifestParseErrorCode, message: string, detail?: string) {

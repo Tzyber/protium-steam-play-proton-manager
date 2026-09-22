@@ -124,3 +124,17 @@ export function deferred<T>(): {
   });
   return { promise, resolve: resolvePromise, reject: rejectPromise };
 }
+
+/** Ein Spiel mit belegter expliziter Zuordnung und ProtonDB-Tier: Ausgangspunkt
+ *  der Support-Beleg-Tests in Core und UI. */
+export function portal2(overrides: Partial<Game> = {}): Game {
+  return game({
+    appId: 620,
+    name: "Portal 2",
+    library: "/steam/library",
+    compatTool: "proton_experimental",
+    compatToolSource: "explicit",
+    protonDb: { tier: "gold", confidence: "strong" },
+    ...overrides,
+  });
+}

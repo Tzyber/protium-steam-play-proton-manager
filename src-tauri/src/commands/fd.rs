@@ -252,12 +252,17 @@ pub(super) fn ensure_regular_fd(file: &std::fs::File, label: &str) -> Result<u64
     Ok(metadata.len())
 }
 
+/// Gedeckelter Read über einen bereits geöffneten Deskriptor: Längenprüfung,
+/// `before_read` unmittelbar vor dem Lesen, `take(max+1)` und Nachprüfung.
+/// Die eine Stelle für alle Cap-Reads (Write-Gate, Delete-Inspektion,
+/// Read-only-Environment, Library-Discovery).
 #[cfg(target_os = "linux")]
-pub(super) fn read_fd_text(
+pub(super) fn read_fd_bytes(
     file: &mut std::fs::File,
     label: &str,
     max_bytes: u64,
-) -> Result<String, String> {
+    before_read: &mut dyn FnMut(&mut std::fs::File),
+) -> Result<Vec<u8>, String> {
     let length = ensure_regular_fd(file, label)?;
     if length > max_bytes {
         return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
@@ -265,14 +270,25 @@ pub(super) fn read_fd_text(
     let read_limit = max_bytes
         .checked_add(1)
         .ok_or_else(|| format!("{label} read limit overflows"))?;
-    let mut text = String::new();
+    before_read(file);
+    let mut bytes = Vec::new();
     file.take(read_limit)
-        .read_to_string(&mut text)
+        .read_to_end(&mut bytes)
         .map_err(|error| format!("cannot read {label}: {error}"))?;
-    if text.len() as u64 > max_bytes {
+    if bytes.len() as u64 > max_bytes {
         return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
     }
-    Ok(text)
+    Ok(bytes)
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn read_fd_text(
+    file: &mut std::fs::File,
+    label: &str,
+    max_bytes: u64,
+) -> Result<String, String> {
+    let bytes = read_fd_bytes(file, label, max_bytes, &mut |_| {})?;
+    String::from_utf8(bytes).map_err(|error| format!("cannot read {label}: {error}"))
 }
 
 /// Bytes als kleingeschriebener Hex-String. Drei Stellen (Token-Generierung,

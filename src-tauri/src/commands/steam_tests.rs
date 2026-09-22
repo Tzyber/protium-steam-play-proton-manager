@@ -1,5 +1,5 @@
 use super::*;
-use crate::commands::test_util::{production_source, wsg_fixture};
+use crate::commands::test_util::{production_source, write_appmanifest, wsg_fixture};
 
 fn wsg_env(tag: &str) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
     let root = wsg_fixture(tag);
@@ -1042,13 +1042,7 @@ fn save_compat_tool_unbekannter_name_und_leerer_wert_abgelehnt() {
 #[test]
 fn save_compat_tool_erlaubt_valve_builtin_nur_mit_installiertem_manifest() {
     let (home, cache, steam) = wsg_env("compat-valve-installed");
-    let steamapps = steam.join("steamapps");
-    std::fs::create_dir_all(&steamapps).unwrap();
-    std::fs::write(
-        steamapps.join("appmanifest_1493710.acf"),
-        "\"AppState\" { \"appid\" \"1493710\" }",
-    )
-    .unwrap();
+    write_appmanifest(&steam.join("steamapps"), 1493710);
     let mut reader = || Ok(false);
     let result = save_compat_tool_inner(
         steam.to_str().unwrap(),
