@@ -1,5 +1,6 @@
 import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useLibraryStore } from "../../src/ui/stores/libraryStore";
 import { useUiStore } from "../../src/ui/stores/uiStore";
 
 describe("uiStore notification", () => {
@@ -77,5 +78,35 @@ describe("uiStore modal-zähler (V2)", () => {
     ui.closeExplanation();
     ui.closeExplanation();
     expect(ui.explanationCount).toBe(0);
+  });
+});
+
+describe("uiStore ansichtswechsel und auswahl (Review V2)", () => {
+  beforeEach(() => setActivePinia(createPinia()));
+
+  it("gibt die auswahl beim verlassen der library frei", () => {
+    const ui = useUiStore();
+    ui.openGame(620);
+    expect(ui.selectedAppId).toBe(620);
+
+    ui.go("cleanup");
+    expect(ui.selectedAppId).toBeNull();
+    expect(ui.activeView).toBe("cleanup");
+
+    // innerhalb der library bleibt sie stehen (der drawer wechselt nur die daten)
+    ui.openGame(620);
+    ui.go("library");
+    expect(ui.selectedAppId).toBe(620);
+  });
+
+  it("springt aus dem proton-manager in die library mit dem tool-filter", () => {
+    const ui = useUiStore();
+    const library = useLibraryStore();
+    library.compatTools = ["anderes-tool"];
+
+    ui.showLibraryForTool("GE-Proton9-27");
+
+    expect(ui.activeView).toBe("library");
+    expect(library.compatTools).toEqual(["GE-Proton9-27"]);
   });
 });

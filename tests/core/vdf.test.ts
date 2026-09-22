@@ -112,6 +112,10 @@ ${key}
   });
 
   it.each([
+    ["geerbter name toString", '"toString"\n{\n  "leak" "yes"\n}'],
+    ["geerbter name valueOf", '"valueOf"\n{\n  "leak" "yes"\n}'],
+    ["geerbter name hasOwnProperty", '"hasOwnProperty"\n{\n  "leak" "yes"\n}'],
+    ["kette über Object", '"constructor"\n{\n  "extra"\n  {\n    "leak" "yes"\n  }\n}'],
     ["ungerade tokenzahl in der zeile", '"a" "b" "c"\n"__proto__"\n{\n  "polluted" "yes"\n}'],
     ["ungerade tokenzahl bare", 'a b c\n"__proto__"\n{\n  "polluted" "yes"\n}'],
     ["verirrtes kommentarende", '*/\n"__proto__"\n{\n  "polluted" "yes"\n}'],
@@ -128,7 +132,8 @@ ${key}
   ])("lässt auch in der form '%s' keine pollution durch", (_name, text) => {
     // Der Pre-Pass bildet die zeilenweise Grammatik der Bibliothek nicht
     // vollständig ab. Das Containment um den Parse muss die Klasse deshalb
-    // unabhängig von der Eingabeform schließen.
+    // unabhängig von der Eingabeform schließen — auch für Block-Keys, die über
+    // die Prototypkette auf geteilte Objekte zeigen (toString, valueOf, ...).
     const before = Object.getOwnPropertyNames(Object.prototype).join(",");
     try {
       parseVdf(text);
@@ -136,10 +141,26 @@ ${key}
       // ein Syntaxfehler ist zulässig, solange nichts mutiert wird
     }
 
-    const objectPrototype = Object.prototype as Record<string, unknown>;
-    const objectConstructor = Object as unknown as Record<string, unknown>;
-    expect(objectPrototype.polluted).toBeUndefined();
-    expect(objectConstructor.polluted).toBeUndefined();
+    // Werte einsammeln, dann aufräumen, dann prüfen: ein Fehlschlag darf den
+    // Prozess nicht für die folgenden Tests verschmutzen.
+    const objectPrototype = Object.prototype as unknown as Record<string, unknown>;
+    const shared = [
+      Object.prototype.toString,
+      Object.prototype.valueOf,
+      Object.prototype.hasOwnProperty,
+    ] as unknown as Record<string, unknown>[];
+    const leaked: unknown[] = [
+      objectPrototype.polluted,
+      (Object as unknown as Record<string, unknown>).polluted,
+      ...shared.map((fn) => fn.leak),
+      (Object as unknown as Record<string, unknown>).extra,
+    ];
+    delete objectPrototype.polluted;
+    delete (Object as unknown as Record<string, unknown>).polluted;
+    delete (Object as unknown as Record<string, unknown>).extra;
+    for (const fn of shared) delete fn.leak;
+
+    expect(leaked).toEqual([undefined, undefined, undefined, undefined, undefined, undefined]);
     expect(Object.getOwnPropertyNames(Object.prototype).join(",")).toBe(before);
   });
 
