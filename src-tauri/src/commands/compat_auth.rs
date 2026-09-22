@@ -175,7 +175,7 @@ where
 {
     // dieselbe grenze wie die Discovery (MAX_VDF_READ_BYTES): beide lesen
     // dieselbe datei. Mit dem früheren 1-MiB-cap scheiterte diese autorisierung
-    // an einer datei, die die Discovery vollständig gelesen hatte — sichtbar
+    // an einer datei, die die Discovery vollständig gelesen hatte, sichtbar
     // (kein stiller fallback; der greift nur, wenn die datei ganz fehlt).
     hook(1);
     for directory in ["config", "steamapps"] {

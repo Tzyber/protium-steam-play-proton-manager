@@ -302,7 +302,7 @@ export const de = {
     launchOptionsHint:
       "%command% = der eigentliche startbefehl; weglassen hängt die optionen nur an. gespeichert wird in steams localconfig; steam liest sie beim nächsten start, protium nur beim scan.",
     launchOptionsUnavailable:
-      'Startoptionen nicht lesbar: leeres Feld heißt nicht „keine Optionen". Deshalb sind auch Prefix-Öffnen und Compatdata-Messung gesperrt.',
+      "Startoptionen nicht lesbar: das Feld bleibt leer, auch wenn in Steam Optionen gesetzt sind. Deshalb sind auch Prefix-Öffnen und Compatdata-Messung gesperrt.",
     launchHintGamemodeMissingCommand:
       "gamemoderun steht ohne %command%-Marker im Entwurf. so startet steam das spiel nicht im gamemode; %command% dahinter setzen.",
     launchHintAssignmentAfterCommand:

@@ -301,7 +301,7 @@ export const en = {
     launchOptionsHint:
       "%command% = the actual start command; omit %command% to only append the options. saved in steam's localconfig; steam reads it on the next start, protium only on scan.",
     launchOptionsUnavailable:
-      "Launch options unreadable: an empty field does not mean “no options”. Prefix opening and compatdata measurement are locked for the same reason.",
+      "Launch options unreadable: the field stays empty even when options are set in steam. Prefix opening and compatdata measurement are locked for the same reason.",
     launchHintGamemodeMissingCommand:
       "gamemoderun appears without a %command% marker in the draft. steam will not start the game in gamemode this way; put %command% after it.",
     launchHintAssignmentAfterCommand:

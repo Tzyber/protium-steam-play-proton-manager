@@ -57,7 +57,7 @@ fn compat_autorisiert_trotz_kaputter_vdf_und_lehnt_unbekannte_namen_ab() {
     let intact_name = "GE-Proton11-5-x86_64";
     let intact = tool_vdf(intact_name);
     // nicht-UTF8-bytes: der lesepfad scheitert, der ordner wird verlassen.
-    // Der angefragte name steht bewusst nicht in dieser datei — die
+    // Der angefragte name steht bewusst nicht in dieser datei, die
     // fail-closed-eigenschaft ist, dass ohne geparsten inhalt kein name
     // autorisiert wird (das 0xFF-byte wird nicht als name interpretiert).
     let broken = b"\"compatibilitytools\" { \"compat_tools\" { \"Broken\" { \xff } } }";
@@ -141,7 +141,7 @@ fn compat_parsefehler_eines_kandidaten_bricht_die_suche_nicht_ab() {
     let intact = tool_vdf(intact_name);
     // UTF-8-gültig, aber syntaktisch defekt (unterminierter string): der
     // parser scheitert, der ordner wird wie ein unlesbarer verlassen. Der
-    // angefragte name steht bewusst nicht in dieser datei — aus
+    // angefragte name steht bewusst nicht in dieser datei, aus
     // unparsbarem inhalt wird nie autorisiert (S-1).
     let broken = b"\"compatibilitytools\" { \"compat_tools\" { \"BrokenTool";
 

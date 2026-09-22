@@ -31,7 +31,7 @@ export function parseVdf(text: string): VdfNode {
 /** Die geteilten Objekte, die ein Parse mutieren kann: `Object.prototype` und
  *  `Object` selbst sowie die darin hängenden Objekte und Funktionen (z. B.
  *  `Object.prototype.toString`). Ein Block-Key, der auf ein geerbtes Mitglied
- *  zeigt, füllt sonst nicht den geparsten Knoten, sondern das geteilte Objekt —
+ *  zeigt, füllt sonst nicht den geparsten Knoten, sondern das geteilte Objekt,
  *  und das Zurücksetzen der Referenz allein würde die Mutation dort nicht
  *  rückgängig machen. */
 function guardedObjects(): object[] {
@@ -208,8 +208,8 @@ function isWhitespace(character: string | undefined): character is string {
 }
 
 // die lib baut plain objects. `sanitize` macht jeden key zu einer eigenen
-// property, damit `getKeyInsensitive` (nutzt `in`) nicht in die kette greift —
-// es ist KEIN pollutionsschutz: den leistet allein der pre-pass oben, weil die
+// property, damit `getKeyInsensitive` (nutzt `in`) nicht in die kette greift.
+// Es ist KEIN pollutionsschutz: den leistet allein der pre-pass oben, weil die
 // mutation sonst schon während parse() passiert wäre.
 function sanitize(v: unknown): VdfNode {
   if (typeof v !== "object" || v === null) return {};

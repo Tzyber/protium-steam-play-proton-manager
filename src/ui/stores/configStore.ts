@@ -21,7 +21,7 @@ function mapWriteError(e: unknown): never {
 /**
  * Ein Write läuft gegen den beim Aufruf gelesenen Scan (root/account). Ein
  * zwischenzeitlicher Rescan ersetzt `scan.result`; dann gehört der
- * geschriebene Wert nicht mehr in den neuen Snapshot — sonst zeigte die
+ * geschriebene Wert nicht mehr in den neuen Snapshot, sonst zeigte die
  * Oberfläche in einem neuen Snapshot eine Änderung, die im alten Environment
  * geschrieben wurde (N6).
  */

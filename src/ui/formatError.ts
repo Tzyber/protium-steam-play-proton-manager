@@ -69,7 +69,7 @@ export function formatError(e: unknown): string {
 /**
  * Detailklammer fuer gespeicherte Rohwerte (Scan-Warnungen): uebersetzt nur,
  * was als kanonischer Code erkennbar ist. Ein unbekannter Rohtext verschwindet
- * aus der Oberflaeche — der klassifizierte Grund bleibt sichtbar, der Rohtext
+ * aus der Oberflaeche; der klassifizierte Grund bleibt sichtbar, der Rohtext
  * bleibt im lokalen Protokoll.
  */
 export function formatDetail(raw: string | undefined): string | undefined {

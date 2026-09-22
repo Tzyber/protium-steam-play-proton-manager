@@ -132,7 +132,7 @@ ${key}
   ])("lässt auch in der form '%s' keine pollution durch", (_name, text) => {
     // Der Pre-Pass bildet die zeilenweise Grammatik der Bibliothek nicht
     // vollständig ab. Das Containment um den Parse muss die Klasse deshalb
-    // unabhängig von der Eingabeform schließen — auch für Block-Keys, die über
+    // unabhängig von der Eingabeform schließen, auch für Block-Keys, die über
     // die Prototypkette auf geteilte Objekte zeigen (toString, valueOf, ...).
     const before = Object.getOwnPropertyNames(Object.prototype).join(",");
     try {

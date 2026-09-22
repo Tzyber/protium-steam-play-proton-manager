@@ -9,7 +9,7 @@ proton version than the one I thought I had set.** that is what protium is for.
 
 protium shows you what Steam has actually set up on your machine, and it tells
 you how sure it is. there is a question mark at the places that matter. behind
-it you find where a value comes from, what it means, and what it does not mean.
+it you find where a value comes from and what it means.
 when protium does not know something, it says so instead of guessing.
 
 what you can do: start games, set launch options, install new proton versions,
@@ -24,10 +24,8 @@ everything and is unwieldy for exactly that reason.
 
 ### what you get to see
 
-every value that claims something can explain itself. where it comes from,
-what it means, and explicitly what it does not mean:
-
-![explanation window in the game drawer with source, meaning and a "does not mean" line](docs/screenshots/explain_dialog.png)
+every value that claims something can explain itself. the question mark opens
+source and meaning, right where the value appears:
 
 the library shows your games with their protondb rating and the tool Steam
 actually assigns to them. you can filter by that too:
@@ -131,7 +129,7 @@ itself is deliberately not a tamper-proof security boundary.
 
 **failure cases.** what is unreadable is shown as unreadable, not as an empty value. destructive actions ask beforehand and show concretely what would happen. where possible, there is a way back.
 
-**explanations and diagnostic evidence.** a question-mark button explains technical values right where they appear (config states, tool source, scan coverage, footprint, protondb, cleanup blockades, incomplete deletions) with source, meaning and what the value explicitly does not mean; the terms follow the [glossary](docs/glossar.md). "copy technical information" puts a privacy-conscious report into the clipboard: fixed labels including Valve tool labels, status values, validated numbers, format-checked GE tool names and report-local aliases. other tool names remain aliased; game names, paths and config contents are omitted. an allowed tool name proves neither origin nor installation and does not guarantee complete anonymity; see the [security policy](SECURITY.md#export-allowlist-und-zwischenablage). conservative hints in the launch-options draft warn about gamemoderun without `%command%`, an assignment behind `%command%` and an enabled `PROTON_LOG=1` assignment.
+**explanations and diagnostic evidence.** a question-mark button explains technical values right where they appear (config states, tool source, scan coverage, footprint, protondb, cleanup blockades, incomplete deletions) with source and meaning; the terms follow the [glossary](docs/glossar.md). "copy technical information" puts a privacy-conscious report into the clipboard: fixed labels including Valve tool labels, status values, validated numbers, format-checked GE tool names and report-local aliases. other tool names remain aliased; game names, paths and config contents are omitted. an allowed tool name proves neither origin nor installation and does not guarantee complete anonymity; see the [security policy](SECURITY.md#export-allowlist-und-zwischenablage). conservative hints in the launch-options draft warn about gamemoderun without `%command%`, an assignment behind `%command%` and an enabled `PROTON_LOG=1` assignment.
 
 **accessibility.** fully keyboard operable, visible focus states, tabs following the WAI-ARIA pattern (arrow keys, roving tabindex), contrasts checked against WCAG AA, `prefers-reduced-motion` respected globally. font sizes in `rem` so the app scales with the system font size. interface in german and english, key parity guarded by a test.
 

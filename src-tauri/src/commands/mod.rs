@@ -76,7 +76,7 @@ pub(crate) mod test_util {
             (None, Some(b)) => b,
             // kein Testmodul im Text: der ganze text ist produktionscode. Die
             // aufrufer prüfen ausschließlich verbote, ein zu kurzer text wäre
-            // still grün — deshalb bleibt der leere fall ein harter fehler.
+            // still grün, deshalb bleibt der leere fall ein harter fehler.
             (None, None) => panic!("source has no `#[cfg(test)]` test module"),
         };
         &source[..end]

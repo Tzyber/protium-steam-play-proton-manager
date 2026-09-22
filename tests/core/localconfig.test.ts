@@ -184,7 +184,7 @@ describe("readAppFields", () => {
 });
 
 // C-1: die vorab-probe prüft nur die ebenen des abgefragten pfads. ein defekt
-// im app-block selbst besteht sie, erst der per-spiel-read wirft — deshalb
+// im app-block selbst besteht sie, erst der per-spiel-read wirft, deshalb
 // fängt `scanGames` diesen wurf zusätzlich pro spiel ab.
 const DANGLING_KEY_IN_APP_BLOCK = `"UserLocalConfigStore"
 {

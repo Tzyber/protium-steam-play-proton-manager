@@ -27,10 +27,8 @@ alles und ist genau deshalb unübersichtlich.
 
 ### was du siehst
 
-jeder wert, der etwas behauptet, kann sich erklären. quelle, bedeutung, und
-ausdrücklich das, was er eben nicht bedeutet:
-
-![erklär-fenster im spiel-drawer mit quelle, bedeutung und der zeile "bedeutet nicht"](docs/screenshots/explain_dialog.png)
+jeder wert, der etwas behauptet, kann sich erklären. das fragezeichen öffnet
+quelle und bedeutung, direkt an der stelle:
 
 die bibliothek zeigt deine spiele mit ihrer protondb-bewertung und dem tool,
 das steam ihnen tatsächlich zuordnet. filtern kannst du danach auch:
@@ -156,9 +154,8 @@ passieren würde. wo es geht, gibt es einen rückweg.
 
 **erklärungen und diagnosebeleg.** ein Fragezeichen-Button erklärt technische
 werte direkt an der stelle (config-zustände, tool-quelle, scan-abdeckung,
-footprint, protondb, cleanup-blockaden, abgebrochene löschungen) mit quelle,
-bedeutung und dem, was der wert ausdrücklich nicht bedeutet; die begriffe
-folgen dem [glossar](docs/glossar.md).
+footprint, protondb, cleanup-blockaden, abgebrochene löschungen) mit quelle
+und bedeutung; die begriffe folgen dem [glossar](docs/glossar.md).
 „technische infos kopieren" legt einen datensparsamen beleg in die
 zwischenablage: feste labels einschließlich Valve-toolbezeichnungen, statuswerte,
 validierte zahlen, formatgeprüfte GE-toolnamen und berichtsbezogene aliase. andere toolnamen bleiben

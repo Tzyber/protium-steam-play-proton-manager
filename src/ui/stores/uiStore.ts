@@ -28,7 +28,7 @@ export const useUiStore = defineStore("ui", {
       this.activeView = view;
       // Der Drawer lebt nur in der Library-Ansicht. Blieb die appId beim
       // Wechsel stehen, bliebe der Hauptinhalt dauerhaft inert (die Ableitung
-      // in App.vue sieht `selectedAppId` weiterhin als gesetzt) — und die
+      // in App.vue sieht `selectedAppId` weiterhin als gesetzt), und die
       // Navigation wäre gesperrt.
       if (view !== "library") this.selectedAppId = null;
     },

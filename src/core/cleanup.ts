@@ -102,7 +102,7 @@ export interface SteamOwnedPrefix {
  * Die Filterbedingung ist dieselbe wie im findOrphans-Filter: `blockedAppIds`
  * enthält nur AppIDs, deren Manifest der Scan gesehen hat (Blocklist UND
  * Manifest vorhanden). Fehlt das Manifest eines Builtins, ist sein Prefix ein
- * echter Rest und wird als Orphan angeboten — bewusst so. Die Menge hier und
+ * echter Rest und wird als Orphan angeboten, bewusst so. Die Menge hier und
  * der Filter in findOrphans müssen dieselbe Quelle nutzen, sonst zeigt der
  * Hinweis eine andere Menge an, als tatsächlich ausgeblendet wurde.
  *
@@ -152,11 +152,11 @@ export async function findSteamOwnedPrefixes(
  *
  * Einschränkung: eine zweite, parallel laufende Protium-Instanz kann im
  * rename-nach-rm-Fenster einer laufenden Löschung kurzzeitig gemeldet werden.
- * Die Liste ist deshalb nur eine Meldung — sie bekommt nie Aktionen, die auf
+ * Die Liste ist deshalb nur eine Meldung, sie bekommt nie Aktionen, die auf
  * einem solchen Eintrag Löschungen oder Restores ausführen.
  *
  * WARUM getrennt von findOrphans: ein Claim-Rest hat keine App-ID und ist kein
- * Löschkandidat — `inspect_deletion_target` im Backend lehnt nicht-numerische
+ * Löschkandidat, `inspect_deletion_target` im Backend lehnt nicht-numerische
  * Ziele ab. Er wird deshalb nur gemeldet, nicht angeboten (INV-2: lieber
  * sichtbar unbekannt als lautlos weg).
  */
