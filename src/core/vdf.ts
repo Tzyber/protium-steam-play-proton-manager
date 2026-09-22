@@ -59,15 +59,11 @@ function restoreProperties(target: object, saved: PropertyDescriptorMap): void {
   }
 }
 
-const DANGEROUS_BLOCK_KEYS = new Set(["__proto__", "constructor", "prototype"]);
-
-/** Zusätzlich alle eigenen Namen von `Object.prototype`: ein Block-Key wie
- *  `"toString"` zeigt über die Prototypkette auf ein geteiltes Objekt. */
-const INHERITED_BLOCK_KEYS = new Set(Object.getOwnPropertyNames(Object.prototype));
-
-function isGuardedBlockKey(value: string): boolean {
-  return DANGEROUS_BLOCK_KEYS.has(value) || INHERITED_BLOCK_KEYS.has(value);
-}
+/** Block-Keys, die nicht den geparsten Knoten füllen, sondern ein geteiltes
+ *  Objekt: `__proto__` und `constructor` sind eigene Namen von
+ *  `Object.prototype`, `prototype` hängt an jedem Funktionsobjekt, und
+ *  `toString` und Verwandte zeigen über die Prototypkette ebenfalls dorthin. */
+const GUARDED_BLOCK_KEYS = new Set([...Object.getOwnPropertyNames(Object.prototype), "prototype"]);
 
 function neutralizeDangerousBlockKeys(text: string): string {
   const output: string[] = [];
@@ -84,7 +80,7 @@ function neutralizeDangerousBlockKeys(text: string): string {
       }
       const value = text.slice(cursor + 1, end);
       const isBlockKey =
-        expectsKey && isGuardedBlockKey(value) && nextRelevantToken(text, end + 1) === "{";
+        expectsKey && GUARDED_BLOCK_KEYS.has(value) && nextRelevantToken(text, end + 1) === "{";
       output.push(isBlockKey ? `"__x_${value}__"` : text.slice(cursor, end + 1));
       expectsKey = !expectsKey;
       cursor = end + 1;
@@ -144,7 +140,7 @@ function neutralizeDangerousBlockKeys(text: string): string {
     // quotierte (R1).
     const bareValue = text.slice(cursor, end);
     const isBareBlockKey =
-      expectsKey && isGuardedBlockKey(bareValue) && nextRelevantToken(text, end) === "{";
+      expectsKey && GUARDED_BLOCK_KEYS.has(bareValue) && nextRelevantToken(text, end) === "{";
     output.push(isBareBlockKey ? `__x_${bareValue}__` : bareValue);
     expectsKey = !expectsKey;
     cursor = end;
