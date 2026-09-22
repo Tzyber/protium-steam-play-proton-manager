@@ -9,16 +9,38 @@ on:
   # Bauumgebung und Smoke-Schritten, ohne einen Draft zu erzeugen.
   workflow_dispatch:
 
-permissions:
-  contents: write
-  # Integritäts-Assets (Entscheidung 2026-09-16): id-token mintet das
-  # OIDC-Token für das Sigstore-Zertifikat, attestations schreibt die
-  # Build-Provenance. `artifact-metadata` fehlt bewusst: den Storage-Record
-  # legt die Action nur beim Registry-Push und nur für Org-Repos an.
-  id-token: write
-  attestations: write
+# Rechte pro Job, nicht global: der reine Hook-Job braucht keine Schreibrechte.
+# Die Integritäts-Assets (Entscheidung 2026-09-16) brauchen `id-token` (OIDC für
+# das Sigstore-Zertifikat) und `attestations` (Build-Provenance) nur dort, wo
+# attestiert wird. `artifact-metadata` fehlt bewusst: den Storage-Record legt
+# die Action nur beim Registry-Push und nur für Org-Repos an.
+permissions: {}
 
 jobs:
+  # Ein Release-Tag darf nur auf einem Commit entstehen, der auf `main` liegt:
+  # jeder `v*`-Tag startete sonst einen Release aus einem beliebigen Stand.
+  # Ob die vollständige CI zum selben Commit gruen war, bleibt prozessual
+  # (dokumentiert in SECURITY.md) — dieser Job prueft nur die Herkunft.
+  guard:
+    name: Verify tag is on main
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Tag commit must be an ancestor of main
+        if: github.event_name != 'workflow_dispatch'
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "FEHLER: $GITHUB_SHA liegt nicht auf origin/main"
+            exit 1
+          fi
+          echo "OK: $GITHUB_SHA liegt auf origin/main"
+
   # Der Wayland-Hook muss auch dort greifen, wo nur das Laufzeitpaket
   # installiert ist (Debian, Ubuntu, Fedora). v0.10.0 hat das nicht geprueft:
   # der Build-Container enthaelt die Entwicklerpakete, und der X11-Smoke
@@ -26,6 +48,8 @@ jobs:
   # ohne Entwicklerpaket.
   hook:
     name: Verify Wayland hook
+    permissions:
+      contents: read
     runs-on: ubuntu-24.04
     container:
       image: ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7
@@ -102,6 +126,10 @@ jobs:
           echo "OK: Hook bleibt still"
 
   appimage:
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     name: Build AppImage
     # Kein Draft, wenn die Hook-Pruefung rot ist.
     needs: hook
@@ -176,6 +204,10 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      # bench:gate und mutation laufen bewusst nur in der CI: das Bench-Gate
+      # ist maschinengebunden (Runner-Hardware weicht ab) und der Mutationslauf
+      # dauert ein Vielfaches des Builds. Beide sind damit keine stille Luecke,
+      # sondern eine dokumentierte Grenze des Release-Workflows.
       - name: Verify before release build
         run: |
           npm run check

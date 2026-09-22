@@ -70,4 +70,17 @@ describe("TypeScript-/Rust-Spiegelwerte", () => {
     expect(deleteOps).toContain("pub const MAX_PENDING_DELETES: usize = 32;");
     expect(deleteOps).toContain("pub const DELETE_TOKEN_TTL_SECS: u64 = 300;");
   });
+
+  it("bindet die Token-TTL der Doku an den Rust-Wert (C1)", () => {
+    // SECURITY.md nannte 60 Sekunden, der Code 300. Der Test hält beide
+    // zusammen, damit die Doku nicht wieder driftet.
+    const deleteOps = readFileSync(join(repo, "src-tauri/src/commands/delete_ops.rs"), "utf8");
+    const security = readFileSync(join(repo, "SECURITY.md"), "utf8");
+    const ttlMatch = deleteOps.match(/pub const DELETE_TOKEN_TTL_SECS: u64 = (\d+);/);
+    expect(ttlMatch).not.toBeNull();
+    const ttl = ttlMatch?.[1] ?? "";
+
+    expect(security).toContain(`${ttl} Sekunden TTL`);
+    expect(security).not.toMatch(/60 Sekunden TTL/);
+  });
 });
