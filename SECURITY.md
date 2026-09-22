@@ -87,6 +87,23 @@ ohne sie zu schließen. Protium schreibt, verschiebt oder löscht dabei nichts.
 Der gestartete Dateimanager läuft mit Nutzerrechten weiter und kann selbst
 Daten verändern. „Dateimanager gestartet“ bestätigt nur den Prozessstart.
 
+### VDF-Lesepfad (Textdateien)
+
+Von Protium gelesene Text-VDF-Dateien (Manifeste, `config.vdf`,
+`localconfig.vdf`, Tool-VDFs) werden mit `@node-steam/vdf` geparst. Die
+Bibliothek weist Keys ungefiltert zu und kann dabei den globalen JavaScript-
+Zustand mutieren. Zwei Schichten verhindern das: Ein Pre-Pass neutralisiert
+Block-Keys, die auf `__proto__`, `constructor`, `prototype` oder auf ein
+geerbtes Mitglied von `Object.prototype` zeigen (auch hinter
+Steam-Conditionals und in unquotierter Form); zusätzlich liegt um den Parse
+ein Containment, das `Object.prototype`, `Object` und die darin hängenden
+Objekte und Funktionen vorher festhält und nach dem Parse exakt zurücksetzt.
+Der Pre-Pass bildet die zeilenweise Grammatik der Bibliothek nicht
+vollständig ab; das Containment ist davon unabhängig und deckt die
+gemessenen Umgehungsformen ab (elf Eingabeformen sind als Regressionstest
+festgehalten). Der Nutzen des Containments hängt nicht daran, dass der
+Pre-Pass jede Form kennt.
+
 ### Löschautorisierung
 
 Destruktive Cleanup-Aktionen verwenden eine einmalige backendgebundene
