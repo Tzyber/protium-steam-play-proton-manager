@@ -69,9 +69,26 @@ describe.each(["de", "en"] as const)("coverageText, warnungsgründe (%s)", (loca
   });
 
   it.each(["missing", "unreadable"] as const)("übersetzt compat-config-grund %s", (reason) => {
-    const text = formatWarning({ type: "compat-config", reason, detail: "detail" });
+    const text = formatWarning({ type: "compat-config", reason, detail: "blocked-location" });
     expect(text).not.toBe(t("library.coverageUnknownWarning"));
-    expect(text).toContain("detail");
+    // V1: nur ein bekannter code wird übersetzt angehängt
+    expect(text).toContain(t("errors.codes.blockedLocation"));
+  });
+
+  it("hängt einen unbekannten rohtext nicht an die coverage-zeile", () => {
+    const text = formatWarning({
+      type: "compat-config",
+      reason: "unreadable",
+      detail: "cannot read /home/nutzer/Steam/config.vdf: Permission denied",
+    });
+    expect(text).not.toContain("Permission");
+    expect(text).not.toContain("/home/nutzer");
+    expect(text).toBe(
+      t("library.coverageWarningConfig", {
+        source: t("library.coverageCompatConfig"),
+        reason: t("library.coverageReasonUnreadable"),
+      }),
+    );
   });
 
   it.each(["missing", "unreadable", "selection-ambiguous"] as const)(
@@ -81,12 +98,12 @@ describe.each(["de", "en"] as const)("coverageText, warnungsgründe (%s)", (loca
         type: "launch-config",
         reason,
         steamUserId: "12345",
-        detail: "detail",
+        detail: "steam-running",
       });
       expect(text).not.toBe(t("library.coverageUnknownWarning"));
-      // kontonummer und detail werden in einer zeile verbunden
+      // kontonummer und übersetztes detail werden in einer zeile verbunden
       expect(text).toContain("12345");
-      expect(text).toContain("detail");
+      expect(text).toContain(t("errors.codes.steamRunning"));
     },
   );
 

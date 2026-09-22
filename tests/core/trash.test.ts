@@ -98,14 +98,26 @@ describe("findTrashEntries", () => {
 
   it("lesefehler wird gemeldet statt als leerer papierkorb behandelt", async () => {
     const sys = fakeSystem(async () => {
-      throw new Error("EACCES: permission denied");
+      throw "unreadable: permission denied";
     });
 
     const r = await findTrashEntries(["/lib"], sys);
 
     expect(r.entries).toHaveLength(0);
     expect(r.unreadable).toEqual(["/lib"]);
-    expect(r.libraries[0]?.error).toContain("EACCES");
+    // V1: die statuszeile traegt den kanonischen code, nicht den rohtext
+    expect(r.libraries[0]?.error).toBe("unreadable");
+  });
+
+  it("roher fremdtext wird nicht als code gespeichert", async () => {
+    const sys = fakeSystem(async () => {
+      throw new Error("EACCES: permission denied");
+    });
+
+    const r = await findTrashEntries(["/lib"], sys);
+
+    expect(r.libraries[0]?.error).toBe("unknown");
+    expect(r.libraries[0]?.error).not.toContain("permission");
   });
 
   it("ein defekter library-eintrag stoppt die anderen nicht", async () => {
@@ -209,14 +221,14 @@ describe("findTrashEntries", () => {
 
   it("present-flag ist true bei lesefehler (74:53) — fehler != leerer papierkorb", async () => {
     const sys = fakeSystem(async () => {
-      throw new Error("EACCES: permission denied");
+      throw "blocked";
     });
 
     const r = await findTrashEntries(["/lib"], sys);
 
     // present=true: das verzeichnis existiert, konnte aber nicht gelesen werden
     expect(r.libraries[0]?.present).toBe(true);
-    expect(r.libraries[0]?.error).toBeDefined();
+    expect(r.libraries[0]?.error).toBe("blocked");
     expect(r.unreadable).toContain("/lib");
   });
 

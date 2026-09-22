@@ -14,7 +14,9 @@ export function logEvent(level: "info" | "warn" | "error", message: string): voi
   }
 }
 
-/** Wie logEvent, aber mit dem rohen Fehlertext (fuer das Protokoll gedacht). */
+/** Wie logEvent, aber mit dem rohen Fehlertext. Das Protokoll ist lokal
+ *  gedacht und wird bei einer Support-Meldung weitergereicht; das Backend
+ *  ersetzt darin Home-Pfade durch `~`, die Oberflaeche zeigt Rohtext nie. */
 export function logError(message: string, e: unknown): void {
   logEvent("error", `${message}: ${errText(e)}`);
 }

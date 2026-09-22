@@ -521,7 +521,7 @@ const shortcutBlockedItems = computed(() =>
             {{ l.duplicateOf
               ? t("cleanup.trashLibDuplicate", { dir: l.dir || l.library, lib: l.duplicateOf })
               : l.error
-                ? t("cleanup.trashLibError", { dir: l.dir || l.library, msg: l.error })
+                ? t("cleanup.trashLibError", { dir: l.dir || l.library, msg: formatError(l.error) })
                 : !l.present
                   ? t("cleanup.trashLibNone", { dir: l.dir || l.library })
                   : t("cleanup.trashLibCount", { dir: l.dir, n: l.count }) }}
