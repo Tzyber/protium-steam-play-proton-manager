@@ -1,11 +1,12 @@
 {
-  "measuredAt": "2026-09-18",
-  "runner": "lokal, Linux, Node 22 (Referenzmessung)",
-  "commit": "4c69f57 + Welle B (uncommittet)",
+  "measuredAt": "2026-09-22",
+  "runner": "lokal, Linux, Node 22.23.2 (Referenzmessung)",
+  "commit": "7e0d934 (Median korrigiert, N4)",
+  "note": "Nach der Median-Korrektur neu gemessen. Gerundet: lokale Phasen auf 45 ms (Messung 40.2 bis 45.7), protonDb cold/offline auf 2580 ms. warm.protonDb bleibt bei 2 ms, weil die gemessenen 0.5 ms unter der Jitter-Grenze liegen. Beide Schwellen gelten: relative Regression zur Baseline UND absolute Obergrenze.",
   "scenarios": {
-    "cold": { "local": 40, "scanGames": 40, "protonDb": 2600 },
-    "warm": { "local": 40, "scanGames": 40, "protonDb": 2 },
-    "offline": { "local": 40, "scanGames": 40, "protonDb": 2600 }
+    "cold": { "local": 45, "scanGames": 45, "protonDb": 2580 },
+    "warm": { "local": 45, "scanGames": 45, "protonDb": 2 },
+    "offline": { "local": 45, "scanGames": 45, "protonDb": 2580 }
   },
   "maxThresholdMs": { "local": 120, "scanGames": 120, "protonDb": 3500 },
   "maxAllowedRegressionPercent": 25

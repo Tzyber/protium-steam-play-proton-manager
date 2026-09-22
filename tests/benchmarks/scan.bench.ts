@@ -5,6 +5,7 @@ import { scanGames } from "../../src/core/scan/games.js";
 import { scanLocal } from "../../src/core/scan/local.js";
 import { enrichProtondb } from "../../src/core/scan/protondb.js";
 import { fakeSystem } from "../support/fakeSteam";
+import { median } from "../support/median.js";
 import {
   buildScanPerformanceFixture,
   createScanPerformanceCache,
@@ -21,15 +22,6 @@ interface ScenarioMeasurements {
   localMs: number[];
   scanGamesMs: number[];
   protonDbMs: number[];
-}
-
-function median(values: readonly number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  const lower = sorted[middle - 1];
-  const upper = sorted[middle];
-  if (lower === undefined || upper === undefined) throw new Error("median requires samples");
-  return (lower + upper) / 2;
 }
 
 function printMeasurements(
