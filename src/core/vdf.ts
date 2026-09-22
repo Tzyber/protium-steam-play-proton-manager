@@ -16,14 +16,35 @@ export function parseVdf(text: string): VdfNode {
   // vorher festgehalten und danach exakt zurückgesetzt. Der Pre-Pass bleibt die
   // erste Schranke (er verhindert die Mutation im Normalfall), das Containment
   // ist die zweite, die von den Parse-Eigenheiten unabhängig ist.
-  const prototypes = Object.getOwnPropertyDescriptors(Object.prototype);
-  const constructorProperties = Object.getOwnPropertyDescriptors(Object);
+  const guarded = guardedObjects().map(
+    (target) => [target, Object.getOwnPropertyDescriptors(target)] as const,
+  );
   try {
     return sanitize(parse(neutralizeDangerousBlockKeys(text)));
   } finally {
-    restoreProperties(Object.prototype, prototypes);
-    restoreProperties(Object, constructorProperties);
+    for (const [target, descriptors] of guarded) {
+      restoreProperties(target, descriptors);
+    }
   }
+}
+
+/** Die geteilten Objekte, die ein Parse mutieren kann: `Object.prototype` und
+ *  `Object` selbst sowie die darin hängenden Objekte und Funktionen (z. B.
+ *  `Object.prototype.toString`). Ein Block-Key, der auf ein geerbtes Mitglied
+ *  zeigt, füllt sonst nicht den geparsten Knoten, sondern das geteilte Objekt —
+ *  und das Zurücksetzen der Referenz allein würde die Mutation dort nicht
+ *  rückgängig machen. */
+function guardedObjects(): object[] {
+  const targets = new Set<object>([Object.prototype, Object]);
+  for (const root of [Object.prototype, Object]) {
+    for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(root))) {
+      const value: unknown = descriptor.value;
+      if (typeof value === "object" || typeof value === "function") {
+        if (value !== null) targets.add(value);
+      }
+    }
+  }
+  return [...targets];
 }
 
 /** Setzt genau die eigenen Properties zurück, die vor dem Parse bestanden. */
@@ -40,6 +61,14 @@ function restoreProperties(target: object, saved: PropertyDescriptorMap): void {
 
 const DANGEROUS_BLOCK_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
+/** Zusätzlich alle eigenen Namen von `Object.prototype`: ein Block-Key wie
+ *  `"toString"` zeigt über die Prototypkette auf ein geteiltes Objekt. */
+const INHERITED_BLOCK_KEYS = new Set(Object.getOwnPropertyNames(Object.prototype));
+
+function isGuardedBlockKey(value: string): boolean {
+  return DANGEROUS_BLOCK_KEYS.has(value) || INHERITED_BLOCK_KEYS.has(value);
+}
+
 function neutralizeDangerousBlockKeys(text: string): string {
   const output: string[] = [];
   let cursor = 0;
@@ -55,7 +84,7 @@ function neutralizeDangerousBlockKeys(text: string): string {
       }
       const value = text.slice(cursor + 1, end);
       const isBlockKey =
-        expectsKey && DANGEROUS_BLOCK_KEYS.has(value) && nextRelevantToken(text, end + 1) === "{";
+        expectsKey && isGuardedBlockKey(value) && nextRelevantToken(text, end + 1) === "{";
       output.push(isBlockKey ? `"__x_${value}__"` : text.slice(cursor, end + 1));
       expectsKey = !expectsKey;
       cursor = end + 1;
@@ -115,7 +144,7 @@ function neutralizeDangerousBlockKeys(text: string): string {
     // quotierte (R1).
     const bareValue = text.slice(cursor, end);
     const isBareBlockKey =
-      expectsKey && DANGEROUS_BLOCK_KEYS.has(bareValue) && nextRelevantToken(text, end) === "{";
+      expectsKey && isGuardedBlockKey(bareValue) && nextRelevantToken(text, end) === "{";
     output.push(isBareBlockKey ? `__x_${bareValue}__` : bareValue);
     expectsKey = !expectsKey;
     cursor = end;
