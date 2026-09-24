@@ -86,7 +86,6 @@ fn validate_handler_path(path: &Path, library: &Path) -> Result<(), PrefixError>
 }
 
 #[cfg(target_os = "linux")]
-#[cfg(target_os = "linux")]
 fn open_prefix_folder_with(
     state: &EnvironmentState,
     library: &str,

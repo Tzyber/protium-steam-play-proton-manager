@@ -522,7 +522,7 @@ where
 {
     sanitize_path(steam_root, "steam root")?;
     if account_id.parse::<u64>().map_or(true, |value| value == 0) {
-        return Err(errcode::INVALID_ACCOUNT.into());
+        return Err(errcode::INVALID_ACCOUNT_ID.into());
     }
     crate::commands::scope::parse_app_id(&app_id.to_string())
         .map_err(|error| errcode::with_detail(errcode::INVALID_APPID, error))?;

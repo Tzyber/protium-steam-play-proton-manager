@@ -85,56 +85,18 @@ pub(super) fn extract_blocking_with_tag(
     )
 }
 
-/// wie `extract_blocking_with_tag`, zusätzlich mit Test-Hooks: `before_bind`
-/// läuft zwischen Stat und Open der Parent-Bindung, `before_rename` vor dem
-/// finalen Installations-Rename (Tausch-Versuche der Tests).
-#[allow(clippy::too_many_arguments)]
-pub(super) fn extract_blocking_with_tag_with_hook(
+/// Erster Archiv-Durchgang ohne Mutation (r-10): prüft genau einen
+/// Top-Level-Ordner mit dem erwarteten Tag, jede Eintragsart und die entpackte
+/// Gesamtgröße. Derselbe Code wie zuvor, nur aus `extract_blocking_with_tag`
+/// herausgezogen; Fehler und deren Reihenfolge bleiben unverändert.
+fn validate_archive_entries(
     file: &mut fs::File,
-    dest_dir: &str,
-    expected_tag: Option<&str>,
+    expected_tag: &str,
     max_unpack_bytes: u64,
-    scope_ok: &dyn Fn(&Path) -> bool,
     cancel: &CancelSignal,
-    before_bind: &mut dyn FnMut(),
-    before_rename: &mut dyn FnMut(),
 ) -> Result<(), String> {
     use flate2::read::GzDecoder;
     use tar::Archive;
-
-    let dest = Path::new(dest_dir);
-    let dest_ancestor_canon = canonicalize_nearest_ancestor(dest, "extract dest")?;
-    if !scope_ok(&dest_ancestor_canon) {
-        return Err(errcode::BLOCKED_LOCATION.into());
-    }
-    fs::create_dir_all(dest).map_err(|error| format!("create extract destination: {error}"))?;
-    let dest_canon = fs::canonicalize(dest)
-        .map_err(|error| format!("canonicalize extract destination: {error}"))?;
-    if !dest_canon.is_dir() || !is_safe_path(&dest_canon.to_string_lossy()) {
-        return Err(errcode::BLOCKED_LOCATION.into());
-    }
-
-    let expected_tag = expected_tag.ok_or_else(|| {
-        errcode::with_detail(errcode::INVALID_ID, "archive install name is required")
-    })?;
-    if expected_tag.is_empty()
-        || expected_tag.contains('\0')
-        || expected_tag.contains('/')
-        || expected_tag.contains('\\')
-        || !matches!(
-            Path::new(expected_tag)
-                .components()
-                .collect::<Vec<_>>()
-                .as_slice(),
-            [Component::Normal(_)]
-        )
-    {
-        return Err(errcode::INVALID_ID.into());
-    }
-    let target = dest_canon.join(expected_tag);
-    if path_exists_without_following(&target) {
-        return Err(errcode::with_detail(errcode::TOOL_EXISTS, "extract target"));
-    }
 
     file.seek(SeekFrom::Start(0))
         .map_err(|error| format!("rewind archive before validation: {error}"))?;
@@ -215,6 +177,58 @@ pub(super) fn extract_blocking_with_tag_with_hook(
     if !root_seen {
         return Err(errcode::INCOMPLETE.into());
     }
+    Ok(())
+}
+
+/// wie `extract_blocking_with_tag`, zusätzlich mit Test-Hooks: `before_bind`
+/// läuft zwischen Stat und Open der Parent-Bindung, `before_rename` vor dem
+/// finalen Installations-Rename (Tausch-Versuche der Tests).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn extract_blocking_with_tag_with_hook(
+    file: &mut fs::File,
+    dest_dir: &str,
+    expected_tag: Option<&str>,
+    max_unpack_bytes: u64,
+    scope_ok: &dyn Fn(&Path) -> bool,
+    cancel: &CancelSignal,
+    before_bind: &mut dyn FnMut(),
+    before_rename: &mut dyn FnMut(),
+) -> Result<(), String> {
+    let dest = Path::new(dest_dir);
+    let dest_ancestor_canon = canonicalize_nearest_ancestor(dest, "extract dest")?;
+    if !scope_ok(&dest_ancestor_canon) {
+        return Err(errcode::BLOCKED_LOCATION.into());
+    }
+    fs::create_dir_all(dest).map_err(|error| format!("create extract destination: {error}"))?;
+    let dest_canon = fs::canonicalize(dest)
+        .map_err(|error| format!("canonicalize extract destination: {error}"))?;
+    if !dest_canon.is_dir() || !is_safe_path(&dest_canon.to_string_lossy()) {
+        return Err(errcode::BLOCKED_LOCATION.into());
+    }
+
+    let expected_tag = expected_tag.ok_or_else(|| {
+        errcode::with_detail(errcode::INVALID_ID, "archive install name is required")
+    })?;
+    if expected_tag.is_empty()
+        || expected_tag.contains('\0')
+        || expected_tag.contains('/')
+        || expected_tag.contains('\\')
+        || !matches!(
+            Path::new(expected_tag)
+                .components()
+                .collect::<Vec<_>>()
+                .as_slice(),
+            [Component::Normal(_)]
+        )
+    {
+        return Err(errcode::INVALID_ID.into());
+    }
+    let target = dest_canon.join(expected_tag);
+    if path_exists_without_following(&target) {
+        return Err(errcode::with_detail(errcode::TOOL_EXISTS, "extract target"));
+    }
+
+    validate_archive_entries(file, expected_tag, max_unpack_bytes, cancel)?;
 
     extract_archive_into_bound_parent(
         file,

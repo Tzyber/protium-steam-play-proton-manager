@@ -394,7 +394,7 @@ async fn install_ge_proton_validiert_release_tag() {
         |_, _| {},
         |_| Ok(true),
         &|_| true,
-        None,
+        ExtractEnvironment::StaticScopeOnly,
     )
     .await;
 
@@ -422,7 +422,7 @@ async fn install_ge_proton_validiert_download_url() {
         |_, _| {},
         |_| Ok(true),
         &|_| true,
-        None,
+        ExtractEnvironment::StaticScopeOnly,
     )
     .await;
 
@@ -453,7 +453,7 @@ async fn install_ge_proton_lehnt_existierendes_ziel_ab() {
         |_, _| {},
         |_| Ok(true),
         &|_| true,
-        None,
+        ExtractEnvironment::StaticScopeOnly,
     )
     .await;
 
@@ -487,7 +487,7 @@ async fn install_ge_proton_meldet_extract_crash_reste_und_loescht_nicht() {
         |_, _| {},
         |_| Ok(true),
         &|_| true,
-        None,
+        ExtractEnvironment::StaticScopeOnly,
     )
     .await;
 
@@ -545,7 +545,7 @@ async fn install_ge_proton_lehnt_unscoped_steam_root_ab() {
         |_, _| {},
         |_| Ok(true),
         &|_| false,
-        None,
+        ExtractEnvironment::StaticScopeOnly,
     )
     .await;
 

@@ -43,7 +43,10 @@ pub(super) fn validate_download_url(url: &str) -> Result<(), String> {
         "download",
     ];
     let comps: Vec<&str> = parsed.path().split('/').collect();
-    if comps.len() != DOWNLOAD_URL_PATH_SEGMENTS || !comps[0].is_empty() || comps[6].is_empty() {
+    if comps.len() != DOWNLOAD_URL_PATH_SEGMENTS
+        || !comps[DOWNLOAD_URL_LEADING_SEGMENT].is_empty()
+        || comps[DOWNLOAD_URL_ASSET_INDEX].is_empty()
+    {
         return Err(errcode::INVALID_URL.into());
     }
     let mut comps = comps.into_iter().skip(1);
@@ -147,7 +150,12 @@ pub struct CancelRegistry(pub Mutex<HashMap<String, Arc<CancelSignal>>>);
 pub const MAX_DOWNLOAD_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 
 /// pfadsegmentanzahl der release-asset-urls (owner/repo/releases/download/tag/asset).
+/// Die Zerlegung von `path().split('/')` hat vorne ein leeres Segment:
+/// `[0]` leer, `[1]` owner, `[2]` repo, `[3]` releases, `[4]` download,
+/// `[5]` tag, `[6]` asset (r-11: die Indexe waren magische Literale).
 const DOWNLOAD_URL_PATH_SEGMENTS: usize = 7;
+const DOWNLOAD_URL_LEADING_SEGMENT: usize = 0;
+const DOWNLOAD_URL_ASSET_INDEX: usize = DOWNLOAD_URL_PATH_SEGMENTS - 1;
 const MAX_DOWNLOAD_ID_BYTES: usize = 128;
 
 pub(super) fn validate_download_id(download_id: &str) -> Result<(), String> {
@@ -249,7 +257,7 @@ pub(super) async fn download_stream_in_directory(
     mut on_progress: impl FnMut(u64, Option<u64>),
     storage: DownloadStorage<'_>,
 ) -> Result<DownloadedFile, String> {
-    let result: Result<DownloadedFile, String> = async {
+    async {
         let client = build_client(redirect_ok)?;
         let resp = client.get(url).send().await.map_err(|e| e.to_string())?;
         if !resp.status().is_success() {
@@ -312,9 +320,7 @@ pub(super) async fn download_stream_in_directory(
             file: file.into_std().await,
         })
     }
-    .await;
-
-    result
+    .await
 }
 
 #[derive(Debug)]
@@ -418,7 +424,7 @@ pub(super) fn metadata_identity(metadata: &fs::Metadata) -> Option<(u64, u64)> {
 }
 
 #[cfg(not(unix))]
-fn metadata_identity(metadata: &fs::Metadata) -> Option<(u64, u64)> {
+pub(super) fn metadata_identity(metadata: &fs::Metadata) -> Option<(u64, u64)> {
     Some((metadata.len(), 0))
 }
 
@@ -473,7 +479,7 @@ pub(super) async fn fetch_sha512_text(
             build_client(|u| validate_redirect_url(u).is_ok()).map_err(Sha512FetchError::Failed)?;
         let mut resp = client.get(url).send().await.map_err(|e| e.to_string());
         if resp.is_err() {
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            tokio::time::sleep(SHA512_RETRY_DELAY).await;
             resp = client.get(url).send().await.map_err(|e| e.to_string());
         }
         let resp = resp.map_err(Sha512FetchError::Failed)?;
@@ -506,6 +512,10 @@ pub(super) async fn fetch_sha512_text(
 }
 
 pub(super) const MAX_HASH_BYTES: usize = 64 * 1024;
+
+/// Ein einzelner Wiederholungsversuch nach einem Transportfehler beim
+/// Prüfsummen-Abruf (r-11: die Wartezeit war ein magisches Literal).
+const SHA512_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 
 async fn collect_limited_body<S, B, E>(stream: S, max_bytes: usize) -> Result<Vec<u8>, String>
 where

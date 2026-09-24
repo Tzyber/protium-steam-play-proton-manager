@@ -257,7 +257,7 @@ fn directory_size_serializes_exact_status_wire_shapes() {
     );
     assert_eq!(
         DirectorySize::Failed {
-            detail: Some("metadata failed".to_string()),
+            detail: "metadata failed".to_string(),
         }
         .serialize(WireSerializer)
         .unwrap(),
@@ -273,9 +273,11 @@ fn directory_size_serializes_exact_status_wire_shapes() {
         ])
     );
     assert_eq!(
-        DirectorySize::Failed { detail: None }
-            .serialize(WireSerializer)
-            .unwrap(),
+        DirectorySize::Failed {
+            detail: String::new(),
+        }
+        .serialize(WireSerializer)
+        .unwrap(),
         WireValue::Object(vec![(
             "status".to_string(),
             WireValue::String("failed".to_string()),
@@ -476,7 +478,7 @@ fn dir_size_begrenzt_die_walk_tiefe_fail_closed() {
         "zu tiefer baum muss fail-closed failed liefern: {result:?}"
     );
     let detail = match result.as_ref().unwrap() {
-        DirectorySize::Failed { detail } => detail.as_deref().unwrap_or(""),
+        DirectorySize::Failed { detail } => detail.as_str(),
         _ => "",
     };
     assert!(

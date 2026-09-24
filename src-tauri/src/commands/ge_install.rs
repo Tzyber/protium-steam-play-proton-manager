@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -55,6 +55,24 @@ pub(super) struct GeReleaseIdentity {
     pub(super) asset_name: String,
     pub(super) install_name: String,
     pub(super) checksum_asset_name: String,
+}
+
+/// Aufgelöste Zielorte einer GE-Installation (r-10): kanonischer Steam-Root,
+/// Tool-Verzeichnis darunter und validierte Release-Identität.
+struct GeInstallTargets {
+    root_canon: PathBuf,
+    tools_dir: PathBuf,
+    identity: GeReleaseIdentity,
+}
+
+/// Ausführungskontext der Extraktion (r-18): die Produktion bindet immer die
+/// autorisierte Umgebung, nur der Testlauf läuft ohne sie und prüft dann bloß
+/// den statischen Scope. Als eigener Typ, damit der leere Zweig gar nicht erst
+/// als erreichbarer Produktionsarm existiert.
+pub(super) enum ExtractEnvironment {
+    Authorized(crate::commands::scope::EnvironmentState),
+    #[cfg(test)]
+    StaticScopeOnly,
 }
 
 fn release_version(tag: &str) -> Option<(u64, u64)> {
@@ -183,6 +201,9 @@ pub struct DownloadProgress {
     pub total: Option<u64>,
 }
 
+/// Länge eines SHA512-Hex-Digests in Zeichen (r-11: 128 war ein Literal).
+const SHA512_HEX_LEN: usize = 128;
+
 pub(super) fn parse_sha512_hash(text: &str, expected_asset: &str) -> Result<String, String> {
     for line in text.lines() {
         let mut fields = line.split_whitespace();
@@ -196,7 +217,7 @@ pub(super) fn parse_sha512_hash(text: &str, expected_asset: &str) -> Result<Stri
         let Some(hash) = hash else {
             continue;
         };
-        if hash.len() == 128 && hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        if hash.len() == SHA512_HEX_LEN && hash.chars().all(|c| c.is_ascii_hexdigit()) {
             return Ok(hash.to_ascii_lowercase());
         }
     }
@@ -204,6 +225,10 @@ pub(super) fn parse_sha512_hash(text: &str, expected_asset: &str) -> Result<Stri
         "no valid sha512 checksum line for asset {expected_asset}"
     ))
 }
+
+/// Lesepuffer des Diskhash: 64 KiB hält die Syscall-Zahl klein, ohne den
+/// Blocking-Task-Speicher zu sprengen (r-11: die Größe war ein Literal).
+const HASH_READ_BUF_BYTES: usize = 64 * 1024;
 
 /// Verifiziert, dass die Datei auf Disk tatsächlich den erwarteten SHA512 erzeugt
 /// (Schutz vor Hash-Swap / TOCTOU).
@@ -215,7 +240,7 @@ pub(super) fn verify_file_hash_on_disk(
     file.seek(SeekFrom::Start(0))
         .map_err(|e| format!("seek downloaded file: {e}"))?;
     let mut hasher = Sha512::new();
-    let mut buf = [0u8; 64 * 1024];
+    let mut buf = [0u8; HASH_READ_BUF_BYTES];
     loop {
         if cancel.is_cancelled() {
             return Err(errcode::CANCELLED.into());
@@ -317,8 +342,123 @@ pub(super) async fn install_ge_proton_inner(
     mut on_phase: impl FnMut(&str, bool),
     confirm_unverified: impl FnMut(UnverifiedConfirmationRequest) -> Result<bool, String>,
     scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
-    environment: Option<crate::commands::scope::EnvironmentState>,
+    environment: ExtractEnvironment,
 ) -> Result<InstallGeResult, String> {
+    let GeInstallTargets {
+        root_canon,
+        tools_dir,
+        identity,
+    } = resolve_ge_install_targets(
+        steam_root,
+        target_arch,
+        release_tag,
+        download_url,
+        download_id,
+        scope_ok,
+    )?;
+    let (downloads_directory, expected_downloads_identity) = open_downloads_directory(cache_dir)?;
+    let cancel_flag_clone = Arc::clone(&cancel_flag);
+
+    // Download-Phase
+    let stream_hash = crate::commands::download::download_stream_in_directory(
+        download_url,
+        |u| validate_redirect_url(u).is_ok(),
+        &cancel_flag_clone,
+        &mut on_progress,
+        DownloadStorage {
+            max_bytes: MAX_DOWNLOAD_BYTES,
+            directory: DownloadDirectoryBinding {
+                file: &downloads_directory,
+                identity: expected_downloads_identity,
+            },
+            #[cfg(test)]
+            before_open: None,
+        },
+    )
+    .await?;
+
+    let downloaded_file = stream_hash.file;
+    let stream_hash = stream_hash.hash;
+    cancel_before_extract(&cancel_flag)?;
+
+    on_phase("verifying", false);
+
+    let (result_status, mut downloaded_file) = verify_downloaded_artifact(
+        downloaded_file,
+        stream_hash,
+        release_tag,
+        &identity,
+        &cancel_flag,
+        confirm_unverified,
+    )
+    .await?;
+
+    cancel_before_extract(&cancel_flag)?;
+
+    on_phase("extracting", result_status == InstallGeResult::Verified);
+
+    // Extraktions-Phase. `root` und `tools` werden in die Scope-closure UND in
+    // die autorisierte Umgebung gereicht, deshalb je EINE zusätzliche Kopie
+    // (r-18: die vorige Fassung hielt je zwei Namen pro Identität).
+    let tools_dir_str = tools_dir.to_string_lossy().to_string();
+    let install_name = identity.install_name.clone();
+    let extract_dest = tools_dir.clone();
+    let extract_root = root_canon.clone();
+
+    let cancel_for_extract = Arc::clone(&cancel_flag);
+    let extract = move || {
+        extract_after_cancel_check(&cancel_for_extract, || {
+            let result = extract_blocking_with_tag(
+                &mut downloaded_file,
+                &tools_dir_str,
+                Some(&install_name),
+                MAX_DOWNLOAD_BYTES,
+                &|p| p == extract_dest || p == extract_root,
+                &cancel_for_extract,
+            );
+            Ok((result, downloaded_file))
+        })
+    };
+    let extract_res = match environment {
+        ExtractEnvironment::Authorized(environment) => {
+            crate::commands::spawn_blocking_io(move || {
+                environment.with_authorized_ge_install(&root_canon, &tools_dir, extract)
+            })
+            .await
+        }
+        // Nur der Testpfad erreicht diesen Arm; der Zweig prüft bewusst nur den
+        // statischen Scope. Er existiert im Produktionsbuild nicht (r-18).
+        #[cfg(test)]
+        ExtractEnvironment::StaticScopeOnly => {
+            if !scope_ok(&tools_dir) || !scope_ok(&root_canon) {
+                return Err(errcode::BLOCKED_LOCATION.into());
+            }
+            crate::commands::spawn_blocking_io(extract).await
+        }
+    };
+
+    match extract_res {
+        Ok((extract_result, _downloaded_file)) => match extract_result {
+            Ok(_) => Ok(result_status),
+            Err(error) => Err(extract_error_with_code(error)),
+        },
+        Err(error) => Err(error),
+    }
+}
+
+// Die Phasen von `install_ge_proton_inner`: je ein zusammenhängender Block aus
+// demselben Code mit denselben Rückgaben und derselben Fehlerreihenfolge (r-10).
+
+/// Phase „Ziele": validiert Release-Identität und Scope, prüft Crash-Reste und
+/// den Zielkonflikt und legt Root und Tool-Verzeichnis fest.
+fn resolve_ge_install_targets(
+    steam_root: &str,
+    target_arch: TargetArch,
+    release_tag: &str,
+    download_url: &str,
+    download_id: &str,
+    scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
+) -> Result<GeInstallTargets, String> {
     sanitize_path(steam_root, "steam root")?;
     let identity = validate_release_identity(target_arch, release_tag, download_url)?;
     validate_download_id(download_id)?;
@@ -360,6 +500,17 @@ pub(super) async fn install_ge_proton_inner(
         ));
     }
 
+    Ok(GeInstallTargets {
+        root_canon,
+        tools_dir,
+        identity,
+    })
+}
+
+/// Phase „Download-Verzeichnis": bindet `<cache>/downloads` an die festgehaltene
+/// Identität, damit der anonyme Download-Descriptor nicht in einen
+/// ausgetauschten Ordner schreibt.
+fn open_downloads_directory(cache_dir: &Path) -> Result<(fs::File, (u64, u64)), String> {
     fs::create_dir_all(cache_dir).map_err(|e| format!("create app cache dir: {e}"))?;
     let cache_canon =
         fs::canonicalize(cache_dir).map_err(|e| format!("app cache canonicalize: {e}"))?;
@@ -375,11 +526,10 @@ pub(super) async fn install_ge_proton_inner(
     if downloads_metadata.file_type().is_symlink() || !downloads_metadata.is_dir() {
         return Err(errcode::NOT_A_DIRECTORY.into());
     }
-    let expected_downloads_identity =
-        crate::commands::download::metadata_identity(&downloads_metadata)
-            .ok_or_else(|| "canonical downloads directory has no identity".to_string())?;
+    let expected_identity = crate::commands::download::metadata_identity(&downloads_metadata)
+        .ok_or_else(|| "canonical downloads directory has no identity".to_string())?;
     #[cfg(target_os = "linux")]
-    let downloads_directory = {
+    let directory = {
         // r-13: dieselbe no-follow-open-kette wie fd::open_absolute_dir statt
         // eines dritten handgeschriebenen libc::open.
         let fd = crate::commands::fd::open_absolute_dir(&downloads_dir)
@@ -387,51 +537,27 @@ pub(super) async fn install_ge_proton_inner(
         fs::File::from(fd)
     };
     #[cfg(not(target_os = "linux"))]
-    let downloads_directory =
+    let directory =
         fs::File::open(&downloads_dir).map_err(|e| format!("open downloads directory: {e}"))?;
+    Ok((directory, expected_identity))
+}
 
-    let cancel_flag_clone = Arc::clone(&cancel_flag);
-
-    // Download-Phase
-    let stream_hash = match crate::commands::download::download_stream_in_directory(
-        download_url,
-        |u| validate_redirect_url(u).is_ok(),
-        &cancel_flag_clone,
-        &mut on_progress,
-        DownloadStorage {
-            max_bytes: MAX_DOWNLOAD_BYTES,
-            directory: DownloadDirectoryBinding {
-                file: &downloads_directory,
-                identity: expected_downloads_identity,
-            },
-            #[cfg(test)]
-            before_open: None,
-        },
-    )
-    .await
-    {
-        Ok(downloaded) => downloaded,
-        Err(e) => {
-            return Err(e);
-        }
-    };
-
-    let mut downloaded_file = stream_hash.file;
-    let stream_hash = stream_hash.hash;
-    cancel_before_extract(&cancel_flag)?;
-
-    on_phase("verifying", false);
-
+/// Phase „Verify": holt die Prüfsumme, vergleicht sie mit dem Stream-Hash und
+/// liest die Datei zur Kontrolle vollständig von Disk (Hash-Swap/TOCTOU). Gibt
+/// den Status und den an den Anfang zurückgesetzten Handle zurück.
+async fn verify_downloaded_artifact(
+    mut downloaded_file: fs::File,
+    stream_hash: String,
+    release_tag: &str,
+    identity: &GeReleaseIdentity,
+    cancel_flag: &Arc<CancelSignal>,
+    confirm_unverified: impl FnMut(UnverifiedConfirmationRequest) -> Result<bool, String>,
+) -> Result<(InstallGeResult, fs::File), String> {
     // Die Checksum-URL wird aus der backendvalidierten Release-Identität abgeleitet.
-    let checksum_url = checksum_url(release_tag, &identity);
-    let result_status = match fetch_sha512_text(&checksum_url, Arc::clone(&cancel_flag)).await {
+    let checksum_url = checksum_url(release_tag, identity);
+    let result_status = match fetch_sha512_text(&checksum_url, Arc::clone(cancel_flag)).await {
         Ok(hash_text) => {
-            let expected_hash = match parse_sha512_hash(&hash_text, &identity.checksum_asset_name) {
-                Ok(hash) => hash,
-                Err(error) => {
-                    return Err(error);
-                }
-            };
+            let expected_hash = parse_sha512_hash(&hash_text, &identity.checksum_asset_name)?;
             if cancel_flag.is_cancelled() {
                 return Err(errcode::CANCELLED.into());
             }
@@ -443,7 +569,7 @@ pub(super) async fn install_ge_proton_inner(
 
             // Der Voll-Read der 1-2-GB-Datei läuft blocking: spawn_blocking,
             // sonst stallen cancel und phasen-events bis der hash fertig ist.
-            let cancel_for_verify = Arc::clone(&cancel_flag);
+            let cancel_for_verify = Arc::clone(cancel_flag);
             let verify = move || {
                 let result = verify_file_hash_on_disk(
                     &mut downloaded_file,
@@ -462,19 +588,13 @@ pub(super) async fn install_ge_proton_inner(
             InstallGeResult::Verified
         }
         Err(error) if is_missing_checksum_asset(&error) => {
-            let confirmed = match confirm_unverified_installation(
+            let confirmed = confirm_unverified_installation(
                 release_tag,
                 &identity.install_name,
                 &checksum_url,
                 confirm_unverified,
-            ) {
-                Ok(confirmed) => confirmed,
-                Err(error) => {
-                    return Err(format!(
-                        "unverified installation confirmation failed: {error}"
-                    ));
-                }
-            };
+            )
+            .map_err(|error| format!("unverified installation confirmation failed: {error}"))?;
             if !confirmed {
                 return Err(errcode::UNVERIFIED_REJECTED.into());
             }
@@ -487,62 +607,7 @@ pub(super) async fn install_ge_proton_inner(
             return Err(errcode::with_detail(errcode::CHECKSUM_FAILED, error));
         }
     };
-
-    cancel_before_extract(&cancel_flag)?;
-
-    on_phase("extracting", result_status == InstallGeResult::Verified);
-
-    // Extraktions-Phase
-    let tools_dir_str = tools_dir.to_string_lossy().to_string();
-    let install_name = identity.install_name.clone();
-    let dest_canon = tools_dir.clone();
-    let root_canon_clone = root_canon.clone();
-    let extract_dest = dest_canon.clone();
-    let extract_root = root_canon_clone.clone();
-
-    let cancel_for_extract = Arc::clone(&cancel_flag);
-    let extract = move || {
-        extract_after_cancel_check(&cancel_for_extract, || {
-            let result = extract_blocking_with_tag(
-                &mut downloaded_file,
-                &tools_dir_str,
-                Some(&install_name),
-                MAX_DOWNLOAD_BYTES,
-                &|p| p == extract_dest || p == extract_root,
-                &cancel_for_extract,
-            );
-            Ok((result, downloaded_file))
-        })
-    };
-    let extract_res = match environment {
-        Some(environment) => {
-            crate::commands::spawn_blocking_io(move || {
-                environment.with_authorized_ge_install(&root_canon_clone, &dest_canon, extract)
-            })
-            .await
-        }
-        // Nur der Testpfad reicht `None` herein (die Produktion übergibt immer
-        // `Some(...)` und läuft über `with_authorized_ge_install`). Der Zweig
-        // prüft bewusst nur den statischen Scope; im Produktionsbuild ist er
-        // nicht existent, damit ihn kein späterer Aufrufer versehentlich nutzt.
-        #[cfg(test)]
-        None => {
-            if !scope_ok(&dest_canon) || !scope_ok(&root_canon_clone) {
-                return Err(errcode::BLOCKED_LOCATION.into());
-            }
-            crate::commands::spawn_blocking_io(extract).await
-        }
-        #[cfg(not(test))]
-        None => Err(errcode::UNAVAILABLE.into()),
-    };
-
-    match extract_res {
-        Ok((extract_result, _downloaded_file)) => match extract_result {
-            Ok(_) => Ok(result_status),
-            Err(error) => Err(extract_error_with_code(error)),
-        },
-        Err(error) => Err(error),
-    }
+    Ok((result_status, downloaded_file))
 }
 
 #[tauri::command]
@@ -556,6 +621,10 @@ struct InstallPhasePayload {
     phase: String,
     verified: bool,
 }
+
+/// Progress-Events erst nach diesem Byte-Fortschritt: ein Emit pro Chunk
+/// würde die IPC fluten (r-11: die Schwelle war ein Literal).
+const PROGRESS_EMIT_STEP_BYTES: u64 = 1_000_000;
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
@@ -599,7 +668,7 @@ pub async fn install_ge_proton(
         cancel_flag_clone,
         move |downloaded, total| {
             let done = total.map(|t| downloaded >= t).unwrap_or(false);
-            if downloaded - last_emit >= 1_000_000 || done {
+            if downloaded - last_emit >= PROGRESS_EMIT_STEP_BYTES || done {
                 last_emit = downloaded;
                 let _ = app_handle.emit(
                     "download-progress",
@@ -623,7 +692,7 @@ pub async fn install_ge_proton(
         },
         move |request| show_native_unverified_confirmation(&app_handle_confirmation, request),
         &scope_ok,
-        Some(environment.inner().clone()),
+        ExtractEnvironment::Authorized(environment.inner().clone()),
     )
     .await;
 

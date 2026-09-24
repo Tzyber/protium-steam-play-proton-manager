@@ -324,7 +324,7 @@ fn valve_authority_root_and_libraryfolders_race_use_bound_fds() {
     std::fs::create_dir_all(&external).unwrap();
     let mut swapped_root = false;
     let result = valve_builtin_installed_from_fds(&steam, &root_fd, 1493710, &mut |stage| {
-        if stage == 1 && !swapped_root {
+        if stage == CompatAuthStage::RootOpened && !swapped_root {
             std::fs::rename(&steam, steam.with_extension("old")).unwrap();
             std::os::unix::fs::symlink(&external, &steam).unwrap();
             swapped_root = true;
@@ -339,7 +339,7 @@ fn valve_authority_root_and_libraryfolders_race_use_bound_fds() {
     let foreign_vdf = root.join("foreign-libraryfolders.vdf");
     std::fs::write(&foreign_vdf, "\"libraryfolders\" { \"0\" { unclosed").unwrap();
     let result = valve_builtin_installed_from_fds(&steam, &root_fd, 1493710, &mut |stage| {
-        if stage == 2 && !swapped_vdf {
+        if stage == CompatAuthStage::LibraryFileOpened && !swapped_vdf {
             std::fs::rename(
                 &libraryfolders_path,
                 libraryfolders_path.with_extension("old"),
@@ -393,7 +393,7 @@ fn valve_authority_external_library_identity_race_fails_closed() {
     .unwrap();
     let mut swapped = false;
     let result = valve_builtin_installed_from_fds(&steam, &root_fd, 1493710, &mut |stage| {
-        if stage == 3 && !swapped {
+        if stage == CompatAuthStage::ExternalLibraryBound && !swapped {
             std::fs::rename(&external, external.with_extension("old")).unwrap();
             std::os::unix::fs::symlink(&foreign, &external).unwrap();
             swapped = true;
@@ -501,7 +501,7 @@ fn valve_authority_manifest_swap_reads_same_fd() {
     let root_fd = open_absolute_dir(&steam).unwrap();
     let mut swapped = false;
     let result = valve_builtin_installed_from_fds(&steam, &root_fd, 1493710, &mut |stage| {
-        if stage == 4 && !swapped {
+        if stage == CompatAuthStage::ManifestOpened && !swapped {
             std::fs::rename(&manifest, manifest.with_extension("old")).unwrap();
             std::fs::write(&manifest, "\"AppState\" { \"appid\" \"1\" }").unwrap();
             swapped = true;
@@ -531,7 +531,7 @@ fn compat_authority_bleibt_an_root_tooldir_und_vdf_fd_gebunden() {
     let mut root_swapped = false;
     let root_result =
         compat_root_contains_name_linux_with_hook(&root, "ExternalTool", &mut |stage| {
-            if stage == 1 && !root_swapped {
+            if stage == CompatAuthStage::RootOpened && !root_swapped {
                 std::fs::rename(&root, root.with_extension("old")).unwrap();
                 std::os::unix::fs::symlink(&external, &root).unwrap();
                 root_swapped = true;
@@ -548,7 +548,7 @@ fn compat_authority_bleibt_an_root_tooldir_und_vdf_fd_gebunden() {
     let mut tool_swapped = false;
     let tool_result =
         compat_root_contains_name_linux_with_hook(&root, "ExternalTool", &mut |stage| {
-            if stage == 2 && !tool_swapped {
+            if stage == CompatAuthStage::ToolOpened && !tool_swapped {
                 std::fs::rename(&tool, tool.with_extension("old")).unwrap();
                 std::os::unix::fs::symlink(external.join("ExternalTool"), &tool).unwrap();
                 tool_swapped = true;
@@ -566,7 +566,7 @@ fn compat_authority_bleibt_an_root_tooldir_und_vdf_fd_gebunden() {
     let mut vdf_swapped = false;
     let vdf_result =
         compat_root_contains_name_linux_with_hook(&root, "GE-Proton9-27", &mut |stage| {
-            if stage == 3 && !vdf_swapped {
+            if stage == CompatAuthStage::VdfOpened && !vdf_swapped {
                 std::fs::rename(&vdf, vdf.with_extension("old")).unwrap();
                 std::fs::write(
                     &vdf,

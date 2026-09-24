@@ -1,10 +1,16 @@
 // Rust-Commands für Operationen außerhalb des Webviews.
 //
-// Die Anwendung ist Linux-only. `#[cfg(not(target_os = "linux"))]`-Stellen in
-// den Command-Modulen sind keine Alternativpfade, sondern Fehlerstummel, damit
-// die Kiste auf anderen Hosts überhaupt kompiliert (`cargo check` in CI und
-// auf Entwicklerrechnern). Sie liefern durchgehend "unsupported on this
-// platform" und dürfen nie als funktionierende Degradation gelesen werden.
+// Die Anwendung ist Linux-only; gebaut und geprüft wird ausschließlich
+// `target_os = "linux"`. Die `#[cfg(not(target_os = "linux"))]`-Zweige sind
+// Fehlerstummel, die fail-closed verweigern statt zu degradieren, und dürfen
+// nie als funktionierende Degradation gelesen werden.
+//
+// Ob diese Zweige auf einem Fremdhost überhaupt vollständig kompilieren, ist
+// NICHT belegt: ein `cargo check` für ein Fremdziel wurde nie ausgeführt (er
+// erzeugte hier Fremd-Build-Artefakte). Der frühere Kommentar behauptete genau
+// das und war damit unbelegt (r-12). Die linux-unabhängigen Importe sind
+// deshalb so bedingt, dass Linux-Builds gültig bleiben; weitergehende
+// Fremdziel-Pflege ist bewusst nicht zugesagt.
 
 pub(crate) mod cleanup;
 pub(crate) mod compat_auth;

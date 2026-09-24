@@ -20,6 +20,9 @@ pub const DELETE_TOKEN_TTL_SECS: u64 = 300;
 
 /// renameat2-flag: kein überschreiben des ziels (RENAME_NOREPLACE).
 const RENAME_NOREPLACE_FLAG: u32 = 1;
+/// Ein Claim-Versuch endet mit EEXIST, wenn der Zufallsname kollidiert; vier
+/// Versuche deckeln die Schleife (r-11: die Zahl war ein magisches Literal).
+const CLAIM_NAME_ATTEMPTS: u32 = 4;
 pub const MAX_PENDING_DELETES: usize = 32;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -221,14 +224,11 @@ pub(super) fn renameat2_no_replace(
     ))
 }
 
+/// Ergebnis eines erfolgreichen Claims: gebundener Handle, privater Name und
+/// der `/proc/self/fd`-Pfad für die Mutation. Existiert nur unter Linux, weil
+/// der Nicht-Linux-Stummel fail-closed ohne Claim zurückkehrt (r-18: die
+/// Struktur war unter zwei cfg-Zweigen byteidentisch doppelt definiert).
 #[cfg(target_os = "linux")]
-struct ClaimedDeleteTarget {
-    path: PathBuf,
-    handle: fs::File,
-    name: OsString,
-}
-
-#[cfg(not(target_os = "linux"))]
 struct ClaimedDeleteTarget {
     path: PathBuf,
     handle: fs::File,
@@ -253,7 +253,7 @@ fn claim_delete_target(pending: &PendingDelete) -> Result<ClaimedDeleteTarget, S
         .ok_or_else(|| "pending delete has no bound target identity".to_string())?;
     let expected_identity = delete_handle_identity(expected)?;
 
-    for _ in 0..4 {
+    for _ in 0..CLAIM_NAME_ATTEMPTS {
         let claim_name = OsString::from(format!(
             ".protium-delete-claim-{}",
             generate_os_random_128()?
@@ -596,77 +596,7 @@ fn execute_delete_pipeline_inner(
     }
     let deleted_path = pending.target_path.clone();
 
-    match pending.target_type.as_str() {
-        "orphan" => {
-            let canon_str = pending.canonical_path.to_string_lossy();
-            let suffix = crate::commands::scope::suffix_after_steamapps(&canon_str)?;
-            let (typ, app_id_str) = crate::commands::scope::parse_compat_id(
-                suffix
-                    .split_once('/')
-                    .ok_or_else(|| "invalid suffix structure".to_string())?,
-            )?;
-            match typ {
-                "shadercache" => {
-                    fs::remove_dir_all(&claimed.path)
-                        .map_err(|e| format!("cannot remove shadercache: {e}"))?;
-                }
-                "compatdata" => {
-                    let lib_str = crate::commands::scope::library_of(&canon_str)?;
-                    let trash_parent = open_trash_dir(Path::new(lib_str), &mut || {})?;
-                    let trash_name = format!("compatdata_{app_id_str}_{now_ms}");
-                    let source_parent = pending.parent_handle.as_ref().ok_or_else(|| {
-                        "pending delete has no bound parent directory".to_string()
-                    })?;
-                    renameat2_no_replace(
-                        source_parent,
-                        &claimed.name,
-                        &trash_parent,
-                        OsStr::new(&trash_name),
-                    )
-                    .map_err(|e| format!("cannot move to trash: {e}"))?;
-                    // r-08: ohne verzeichnis-fsync kann der papierkorb-eintrag
-                    // nach absturz driftig sichtbar sein; erst das ziel, dann
-                    // die quelle. ein sync-fehler meldet die möglich angewandte
-                    // mutation statt "nichts passiert"
-                    #[cfg(target_os = "linux")]
-                    {
-                        use std::os::fd::AsRawFd;
-                        crate::commands::fd::sync_dir_fd(trash_parent.as_raw_fd()).map_err(
-                            |e| {
-                                errcode::with_detail(
-                                    errcode::WRITE_UNCERTAIN,
-                                    format!("trash move target sync: {e}"),
-                                )
-                            },
-                        )?;
-                        crate::commands::fd::sync_dir_fd(source_parent.as_raw_fd()).map_err(
-                            |e| {
-                                errcode::with_detail(
-                                    errcode::WRITE_UNCERTAIN,
-                                    format!("trash move source sync: {e}"),
-                                )
-                            },
-                        )?;
-                    }
-                }
-                _ => return Err(errcode::UNSUPPORTED_TARGET.into()),
-            }
-        }
-        "trash" => {
-            fs::remove_dir_all(&claimed.path)
-                .map_err(|e| format!("cannot remove trash item: {e}"))?;
-        }
-        "compatTool" => {
-            fs::remove_dir_all(&claimed.path)
-                .map_err(|e| format!("cannot remove compat tool: {e}"))?;
-        }
-        _ => {
-            return Err(errcode::with_detail(
-                errcode::UNSUPPORTED_TARGET,
-                &pending.target_type,
-            ));
-        }
-    }
+    apply_delete_mutation(&pending, &claimed, now_ms)?;
 
     // Ab hier ist die Mutation abgeschlossen; der Claim-Name ist weg.
     restore.disarm();
@@ -717,6 +647,89 @@ fn inspect_pending_target(
         || inspection.consequences != pending.consequences
     {
         return Err(errcode::TARGET_CHANGED.into());
+    }
+    Ok(())
+}
+
+/// Führt die eigentliche Mutation des geclaimten Ziels aus (r-10). Genau die
+/// drei Zieltypen der Pipeline, derselbe Papierkorb-Move samt
+/// Verzeichnis-fsync und dieselben Fehler wie zuvor; nur zusammenhängend
+/// verschoben.
+#[cfg(target_os = "linux")]
+fn apply_delete_mutation(
+    pending: &PendingDelete,
+    claimed: &ClaimedDeleteTarget,
+    now_ms: u64,
+) -> Result<(), String> {
+    match pending.target_type.as_str() {
+        "orphan" => {
+            let canon_str = pending.canonical_path.to_string_lossy();
+            let suffix = crate::commands::scope::suffix_after_steamapps(&canon_str)?;
+            let (typ, app_id_str) = crate::commands::scope::parse_compat_id(
+                suffix
+                    .split_once('/')
+                    .ok_or_else(|| "invalid suffix structure".to_string())?,
+            )?;
+            match typ {
+                "shadercache" => {
+                    fs::remove_dir_all(&claimed.path)
+                        .map_err(|e| format!("cannot remove shadercache: {e}"))?;
+                }
+                "compatdata" => {
+                    let lib_str = crate::commands::scope::library_of(&canon_str)?;
+                    let trash_parent = open_trash_dir(Path::new(lib_str), &mut || {})?;
+                    let trash_name = format!("compatdata_{app_id_str}_{now_ms}");
+                    let source_parent = pending.parent_handle.as_ref().ok_or_else(|| {
+                        "pending delete has no bound parent directory".to_string()
+                    })?;
+                    renameat2_no_replace(
+                        source_parent,
+                        &claimed.name,
+                        &trash_parent,
+                        OsStr::new(&trash_name),
+                    )
+                    .map_err(|e| format!("cannot move to trash: {e}"))?;
+                    // r-08: ohne verzeichnis-fsync kann der papierkorb-eintrag
+                    // nach absturz driftig sichtbar sein; erst das ziel, dann
+                    // die quelle. ein sync-fehler meldet die möglich angewandte
+                    // mutation statt "nichts passiert"
+                    {
+                        use std::os::fd::AsRawFd;
+                        crate::commands::fd::sync_dir_fd(trash_parent.as_raw_fd()).map_err(
+                            |e| {
+                                errcode::with_detail(
+                                    errcode::WRITE_UNCERTAIN,
+                                    format!("trash move target sync: {e}"),
+                                )
+                            },
+                        )?;
+                        crate::commands::fd::sync_dir_fd(source_parent.as_raw_fd()).map_err(
+                            |e| {
+                                errcode::with_detail(
+                                    errcode::WRITE_UNCERTAIN,
+                                    format!("trash move source sync: {e}"),
+                                )
+                            },
+                        )?;
+                    }
+                }
+                _ => return Err(errcode::UNSUPPORTED_TARGET.into()),
+            }
+        }
+        "trash" => {
+            fs::remove_dir_all(&claimed.path)
+                .map_err(|e| format!("cannot remove trash item: {e}"))?;
+        }
+        "compatTool" => {
+            fs::remove_dir_all(&claimed.path)
+                .map_err(|e| format!("cannot remove compat tool: {e}"))?;
+        }
+        _ => {
+            return Err(errcode::with_detail(
+                errcode::UNSUPPORTED_TARGET,
+                &pending.target_type,
+            ));
+        }
     }
     Ok(())
 }

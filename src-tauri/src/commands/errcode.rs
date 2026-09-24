@@ -22,7 +22,7 @@ pub(crate) const UNSUPPORTED_PLATFORM: &str = "unsupported-platform";
 
 pub(crate) const STEAM_RUNNING: &str = "steam-running";
 pub(crate) const STEAM_NOT_FOUND: &str = "steam-not-found";
-pub(crate) const INVALID_ACCOUNT: &str = "invalid-account-id";
+pub(crate) const INVALID_ACCOUNT_ID: &str = "invalid-account-id";
 pub(crate) const BLOCKED_LOCATION: &str = "blocked-location";
 pub(crate) const NOT_A_STEAM_CONFIG: &str = "not-a-steam-config";
 pub(crate) const UNKNOWN_TOOL: &str = "unknown-tool";
@@ -94,7 +94,7 @@ pub(crate) const ALL_CODES: [&str; 36] = [
     UNSUPPORTED_PLATFORM,
     STEAM_RUNNING,
     STEAM_NOT_FOUND,
-    INVALID_ACCOUNT,
+    INVALID_ACCOUNT_ID,
     BLOCKED_LOCATION,
     NOT_A_STEAM_CONFIG,
     UNKNOWN_TOOL,

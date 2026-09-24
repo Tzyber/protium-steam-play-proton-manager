@@ -6,6 +6,9 @@
 
 #[cfg(target_os = "linux")]
 use crate::commands::errcode;
+// fd-Items gibt es nur unter Linux (fd.rs ist leer gekappt); jeder Aufrufer
+// liegt in einem linux-Zweig, deshalb ist der Import bedingt (r-12).
+#[cfg(target_os = "linux")]
 use crate::commands::fd::{
     fd_identity, open_absolute_dir, open_bound_root_fd, open_dir_at, open_file_at, read_fd_bytes,
     read_fd_text, FdIdentity,
@@ -23,6 +26,32 @@ use std::io;
 #[cfg(target_os = "linux")]
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::path::{Path, PathBuf};
+
+/// Zeitpunkte der Compat-Tool-Autoritätsleseketten (r-11). Die Stufen waren
+/// zuvor magische `u8`-Literale (1 bis 4) am gemeinsamen Hook-Kanal; als Enum
+/// sind sie benannt und vollständig (Muster wie `DeleteReadStage` in
+/// `delete_inspect` bzw. `PrefixReadStage` in `prefix`).
+///
+/// Der frühere Kanal war zu grob: `2` hieß je nach Aufrufer
+/// „`libraryfolders.vdf` offen" ODER „Tool-Unterverzeichnis offen", `3` hieß
+/// „`compatibilitytool.vdf` offen" ODER „externe Library zwischen Stat und
+/// Open". Beide Bedeutungen sind jetzt eigene Varianten; die
+/// Auslösezeitpunkte selbst bleiben unverändert.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CompatAuthStage {
+    /// Start der Suche: der Root-Deskriptor ist geöffnet.
+    RootOpened,
+    /// `libraryfolders.vdf` ist am Deskriptor geöffnet, vor dem Lesen.
+    LibraryFileOpened,
+    /// Ein Tool-Unterverzeichnis ist am Deskriptor geöffnet.
+    ToolOpened,
+    /// `compatibilitytool.vdf` ist geöffnet, vor dem Lesen.
+    VdfOpened,
+    /// Eine externe Library wird zwischen Stat und Open gebunden.
+    ExternalLibraryBound,
+    /// Das appmanifest ist geöffnet, vor dem Lesen.
+    ManifestOpened,
+}
 
 /// Der eine Deckel für appmanifest-reads (1 MiB), geteilt von der
 /// Valve-Autorität und der delete-inspektion: appmanifeste sind klein, eine
@@ -86,14 +115,14 @@ fn compat_root_contains_name_linux_with_hook<F>(
     hook: &mut F,
 ) -> Result<bool, String>
 where
-    F: FnMut(u8),
+    F: FnMut(CompatAuthStage),
 {
     let root_fd = match open_absolute_dir(root) {
         Ok(fd) => fd,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(format!("cannot open compat root: {error}")),
     };
-    hook(1);
+    hook(CompatAuthStage::RootOpened);
     compat_root_contains_name_at_fd(&root_fd, requested, hook)
 }
 
@@ -104,7 +133,7 @@ fn compat_root_contains_name_at_fd<F>(
     hook: &mut F,
 ) -> Result<bool, String>
 where
-    F: FnMut(u8),
+    F: FnMut(CompatAuthStage),
 {
     const MAX_COMPAT_VDF_BYTES: u64 = 1024 * 1024; // kleiner als MAX_VDF_READ_BYTES: tool-vdfs sind winzig
     const ENOTDIR: i32 = 20;
@@ -120,13 +149,13 @@ where
             Err(error) if error.raw_os_error() == Some(ENOTDIR) => continue,
             Err(error) => return Err(format!("cannot open compat tool: {error}")),
         };
-        hook(2);
+        hook(CompatAuthStage::ToolOpened);
         let mut vdf = match open_file_at(tool_fd.as_raw_fd(), OsStr::new("compatibilitytool.vdf")) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
             Err(error) => return Err(format!("cannot open compatibilitytool.vdf: {error}")),
         };
-        hook(3);
+        hook(CompatAuthStage::VdfOpened);
         // Ein einzelner kaputter Tool-Ordner darf die Autorität für alle anderen
         // nicht kippen: unlesbare, nicht-UTF8-, übergroße und syntaktisch
         // defekte VDFs werden wie fehlende verlassen. Die Autorität des
@@ -170,7 +199,7 @@ pub(super) fn compat_root_contains_name_linux_with_hook<F>(
     _hook: &mut F,
 ) -> Result<bool, String>
 where
-    F: FnMut(u8),
+    F: FnMut(CompatAuthStage),
 {
     Err("compat tool authority requires Linux no-follow descriptors".into())
 }
@@ -182,18 +211,19 @@ fn read_library_folders_from_root_fd<F>(
     hook: &mut F,
 ) -> Result<Vec<PathBuf>, String>
 where
-    F: FnMut(u8),
+    F: FnMut(CompatAuthStage),
 {
     // r-06: dieselbe Suchreihenfolge, dasselbe Cap und derselbe
     // steamapps-Fallback wie die Discovery, geteilt über die eine fd-Kette in
     // `scope::libraryfolders_contents_from_root_fd`. Der frühere eigene 1-MiB-cap
     // (eine datei zwischen 1 und 16 MiB ließ diese autorisierung sichtbar
     // scheitern, obwohl die Discovery sie vollständig las) ist damit entfallen.
-    // hook(1) bleibt der Start-Haken (Root-Tausch), hook(2) der Open-Haken.
-    hook(1);
+    // hook(`RootOpened`) bleibt der Start-Haken (Root-Tausch),
+    // hook(`LibraryFileOpened`) der Open-Haken der Datei.
+    hook(CompatAuthStage::RootOpened);
     let mut libraryfolders_hook = |stage: LibraryFoldersStage| {
         if stage == LibraryFoldersStage::FileOpened {
-            hook(2);
+            hook(CompatAuthStage::LibraryFileOpened);
         }
     };
     match crate::commands::scope::libraryfolders_contents_from_root_fd(
@@ -211,13 +241,15 @@ pub(super) fn open_external_library_fd_with_hook<F>(
     hook: &mut F,
 ) -> Result<OwnedFd, String>
 where
-    F: FnMut(u8),
+    F: FnMut(CompatAuthStage),
 {
     let canonical = fs::canonicalize(path)
         .map_err(|error| format!("cannot canonicalize Steam library: {error}"))?;
     // r-07: dieselbe stat-open-fstat-kette wie `fd::open_bound_root_fd`; der
-    // Hook läuft dort genau zwischen Stat und Open, wie zuvor `hook(3)`.
-    open_bound_root_fd(&canonical, &mut || hook(3))
+    // Hook läuft dort genau zwischen Stat und Open, wie zuvor die dritte Stufe.
+    open_bound_root_fd(&canonical, &mut || {
+        hook(CompatAuthStage::ExternalLibraryBound)
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -227,7 +259,7 @@ fn is_app_installed_in_library_fd<F>(
     hook: &mut F,
 ) -> Result<bool, String>
 where
-    F: FnMut(u8),
+    F: FnMut(CompatAuthStage),
 {
     let steamapps_fd = match open_dir_at(library_fd, OsStr::new("steamapps")) {
         Ok(fd) => fd,
@@ -348,14 +380,14 @@ pub(super) fn is_app_installed_in_steamapps_fd<F>(
     hook: &mut F,
 ) -> Result<bool, ManifestReadError>
 where
-    F: FnMut(u8),
+    F: FnMut(CompatAuthStage),
 {
     let manifest_name = format!("appmanifest_{app_id}.acf");
     // appmanifeste sind klein; dasselbe limit wie im valve-pfad
     // (delete_inspect), nicht das 16-MiB-limit der config-dateien.
     let mut manifest_hook = |stage: ManifestStage, _file: Option<&mut std::fs::File>| {
         if stage == ManifestStage::AfterOpen {
-            hook(4);
+            hook(CompatAuthStage::ManifestOpened);
         }
     };
     match read_app_manifest_with_hook(
@@ -379,7 +411,7 @@ fn valve_builtin_installed_from_fds<F>(
     hook: &mut F,
 ) -> Result<bool, String>
 where
-    F: FnMut(u8),
+    F: FnMut(CompatAuthStage),
 {
     let libraries = read_library_folders_from_root_fd(steam_root, steam_root_fd, hook)?;
     let root_identity = fd_identity(steam_root_fd.as_raw_fd())
@@ -430,7 +462,7 @@ fn is_authorized_compat_tool_with_hook<F>(
     hook: &mut F,
 ) -> Result<bool, String>
 where
-    F: FnMut(u8),
+    F: FnMut(CompatAuthStage),
 {
     if let Some((_, app_ids)) = VALVE_COMPAT_TOOLS
         .iter()

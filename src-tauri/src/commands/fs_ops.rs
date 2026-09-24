@@ -1,5 +1,7 @@
-#[cfg(target_os = "linux")]
 use crate::commands::errcode;
+// fd-Items gibt es nur unter Linux (fd.rs ist leer gekappt); der Import ist
+// deshalb wie seine Aufrufer bedingt (r-12).
+#[cfg(target_os = "linux")]
 use crate::commands::fd::{
     ensure_regular_fd, open_bound_root_fd, open_dir_at, open_file_at, read_fd_bytes,
 };
@@ -8,7 +10,6 @@ use crate::commands::spawn_blocking_io;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
-#[cfg(target_os = "linux")]
 #[cfg(target_os = "linux")]
 use std::os::unix::io::AsRawFd;
 use std::path::Path;
@@ -34,8 +35,10 @@ pub(crate) enum DirectorySize {
     },
     Missing,
     Failed {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        detail: Option<String>,
+        /// Immer gesetzt; ein leerer String bleibt aus dem Wire-Format heraus
+        /// (r-18: `Option<String>` hatte einen nie konstruierten `None`-Zustand).
+        #[serde(skip_serializing_if = "String::is_empty")]
+        detail: String,
     },
 }
 
@@ -269,7 +272,7 @@ fn measure_directory_with_hook(
         }
         Err(error) => {
             return Ok(DirectorySize::Failed {
-                detail: Some(format!("directory size: {error}")),
+                detail: format!("directory size: {error}"),
             });
         }
     };
@@ -282,9 +285,7 @@ fn measure_directory_with_hook(
     before_read(Path::new(""))?;
     match walk_directory_fd(&root_fd, Path::new(""), 0, before_read, &mut total) {
         Ok(()) => Ok(DirectorySize::Measured { size_bytes: total }),
-        Err(detail) => Ok(DirectorySize::Failed {
-            detail: Some(detail),
-        }),
+        Err(detail) => Ok(DirectorySize::Failed { detail }),
     }
 }
 
