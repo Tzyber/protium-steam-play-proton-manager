@@ -8,7 +8,8 @@ export type UpdateHttp = Pick<Http, "get">;
 export const UPDATE_RELEASE_URL =
   "https://github.com/Tzyber/protium-steam-play-proton-manager/releases";
 
-const LATEST_RELEASE_URL =
+// export nur für den spiegel-test (tests/security/github-capability.test.ts; Q-02)
+export const LATEST_RELEASE_URL =
   "https://api.github.com/repos/Tzyber/protium-steam-play-proton-manager/releases/latest";
 const STABLE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 

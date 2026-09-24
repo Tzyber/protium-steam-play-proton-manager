@@ -1,5 +1,5 @@
-import { rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { rmSync } from "node:fs";
 
 let result;
 try {

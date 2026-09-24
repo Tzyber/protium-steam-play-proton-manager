@@ -1,10 +1,8 @@
-import vue from "@vitejs/plugin-vue";
-import { defineConfig } from "vitest/config";
+import { mergeConfig } from "vitest/config";
+import shared from "./vitest.shared.js";
 
-export default defineConfig({
-  plugins: [vue()],
+export default mergeConfig(shared, {
   test: {
-    globals: true,
     include: ["tests/benchmarks/**/*.bench.ts"],
     testTimeout: 60_000,
   },

@@ -1,8 +1,9 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const root = process.cwd();
+// Auflösung über den dateistandort statt über das arbeitsverzeichnis (T-11).
+const root = resolve(import.meta.dirname, "../..");
 
 describe("Prefix-Command-Grenze", () => {
   it("hält den IPC-Namen ausschließlich im Tauri-Adapter", () => {

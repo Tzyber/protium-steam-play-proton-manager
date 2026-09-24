@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import { afterAll, describe, expect, it } from "vitest";
+import { CALIBRATION_NAME, formatMeasurementLine } from "../../scripts/bench-gate-lib.mjs";
 import { scanGames } from "../../src/core/scan/games.js";
 import { scanLocal } from "../../src/core/scan/local.js";
 import { enrichProtondb } from "../../src/core/scan/protondb.js";
@@ -32,10 +33,7 @@ function printMeasurements(
   phase: "local" | "scanGames" | "protonDb",
   values: readonly number[],
 ): void {
-  output.push(
-    `[scan benchmark] ${scenario}.${phase}Ms raw=${JSON.stringify(values)} ` +
-      `median=${median(values)} max=${Math.max(...values)}`,
-  );
+  output.push(formatMeasurementLine(`${scenario}.${phase}`, values, median(values)));
 }
 
 /** Kalibrierung: dieselbe Arbeit wie im Scan (Manifeste von der Platte lesen
@@ -153,7 +151,7 @@ async function measureScenario(scenario: ScanPerformanceScenario): Promise<void>
 describe("scan performance fixture", () => {
   it("kalibriert die Maschine", async () => {
     const value = await measureCalibration();
-    output.push(`[scan benchmark] calibrationMs raw=[] median=${value}`);
+    output.push(formatMeasurementLine(CALIBRATION_NAME, [], value));
     expect(value).toBeGreaterThan(0);
   });
 

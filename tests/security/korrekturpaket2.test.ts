@@ -1,8 +1,9 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const repo = process.cwd();
+// Auflösung über den dateistandort statt über das arbeitsverzeichnis (T-11).
+const repo = resolve(import.meta.dirname, "../..");
 
 function sourceFiles(root: string): string[] {
   const result: string[] = [];

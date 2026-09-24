@@ -45,6 +45,15 @@ const CODE_KINDS: Record<string, ProtiumErrorKind> = {
   cancelled: "unavailable",
   "checksum-failed": "incomplete",
   "download-active": "unavailable",
+  // nur TS-seitig (manifest.ts, cleanupHelpers.ts), nicht in errcode.rs. vorher
+  // fehlten sie hier, dadurch fiel parseError auf "unknown" zurück und die
+  // klasse ging als gespeicherter roh-string verloren. die aufnahme macht
+  // scan-warnungsdetails sichtbar; gewollt, sonst verlöre das detail seine
+  // klassifikation (Q-03).
+  "size-invalid": "incomplete",
+  "size-missing": "incomplete",
+  "manifest-missing-appstate": "unreadable",
+  "manifest-invalid-appid": "incomplete",
   incomplete: "incomplete",
   unreadable: "unreadable",
   unavailable: "unavailable",

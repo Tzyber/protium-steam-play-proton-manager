@@ -7,8 +7,19 @@
     "noUncheckedIndexedAccess": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "allowJs": true,
+    "checkJs": true,
     "types": ["vitest/globals", "node"],
     "lib": ["ES2022", "DOM"]
   },
-  "include": ["src", "tests", "vite.config.ts", "vitest.config.ts"]
+  "include": [
+    "src",
+    "tests",
+    "scripts",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "vitest.bench.config.ts",
+    "vitest.shared.ts",
+    "stryker.config.mjs"
+  ]
 }

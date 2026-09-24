@@ -6,7 +6,7 @@ import { NUMERIC_RE } from "./types.js";
 export const SHORTCUT_ID_THRESHOLD = 2_147_483_648; // 2^31
 
 /** dasselbe feste tiefenlimit wie der rust-parser (MAX_BINARY_VDF_DEPTH in
- *  steam.rs): echte dateien sind flach (shortcut → werte). ohne cap liesse
+ *  shortcuts_bin.rs): echte dateien sind flach (shortcut → werte). ohne cap liesse
  *  eine künstlich tief geschachtelte datei den rekursiven walker den stack
  *  überlaufen lassen (abort). 65 ebenen werfen, 64 bleiben ok.
  *  export nur für den spiegel-test (tests/security/mirrored-constants.test.ts; K-13). */

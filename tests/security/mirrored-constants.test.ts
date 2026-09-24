@@ -1,16 +1,24 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BLOCKLIST } from "../../src/core/blocklist.js";
 import { parseError } from "../../src/core/errtext.js";
+import {
+  isManagedGeName,
+  LEGACY_MAX_MAJOR,
+  LEGACY_MAX_MINOR,
+  MANAGED_GE_NAME_RE,
+} from "../../src/core/geproton.js";
 import { SYSTEM_COMPAT_DIRS } from "../../src/core/paths.js";
 import { MAX_BINARY_VDF_DEPTH } from "../../src/core/shortcuts.js";
 import { MAX_APP_ID } from "../../src/core/types.js";
-import { formatError } from "../../src/ui/formatError.js";
+import { formatDetail, formatError } from "../../src/ui/formatError.js";
 import { setLocale, t } from "../../src/ui/i18n/index.js";
 import { MAX_PENDING_DELETES } from "../../src/ui/stores/cleanupStore.js";
 
-const repo = process.cwd();
+// Auflösung über den dateistandort statt über das arbeitsverzeichnis (T-11):
+// der testlauf darf nicht davon abhängen, aus welchem cwd vitest startet.
+const repo = resolve(import.meta.dirname, "../..");
 
 describe("TypeScript-/Rust-Spiegelwerte", () => {
   it("bindet System-Compat-Pfade, AppID-Grenze und Shortcut-Tiefenlimit", () => {
@@ -64,6 +72,52 @@ describe("TypeScript-/Rust-Spiegelwerte", () => {
         `VALVE_COMPAT_TOOLS fehlt der interne name "${name}"`,
       ).toContain(entry.appId);
     }
+
+    // Rückrichtung (Q-04): jeder Rust-eintrag braucht seinen TS-gegenpart mit
+    // denselben AppIDs. Ohne den Loop fiele ein neuer Rust-name durch, den die
+    // Webview-Blocklist nicht kennt.
+    for (const [name, appIds] of rustPairs) {
+      const tsIds = BLOCKLIST.filter((entry) => entry.toolName === name).map(
+        (entry) => entry.appId,
+      );
+      expect(
+        tsIds.sort((a, b) => a - b),
+        `BLOCKLIST fehlt der tool-name "${name}"`,
+      ).toEqual([...appIds].sort((a, b) => a - b));
+    }
+  });
+
+  it("bindet die GE-Namens- und Legacy-Regeln an Rust (Q-01)", () => {
+    const compatAuth = readFileSync(join(repo, "src-tauri/src/commands/compat_auth.rs"), "utf8");
+    const geInstall = readFileSync(join(repo, "src-tauri/src/commands/ge_install.rs"), "utf8");
+    const geproton = readFileSync(join(repo, "src/core/geproton.ts"), "utf8");
+
+    // MANAGED_GE_NAME_RE spiegelt compat_auth::is_managed_ge_name: prefix,
+    // versionsnummern, optionale arch-suffixe. Beide Seiten müssen dieselbe
+    // form akzeptieren, sonst lehnt ein installiertes tool eine der beiden ab.
+    expect(MANAGED_GE_NAME_RE.source).toContain("(x86_64|aarch64)");
+    expect(compatAuth).toContain('strip_prefix("GE-Proton")');
+    expect(compatAuth).toContain("is_legacy_ge_version");
+    for (const arch of ["x86_64", "aarch64"]) {
+      expect(MANAGED_GE_NAME_RE.test(`GE-Proton11-4-${arch}`)).toBe(true);
+      expect(isManagedGeName(`GE-Proton11-4-${arch}`)).toBe(true);
+      expect(compatAuth).toContain(`"${arch}"`);
+    }
+
+    // Legacy-Schwelle aus einer quelle: die TS-konstanten müssen den
+    // rust-ausdruck in ge_install.rs treffen.
+    expect(LEGACY_MAX_MAJOR).toBe(11);
+    expect(LEGACY_MAX_MINOR).toBe(3);
+    expect(geInstall).toContain(
+      `major < ${LEGACY_MAX_MAJOR} || (major == ${LEGACY_MAX_MAJOR} && minor <= ${LEGACY_MAX_MINOR})`,
+    );
+    expect(isManagedGeName(`GE-Proton${LEGACY_MAX_MAJOR}-${LEGACY_MAX_MINOR}`)).toBe(true);
+    expect(isManagedGeName(`GE-Proton${LEGACY_MAX_MAJOR}-${LEGACY_MAX_MINOR + 1}`)).toBe(false);
+
+    // Asset-pfad: die exakte download-route steht in beiden seiten gleich.
+    const assetPath = "/GloriousEggroll/proton-ge-custom/releases/download/";
+    expect(geInstall).toContain(assetPath);
+    expect(geproton).toContain(assetPath);
   });
 
   it("bindet das Delete-Batch-Limit an die Rust-Registry", () => {
@@ -91,6 +145,36 @@ describe("TypeScript-/Rust-Spiegelwerte", () => {
         formatError(code),
         `Code ${code} hat keinen eigenen Text (Fallback auf unknown)`,
       ).not.toBe(t("errors.kinds.unknown"));
+    }
+  });
+
+  // Q-03-Regressionsschutz: diese vier Codes existieren NUR auf der TS-Seite
+  // (manifest.ts, cleanupHelpers.ts) und stehen nicht in errcode.rs. Der Test
+  // oben ueber die Rust-Codes kann sie deshalb nicht abdecken. Faellt hier ein
+  // Code aus CODE_KINDS, CODE_KEYS oder der i18n, ginge die Klasse verloren und
+  // parseError fiele beim gespeicherten Rohstring der Scan-Warnungen still auf
+  // "unknown" zurueck (Detail dann ohne Uebersetzung).
+  it("haelt die vier TS-only-Fehlercodes klassifiziert und uebersetzt (Q-03)", () => {
+    const expected: Record<string, string> = {
+      "size-invalid": "incomplete",
+      "size-missing": "incomplete",
+      "manifest-missing-appstate": "unreadable",
+      "manifest-invalid-appid": "incomplete",
+    };
+
+    setLocale("de");
+    for (const [code, kind] of Object.entries(expected)) {
+      expect(parseError(code).code, `Code ${code} fehlt in CODE_KINDS`).toBe(code);
+      expect(parseError(code).kind, `Code ${code} hat die falsche Klasse`).toBe(kind);
+
+      const text = formatError(code);
+      expect(text, `Code ${code} hat keinen eigenen Text (Fallback auf unknown)`).not.toBe(
+        t("errors.kinds.unknown"),
+      );
+
+      // gespeicherter Rohstring, Format "code: detail" wie in den Scan-Warnungen.
+      const stored = `${code}: /pfad/zum/manifest.acf`;
+      expect(formatDetail(stored), `Detail fuer ${code} wird verworfen`).toBe(text);
     }
   });
 

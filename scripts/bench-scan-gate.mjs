@@ -1,9 +1,14 @@
+// Bench-Gate: vergleicht den Lauf aus `npm run bench:scan` mit der Baseline in
+// tests/benchmarks/bench-baseline.json. Die Baseline ist bewusst gerundet und
+// die echten Einzelmediane sind nicht dokumentiert; ein Neuvermessen wuerde die
+// Referenz still auf die Maschine des Bearbeiters ziehen (offener Punkt G-06,
+// siehe `openPoints` in der Baseline).
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { evaluateMeasurement } from "./bench-gate-lib.mjs";
+import { CALIBRATION_NAME, evaluateMeasurement, parseMeasurementLine } from "./bench-gate-lib.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,12 +16,19 @@ const rootDir = path.resolve(__dirname, "..");
 const baselineFile = path.join(rootDir, "tests", "benchmarks", "bench-baseline.json");
 const RUN_TIMEOUT_MS = 300_000;
 
+// Der Kalibrierwert misst CPU-/IO-Arbeit. Nur diese Phasen skalieren mit ihm;
+// die protonDb-Phase ist latenzgebunden (500 mal delay(5) je Anfrage) und
+// behaelt die unskalierte Baseline, sonst reisst eine verkleinerte Schwelle
+// sie auf schnellerer Hardware zu Unrecht.
+const CPU_BOUND_PHASES = new Set(["local", "scanGames"]);
+
 const args = process.argv.slice(2);
 const skipRun = args.includes("--skip-run");
 
 const baseline = JSON.parse(fs.readFileSync(baselineFile, "utf-8"));
 const benchOutputFile =
-  process.env.PROTIUM_BENCH_FILE ?? path.join(os.tmpdir(), `protium-scan-benchmark-${process.pid}.txt`);
+  process.env.PROTIUM_BENCH_FILE ??
+  path.join(os.tmpdir(), `protium-scan-benchmark-${process.pid}.txt`);
 
 const expected = new Set();
 for (const scenario of Object.keys(baseline.scenarios ?? {})) {
@@ -50,14 +62,19 @@ if (!fs.existsSync(benchOutputFile)) {
 }
 
 const outputContent = fs.readFileSync(benchOutputFile, "utf-8");
-const linePattern =
-  /\[scan benchmark\]\s+([a-zA-Z0-9]+)\.([a-zA-Z0-9]+)Ms\s+raw=.*?\s+median=([0-9.]+)/g;
-const calibrationPattern = /\[scan benchmark\]\s+calibrationMs\s+raw=.*?\s+median=([0-9.]+)/;
 
 // Der Kalibrierwert kommt aus demselben Lauf und skaliert die Baseline auf die
 // aktuelle Maschine. Fehlt er (alte Baseline, alter Benchmark), bleibt der
-// Faktor 1 und das Gate verhaelt sich wie vorher.
-const calibrationNow = Number.parseFloat(outputContent.match(calibrationPattern)?.[1] ?? "");
+// Faktor 1 und das Gate verhaelt sich wie vorher. Tag und Feldformat der
+// Messzeilen kommen aus bench-gate-lib.mjs, derselben quelle wie im Writer.
+let calibrationNow = Number.NaN;
+const measurements = [];
+for (const line of outputContent.split(/\r?\n/)) {
+  const measurement = parseMeasurementLine(line);
+  if (measurement === null) continue;
+  if (measurement.name === CALIBRATION_NAME) calibrationNow = measurement.median;
+  else measurements.push(measurement);
+}
 const calibrationBase = baseline.calibrationMs;
 const calibrationFactor =
   Number.isFinite(calibrationNow) && typeof calibrationBase === "number" && calibrationBase > 0
@@ -71,11 +88,12 @@ console.log(
 const seen = new Set();
 let failed = false;
 
-for (const match of outputContent.matchAll(linePattern)) {
-  const scenario = match[1] ?? "";
-  const phase = match[2] ?? "";
-  const key = `${scenario}.${phase}`;
-  const medianMs = Number.parseFloat(match[3] ?? "");
+for (const { name, median: medianMs } of measurements) {
+  const separator = name.indexOf(".");
+  if (separator <= 0) continue;
+  const scenario = name.slice(0, separator);
+  const phase = name.slice(separator + 1);
+  const key = name;
   seen.add(key);
 
   const maxThreshold = baseline.maxThresholdMs?.[phase];
@@ -94,6 +112,7 @@ for (const match of outputContent.matchAll(linePattern)) {
     maxThreshold,
     maxRegressionPct,
     calibrationFactor,
+    cpuBound: CPU_BOUND_PHASES.has(phase),
     foreignHardwareFactor: baseline.foreignHardwareFactor,
     maxRegressionPctForeign: baseline.maxAllowedRegressionPercentOnForeignHardware,
   });

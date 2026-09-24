@@ -2,7 +2,15 @@
   "measuredAt": "2026-09-22",
   "runner": "lokal, Linux, Node 22.23.2 (Referenzmessung)",
   "commit": "7e0d934 (Median korrigiert, N4)",
-  "note": "Nach der Median-Korrektur neu gemessen. Gerundet: lokale Phasen auf 45 ms (Messung 40.2 bis 45.7), protonDb cold/offline auf 2580 ms. warm.protonDb bleibt bei 2 ms, weil die gemessenen 0.5 ms unter der Jitter-Grenze liegen. calibrationMs ist die Kalibrierlast aus demselben Lauf (Manifeste lesen und parsen, 50 statt 500 Spiele); der Gate skaliert Baseline und Obergrenze damit auf die aktuelle Maschine. Ueber Faktor 1.5 gilt die weitere Toleranz von 40 Prozent, weil geteilte CI-Laeufer staerker streuen (gemessen 13 statt 6 Prozent).",
+  "note": "Nach der Median-Korrektur neu gemessen. Gerundet: lokale Phasen auf 45 ms (Messung 40.2 bis 45.7), protonDb cold/offline auf 2580 ms. warm.protonDb bleibt bei 2 ms, weil die gemessenen 0.5 ms unter der Jitter-Grenze liegen. calibrationMs ist die Kalibrierlast aus demselben Lauf (Manifeste lesen und parsen, 50 statt 500 Spiele); der Gate skaliert nur CPU-/IO-gebundene Phasen (local, scanGames) damit auf die aktuelle Maschine, die latenzgebundene protonDb-Phase behaelt die unskalierte Baseline. Ueber Faktor 1.5 gilt die weitere Toleranz von 40 Prozent, weil geteilte CI-Laeufer staerker streuen (gemessen 13 statt 6 Prozent).",
+  "openPoints": [
+    {
+      "id": "G-06",
+      "topic": "ungerundete Baseline",
+      "status": "bewusst offen",
+      "why": "Die echten Einzelmediane der lokalen Phasen sind nirgends dokumentiert (die note nennt nur das Band 40,2 bis 45,7 ms). Ein Neuvermessen wuerde die Baseline still auf die Maschine des Bearbeiters ziehen und die Referenzmessung (commit 7e0d934) verlieren. Deshalb bleiben die gerundeten Werte 45/2580 bewusst stehen; kein Neuvermessen."
+    }
+  ],
   "scenarios": {
     "cold": {
       "local": 45,

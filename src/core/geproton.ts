@@ -1,7 +1,8 @@
 import type { Cache, Http, InstallPhase, System, TargetArch } from "./ports.js";
 import { isRecord } from "./types.js";
 
-const RELEASES_URL =
+// export nur für den spiegel-test (tests/security/github-capability.test.ts; Q-02)
+export const RELEASES_URL =
   "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases?per_page=15";
 const CACHE_KEY = "gh:ge-releases";
 const TTL_MS = 60 * 60 * 1000; // Eine Stunde.
@@ -62,8 +63,9 @@ export const MANAGED_GE_NAME_RE = /^GE-Proton[0-9]+-[0-9]+(-(x86_64|aarch64))?$/
 
 // upstream-snapshot 2026-08-20: suffix-assets ab GE-Proton11-4;
 // unsuffixt ist nur die belegte x86_64-legacy-familie bis 11-3.
-const LEGACY_MAX_MAJOR = 11;
-const LEGACY_MAX_MINOR = 3;
+// export nur für den spiegel-test (tests/security/mirrored-constants.test.ts; Q-01).
+export const LEGACY_MAX_MAJOR = 11;
+export const LEGACY_MAX_MINOR = 3;
 
 function releaseVersion(name: string): [number, number] | null {
   const match = /^GE-Proton([0-9]+)-([0-9]+)$/.exec(name);
