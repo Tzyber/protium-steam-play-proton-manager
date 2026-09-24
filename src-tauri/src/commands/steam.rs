@@ -188,7 +188,9 @@ where
     F: FnMut(RawFd) -> io::Result<()>,
 {
     let (mut file, dir_fd, file_name) = open_backup_target_no_follow(relative, backup_dir)
-        .map_err(|e| format!("backup open (no-follow): {e}"))?;
+        .map_err(|e| {
+            errcode::with_detail(errcode::UNREADABLE, format!("backup open (no-follow): {e}"))
+        })?;
     if let Err(e) = file
         .write_all(original.as_bytes())
         .and_then(|()| file.sync_all())
@@ -196,13 +198,23 @@ where
         drop(file);
         unlink_backup_entry(dir_fd.as_raw_fd(), &file_name);
         let _ = sync_directory(dir_fd.as_raw_fd());
-        return Err(format!("backup write: {e}"));
+        return Err(errcode::with_detail(
+            errcode::UNREADABLE,
+            format!("backup write: {e}"),
+        ));
     }
     drop(file);
     if let Err(e) = sync_directory(dir_fd.as_raw_fd()) {
         unlink_backup_entry(dir_fd.as_raw_fd(), &file_name);
         let _ = sync_directory(dir_fd.as_raw_fd());
-        return Err(format!("backup directory sync: {e}"));
+        // Anders als beim Ziel-rename bleibt hier keine mögliche Mutation
+        // zurück: das unvollständige backup wird verworfen und das Ziel nicht
+        // angefasst. `write-may-have-applied` wäre deshalb falsch; kodiert
+        // wird das unbrauchbare backup als `unreadable`.
+        return Err(errcode::with_detail(
+            errcode::UNREADABLE,
+            format!("backup directory sync: {e}"),
+        ));
     }
     Ok(())
 }
@@ -430,6 +442,72 @@ fn lock_write_target(canon: &Path) -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|error| error.into_inner())
 }
 
+/// Gemeinsames Grundgerüst beider Steam-Config-Schreibpfade (INV-1):
+/// Pfadprüfung, Lock, gedeckelter Read, Patch, Größenprüfung,
+/// Steam-Läuft-Nachprüfung, Backup und atomarer Write. Die Aufrufer liefern
+/// nur ihren Patch; die Reihenfolge bleibt genau die des bisherigen Gates.
+/// `patch` liefert `None`, wenn nichts zu ändern ist.
+///
+/// Die Präambel (sanitize, Argumentprüfung, Eingabegröße, Prozess-Vorprüfung,
+/// Auflösung von Root und Ziel) bleibt bewusst beim Aufrufer: sie ist nicht
+/// gleich (Account-ID nur im Launch-Pfad, Bindung des Steam-Roots vor der
+/// Zielauflösung nur im Compat-Pfad, andere Limits und Labels). Ein Helfer
+/// dafür bräuchte mehrere Schalter und zwei Closures und wäre schwerer zu
+/// prüfen als die sechs ausgeschriebenen Zeilen (R-04, bewusster Schnitt).
+fn apply_write_gate<F, P>(
+    canon: &Path,
+    home: &Path,
+    backup_dir: &Path,
+    backup_name: impl Fn(u128) -> String,
+    process_reader: &mut F,
+    patch: P,
+) -> Result<WriteResult, String>
+where
+    F: FnMut() -> Result<bool, String>,
+    P: FnOnce(&str) -> Result<Option<String>, String>,
+{
+    if !is_safe_path(&canon.to_string_lossy()) {
+        return Err(errcode::BLOCKED_LOCATION.into());
+    }
+    if !is_steam_config_path(canon, home) {
+        return Err(errcode::NOT_A_STEAM_CONFIG.into());
+    }
+    // der guard deckt read, patch, backup und target-write ab (INV-1)
+    let _write_guard = lock_write_target(canon);
+    #[cfg(test)]
+    WRITE_LOCK_ENTRY_PROBE.with(|slot| {
+        if let Some(sender) = slot.borrow().as_ref() {
+            let _ = sender.send(());
+        }
+    });
+
+    let original = read_config_text_bounded(canon, "read target")?;
+    let Some(patched) = patch(&original)? else {
+        return Ok(WriteResult::Unchanged);
+    };
+    if patched == original {
+        return Ok(WriteResult::Unchanged);
+    }
+    ensure_size(&patched, MAX_CONFIG_VDF_BYTES, "patched config")?;
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let backup_rel = Path::new("backups").join(backup_name(timestamp));
+    if process_reader()? {
+        return Err(errcode::STEAM_RUNNING.into());
+    }
+    write_backup_no_follow(&backup_rel, backup_dir, &original)?;
+
+    let write_result = persist_atomic(canon, patched.as_bytes(), process_reader);
+    if let Err(e) = write_result {
+        return Err(e.to_string());
+    }
+
+    Ok(WriteResult::Written)
+}
+
 pub(super) fn save_launch_options_inner<F>(
     steam_root: &str,
     account_id: &str,
@@ -447,7 +525,7 @@ where
         return Err(errcode::INVALID_ACCOUNT.into());
     }
     crate::commands::scope::parse_app_id(&app_id.to_string())
-        .map_err(|_| "invalid app id".to_string())?;
+        .map_err(|error| errcode::with_detail(errcode::INVALID_APPID, error))?;
     ensure_size(launch_options, MAX_PATCH_VALUE_BYTES, "launch options")?;
     if process_reader()? {
         return Err(errcode::STEAM_RUNNING.into());
@@ -466,70 +544,41 @@ where
             format!("write target canonicalize: {e}"),
         )
     })?;
-    if !is_safe_path(&canon.to_string_lossy()) {
-        return Err(errcode::BLOCKED_LOCATION.into());
-    }
-    if !is_steam_config_path(&canon, home) {
-        return Err(errcode::NOT_A_STEAM_CONFIG.into());
-    }
-    // der guard deckt read, patch, backup und target-write ab (INV-1)
-    let _write_guard = lock_write_target(&canon);
-    #[cfg(test)]
-    WRITE_LOCK_ENTRY_PROBE.with(|slot| {
-        if let Some(sender) = slot.borrow().as_ref() {
-            let _ = sender.send(());
-        }
-    });
-
-    let original = read_config_text_bounded(&canon, "read target")?;
     let app_id_str = app_id.to_string();
-    let path = [
-        "UserLocalConfigStore",
-        "Software",
-        "Valve",
-        "Steam",
-        "Apps",
-        &app_id_str,
-        "LaunchOptions",
-    ];
+    apply_write_gate(
+        &canon,
+        home,
+        backup_dir,
+        |timestamp| format!("localconfig-{account_id}-{timestamp}.vdf"),
+        process_reader,
+        |original| {
+            let path = [
+                "UserLocalConfigStore",
+                "Software",
+                "Valve",
+                "Steam",
+                "Apps",
+                &app_id_str,
+                "LaunchOptions",
+            ];
+            let current_val = vdf_patch::get_vdf_value(original, &path)?;
 
-    let current_val = vdf_patch::get_vdf_value(&original, &path)?;
-    let trimmed = launch_options.trim();
-
-    let patched = if trimmed.is_empty() {
-        if current_val.is_none() {
-            return Ok(WriteResult::Unchanged);
-        }
-        vdf_patch::remove_vdf_entry(&original, &path)?
-    } else {
-        if current_val.as_deref() == Some(launch_options) {
-            return Ok(WriteResult::Unchanged);
-        }
-        vdf_patch::set_vdf_value(&original, &path, launch_options)?
-    };
-
-    if patched == original {
-        return Ok(WriteResult::Unchanged);
-    }
-    ensure_size(&patched, MAX_CONFIG_VDF_BYTES, "patched config")?;
-
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let backup_rel =
-        Path::new("backups").join(format!("localconfig-{}-{}.vdf", account_id, timestamp));
-    if process_reader()? {
-        return Err(errcode::STEAM_RUNNING.into());
-    }
-    write_backup_no_follow(&backup_rel, backup_dir, &original)?;
-
-    let write_result = persist_atomic(&canon, patched.as_bytes(), process_reader);
-    if let Err(e) = write_result {
-        return Err(e.to_string());
-    }
-
-    Ok(WriteResult::Written)
+            if launch_options.trim().is_empty() {
+                if current_val.is_none() {
+                    return Ok(None);
+                }
+                return Ok(Some(vdf_patch::remove_vdf_entry(original, &path)?));
+            }
+            if current_val.as_deref() == Some(launch_options) {
+                return Ok(None);
+            }
+            Ok(Some(vdf_patch::set_vdf_value(
+                original,
+                &path,
+                launch_options,
+            )?))
+        },
+    )
 }
 
 pub(super) fn save_compat_tool_inner<F>(
@@ -545,7 +594,7 @@ where
 {
     sanitize_path(steam_root, "steam root")?;
     crate::commands::scope::parse_app_id(&app_id.to_string())
-        .map_err(|_| "invalid app id".to_string())?;
+        .map_err(|error| errcode::with_detail(errcode::INVALID_APPID, error))?;
     ensure_size(
         tool_name.unwrap_or_default(),
         MAX_PATCH_VALUE_BYTES,
@@ -566,61 +615,14 @@ where
             format!("write target canonicalize: {e}"),
         )
     })?;
-    if !is_safe_path(&canon.to_string_lossy()) {
-        return Err(errcode::BLOCKED_LOCATION.into());
-    }
-    if !is_steam_config_path(&canon, home) {
-        return Err(errcode::NOT_A_STEAM_CONFIG.into());
-    }
-    // der guard deckt read, patch, backup und target-write ab (INV-1)
-    let _write_guard = lock_write_target(&canon);
-    #[cfg(test)]
-    WRITE_LOCK_ENTRY_PROBE.with(|slot| {
-        if let Some(sender) = slot.borrow().as_ref() {
-            let _ = sender.send(());
-        }
-    });
-
-    let original = read_config_text_bounded(&canon, "read target")?;
     let app_id_str = app_id.to_string();
-    let name_path = [
-        "InstallConfigStore",
-        "Software",
-        "Valve",
-        "Steam",
-        "CompatToolMapping",
-        &app_id_str,
-        "name",
-    ];
-    let current_name = vdf_patch::get_vdf_value(&original, &name_path)?;
-
-    let patched = match tool_name {
-        None | Some("default") => {
-            if current_name.is_none() {
-                return Ok(WriteResult::Unchanged);
-            }
-            let path = [
-                "InstallConfigStore",
-                "Software",
-                "Valve",
-                "Steam",
-                "CompatToolMapping",
-                &app_id_str,
-            ];
-            vdf_patch::remove_vdf_entry(&original, &path)?
-        }
-        Some(tool) => {
-            if !is_authorized_compat_tool(
-                &root,
-                #[cfg(target_os = "linux")]
-                Some(&steam_root_fd),
-                tool,
-            )? {
-                return Err(errcode::UNKNOWN_TOOL.into());
-            }
-            if current_name.as_deref() == Some(tool) {
-                return Ok(WriteResult::Unchanged);
-            }
+    apply_write_gate(
+        &canon,
+        home,
+        backup_dir,
+        |timestamp| format!("config-{app_id}-{timestamp}.vdf"),
+        process_reader,
+        |original| {
             let base = [
                 "InstallConfigStore",
                 "Software",
@@ -629,50 +631,48 @@ where
                 "CompatToolMapping",
                 &app_id_str,
             ];
-            let mut p = vdf_patch::set_vdf_value(
-                &original,
-                &[base[0], base[1], base[2], base[3], base[4], base[5], "name"],
-                tool,
-            )?;
-            p = vdf_patch::set_vdf_value(
-                &p,
-                &[
-                    base[0], base[1], base[2], base[3], base[4], base[5], "config",
-                ],
-                "",
-            )?;
-            p = vdf_patch::set_vdf_value(
-                &p,
-                &[
-                    base[0], base[1], base[2], base[3], base[4], base[5], "priority",
-                ],
-                STEAM_COMPAT_PRIORITY,
-            )?;
-            p
-        }
-    };
+            let name_path = [base[0], base[1], base[2], base[3], base[4], base[5], "name"];
+            let current_name = vdf_patch::get_vdf_value(original, &name_path)?;
 
-    if patched == original {
-        return Ok(WriteResult::Unchanged);
-    }
-    ensure_size(&patched, MAX_CONFIG_VDF_BYTES, "patched config")?;
-
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let backup_rel = Path::new("backups").join(format!("config-{}-{}.vdf", app_id, timestamp));
-    if process_reader()? {
-        return Err(errcode::STEAM_RUNNING.into());
-    }
-    write_backup_no_follow(&backup_rel, backup_dir, &original)?;
-
-    let write_result = persist_atomic(&canon, patched.as_bytes(), process_reader);
-    if let Err(e) = write_result {
-        return Err(e.to_string());
-    }
-
-    Ok(WriteResult::Written)
+            match tool_name {
+                None | Some("default") => {
+                    if current_name.is_none() {
+                        return Ok(None);
+                    }
+                    Ok(Some(vdf_patch::remove_vdf_entry(original, &base)?))
+                }
+                Some(tool) => {
+                    if !is_authorized_compat_tool(
+                        &root,
+                        #[cfg(target_os = "linux")]
+                        Some(&steam_root_fd),
+                        tool,
+                    )? {
+                        return Err(errcode::UNKNOWN_TOOL.into());
+                    }
+                    if current_name.as_deref() == Some(tool) {
+                        return Ok(None);
+                    }
+                    let mut p = vdf_patch::set_vdf_value(original, &name_path, tool)?;
+                    p = vdf_patch::set_vdf_value(
+                        &p,
+                        &[
+                            base[0], base[1], base[2], base[3], base[4], base[5], "config",
+                        ],
+                        "",
+                    )?;
+                    p = vdf_patch::set_vdf_value(
+                        &p,
+                        &[
+                            base[0], base[1], base[2], base[3], base[4], base[5], "priority",
+                        ],
+                        STEAM_COMPAT_PRIORITY,
+                    )?;
+                    Ok(Some(p))
+                }
+            }
+        },
+    )
 }
 
 /// Prüft alle vorhandenen App-Manifeste und bricht bei unklaren Live-Daten ab.

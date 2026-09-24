@@ -1,14 +1,24 @@
+use crate::commands::errcode;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 // ---- sicherheits-validierungen (webview-IPC-grenze) ----
 
 pub(super) fn sanitize_path(p: &str, label: &str) -> Result<(), String> {
+    // r-03: beide ablehnungen sind ort-ablehnungen der IPC-grenze und tragen
+    // deshalb denselben code wie die uebrigen pfad-prüfungen (blocked-location);
+    // das label bleibt im detail.
     if !p.starts_with('/') {
-        return Err(format!("{label}: path must be absolute"));
+        return Err(errcode::with_detail(
+            errcode::BLOCKED_LOCATION,
+            format!("{label}: path must be absolute"),
+        ));
     }
     if p.split('/').any(|seg| seg == "..") {
-        return Err(format!("{label}: path traversal rejected"));
+        return Err(errcode::with_detail(
+            errcode::BLOCKED_LOCATION,
+            format!("{label}: path traversal rejected"),
+        ));
     }
     Ok(())
 }

@@ -547,13 +547,14 @@ fn write_gate_bleibt_crash_durable_gesichert() {
             "pfadbasierte operation im persist-pfad: {verboten}"
         );
     }
-    // beide write-pfade nutzen die gemeinsame funktion
+    // beide write-pfade laufen durch die gemeinsame pipeline (R-04), die die
+    // persist-sequenz genau einmal enthält
     assert_eq!(
         production
-            .matches("persist_atomic(&canon, patched.as_bytes(), process_reader)")
+            .matches("persist_atomic(canon, patched.as_bytes(), process_reader)")
             .count(),
-        2,
-        "beide write-pfade müssen persist_atomic nutzen"
+        1,
+        "die persist-sequenz darf nur einmal im quelltext stehen"
     );
     // backup ist ebenfalls sync_alled (darf den stromausfall nicht als leere kopie überleben)
     assert!(
@@ -583,11 +584,76 @@ fn write_gate_bleibt_crash_durable_gesichert() {
         .find("write_backup_no_follow(&backup_rel, backup_dir, &original)?;")
         .expect("backup muss vor dem target-write abgeschlossen werden");
     let target_call = production
-        .find("let write_result = persist_atomic(&canon, patched.as_bytes(), process_reader);")
+        .find("let write_result = persist_atomic(canon, patched.as_bytes(), process_reader);")
         .expect("target-write muss im write-gate vorhanden sein");
     assert!(
         backup_call < target_call,
         "ein backup-fehler darf keinen nachfolgenden target-write erreichen"
+    );
+}
+
+#[test]
+fn write_gate_dedup_beide_aufrufer_nutzen_die_gemeinsame_pipeline() {
+    // R-04: beleg des dedups. die sequenz (pfadprüfung, lock, gedeckelter read,
+    // patch, größenprüfung, steam-nachprüfung, backup, persist) existiert nur
+    // noch in `apply_write_gate`; beide aufrufer rufen sie auf und enthalten sie
+    // selbst nicht mehr. fällt ein aufrufer auf eine eigene kopie zurück, schlägt
+    // das hier fehl, bevor beide pfade auseinanderdriften (INV-1).
+    let production = production_source(include_str!("steam.rs"));
+    let launch_body = production
+        .split("fn save_launch_options_inner<F>(")
+        .nth(1)
+        .expect("save_launch_options_inner muss vorhanden sein")
+        .split("fn save_compat_tool_inner<F>(")
+        .next()
+        .expect("save_compat_tool_inner muss auf save_launch_options_inner folgen");
+    let compat_body = production
+        .split("fn save_compat_tool_inner<F>(")
+        .nth(1)
+        .expect("save_compat_tool_inner muss vorhanden sein")
+        .split("pub async fn save_launch_options(")
+        .next()
+        .expect("die tauri-commands müssen auf die inner-funktionen folgen");
+    let gate_body = production
+        .split("fn apply_write_gate<F, P>(")
+        .nth(1)
+        .expect("apply_write_gate muss vorhanden sein")
+        .split("pub(super) fn save_launch_options_inner")
+        .next()
+        .expect("apply_write_gate muss vor den aufrufern stehen");
+
+    for (name, body) in [("launch", launch_body), ("compat", compat_body)] {
+        assert!(
+            body.contains("apply_write_gate("),
+            "{name}-aufrufer muss die gemeinsame pipeline nutzen"
+        );
+        for duplikat in [
+            "read_config_text_bounded(",
+            "write_backup_no_follow(",
+            "lock_write_target(",
+            "is_steam_config_path(",
+        ] {
+            assert!(
+                !body.contains(duplikat),
+                "{name}-aufrufer dupliziert die pipeline ({duplikat})"
+            );
+        }
+    }
+    assert_eq!(gate_body.matches("read_config_text_bounded(").count(), 1);
+    assert_eq!(gate_body.matches("write_backup_no_follow(").count(), 1);
+    assert_eq!(gate_body.matches("lock_write_target(").count(), 1);
+    assert_eq!(
+        gate_body
+            .matches("ensure_size(&patched, MAX_CONFIG_VDF_BYTES")
+            .count(),
+        1
+    );
+    assert_eq!(
+        production
+            .matches("read_config_text_bounded(canon, \"read target\")")
+            .count(),
+        1,
+        "der gedeckelte read darf nur einmal im produktionscode stehen"
     );
 }
 
