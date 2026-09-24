@@ -9,18 +9,179 @@ export class VdfPatchError extends Error {
   }
 }
 
-interface Token {
-  kind: "string" | "open" | "close";
-  value: string; // für string: unescaped inhalt (ohne quotes)
-  start: number; // roh-start inkl. quotes
-  end: number; // roh-ende (exkl.)
+/** Signifikante VDF-tokens; trivia (whitespace, zeilen- und blockkommentar)
+ *  liegt in den lücken zwischen zwei tokens und wird bei bedarf mit
+ *  `text.slice(prev.end, token.start)` rekonstruiert. */
+export type VdfTokenKind = "string" | "open" | "close" | "conditional";
+
+export interface VdfToken {
+  kind: VdfTokenKind;
+  /** roh-inhalt ohne quotes; escapes (`\"`, `\\`, sonstige `\x`) bleiben
+   *  erhalten. autorität für rohe key-/manifest-vergleiche. */
+  raw: string;
+  /** valve-entschärfter string (`\"`→`"`, `\\`→`\`, sonst literal); bei
+   *  open/close/conditional identisch zu `raw`. */
+  value: string;
+  /** offset des token-anfangs im text (inkl. öffnendem quote). */
+  start: number;
+  /** offset hinter dem token-ende. */
+  end: number;
+  /** true, wenn der token in quotes geschrieben war. */
+  quoted: boolean;
 }
 
-interface Entry {
-  key: Token;
-  value: Token;
-  /** token-index-range des block-inhalts (ohne die braces selbst). */
-  block?: { from: number; to: number };
+export interface VdfTokenizeResult {
+  tokens: VdfToken[];
+  /** gesetzt, wenn der text mitten in einem token endet (offener string oder
+   *  offenes blockkommentar). die betroffene restfolge fehlt in `tokens`. */
+  unterminated: "string" | "block-comment" | undefined;
+}
+
+/** Gemeinsamer Text-VDF-Tokenizer (K-02): ersetzt die drei zuvor unabhängigen
+ *  lexer in `vdfpatch.ts`, `manifest.ts` und `vdf.ts`. bewusst nicht-werfend,
+ *  weil die aufrufer sich beim abbruch unterscheiden: `vdfpatch.ts` wirft bei
+ *  einem unterminierten token, `manifest.ts`/`vdf.ts` brechen ab und übernehmen
+ *  den rest roh. die entscheidungen bei den zuvor abweichenden fällen stehen
+ *  jeweils an der stelle. */
+export function tokenizeVdf(text: string): VdfTokenizeResult {
+  const tokens: VdfToken[] = [];
+  let unterminated: VdfTokenizeResult["unterminated"];
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    const character = text[cursor];
+
+    if (isVdfWhitespace(character)) {
+      cursor += 1;
+      continue;
+    }
+
+    if (character === "/" && text[cursor + 1] === "/") {
+      const newline = text.indexOf("\n", cursor + 2);
+      cursor = newline === -1 ? text.length : newline + 1;
+      continue;
+    }
+
+    if (character === "/" && text[cursor + 1] === "*") {
+      const close = text.indexOf("*/", cursor + 2);
+      if (close === -1) {
+        unterminated = "block-comment";
+        cursor = text.length;
+        break;
+      }
+      cursor = close + 2;
+      continue;
+    }
+
+    if (character === "{") {
+      tokens.push({
+        kind: "open",
+        raw: "{",
+        value: "{",
+        start: cursor,
+        end: cursor + 1,
+        quoted: false,
+      });
+      cursor += 1;
+      continue;
+    }
+
+    if (character === "}") {
+      tokens.push({
+        kind: "close",
+        raw: "}",
+        value: "}",
+        start: cursor,
+        end: cursor + 1,
+        quoted: false,
+      });
+      cursor += 1;
+      continue;
+    }
+
+    if (character === "[") {
+      // steam-conditional `[...]` hängt am vorigen wert und ist kein
+      // key-/value-token; würde er zählen, kippte die key-erwartung und ein
+      // gefährlicher block-key liefe ungefiltert durch (R1). ein token statt
+      // mehrerer bare-tokens hält auch `[$WIN32 || $OSX64]` zusammen — die
+      // vorfassung in `vdfpatch.ts` zerlegte solche marker, was hier bewusst
+      // vereinheitlicht wird. ende ist `]` oder das zeilenende.
+      const closing = text.indexOf("]", cursor + 1);
+      const newline = text.indexOf("\n", cursor + 1);
+      const stop = closing !== -1 && (newline === -1 || closing < newline) ? closing + 1 : newline;
+      const end = stop === -1 ? text.length : stop;
+      const raw = text.slice(cursor, end);
+      tokens.push({ kind: "conditional", raw, value: raw, start: cursor, end, quoted: false });
+      cursor = end;
+      continue;
+    }
+
+    if (character === '"') {
+      const start = cursor;
+      const contentStart = cursor + 1;
+      cursor = contentStart;
+      let closed = false;
+      while (cursor < text.length) {
+        const current = text[cursor];
+        if (current === "\\") {
+          cursor += 2;
+          continue;
+        }
+        if (current === '"') {
+          closed = true;
+          break;
+        }
+        cursor += 1;
+      }
+      if (!closed) {
+        unterminated = "string";
+        cursor = text.length;
+        break;
+      }
+      const raw = text.slice(contentStart, cursor);
+      tokens.push({
+        kind: "string",
+        raw,
+        value: unescapeRaw(raw),
+        start,
+        end: cursor + 1,
+        quoted: true,
+      });
+      cursor += 1;
+      continue;
+    }
+
+    // bare token: unquoted key/value (alte dateien). bricht zusätzlich am
+    // kommentaranfang ab, damit `value//rest` kein token wird — zwei der drei
+    // vorfassungen und die geparste lib tun das; `vdfpatch.ts` tat es zuvor
+    // nicht, was hier bewusst vereinheitlicht wird.
+    const start = cursor;
+    while (cursor < text.length) {
+      const current = text[cursor];
+      if (
+        current === undefined ||
+        isVdfWhitespace(current) ||
+        current === '"' ||
+        current === "{" ||
+        current === "}" ||
+        (current === "/" && (text[cursor + 1] === "/" || text[cursor + 1] === "*"))
+      ) {
+        break;
+      }
+      cursor += 1;
+    }
+    const raw = text.slice(start, cursor);
+    tokens.push({ kind: "string", raw, value: raw, start, end: cursor, quoted: false });
+  }
+
+  return { tokens, unterminated };
+}
+
+// valve-whitespace ist mehr als ` \t\r\n`: die lib nutzt `trim`, deshalb gilt
+// jede von `trim` als leer erkannte einzelstelle als trenner (union der drei
+// vorfassungen, die sich hier unterschieden).
+function isVdfWhitespace(character: string | undefined): boolean {
+  return character !== undefined && character.trim() === "";
 }
 
 // valve escaped nur `"` und `\`; andere `\x`-folgen bleiben literal.
@@ -38,57 +199,23 @@ function unescapeRaw(raw: string): string {
   return out;
 }
 
-function tokenize(text: string): Token[] {
-  const tokens: Token[] = [];
-  let i = 0;
-  while (i < text.length) {
-    const c = text.charAt(i);
-    if (c === " " || c === "\t" || c === "\r" || c === "\n") {
-      i++;
-      continue;
-    }
-    if (c === "/" && text.charAt(i + 1) === "/") {
-      while (i < text.length && text.charAt(i) !== "\n") i++;
-      continue;
-    }
-    if (c === "/" && text.charAt(i + 1) === "*") {
-      const end = text.indexOf("*/", i + 2);
-      if (end === -1) throw new VdfPatchError("unterminierter block-kommentar");
-      i = end + 2;
-      continue;
-    }
-    if (c === "{" || c === "}") {
-      tokens.push({ kind: c === "{" ? "open" : "close", value: c, start: i, end: i + 1 });
-      i++;
-      continue;
-    }
-    if (c === '"') {
-      const start = i;
-      i++;
-      let raw = "";
-      while (i < text.length && text.charAt(i) !== '"') {
-        if (text.charAt(i) === "\\" && i + 1 < text.length) {
-          raw += text.charAt(i) + text.charAt(i + 1);
-          i += 2;
-        } else {
-          raw += text.charAt(i);
-          i++;
-        }
-      }
-      if (i >= text.length) throw new VdfPatchError("unterminierter string");
-      i++; // closing quote
-      tokens.push({ kind: "string", value: unescapeRaw(raw), start, end: i });
-      continue;
-    }
-    // bare token: unquoted key/value (alte dateien) oder [conditional]-marker
-    const start = i;
-    while (i < text.length && !' \t\r\n"{}'.includes(text.charAt(i))) i++;
-    tokens.push({ kind: "string", value: text.slice(start, i), start, end: i });
-  }
+interface Entry {
+  key: VdfToken;
+  value: VdfToken;
+  /** token-index-range des block-inhalts (ohne die braces selbst). */
+  block?: { from: number; to: number };
+}
+
+// vdfpatch ist der bytegenaue leser und meldet einen unterminierten string
+// bzw. blockkommentar als fehler, statt wie manifest/vdf roh abzubrechen.
+function tokenize(text: string): VdfToken[] {
+  const { tokens, unterminated } = tokenizeVdf(text);
+  if (unterminated === "string") throw new VdfPatchError("unterminierter string");
+  if (unterminated === "block-comment") throw new VdfPatchError("unterminierter block-kommentar");
   return tokens;
 }
 
-function tokenAt(tokens: Token[], idx: number): Token {
+function tokenAt(tokens: VdfToken[], idx: number): VdfToken {
   const t = tokens[idx];
   if (!t) throw new VdfPatchError(`interner indexfehler bei token ${idx}`);
   return t;
@@ -96,12 +223,12 @@ function tokenAt(tokens: Token[], idx: number): Token {
 
 // direkte einträge eines token-range (ein block-inhalt bzw. top-level).
 // wirft bei strukturbruch, statt eine unvollständige Struktur zu liefern.
-function scanEntries(tokens: Token[], from: number, to: number): Entry[] {
+function scanEntries(tokens: VdfToken[], from: number, to: number): Entry[] {
   const entries: Entry[] = [];
   let i = from;
   while (i < to) {
     const t = tokenAt(tokens, i);
-    if (t.kind === "string" && t.value.startsWith("[")) {
+    if (t.kind === "conditional") {
       i++; // [conditional]-marker nach wert/block: gehört zum vorigen eintrag
       continue;
     }
@@ -131,7 +258,7 @@ function scanEntries(tokens: Token[], from: number, to: number): Entry[] {
   return entries;
 }
 
-function findEntry(tokens: Token[], from: number, to: number, key: string): Entry | undefined {
+function findEntry(tokens: VdfToken[], from: number, to: number, key: string): Entry | undefined {
   const lower = key.toLowerCase(); // steam schreibt keys mal groß, mal klein
   return scanEntries(tokens, from, to).find((e) => e.key.value.toLowerCase() === lower);
 }

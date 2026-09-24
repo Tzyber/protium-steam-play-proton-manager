@@ -1,5 +1,6 @@
 // Wrapper um `@node-steam/vdf`: Ein Austausch der Bibliothek betrifft nur diese Datei.
 import { parse } from "@node-steam/vdf";
+import { tokenizeVdf } from "./vdfpatch.js";
 
 export type VdfValue = string | number | VdfNode;
 export interface VdfNode {
@@ -85,141 +86,43 @@ const GUARDED_BLOCK_KEYS = new Set([...Object.getOwnPropertyNames(Object.prototy
 const GUARDED_PATTERN = new RegExp([...GUARDED_BLOCK_KEYS].join("|"));
 
 function neutralizeDangerousBlockKeys(text: string): string {
+  const { tokens } = tokenizeVdf(text);
   const output: string[] = [];
   let cursor = 0;
   let expectsKey = true;
 
-  while (cursor < text.length) {
-    const character = text[cursor];
-    if (character === '"') {
-      const end = quotedTokenEnd(text, cursor);
-      if (end === undefined) {
-        output.push(text.slice(cursor));
-        break;
-      }
-      const value = text.slice(cursor + 1, end);
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token === undefined) continue;
+    // trivia (whitespace, kommentare) liegt zwischen den tokens und wird roh
+    // übernommen, damit der pre-pass den text außerhalb der keys nicht umformt.
+    if (token.start > cursor) output.push(text.slice(cursor, token.start));
+
+    if (token.kind === "string") {
+      // unquotierte keys sind in VDF erlaubt und damit derselbe vektor wie
+      // quotierte (R1). der nächste signifikante token ist der nächste
+      // listen-eintrag, weil trivia nicht als token geführt wird.
       const isBlockKey =
-        expectsKey && GUARDED_BLOCK_KEYS.has(value) && nextRelevantToken(text, end + 1) === "{";
-      output.push(isBlockKey ? `"__x_${value}__"` : text.slice(cursor, end + 1));
+        expectsKey && GUARDED_BLOCK_KEYS.has(token.raw) && tokens[index + 1]?.kind === "open";
+      if (isBlockKey) {
+        output.push(token.quoted ? `"__x_${token.raw}__"` : `__x_${token.raw}__`);
+      } else {
+        output.push(text.slice(token.start, token.end));
+      }
       expectsKey = !expectsKey;
-      cursor = end + 1;
-      continue;
+    } else {
+      output.push(text.slice(token.start, token.end));
+      // klammern setzen den key-zustand zurück; ein conditional hängt am
+      // vorigen wert und zählt nicht, deshalb dort kein flip (R1).
+      if (token.kind === "open" || token.kind === "close") expectsKey = true;
     }
-
-    if (character === "/" && text[cursor + 1] === "/") {
-      const end = text.indexOf("\n", cursor + 2);
-      if (end === -1) {
-        output.push(text.slice(cursor));
-        break;
-      }
-      output.push(text.slice(cursor, end));
-      cursor = end;
-      continue;
-    }
-
-    if (character === "/" && text[cursor + 1] === "*") {
-      const end = text.indexOf("*/", cursor + 2);
-      if (end === -1) {
-        output.push(text.slice(cursor));
-        break;
-      }
-      output.push(text.slice(cursor, end + 2));
-      cursor = end + 2;
-      continue;
-    }
-
-    // Steam-Conditional (`[$WIN32]`) hängt am vorherigen Wert und ist kein
-    // Key-/Value-Token. Würde er wie ein Bare-Token zählen, kippte `expectsKey`
-    // und der nächste Block-Key liefe ungefiltert durch (R1).
-    if (character === "[") {
-      const closing = text.indexOf("]", cursor + 1);
-      const newline = text.indexOf("\n", cursor + 1);
-      const stop = closing !== -1 && (newline === -1 || closing < newline) ? closing + 1 : newline;
-      const end = stop === -1 ? text.length : stop;
-      output.push(text.slice(cursor, end));
-      cursor = end;
-      continue;
-    }
-
-    if (character === "{" || character === "}") {
-      output.push(character);
-      expectsKey = true;
-      cursor += 1;
-      continue;
-    }
-
-    if (isWhitespace(character)) {
-      output.push(character);
-      cursor += 1;
-      continue;
-    }
-
-    const end = bareTokenEnd(text, cursor);
-    // unquotierte Keys sind in VDF erlaubt und damit derselbe vektor wie
-    // quotierte (R1).
-    const bareValue = text.slice(cursor, end);
-    const isBareBlockKey =
-      expectsKey && GUARDED_BLOCK_KEYS.has(bareValue) && nextRelevantToken(text, end) === "{";
-    output.push(isBareBlockKey ? `__x_${bareValue}__` : bareValue);
-    expectsKey = !expectsKey;
-    cursor = end;
+    cursor = token.end;
   }
 
+  // offener string oder offenes blockkommentar: die restfolge fehlt in `tokens`
+  // und wird roh angehängt, damit der pre-pass nichts verliert.
+  if (cursor < text.length) output.push(text.slice(cursor));
   return output.join("");
-}
-
-function quotedTokenEnd(text: string, start: number): number | undefined {
-  for (let cursor = start + 1; cursor < text.length; cursor += 1) {
-    if (text[cursor] === "\\") {
-      cursor += 1;
-      continue;
-    }
-    if (text[cursor] === '"') return cursor;
-  }
-  return undefined;
-}
-
-function nextRelevantToken(text: string, start: number): string | undefined {
-  let cursor = start;
-  while (cursor < text.length) {
-    if (isWhitespace(text[cursor])) {
-      cursor += 1;
-      continue;
-    }
-    if (text[cursor] === "/" && text[cursor + 1] === "/") {
-      const end = text.indexOf("\n", cursor + 2);
-      if (end === -1) return undefined;
-      cursor = end + 1;
-      continue;
-    }
-    if (text[cursor] === "/" && text[cursor + 1] === "*") {
-      const end = text.indexOf("*/", cursor + 2);
-      if (end === -1) return undefined;
-      cursor = end + 2;
-      continue;
-    }
-    return text[cursor];
-  }
-  return undefined;
-}
-
-function bareTokenEnd(text: string, start: number): number {
-  let cursor = start;
-  while (cursor < text.length) {
-    const character = text[cursor];
-    if (isWhitespace(character) || character === '"' || character === "{" || character === "}") {
-      break;
-    }
-    if (character === "/" && (text[cursor + 1] === "/" || text[cursor + 1] === "*")) {
-      break;
-    }
-    cursor += 1;
-  }
-  return cursor;
-}
-
-function isWhitespace(character: string | undefined): character is string {
-  return character !== undefined && character.trim() === "";
 }
 
 // die lib baut plain objects. `sanitize` macht jeden key zu einer eigenen

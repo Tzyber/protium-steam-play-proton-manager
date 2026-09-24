@@ -2,6 +2,7 @@ import { ManifestParseError } from "./errors.js";
 import { errText } from "./errtext.js";
 import { NUMERIC_RE, parseSafeAppId } from "./types.js";
 import { asString, getKeyInsensitive, parseVdf } from "./vdf.js";
+import { tokenizeVdf } from "./vdfpatch.js";
 
 interface ManifestData {
   appId: number;
@@ -12,97 +13,22 @@ interface ManifestData {
   installdir?: string;
 }
 
-type RawManifestToken = { kind: "scalar"; value: string } | { kind: "open" } | { kind: "close" };
-
-interface RawManifestTokenResult {
-  token: RawManifestToken;
-  next: number;
-}
-
-function readRawManifestToken(text: string, start: number): RawManifestTokenResult | undefined {
-  let cursor = start;
-  while (cursor < text.length) {
-    const character = text[cursor];
-    if (character !== undefined && character.trim() === "") {
-      cursor += 1;
-      continue;
-    }
-    if (character === "/" && text[cursor + 1] === "/") {
-      const end = text.indexOf("\n", cursor + 2);
-      if (end === -1) return undefined;
-      cursor = end + 1;
-      continue;
-    }
-    if (character === "/" && text[cursor + 1] === "*") {
-      const end = text.indexOf("*/", cursor + 2);
-      if (end === -1) return undefined;
-      cursor = end + 2;
-      continue;
-    }
-    break;
-  }
-
-  if (cursor >= text.length) return undefined;
-  const character = text[cursor];
-  if (character === "{") return { token: { kind: "open" }, next: cursor + 1 };
-  if (character === "}") return { token: { kind: "close" }, next: cursor + 1 };
-  if (character === '"') {
-    const valueStart = cursor + 1;
-    cursor = valueStart;
-    while (cursor < text.length) {
-      if (text[cursor] === "\\") {
-        cursor += 2;
-        continue;
-      }
-      if (text[cursor] === '"') {
-        return {
-          token: { kind: "scalar", value: text.slice(valueStart, cursor) },
-          next: cursor + 1,
-        };
-      }
-      cursor += 1;
-    }
-    return undefined;
-  }
-
-  const valueStart = cursor;
-  while (cursor < text.length) {
-    const current = text[cursor];
-    if (
-      current === undefined ||
-      current.trim() === "" ||
-      current === '"' ||
-      current === "{" ||
-      current === "}" ||
-      (current === "/" && (text[cursor + 1] === "/" || text[cursor + 1] === "*"))
-    ) {
-      break;
-    }
-    cursor += 1;
-  }
-  if (valueStart === cursor) return undefined;
-  return {
-    token: { kind: "scalar", value: text.slice(valueStart, cursor) },
-    next: cursor,
-  };
-}
-
-function rawManifestField(text: string, fieldName: string): RawManifestToken | undefined {
-  let cursor = 0;
+/** roher skalarenwert des letzten passenden feldes direkt unter `AppState`.
+ *  laufen über den gemeinsamen tokenizer (K-02); rohform bleibt erhalten, damit
+ *  der escaping-vergleich unten die quellsyntax sieht. conditionals zählen wie
+ *  für die anderen leser nicht als key/value. */
+function rawManifestField(text: string, fieldName: string): string | undefined {
+  const { tokens } = tokenizeVdf(text);
+  const normalizedFieldName = fieldName.toLowerCase();
   let depth = 0;
   let appStateDepth: number | undefined;
-  let pendingKey: Extract<RawManifestToken, { kind: "scalar" }> | undefined;
-  let fieldToken: RawManifestToken | undefined;
-  const normalizedFieldName = fieldName.toLowerCase();
+  let pendingKey: string | undefined;
+  let fieldValue: string | undefined;
 
-  while (cursor < text.length) {
-    const result = readRawManifestToken(text, cursor);
-    if (!result) return fieldToken;
-    cursor = result.next;
-    const token = result.token;
-
+  for (const token of tokens) {
+    if (token.kind === "conditional") continue;
     if (token.kind === "open") {
-      if (depth === 0 && pendingKey?.value.toLowerCase() === "appstate") {
+      if (depth === 0 && pendingKey?.toLowerCase() === "appstate") {
         appStateDepth = depth + 1;
       }
       pendingKey = undefined;
@@ -116,26 +42,26 @@ function rawManifestField(text: string, fieldName: string): RawManifestToken | u
       continue;
     }
 
-    if (pendingKey) {
+    if (pendingKey !== undefined) {
       if (
         appStateDepth !== undefined &&
         depth === appStateDepth &&
-        pendingKey.value.toLowerCase() === normalizedFieldName
+        pendingKey.toLowerCase() === normalizedFieldName
       ) {
-        fieldToken = token;
+        fieldValue = token.raw;
       }
       pendingKey = undefined;
       continue;
     }
-    pendingKey = token;
+    pendingKey = token.raw;
   }
 
-  return fieldToken;
+  return fieldValue;
 }
 
-function parseManifestSize(raw: RawManifestToken | undefined): number | undefined {
-  if (raw?.kind !== "scalar") return undefined;
-  const value = raw.value.trim();
+function parseManifestSize(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = raw.trim();
 
   // Der Parser normalisiert unquoted Dezimal- und Exponentwerte zu Zahlen.
   // Die Rohsyntax bleibt deshalb die Autorität für diesen einzelnen Wert.
@@ -180,10 +106,7 @@ export function parseManifest(text: string): ManifestData {
 
   const name = asString(getKeyInsensitive(app, "name")) ?? `app ${appId}`;
   const sizeBytes = parseManifestSize(rawManifestField(text, "SizeOnDisk"));
-  const rawInstalldir = rawManifestField(text, "installdir");
-  const installdir = parseManifestInstallDir(
-    rawInstalldir?.kind === "scalar" ? rawInstalldir.value : undefined,
-  );
+  const installdir = parseManifestInstallDir(rawManifestField(text, "installdir"));
 
   return { appId, name, sizeBytes, installdir };
 }
