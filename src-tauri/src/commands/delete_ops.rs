@@ -13,7 +13,7 @@ use crate::commands::delete_inspect::inspect_deletion_target;
 use crate::commands::delete_inspect::{DeleteConsequence, DeletionInspection};
 use crate::commands::errcode;
 #[cfg(target_os = "linux")]
-use crate::commands::fd::component_name;
+use crate::commands::fd::{component_name, FdIdentity};
 use crate::commands::scope::{EnvironmentSnapshot, EnvironmentState};
 
 pub const DELETE_TOKEN_TTL_SECS: u64 = 300;
@@ -78,24 +78,11 @@ pub(super) fn generate_os_random_128() -> Result<String, String> {
 
 #[cfg(target_os = "linux")]
 fn open_delete_target_handle(path: &Path) -> Result<fs::File, String> {
-    use std::os::fd::{FromRawFd, OwnedFd};
-    use std::os::unix::ffi::OsStrExt;
-
-    let mut path_bytes = path.as_os_str().as_bytes().to_vec();
-    path_bytes.push(0);
-    let raw = unsafe {
-        libc::open(
-            path_bytes.as_ptr().cast(),
-            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
-        )
-    };
-    if raw < 0 {
-        return Err(errcode::with_detail(
-            errcode::UNREADABLE,
-            std::io::Error::last_os_error(),
-        ));
-    }
-    let handle = fs::File::from(unsafe { OwnedFd::from_raw_fd(raw) });
+    // r-13: dieselbe no-follow-open-kette wie fd::open_absolute_dir statt eines
+    // zweiten handgeschriebenen libc::open. Der fehlerfall bleibt unreadable.
+    let fd = crate::commands::fd::open_absolute_dir(path)
+        .map_err(|error| errcode::with_detail(errcode::UNREADABLE, error))?;
+    let handle = fs::File::from(fd);
     if !handle
         .metadata()
         .map_err(|e| format!("cannot stat bound delete target: {e}"))?
@@ -151,16 +138,14 @@ where
 }
 
 #[cfg(target_os = "linux")]
-fn delete_handle_identity(handle: &fs::File) -> Result<(u64, u64), String> {
-    use std::os::unix::fs::MetadataExt;
-
+fn delete_handle_identity(handle: &fs::File) -> Result<FdIdentity, String> {
     let metadata = handle
         .metadata()
         .map_err(|e| format!("cannot stat bound delete target: {e}"))?;
     if !metadata.is_dir() {
         return Err(errcode::NOT_A_DIRECTORY.into());
     }
-    Ok((metadata.dev(), metadata.ino()))
+    Ok(FdIdentity::of(&metadata))
 }
 
 #[cfg(target_os = "linux")]
@@ -435,7 +420,12 @@ fn prepare_delete_with_inspection(
     let parent_handle = open_delete_target_handle(parent_path)?;
     let target_handle = open_delete_child_handle(&parent_handle, &target_name)?;
     #[cfg(target_os = "linux")]
-    if delete_handle_identity(&target_handle)? != (inspection.dev, inspection.ino) {
+    if delete_handle_identity(&target_handle)?
+        != (FdIdentity {
+            dev: inspection.dev,
+            ino: inspection.ino,
+        })
+    {
         return Err(errcode::TARGET_CHANGED.into());
     }
 
@@ -704,7 +694,12 @@ fn inspect_pending_target(
     )?;
     let canonical = pending.canonical_path.to_string_lossy();
     #[cfg(target_os = "linux")]
-    if delete_handle_identity(target_handle)? != (inspection.dev, inspection.ino) {
+    if delete_handle_identity(target_handle)?
+        != (FdIdentity {
+            dev: inspection.dev,
+            ino: inspection.ino,
+        })
+    {
         return Err(errcode::with_detail(
             errcode::TARGET_CHANGED,
             "bound handle mismatch",

@@ -185,13 +185,9 @@ where
                 DeleteReadStage::ManifestBeforeRead,
             )
             .map_err(|error| {
-                if errcode::has_code(&error, errcode::SIZE_LIMIT) {
-                    // Code erhalten: die Oberflaeche uebersetzt den Grund, das
-                    // Detail (welche Datei) bleibt im Protokoll.
-                    errcode::with_detail(errcode::SIZE_LIMIT, format!("manifest {name_string}"))
-                } else {
-                    error
-                }
+                // Code erhalten: die Oberflaeche uebersetzt den Grund, das
+                // Detail (welche Datei) bleibt im Protokoll.
+                errcode::remap_size_limit(error, format!("manifest {name_string}"))
             })?;
             let internal_id = match vdf_patch::get_vdf_value(&content, &["AppState", "appid"])
                 .map_err(|error| format!("cannot parse manifest {name_string}: {error}"))?
@@ -412,13 +408,7 @@ where
         hook,
         DeleteReadStage::ConfigBeforeRead,
     )
-    .map_err(|error| {
-        if errcode::has_code(&error, errcode::SIZE_LIMIT) {
-            errcode::with_detail(errcode::SIZE_LIMIT, "config.vdf")
-        } else {
-            error
-        }
-    })?;
+    .map_err(|error| errcode::remap_size_limit(error, "config.vdf"))?;
 
     let tokens =
         vdf_patch::tokenize(&content).map_err(|e| format!("cannot tokenize config.vdf: {e}"))?;

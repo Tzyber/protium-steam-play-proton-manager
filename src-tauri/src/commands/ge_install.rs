@@ -1,9 +1,5 @@
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
-#[cfg(target_os = "linux")]
-use std::os::fd::{FromRawFd, OwnedFd};
-#[cfg(target_os = "linux")]
-use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -157,13 +153,13 @@ fn cancel_before_extract(cancel: &CancelSignal) -> Result<(), String> {
     Ok(())
 }
 
+/// r-13: die cancel-prüfung lebt nur in `cancel_before_extract`; diese Hülle
+/// nennt nur den zeitpunkt (vor der extraktion) und reicht das ergebnis durch.
 fn extract_after_cancel_check<T>(
     cancel: &CancelSignal,
     operation: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
-    if cancel.is_cancelled() {
-        return Err(errcode::CANCELLED.into());
-    }
+    cancel_before_extract(cancel)?;
     operation()
 }
 
@@ -384,21 +380,11 @@ pub(super) async fn install_ge_proton_inner(
             .ok_or_else(|| "canonical downloads directory has no identity".to_string())?;
     #[cfg(target_os = "linux")]
     let downloads_directory = {
-        let mut bytes = downloads_dir.as_os_str().as_bytes().to_vec();
-        bytes.push(0);
-        let raw = unsafe {
-            libc::open(
-                bytes.as_ptr().cast(),
-                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
-            )
-        };
-        if raw < 0 {
-            return Err(format!(
-                "open downloads directory: {}",
-                std::io::Error::last_os_error()
-            ));
-        }
-        fs::File::from(unsafe { OwnedFd::from_raw_fd(raw) })
+        // r-13: dieselbe no-follow-open-kette wie fd::open_absolute_dir statt
+        // eines dritten handgeschriebenen libc::open.
+        let fd = crate::commands::fd::open_absolute_dir(&downloads_dir)
+            .map_err(|e| format!("open downloads directory: {e}"))?;
+        fs::File::from(fd)
     };
     #[cfg(not(target_os = "linux"))]
     let downloads_directory =

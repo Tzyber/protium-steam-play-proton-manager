@@ -7,7 +7,8 @@
 #[cfg(target_os = "linux")]
 use crate::commands::errcode;
 use crate::commands::fd::{
-    fd_identity, open_absolute_dir, open_dir_at, open_file_at, read_fd_text, FdIdentity,
+    fd_identity, open_absolute_dir, open_bound_root_fd, open_dir_at, open_file_at, read_fd_text,
+    FdIdentity,
 };
 use crate::commands::scope::{MAX_VDF_READ_BYTES, SYSTEM_COMPAT_DIRS};
 use crate::commands::vdf_patch;
@@ -216,25 +217,9 @@ where
 {
     let canonical = fs::canonicalize(path)
         .map_err(|error| format!("cannot canonicalize Steam library: {error}"))?;
-    let expected =
-        fs::metadata(&canonical).map_err(|error| format!("cannot stat Steam library: {error}"))?;
-    if !expected.is_dir() {
-        return Err("Steam library is not a directory".into());
-    }
-    use std::os::unix::fs::MetadataExt;
-    let expected_identity = FdIdentity {
-        dev: expected.dev(),
-        ino: expected.ino(),
-    };
-    hook(3);
-    let fd = open_absolute_dir(&canonical)
-        .map_err(|error| format!("cannot open Steam library descriptor: {error}"))?;
-    let actual = fd_identity(fd.as_raw_fd())
-        .map_err(|error| format!("cannot stat Steam library descriptor: {error}"))?;
-    if actual != expected_identity {
-        return Err("Steam library changed while opening descriptor".into());
-    }
-    Ok(fd)
+    // r-07: dieselbe stat-open-fstat-kette wie `fd::open_bound_root_fd`; der
+    // Hook läuft dort genau zwischen Stat und Open, wie zuvor `hook(3)`.
+    open_bound_root_fd(&canonical, &mut || hook(3))
 }
 
 #[cfg(target_os = "linux")]
@@ -354,11 +339,7 @@ where
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
             Err(error) => return Err(format!("cannot stat Steam library: {error}")),
         };
-        use std::os::unix::fs::MetadataExt;
-        let library_identity = FdIdentity {
-            dev: library_metadata.dev(),
-            ino: library_metadata.ino(),
-        };
+        let library_identity = FdIdentity::of(&library_metadata);
         if library_identity == root_identity {
             if is_app_installed_in_library_fd(steam_root_fd.as_raw_fd(), app_id, hook)? {
                 return Ok(true);

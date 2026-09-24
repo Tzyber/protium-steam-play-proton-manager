@@ -81,13 +81,24 @@ pub(super) fn validate_redirect_url(url: &str) -> Result<(), String> {
     }
 }
 
-fn validate_secure_url(parsed: &reqwest::Url) -> Result<(), String> {
+/// Gemeinsame URL-Grundprüfung von Download- und external-Pfad: https und keine
+/// Credentials im userinfo. Liegt im Download-Modul, weil hier die strengste
+/// URL-Policy (Pfad-Pinning, Redirect-Allowlist) verankert ist; der
+/// Port-443-Zwang gilt nur für den Download-Pfad (`validate_secure_url`) und
+/// wird bewusst nicht auf external übertragen, dort wäre er eine
+/// Verhaltensänderung.
+pub(super) fn validate_https_credentials(parsed: &reqwest::Url) -> Result<(), String> {
     if parsed.scheme() != "https" {
         return Err(errcode::UNALLOWED_SCHEME.into());
     }
     if !parsed.username().is_empty() || parsed.password().is_some() {
         return Err(errcode::CREDENTIALS_DISALLOWED.into());
     }
+    Ok(())
+}
+
+fn validate_secure_url(parsed: &reqwest::Url) -> Result<(), String> {
+    validate_https_credentials(parsed)?;
     if parsed.port_or_known_default() != Some(443) {
         return Err(errcode::INVALID_URL.into());
     }

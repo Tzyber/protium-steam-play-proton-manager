@@ -13,10 +13,7 @@ use {
     std::{
         ffi::OsStr,
         fs, io,
-        os::{
-            fd::AsRawFd,
-            unix::{ffi::OsStrExt, fs::MetadataExt},
-        },
+        os::{fd::AsRawFd, unix::ffi::OsStrExt},
         path::Path,
     },
 };
@@ -113,16 +110,26 @@ fn open_authorized_prefix(
     hook: &mut dyn FnMut(PrefixReadStage),
     spawn: &mut SpawnOs<'_>,
 ) -> Result<(), PrefixError> {
-    let metadata = fs::metadata(library)?;
-    let expected = fd::FdIdentity {
-        dev: metadata.dev(),
-        ino: metadata.ino(),
-    };
-    hook(PrefixReadStage::BeforeLibraryOpen);
-    let library_fd = fd::open_absolute_dir(library)?;
-    if fd::fd_identity(library_fd.as_raw_fd())? != expected {
-        return Err(PrefixError::Blocked);
-    }
+    // r-07: dieselbe stat-open-fstat-kette wie `fd::open_bound_root_fd`; der
+    // Hook läuft dort zwischen Stat und Open wie zuvor. Randfall-Abweichung
+    // gegenüber der Vorversion: ein stat-/open-Fehler der Open-Phase meldet
+    // sich als `unreadable`, die Vorversion hätte dort in Einzelfällen
+    // `not-found` (Tausch zwischen Stat und Open) oder `blocked` (sonstiger
+    // stat-Fehler) geliefert. Beide Wege verweigern fail-closed und starten nie
+    // einen Handler; nur der Code der Oberfläche weicht in diesen Randfällen ab.
+    // Ein Nicht-Verzeichnis scheitert jetzt vor dem Hook statt im Open.
+    let library_fd = fd::open_bound_root_fd(library, &mut || {
+        hook(PrefixReadStage::BeforeLibraryOpen);
+    })
+    .map_err(|error| {
+        if errcode::has_code(&error, errcode::NOT_FOUND) {
+            PrefixError::NotFound
+        } else if errcode::has_code(&error, errcode::UNREADABLE) {
+            PrefixError::Unreadable
+        } else {
+            PrefixError::Blocked
+        }
+    })?;
     hook(PrefixReadStage::LibraryOpened);
     // Ohne steamapps ist das Spiel hier nicht installiert: Autoritätsfehler, kein fehlender Prefix.
     let steamapps =

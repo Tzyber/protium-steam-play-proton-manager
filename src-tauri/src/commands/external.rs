@@ -24,12 +24,9 @@ pub(super) fn validate_external_url(url: &str) -> Result<(), String> {
     }
     let parsed = reqwest::Url::parse(url)
         .map_err(|error| errcode::with_detail(errcode::INVALID_URL, error))?;
-    if parsed.scheme() != "https" {
-        return Err(errcode::UNALLOWED_SCHEME.into());
-    }
-    if !parsed.username().is_empty() || parsed.password().is_some() {
-        return Err(errcode::CREDENTIALS_DISALLOWED.into());
-    }
+    // gemeinsame basis mit dem download-pfad (r-13); der dortige port-443-zwang
+    // gilt hier bewusst nicht.
+    crate::commands::download::validate_https_credentials(&parsed)?;
     match parsed.host_str().map(|h| h.to_ascii_lowercase()).as_deref() {
         // protondb: nur spielseiten /app/<appId> (das frontend baut genau diese)
         Some("www.protondb.com") => {

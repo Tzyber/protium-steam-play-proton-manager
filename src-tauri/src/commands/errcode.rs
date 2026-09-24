@@ -69,6 +69,17 @@ pub(crate) fn has_code(text: &str, code: &str) -> bool {
     text == code || text.starts_with(&format!("{code}: "))
 }
 
+/// Bildet `error` genau dann auf `SIZE_LIMIT` mit neuem Detail ab, wenn er den
+/// Code traegt; sonst unveraendert. Die Aufrufer waehlen ihr eigenes Detail
+/// (welche Datei), damit die Log-Zeile unterscheidbar bleibt.
+pub(crate) fn remap_size_limit(error: String, detail: impl std::fmt::Display) -> String {
+    if has_code(&error, SIZE_LIMIT) {
+        with_detail(SIZE_LIMIT, detail)
+    } else {
+        error
+    }
+}
+
 /// Alle Codes dieser Datei. Die Liste ist die Vollstaendigkeitsklammer fuer
 /// die Frage "ist das ein bekannter Code?": driftet eine Konstante gegen sie,
 /// faellt das im Test `all_codes_spiegelt_jede_code_konstante_der_datei` auf.
