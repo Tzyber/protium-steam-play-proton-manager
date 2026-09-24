@@ -13,6 +13,12 @@ import { t } from "../i18n";
 import { useUiStore } from "./uiStore";
 
 type Status = "idle" | "scanning" | "done" | "not-found" | "error";
+// K-01: der ProtonDB-Nachlauf läuft bewusst im Store, nicht in einer
+// core-Orchestrierung. Er muss das lokale Resultat sofort anzeigen und den
+// Reststatus (protonDbRemaining, Generations-Guard) führen; ein gemeinsames
+// scanLibrary würde den Store an einen blockierenden await binden. Deshalb lebt
+// die Delay-Konstante genau einmal hier (die frühere Dopplung in scan.ts ist
+// mit dieser Datei entfallen).
 const PROTONDB_DELAY_MS = 150;
 
 interface State {

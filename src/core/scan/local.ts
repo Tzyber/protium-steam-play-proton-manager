@@ -1,6 +1,7 @@
 import type { EnvironmentSnapshot, Ports } from "../ports.js";
 import type { ScanResult, ScanWarning } from "../types.js";
 import { localConfigBrokenWarning, readCompatMapping, readLaunchConfig } from "./config.js";
+import type { CompatAssignment } from "./games.js";
 import { scanGames } from "./games.js";
 import { readLibraryList } from "./libraries.js";
 import { readCompatTools } from "./tools.js";
@@ -24,20 +25,18 @@ export async function scanLocal(
   const libraryResult = readLibraryList(environment);
   const mappingResult = await readCompatMapping(fs, steamRoot);
   const launchResult = await readLaunchConfig(fs, steamRoot);
-  const compatFor = (appId: number) => {
+  const compatFor = (appId: number): CompatAssignment => {
     if (mappingResult.compatConfigStatus !== "available") {
-      return { compatTool: "unknown", compatToolSource: "unavailable" as const };
+      return { compatTool: "unknown", compatToolSource: "unavailable" };
     }
     const explicit = mappingResult.mapping.get(appId);
     if (explicit !== undefined) {
-      return { compatTool: explicit, compatToolSource: "explicit" as const };
+      return { compatTool: explicit, compatToolSource: "explicit" };
     }
-    return {
-      compatTool: "default",
-      compatToolSource: mappingResult.mapping.has(0)
-        ? ("default" as const)
-        : ("unavailable" as const),
-    };
+    if (mappingResult.mapping.has(0)) {
+      return { compatTool: "default", compatToolSource: "default" };
+    }
+    return { compatTool: "default", compatToolSource: "unavailable" };
   };
   const gamesResult = await scanGames(
     fs,

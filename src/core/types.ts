@@ -94,6 +94,16 @@ export type ScanWarning =
 
 export type CompatToolSource = "explicit" | "default" | "unavailable";
 
+/** String-Sentinels, die in `compatTool` stehen können, aber keinen echten
+ *  tool-namen bezeichnen: "default" = globaler Standard, "unknown" = keine
+ *  aussage (config unlesbar). Zentrale liste gegen drift (K-06). */
+export const COMPAT_TOOL_SENTINELS = ["default", "unknown"] as const;
+export type CompatToolSentinel = (typeof COMPAT_TOOL_SENTINELS)[number];
+
+export function isCompatToolSentinel(value: string): value is CompatToolSentinel {
+  return (COMPAT_TOOL_SENTINELS as readonly string[]).includes(value);
+}
+
 /** installierter built-in proton (experimental, hotfix, proton_9/10/…): der
  *  interne name steht im mapping, der display-name kommt aus der tool-vdf. */
 export interface BuiltinProton {

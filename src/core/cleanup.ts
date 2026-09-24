@@ -35,21 +35,30 @@ function typeDir(library: string, type: OrphanType): string {
   return type === "compatdata" ? paths.compatdataDir(library) : paths.shadercacheDir(library);
 }
 
-export async function findOrphans(
+interface CompatEntry {
+  library: string;
+  type: OrphanType;
+  appId: number;
+  name: string;
+}
+
+/** Gemeinsamer Iterator über die compat-einträge aller libraries. Alle
+ *  Ausschlussfilter (kein Ordner, Symlink, Claim-Rest, nicht-numerischer Name)
+ *  liegen hier genau einmal; `accept` entscheidet je appId. findOrphans und
+ *  findSteamOwnedPrefixes teilen den Iterator, damit ihre Filter nicht driften
+ *  (K-05). Reihenfolge: library-major, danach die übergebene Typ-Reihenfolge. */
+async function forEachCompatEntry(
   libraries: readonly string[],
-  installedAppIds: ReadonlySet<number>,
-  blockedAppIds: ReadonlySet<number>,
+  types: readonly OrphanType[],
   fs: FileSystem,
-): Promise<OrphanEntry[]> {
-  const orphans: OrphanEntry[] = [];
-
+  accept: (appId: number) => boolean,
+  handle: (entry: CompatEntry) => void,
+): Promise<void> {
   for (const lib of libraries) {
-    for (const type of ORPHAN_TYPES) {
-      const dir = typeDir(lib, type);
-
+    for (const type of types) {
       let entries: DirEntry[];
       try {
-        entries = await fs.readDir(dir);
+        entries = await fs.readDir(typeDir(lib, type));
       } catch {
         continue; // Fehlende oder nicht lesbare Verzeichnisse überspringen.
       }
@@ -62,26 +71,42 @@ export async function findOrphans(
         // parseSafeAppId prüft dasselbe zahlenformat und zusätzlich den bereich.
         const appId = parseSafeAppId(entry.name);
         if (appId === null) continue;
-        // blockedAppIds = appIDs, deren manifest existiert, die aber kein
-        // spiel sind (z. B. proton-builtin-pakete). ihr prefix ist kein
-        // verwaister prefix, sonst blockt das backend beim löschen
-        // ("currently installed") und der eintrag bliebe für immer stehen.
-        if (installedAppIds.has(appId) || blockedAppIds.has(appId)) continue;
-
-        const orphanPath =
-          type === "compatdata"
-            ? paths.compatdataPath(lib, entry.name)
-            : paths.shadercachePath(lib, entry.name);
-
-        orphans.push({
-          appId,
-          type,
-          path: orphanPath,
-          library: lib,
-        });
+        if (!accept(appId)) continue;
+        handle({ library: lib, type, appId, name: entry.name });
       }
     }
   }
+}
+
+export async function findOrphans(
+  libraries: readonly string[],
+  installedAppIds: ReadonlySet<number>,
+  blockedAppIds: ReadonlySet<number>,
+  fs: FileSystem,
+): Promise<OrphanEntry[]> {
+  const orphans: OrphanEntry[] = [];
+
+  // blockedAppIds = appIDs, deren manifest existiert, die aber kein spiel sind
+  // (z. B. proton-builtin-pakete). ihr prefix ist kein verwaister prefix, sonst
+  // blockt das backend beim löschen ("currently installed") und der eintrag
+  // bliebe für immer stehen.
+  await forEachCompatEntry(
+    libraries,
+    ORPHAN_TYPES,
+    fs,
+    (appId) => !installedAppIds.has(appId) && !blockedAppIds.has(appId),
+    ({ library, type, appId, name }) => {
+      orphans.push({
+        appId,
+        type,
+        path:
+          type === "compatdata"
+            ? paths.compatdataPath(library, name)
+            : paths.shadercachePath(library, name),
+        library,
+      });
+    },
+  );
 
   return orphans;
 }
@@ -116,30 +141,19 @@ export async function findSteamOwnedPrefixes(
 ): Promise<SteamOwnedPrefix[]> {
   const found: SteamOwnedPrefix[] = [];
 
-  for (const lib of libraries) {
-    const dir = paths.compatdataDir(lib);
-
-    let entries: DirEntry[];
-    try {
-      entries = await fs.readDir(dir);
-    } catch {
-      continue; // Fehlende oder nicht lesbare Verzeichnisse überspringen.
-    }
-
-    for (const entry of entries) {
-      if (!entry.isDirectory || entry.isSymlink) continue;
-      if (entry.name.startsWith(DELETE_CLAIM_PREFIX)) continue;
-      const appId = parseSafeAppId(entry.name);
-      if (appId === null) continue;
-      if (!blockedAppIds.has(appId)) continue;
-
+  await forEachCompatEntry(
+    libraries,
+    ["compatdata"],
+    fs,
+    (appId) => blockedAppIds.has(appId),
+    ({ library, appId, name }) => {
       found.push({
         appId,
-        path: paths.compatdataPath(lib, entry.name),
-        library: lib,
+        path: paths.compatdataPath(library, name),
+        library,
       });
-    }
-  }
+    },
+  );
 
   return found;
 }

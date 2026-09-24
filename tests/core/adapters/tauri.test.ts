@@ -16,6 +16,7 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
 }));
 
 import { invoke } from "@tauri-apps/api/core";
+import { exists as fsExists, mkdir, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { openPrefixFolder, tauriPorts } from "../../../src/core/adapters/tauri";
 
 describe("http.get", () => {
@@ -112,5 +113,43 @@ describe("Diagnostics IPC", () => {
     vi.mocked(invoke).mockResolvedValueOnce(undefined);
     await openLogsFolder();
     expect(invoke).toHaveBeenCalledExactlyOnceWith("open_logs_folder");
+  });
+});
+
+describe("cache-Dateiname (K-03)", () => {
+  beforeEach(() => {
+    vi.mocked(mkdir).mockReset();
+    vi.mocked(mkdir).mockResolvedValue(undefined);
+    vi.mocked(fsExists).mockReset();
+    vi.mocked(readTextFile).mockReset();
+    vi.mocked(writeTextFile).mockReset();
+  });
+
+  it("legt kollidierende Schlüssel in getrennte Dateien und liest sie zurück", async () => {
+    // "protondb:1" und "protondb_1" sanitisierten früher auf denselben Namen.
+    const files = new Map<string, string>();
+    vi.mocked(fsExists).mockImplementation(async (path) => files.has(String(path)));
+    vi.mocked(writeTextFile).mockImplementation(async (path, data) => {
+      files.set(String(path), String(data));
+    });
+    vi.mocked(readTextFile).mockImplementation(async (path) => {
+      const value = files.get(String(path));
+      if (value === undefined) throw new Error("not found");
+      return value;
+    });
+
+    await tauriPorts.cache.set("protondb:1", "A");
+    await tauriPorts.cache.set("protondb_1", "B");
+
+    expect([...files.keys()]).toHaveLength(2);
+    expect(await tauriPorts.cache.get("protondb:1")).toBe("A");
+    expect(await tauriPorts.cache.get("protondb_1")).toBe("B");
+  });
+
+  it("behandelt einen unbekannten (alten) Dateinamen als Miss statt Fehler", async () => {
+    vi.mocked(fsExists).mockResolvedValue(false);
+
+    await expect(tauriPorts.cache.get("protondb:1")).resolves.toBeNull();
+    await expect(tauriPorts.cache.set("protondb:1", "A")).resolves.toBeUndefined();
   });
 });

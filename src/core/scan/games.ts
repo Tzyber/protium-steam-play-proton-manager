@@ -5,7 +5,6 @@ import { parseManifest } from "../manifest.js";
 import { joinPath, paths } from "../paths.js";
 import type { DirEntry, Ports } from "../ports.js";
 import {
-  type CompatToolSource,
   type Game,
   parseSafeAppId,
   type ReadFailedCounts,
@@ -28,19 +27,18 @@ interface ScanGamesResult {
   localConfigDegraded: string | null;
 }
 
-interface CompatAssignment {
-  compatTool: string;
-  compatToolSource: CompatToolSource;
-}
+/** Zuordnung eines spiels zu einem compat-tool als diskriminierte union statt
+ *  freiem `CompatAssignment | string` (K-06): `compatToolSource` ist das
+ *  diskriminanzfeld, `compatTool` trägt den namen. Ein mappingwert
+ *  "default"/"unknown" bleibt als echter expliziter wert erlaubt (kommt real in
+ *  config.vdf vor), aber ein unbekannter string fällt nicht mehr still in
+ *  `explicit`. */
+export type CompatAssignment =
+  | { compatToolSource: "explicit"; compatTool: string }
+  | { compatToolSource: "default"; compatTool: "default" }
+  | { compatToolSource: "unavailable"; compatTool: "default" | "unknown" };
 
-type CompatFor = (appId: number) => CompatAssignment | string;
-
-function resolveCompatAssignment(value: CompatAssignment | string): CompatAssignment {
-  if (typeof value !== "string") return value;
-  if (value === "unknown") return { compatTool: value, compatToolSource: "unavailable" };
-  if (value === "default") return { compatTool: value, compatToolSource: "default" };
-  return { compatTool: value, compatToolSource: "explicit" };
-}
+type CompatFor = (appId: number) => CompatAssignment;
 
 /** localconfig-rohwert → unix-sekunden; `"0"` und unsinn bleiben unbekannt. */
 function parseLastPlayed(raw: string | undefined): number | undefined {
@@ -199,7 +197,7 @@ export async function scanGames(
         library: lib,
         sizeBytes: data.sizeBytes,
         installdir: data.installdir,
-        ...resolveCompatAssignment(compatFor(data.appId)),
+        ...compatFor(data.appId),
         protonDb: null,
         localHeader: await resolveLocalHeader(fs, steamRoot, data.appId),
         headerImage: paths.headerImageUrl(data.appId),

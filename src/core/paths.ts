@@ -28,6 +28,9 @@ export const paths = {
   configVdf: (root: string) => join(root, "config", "config.vdf"), // mapping liegt in der root
   loginusersVdf: (root: string) => join(root, "config", "loginusers.vdf"),
   compatToolsDir: (root: string) => join(root, "compatibilitytools.d"),
+  /** Verzeichnis eines einzelnen tools in compatibilitytools.d. Die UI baut den
+   *  pfad nicht mehr selbst per joinPath (INV-4, K-04). */
+  compatToolDir: (root: string, toolName: string) => join(root, "compatibilitytools.d", toolName),
   compatToolVdfIn: (baseDir: string, toolDir: string) =>
     join(baseDir, toolDir, "compatibilitytool.vdf"),
   userdataDir: (root: string) => join(root, "userdata"),
@@ -62,6 +65,10 @@ export const paths = {
   // hash-unterordner, zentral in der root (nicht pro library)
   libraryCacheAppDir: (root: string, appId: number) =>
     join(root, "appcache", "librarycache", String(appId)),
+  /** Cover-Kandidat im librarycache/{appId}/<hash>/; der hash-unterordner ist
+   *  der einzige variable Teil (K-04). */
+  libraryCacheHeader: (cacheAppDir: string, hashDir: string) =>
+    join(cacheAppDir, hashDir, LOCAL_HEADER_FILENAME),
 };
 
 export const LOCAL_HEADER_FILENAME = "library_header.jpg";

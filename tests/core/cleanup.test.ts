@@ -78,7 +78,13 @@ describe("findOrphans", () => {
     const { root, fs } = await setup();
     await mkdir(`${root}/steamapps/compatdata/4628710`, { recursive: true });
 
-    const scan = await scanGames(nodeFs(), root, [root], () => "default", null);
+    const scan = await scanGames(
+      nodeFs(),
+      root,
+      [root],
+      () => ({ compatTool: "default", compatToolSource: "default" }),
+      null,
+    );
     expect(scan.blockedAppIds.has(4628710)).toBe(false);
 
     const installed = new Set(scan.games.map((game) => game.appId));
@@ -96,7 +102,13 @@ describe("findOrphans", () => {
       `"AppState"\n{\n\t"appid"\t\t"4628710"\n\t"name"\t\t"Proton 11.0"\n}\n`,
     );
 
-    const scan = await scanGames(nodeFs(), root, [root], () => "default", null);
+    const scan = await scanGames(
+      nodeFs(),
+      root,
+      [root],
+      () => ({ compatTool: "default", compatToolSource: "default" }),
+      null,
+    );
     expect(scan.blockedAppIds.has(4628710)).toBe(true);
 
     const installed = new Set(scan.games.map((game) => game.appId));
@@ -233,6 +245,37 @@ describe("findSteamOwnedPrefixes", () => {
     // beide bekannten verzeichnisse müssen in genau einer liste stecken
     expect(orphanPaths.has(`${root}/steamapps/compatdata/999999`)).toBe(true);
     expect(ownedPaths.has(`${root}/steamapps/compatdata/4628710`)).toBe(true);
+  });
+});
+
+describe("gemeinsamer compat-Iterator (K-05)", () => {
+  it("findOrphans und findSteamOwnedPrefixes wenden dieselben Ausschlüsse an", async () => {
+    // der gemeinsame iterator garantiert, dass claim-rest, symlink,
+    // nicht-numerischer name und datei auf beiden seiten gleich behandelt
+    // werden; ein auseinanderdriften der filter fällt hier auf.
+    const { root, fs, libraries, installedAppIds } = await setup();
+    const blocked = new Set([4628710]);
+    await mkdir(`${root}/steamapps/compatdata/${DELETE_CLAIM_PREFIX}1337`, { recursive: true });
+    await symlink("/etc", `${root}/steamapps/compatdata/symlink_1338`, "dir");
+    await mkdir(`${root}/steamapps/compatdata/nicht-numerisch`, { recursive: true });
+    await writeFile(`${root}/steamapps/compatdata/1339`, "datei statt ordner");
+    await mkdir(`${root}/steamapps/compatdata/4628710`, { recursive: true }); // blocklistet
+    await mkdir(`${root}/steamapps/compatdata/999999`, { recursive: true }); // echtes orphan
+
+    const orphans = await findOrphans(libraries, installedAppIds, blocked, fs);
+    const owned = await findSteamOwnedPrefixes(libraries, blocked, fs);
+
+    const compatdataPaths = [...orphans, ...owned]
+      .map((entry) => entry.path)
+      .filter((path) => path.includes("compatdata"));
+    expect(compatdataPaths).toEqual([
+      `${root}/steamapps/compatdata/999999`,
+      `${root}/steamapps/compatdata/4628710`,
+    ]);
+    expect(
+      orphans.filter((entry) => entry.type === "compatdata").map((entry) => entry.appId),
+    ).toEqual([999999]);
+    expect(owned.map((entry) => entry.appId)).toEqual([4628710]);
   });
 });
 

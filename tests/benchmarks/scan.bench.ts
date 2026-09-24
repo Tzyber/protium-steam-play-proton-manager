@@ -55,7 +55,7 @@ async function measureCalibration(): Promise<number> {
         nodeFs(),
         fixture.root,
         [fixture.root],
-        () => "default",
+        () => ({ compatTool: "default", compatToolSource: "default" }),
         fixture.localConfigText,
       );
       values.push(performance.now() - startedAt);
@@ -82,7 +82,7 @@ async function measureScenario(scenario: ScanPerformanceScenario): Promise<void>
         gamesFs,
         gamesFixture.root,
         [gamesFixture.root],
-        () => "default",
+        () => ({ compatTool: "default", compatToolSource: "default" }),
         gamesFixture.localConfigText,
       );
       measurements.scanGamesMs.push(performance.now() - gamesStartedAt);

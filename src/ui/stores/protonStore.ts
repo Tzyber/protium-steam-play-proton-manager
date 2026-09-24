@@ -8,7 +8,7 @@ import {
   installRelease,
   isManagedGeName,
 } from "../../core/geproton";
-import { joinPath, paths } from "../../core/paths";
+import { paths } from "../../core/paths";
 import type {
   DownloadProgressEvent,
   InstallPhaseEvent,
@@ -376,7 +376,7 @@ export const useProtonStore = defineStore("proton", {
       this.busyRemove = tool.name;
       try {
         // NUR für GE-tools aufrufen (distro-tools gehören dem paketmanager)
-        const toolDir = joinPath(paths.compatToolsDir(steamRoot), tool.name);
+        const toolDir = paths.compatToolDir(steamRoot, tool.name);
         const pending = await tauriPorts.system.prepareDelete({
           targetType: "compatTool",
           path: toolDir,

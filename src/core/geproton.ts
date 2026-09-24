@@ -1,4 +1,4 @@
-import type { Cache, Http, System, TargetArch } from "./ports.js";
+import type { Cache, Http, InstallPhase, System, TargetArch } from "./ports.js";
 
 const RELEASES_URL =
   "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases?per_page=15";
@@ -244,12 +244,12 @@ export async function fetchReleases(
   }
 }
 
-type InstallPhase = "downloading" | "verifying" | "extracting";
-
 interface InstallOpts {
   steamRoot: string;
   release: GeRelease;
   downloadId: string; // korreliert die progress-events
+  /** phases des installers; typ und werteliste kommen aus ports.ts, der
+   *  installer selbst meldet nur "downloading" (K-07). */
   onPhase?: (phase: InstallPhase) => void;
   /** Backend meldet, dass das exakt abgeleitete SHA-Asset mit HTTP 404 fehlt. */
   onWarning?: () => void;

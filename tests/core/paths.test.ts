@@ -11,6 +11,18 @@ describe("paths", () => {
     );
   });
 
+  it("baut Tool-Verzeichnis und Cover-Kandidat als Fabriken (K-04)", () => {
+    // vorher baute die UI den Tool-Pfad per joinPath, cover.ts den Kandidaten
+    // selbst (INV-4). beide Pfade kommen jetzt aus paths.ts.
+    expect(paths.compatToolDir("/home/u/.steam", "GE-Proton9-27")).toBe(
+      "/home/u/.steam/compatibilitytools.d/GE-Proton9-27",
+    );
+    expect(() => paths.compatToolDir("/home/u/.steam", "../.ssh")).toThrow('".." segment rejected');
+    expect(
+      paths.libraryCacheHeader(paths.libraryCacheAppDir("/home/u/.steam", 42), "abc123hash"),
+    ).toBe("/home/u/.steam/appcache/librarycache/42/abc123hash/library_header.jpg");
+  });
+
   it("lehnt Pfadtraversal in joinPath ab", () => {
     expect(() => joinPath("/home/u", "../.ssh")).toThrow('".." segment rejected');
     expect(() => joinPath("/home/u/.steam", "steamapps", "..", "..")).toThrow(

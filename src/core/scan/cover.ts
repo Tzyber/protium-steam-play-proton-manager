@@ -2,7 +2,7 @@
 // `scan/games.ts`: dort läuft der Manifest-Scan, hier nur die Suche nach der
 // heruntergeladenen Kopie im librarycache.
 
-import { joinPath, LOCAL_HEADER_FILENAME, paths } from "../paths.js";
+import { paths } from "../paths.js";
 import type { Ports } from "../ports.js";
 
 /** cover liegt unter librarycache/{appId}/{hash}/; der hash-unterordner ist
@@ -18,7 +18,7 @@ export async function resolveLocalHeader(
     if (!(await fs.exists(dir))) return null;
     for (const entry of await fs.readDir(dir)) {
       if (!entry.isDirectory) continue;
-      const candidate = joinPath(dir, entry.name, LOCAL_HEADER_FILENAME);
+      const candidate = paths.libraryCacheHeader(dir, entry.name);
       if (await fs.exists(candidate)) return candidate;
     }
   } catch {

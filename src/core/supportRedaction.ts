@@ -6,7 +6,7 @@
 import { BLOCKLIST } from "./blocklist.js";
 import { MANAGED_GE_NAME_RE } from "./geproton.js";
 import type { Game, ScanResult } from "./types.js";
-import { MAX_APP_ID } from "./types.js";
+import { isCompatToolSentinel, MAX_APP_ID } from "./types.js";
 
 /** platzhalter für einen compat-tool-namen, der nicht als builtin oder
  *  managed GE-Name belegt ist. */
@@ -45,9 +45,7 @@ export function libraryAlias(game: Game, result: ScanResult): string | null {
   return index < 0 ? null : `<steam-library-${index + 1}>`;
 }
 
-/** echte tool-namen; "default" und "unknown" sind zustände, keine tools. */
+/** echte tool-namen; "default" und "unknown" sind sentinels, keine tools. */
 export function isToolName(value: unknown): value is string {
-  return (
-    typeof value === "string" && value.length > 0 && value !== "default" && value !== "unknown"
-  );
+  return typeof value === "string" && value.length > 0 && !isCompatToolSentinel(value);
 }

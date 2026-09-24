@@ -1,11 +1,27 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { EnvironmentSnapshot, Ports } from "../../src/core/ports.js";
 import { deriveScanCoverage } from "../../src/core/scan/coverage.js";
-import { scanLibrary } from "../../src/core/scan.js";
+import { scanLocal } from "../../src/core/scan/local.js";
+import { enrichProtondb } from "../../src/core/scan/protondb.js";
+import type { ScanResult } from "../../src/core/types.js";
 import { buildFakeSteam, fakeHttp, fakeSystem, memCache, nodeFs } from "../support/fakeSteam";
 
-describe("scanLibrary (integration, dominiks reales setup)", () => {
+// scan.ts/scanLibrary wurde in K-01 entfernt: die produktive Orchestrierung
+// lebt im scanStore, der lokalen Scan und ProtonDB-Nachlauf getrennt hält
+// (sofortiges Resultat + Reststatus/Generations-Guard). Der Integrationstest
+// komponiert beide Phasen hier genauso, mit Delay 0.
+async function scanLibrary(
+  ports: Ports,
+  opts: { environment: EnvironmentSnapshot; protonDbDelayMs?: number },
+): Promise<ScanResult> {
+  const local = await scanLocal(ports, opts.environment);
+  await enrichProtondb(ports, local.games, opts.protonDbDelayMs ?? 0);
+  return { steamRoot: opts.environment.steamRoot, ...local };
+}
+
+describe("voller Scan (integration, dominiks reales setup)", () => {
   it("bricht ohne aktuellen Environment-Root fail-closed ab", async () => {
     await expect(
       scanLibrary(

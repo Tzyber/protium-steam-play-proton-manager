@@ -162,7 +162,28 @@ function ensureCacheDir(): Promise<void> {
   return cacheDirReady;
 }
 function cacheFile(key: string): string {
-  return `${CACHE_SUBDIR}/${key.replace(/[^a-zA-Z0-9._-]/g, "_")}.json`;
+  return `${CACHE_SUBDIR}/${cacheFileHash(key)}.json`;
+}
+
+// Dateiname als Hash des Schlüssels (K-03): die frühere Sanitisierung
+// (`key.replace(/[^a-zA-Z0-9._-]/g, "_")`) ließ "protondb:1" und "protondb_1"
+// in dieselbe Datei fallen und Werte still überschreiben. FNV-1a (64 bit) ist
+// deterministisch und bounded; die Umsetzung ist hier selbst geschrieben, die
+// Konstanten stammen aus der veröffentlichten Spezifikation des Verfahrens.
+// Bereits vorhandene, anders benannte Dateien werden nicht mehr getroffen und
+// wie ein Cache-Miss behandelt; ein unbekannter Dateiname erzeugt bewusst
+// keinen Fehlerpfad.
+const FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
+const FNV_PRIME = 0x100000001b3n;
+const FNV_MASK = 0xffffffffffffffffn;
+const CACHE_KEY_ENCODER = new TextEncoder();
+
+function cacheFileHash(key: string): string {
+  let hash = FNV_OFFSET_BASIS;
+  for (const byte of CACHE_KEY_ENCODER.encode(key)) {
+    hash = ((hash ^ BigInt(byte)) * FNV_PRIME) & FNV_MASK;
+  }
+  return hash.toString(16).padStart(16, "0");
 }
 
 const cache: Cache = {
