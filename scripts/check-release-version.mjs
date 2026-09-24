@@ -32,20 +32,27 @@ function requireText(value, source) {
   return value;
 }
 
-/** @param {unknown} value @param {string} source @returns {string} */
-function requireVersion(value, source) {
+/**
+ * @param {unknown} value
+ * @param {string} source
+ * @param {string} label
+ * @returns {string}
+ */
+function requireField(value, source, label) {
   if (typeof value !== "string" || value.length === 0 || value.trim() !== value) {
-    throw new Error(`${source}: version extraction is empty or ambiguous`);
+    throw new Error(`${source}: ${label} extraction is empty or ambiguous`);
   }
   return value;
 }
 
 /** @param {unknown} value @param {string} source @returns {string} */
+function requireVersion(value, source) {
+  return requireField(value, source, "version");
+}
+
+/** @param {unknown} value @param {string} source @returns {string} */
 function requireName(value, source) {
-  if (typeof value !== "string" || value.length === 0 || value.trim() !== value) {
-    throw new Error(`${source}: name extraction is empty or ambiguous`);
-  }
-  return value;
+  return requireField(value, source, "name");
 }
 
 /** @param {unknown} content @param {string} source @returns {Record<string, unknown>} */

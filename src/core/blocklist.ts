@@ -55,7 +55,7 @@ export const BLOCKLIST: readonly BlockEntry[] = [
 ];
 
 const BLOCKED_IDS = new Set(BLOCKLIST.map((e) => e.appId));
-
+// mutationsbereich: BLOCKLIST_LOGIC_RANGE in stryker.config.mjs bei edits mitziehen.
 // namens-heuristik als zweite verteidigungslinie für nicht gelistete builds.
 const NAME_PREFIXES = [
   "Proton ",

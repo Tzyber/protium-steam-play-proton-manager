@@ -13,9 +13,10 @@ function configStatusLabel(
       return t("support.statusUnreadable");
     case "ambiguous":
       return t("support.statusAmbiguous");
-    // Der Zweig ist trotz erschöpfender Typen erreichbar: ein defektes
-    // Scan-Ergebnis kann einen unbekannten Status tragen (supportText.test.ts
-    // prüft `undefined` und erwartet "unbekannt"/"unknown").
+    // Der Zweig ist erreichbar: `launchConfigStatus` umfasst neben den
+    // ausgeschlossenen auch den Wert "unknown" (und ein defektes Scan-Ergebnis
+    // kann ihn tragen). supportText.test.ts prüft `undefined` und erwartet
+    // "unbekannt"/"unknown".
     default:
       return t("support.unknown");
   }

@@ -177,16 +177,11 @@ impl EnvironmentState {
     }
 
     pub(crate) fn current(&self) -> Result<EnvironmentSnapshot, String> {
-        self.current
+        let current = self
+            .current
             .lock()
-            .map_err(|_| "environment snapshot lock poisoned".to_string())?
-            .clone()
-            .ok_or_else(|| {
-                errcode::with_detail(
-                    errcode::UNAVAILABLE,
-                    "steam environment has not been discovered",
-                )
-            })
+            .map_err(|_| "environment snapshot lock poisoned".to_string())?;
+        Ok(require_snapshot(&current)?.clone())
     }
 
     fn lock_current(&self) -> Result<MutexGuard<'_, Option<EnvironmentSnapshot>>, String> {
@@ -208,7 +203,7 @@ impl EnvironmentState {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound && allow_missing => None,
             Err(error) => {
                 return Err(errcode::with_detail(
-                    authorization_error_code(&error),
+                    errcode::code_for_io(&error),
                     format!("{label}: {error}"),
                 ));
             }
@@ -221,10 +216,7 @@ impl EnvironmentState {
 
         let canonical = if metadata.is_some() {
             fs::canonicalize(raw_path).map_err(|error| {
-                errcode::with_detail(
-                    authorization_error_code(&error),
-                    format!("{label}: {error}"),
-                )
+                errcode::with_detail(errcode::code_for_io(&error), format!("{label}: {error}"))
             })?
         } else {
             canonicalize_nearest_ancestor(raw_path, label)?
@@ -266,12 +258,7 @@ impl EnvironmentState {
         // Der blocking worker hält diesen Guard bis nach dem Dateizugriff;
         // Discovery kann alte Snapshot-Authorität nicht währenddessen fortsetzen.
         let current = self.lock_current()?;
-        let snapshot = current.as_ref().ok_or_else(|| {
-            errcode::with_detail(
-                errcode::UNAVAILABLE,
-                "steam environment has not been discovered",
-            )
-        })?;
+        let snapshot = require_snapshot(&current)?;
         let authorized = Self::authorize_path_with_status(snapshot, raw, label, allow_missing)?;
         operation(authorized)
     }
@@ -298,12 +285,7 @@ impl EnvironmentState {
         F: FnOnce(Option<PathBuf>) -> Result<T, String>,
     {
         let current = self.lock_current()?;
-        let snapshot = current.as_ref().ok_or_else(|| {
-            errcode::with_detail(
-                errcode::UNAVAILABLE,
-                "steam environment has not been discovered",
-            )
-        })?;
+        let snapshot = require_snapshot(&current)?;
         let authorized = Self::authorize_path_with_status(snapshot, raw, label, true)?;
         operation(authorized.exists.then_some(authorized.real))
     }
@@ -313,12 +295,7 @@ impl EnvironmentState {
         F: FnOnce(PathBuf) -> Result<T, String>,
     {
         let current = self.lock_current()?;
-        let snapshot = current.as_ref().ok_or_else(|| {
-            errcode::with_detail(
-                errcode::UNAVAILABLE,
-                "steam environment has not been discovered",
-            )
-        })?;
+        let snapshot = require_snapshot(&current)?;
         let real = Self::authorize_path_against(snapshot, raw, "library path", false)?;
         if !snapshot.libraries.iter().any(|library| library == &real) {
             return Err(errcode::with_detail(
@@ -337,12 +314,7 @@ impl EnvironmentState {
         raw_steam_root: &str,
     ) -> Result<(PathBuf, PathBuf), String> {
         let current = self.lock_current()?;
-        let snapshot = current.as_ref().ok_or_else(|| {
-            errcode::with_detail(
-                errcode::UNAVAILABLE,
-                "steam environment has not been discovered",
-            )
-        })?;
+        let snapshot = require_snapshot(&current)?;
         let steam_root =
             Self::authorize_path_against(snapshot, raw_steam_root, "steam root", false)?;
         if steam_root != snapshot.steam_root {
@@ -396,12 +368,7 @@ impl EnvironmentState {
         F: FnOnce() -> Result<T, String>,
     {
         let current = self.lock_current()?;
-        let snapshot = current.as_ref().ok_or_else(|| {
-            errcode::with_detail(
-                errcode::UNAVAILABLE,
-                "steam environment has not been discovered",
-            )
-        })?;
+        let snapshot = require_snapshot(&current)?;
         if snapshot.steam_root != steam_root || tools_dir != steam_root.join("compatibilitytools.d")
         {
             return Err(errcode::with_detail(
@@ -428,12 +395,7 @@ impl EnvironmentState {
     {
         // Batch-Autorisierung und alle Größenläufe bilden eine Generation.
         let current = self.lock_current()?;
-        let snapshot = current.as_ref().ok_or_else(|| {
-            errcode::with_detail(
-                errcode::UNAVAILABLE,
-                "steam environment has not been discovered",
-            )
-        })?;
+        let snapshot = require_snapshot(&current)?;
         let mut authorized = Vec::with_capacity(paths.len());
         for path in paths {
             let authorized_path =
@@ -456,12 +418,7 @@ impl EnvironmentState {
     #[cfg(test)]
     pub(crate) fn authorize_for_test(&self, path: &Path) -> Result<PathBuf, String> {
         let current = self.lock_current()?;
-        let snapshot = current.as_ref().ok_or_else(|| {
-            errcode::with_detail(
-                errcode::UNAVAILABLE,
-                "steam environment has not been discovered",
-            )
-        })?;
+        let snapshot = require_snapshot(&current)?;
         Self::authorize_path_against(snapshot, &path.to_string_lossy(), "test", true)
     }
 
@@ -469,12 +426,7 @@ impl EnvironmentState {
     pub(crate) fn exists_for_test(&self, path: &Path) -> Result<bool, String> {
         let raw = path.to_string_lossy();
         let current = self.lock_current()?;
-        let snapshot = current.as_ref().ok_or_else(|| {
-            errcode::with_detail(
-                errcode::UNAVAILABLE,
-                "steam environment has not been discovered",
-            )
-        })?;
+        let snapshot = require_snapshot(&current)?;
         Self::authorize_path_against(snapshot, &raw, "exists", true)?;
         match fs::symlink_metadata(path) {
             Ok(metadata) if !metadata.file_type().is_symlink() => Ok(true),
@@ -506,15 +458,17 @@ impl EnvironmentState {
     }
 }
 
-/// Autorisierungsfehler eines Stat/Canonicalize: belegte abwesenheit ist
-/// `NOT_FOUND` (INV-2: nur das darf still übersprungen werden), jeder andere
-/// io-fehler `UNREADABLE`.
-fn authorization_error_code(error: &std::io::Error) -> &'static str {
-    if error.kind() == std::io::ErrorKind::NotFound {
-        errcode::NOT_FOUND
-    } else {
-        errcode::UNREADABLE
-    }
+/// belegter snapshot oder der eine UNAVAILABLE-fehler aller scope-pfade; text
+/// und code stehen hier genau einmal.
+fn require_snapshot(
+    snapshot: &Option<EnvironmentSnapshot>,
+) -> Result<&EnvironmentSnapshot, String> {
+    snapshot.as_ref().ok_or_else(|| {
+        errcode::with_detail(
+            errcode::UNAVAILABLE,
+            "steam environment has not been discovered",
+        )
+    })
 }
 
 fn reject_symlink_components(path: &Path, include_leaf: bool, label: &str) -> Result<(), String> {

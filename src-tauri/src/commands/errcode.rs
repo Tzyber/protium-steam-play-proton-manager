@@ -80,6 +80,16 @@ pub(crate) fn remap_size_limit(error: String, detail: impl std::fmt::Display) ->
     }
 }
 
+/// io-regel fuer belegte abwesenheit: `NotFound` ist `NOT_FOUND` (INV-2: nur das
+/// darf still uebersprungen werden), jeder andere io-fehler `UNREADABLE`.
+pub(crate) fn code_for_io(error: &std::io::Error) -> &'static str {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        NOT_FOUND
+    } else {
+        UNREADABLE
+    }
+}
+
 /// Alle Codes dieser Datei. Die Liste ist die Vollstaendigkeitsklammer fuer
 /// die Frage "ist das ein bekannter Code?": driftet eine Konstante gegen sie,
 /// faellt das im Test `all_codes_spiegelt_jede_code_konstante_der_datei` auf.

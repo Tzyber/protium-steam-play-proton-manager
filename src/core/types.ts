@@ -96,7 +96,10 @@ export type CompatToolSource = "explicit" | "default" | "unavailable";
 
 /** String-Sentinels, die in `compatTool` stehen können, aber keinen echten
  *  tool-namen bezeichnen: "default" = globaler Standard, "unknown" = keine
- *  aussage (config unlesbar). Zentrale liste gegen drift (K-06). */
+ *  aussage (config unlesbar). Gemeinsame quelle für `isCompatToolSentinel`
+ *  (genutzt von `supportRedaction`); `scan/games.ts` und `scan/local.ts` führen
+ *  die werte weiterhin literal, ein drift-schutz über alle aufrufer ist das
+ *  nicht (K-06). */
 export const COMPAT_TOOL_SENTINELS = ["default", "unknown"] as const;
 export type CompatToolSentinel = (typeof COMPAT_TOOL_SENTINELS)[number];
 

@@ -1,16 +1,9 @@
-// Rust-Commands für Operationen außerhalb des Webviews.
+// rust-commands für operationen außerhalb des webviews.
 //
-// Die Anwendung ist Linux-only; gebaut und geprüft wird ausschließlich
-// `target_os = "linux"`. Die `#[cfg(not(target_os = "linux"))]`-Zweige sind
-// Fehlerstummel, die fail-closed verweigern statt zu degradieren, und dürfen
-// nie als funktionierende Degradation gelesen werden.
-//
-// Ob diese Zweige auf einem Fremdhost überhaupt vollständig kompilieren, ist
-// NICHT belegt: ein `cargo check` für ein Fremdziel wurde nie ausgeführt (er
-// erzeugte hier Fremd-Build-Artefakte). Der frühere Kommentar behauptete genau
-// das und war damit unbelegt (r-12). Die linux-unabhängigen Importe sind
-// deshalb so bedingt, dass Linux-Builds gültig bleiben; weitergehende
-// Fremdziel-Pflege ist bewusst nicht zugesagt.
+// die anwendung ist linux-only; gebaut und geprüft wird ausschließlich
+// `target_os = "linux"`. die `#[cfg(not(target_os = "linux"))]`-zweige sind
+// fail-closed fehlerstummel statt degradation; ob sie auf einem fremdziel
+// vollständig kompilieren, ist nicht belegt (r-12).
 
 pub(crate) mod cleanup;
 pub(crate) mod compat_auth;

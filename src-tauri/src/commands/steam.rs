@@ -62,12 +62,7 @@ fn read_config_text_bounded(path: &Path, label: &str) -> Result<String, String> 
     let parent_fd = open_bound_root_fd(parent, &mut || {})
         .map_err(|error| errcode::with_context(label, &error))?;
     let mut file = open_file_at(parent_fd.as_raw_fd(), file_name).map_err(|error| {
-        let code = if error.kind() == io::ErrorKind::NotFound {
-            errcode::NOT_FOUND
-        } else {
-            errcode::UNREADABLE
-        };
-        errcode::with_detail(code, format!("{label}: {error}"))
+        errcode::with_detail(errcode::code_for_io(&error), format!("{label}: {error}"))
     })?;
     read_fd_text(&mut file, label, MAX_CONFIG_VDF_BYTES)
 }
