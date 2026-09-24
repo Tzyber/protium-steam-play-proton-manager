@@ -13,7 +13,9 @@ use std::os::fd::{AsRawFd, OwnedFd};
 
 use crate::commands::compat_auth::is_managed_ge_name;
 #[cfg(target_os = "linux")]
-use crate::commands::compat_auth::open_external_library_fd_with_hook;
+use crate::commands::compat_auth::{
+    open_external_library_fd_with_hook, read_app_manifest_with_hook, ManifestStage,
+};
 #[cfg(target_os = "linux")]
 use crate::commands::errcode;
 use crate::commands::fd::{open_bound_root_fd, open_dir_at, open_file_at};
@@ -49,10 +51,10 @@ pub struct DeletionInspection {
 /// 16-MiB-caps der übrigen environment-reads).
 const MAX_SHORTCUTS_VDF_BYTES: u64 = crate::commands::scope::MAX_VDF_READ_BYTES;
 
-/// Caps für die delete-pipeline-reads: appmanifeste (analog 1-MiB-read im
-/// valve-pfad) und config.vdf. ohne cap könnte eine präparierte datei jeden
-/// löschversuch in eine voll-allokation (oom) treiben.
-const MAX_DELETE_MANIFEST_BYTES: u64 = 1024 * 1024;
+/// Caps für die delete-pipeline-reads: config.vdf. Der appmanifest-Deckel
+/// liegt als einziger in `compat_auth::MAX_MANIFEST_BYTES` (r-05). Ohne cap
+/// könnte eine präparierte datei jeden löschversuch in eine voll-allokation
+/// (oom) treiben.
 const MAX_DELETE_CONFIG_BYTES: u64 = crate::commands::scope::MAX_VDF_READ_BYTES;
 
 #[cfg(not(target_os = "linux"))]
@@ -165,50 +167,33 @@ where
             let file_id = crate::commands::scope::parse_app_id(id_part)
                 .map_err(|_| format!("invalid app manifest filename: {name_string}"))?;
 
-            hook(DeleteReadStage::ManifestBeforeOpen, None);
-            let mut manifest = match open_file_at(steamapps_fd.as_raw_fd(), &name) {
-                Ok(file) => file,
-                // manifest zwischen read_dir und openat verschwunden: skip
-                // (INV-2) statt fail, die löschpipeline revalidiert das ziel
-                // ohnehin erneut und der claim bindet die identität.
-                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-                Err(error) => {
-                    return Err(format!("cannot open manifest {name_string}: {error}"));
+            // Skip (manifest zwischen read_dir und openat verschwunden, INV-2)
+            // und fail-closed (Mismatch, Lesefehler) bleiben Politik dieses
+            // Aufrufers; der gemeinsame reader (r-05) liest nur ein Manifest.
+            let mut manifest_hook =
+                |stage: ManifestStage, file: Option<&mut std::fs::File>| match stage {
+                    ManifestStage::BeforeOpen => hook(DeleteReadStage::ManifestBeforeOpen, None),
+                    ManifestStage::AfterOpen => hook(DeleteReadStage::ManifestAfterOpen, file),
+                    ManifestStage::BeforeRead => hook(DeleteReadStage::ManifestBeforeRead, file),
+                };
+            match read_app_manifest_with_hook(
+                steamapps_fd.as_raw_fd(),
+                &name,
+                file_id,
+                &mut manifest_hook,
+            ) {
+                Ok(Some(identity)) if identity.app_id == app_id => {
+                    return Ok(Some(identity.name.unwrap_or_default()));
                 }
-            };
-            hook(DeleteReadStage::ManifestAfterOpen, Some(&mut manifest));
-            let content = read_fd_text_with_hook(
-                &mut manifest,
-                &format!("manifest {name_string}"),
-                MAX_DELETE_MANIFEST_BYTES,
-                hook,
-                DeleteReadStage::ManifestBeforeRead,
-            )
-            .map_err(|error| {
+                Ok(Some(_)) | Ok(None) => continue,
                 // Code erhalten: die Oberflaeche uebersetzt den Grund, das
                 // Detail (welche Datei) bleibt im Protokoll.
-                errcode::remap_size_limit(error, format!("manifest {name_string}"))
-            })?;
-            let internal_id = match vdf_patch::get_vdf_value(&content, &["AppState", "appid"])
-                .map_err(|error| format!("cannot parse manifest {name_string}: {error}"))?
-            {
-                Some(value) => value,
-                None => vdf_patch::get_vdf_value(&content, &["AppState", "AppId"])
-                    .map_err(|error| format!("cannot parse manifest {name_string}: {error}"))?
-                    .ok_or_else(|| format!("manifest {name_string} has no AppState appid"))?,
-            };
-            let internal_id = crate::commands::scope::parse_app_id(internal_id.trim())
-                .map_err(|_| format!("manifest {name_string} has invalid appid"))?;
-            if file_id != internal_id {
-                return Err(format!(
-                    "manifest {name_string} filename/appid mismatch ({file_id} != {internal_id})"
-                ));
-            }
-            if internal_id == app_id {
-                let game_name = vdf_patch::get_vdf_value(&content, &["AppState", "name"])
-                    .map_err(|error| format!("cannot parse manifest name {name_string}: {error}"))?
-                    .unwrap_or_default();
-                return Ok(Some(game_name));
+                Err(error) => {
+                    return Err(errcode::remap_size_limit(
+                        error.into_message(),
+                        format!("manifest {name_string}"),
+                    ));
+                }
             }
         }
     }

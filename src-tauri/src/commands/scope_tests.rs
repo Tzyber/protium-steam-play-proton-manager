@@ -885,3 +885,28 @@ fn environment_exists_statet_den_roheingabepfad_nicht_erneut() {
         "der roheingabepfad darf nicht erneut gestatet werden"
     );
 }
+
+/// r-06: die libraryfolders-Lesekette (Suchreihenfolge `config`/`steamapps`)
+/// existiert nur noch einmal. Belegt quelltext-statisch, dass `compat_auth`
+/// seine eigene Kette abgegeben hat und die geteilte Primitive in `scope`
+/// nutzt. Gelesen werden die Produktionsquellen (Testmodule sind ausgelagert).
+#[test]
+fn libraryfolders_lesekette_existiert_nur_einmal() {
+    let scope = production_source(include_str!("scope.rs"));
+    let compat = production_source(include_str!("compat_auth.rs"));
+    let order = "[\"config\", \"steamapps\"]";
+    assert_eq!(
+        scope.matches(order).count(),
+        1,
+        "die suchreihenfolge muss genau einmal in scope.rs stehen"
+    );
+    assert_eq!(
+        compat.matches(order).count(),
+        0,
+        "compat_auth darf die suchreihenfolge nicht mehr selbst aufbauen"
+    );
+    assert!(
+        compat.contains("libraryfolders_contents_from_root_fd"),
+        "compat_auth muss die geteilte Primitive nutzen"
+    );
+}

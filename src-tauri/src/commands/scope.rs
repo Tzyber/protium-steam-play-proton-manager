@@ -17,7 +17,7 @@ use std::ffi::OsStr;
 #[cfg(target_os = "linux")]
 use std::io;
 #[cfg(target_os = "linux")]
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, OwnedFd};
 
 /// Obergrenze für gedeckelte Steam-Datei-Reads (16 MiB). Alle Lesepfade, die
 /// eine fremde Datei in den Speicher holen, hängen an diesem einen Wert; die
@@ -600,6 +600,57 @@ pub(super) fn parse_library_folder_paths(text: &str) -> Result<Vec<PathBuf>, Str
     Ok(paths)
 }
 
+/// Zeitpunkte der fd-gebundenen `libraryfolders.vdf`-Lesekette (r-06). Beide
+/// Aufrufer (Discovery in `scope`, Valve-Autorität in `compat_auth`) bilden
+/// ihre bisherigen Testhaken darauf ab, ohne die Zeitpunkte zu verschieben.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum LibraryFoldersStage {
+    /// ein Kandidatenverzeichnis (config/steamapps) ist am Deskriptor offen
+    DirectoryOpened,
+    /// `libraryfolders.vdf` ist am Deskriptor offen, vor dem Lesen
+    FileOpened,
+}
+
+/// Die eine fd-gebundene Lesekette für `libraryfolders.vdf` (r-06): dieselbe
+/// Suchreihenfolge `config`/`steamapps`, dieselbe no-follow-Deskriptorkette und
+/// derselbe Cap wie die Discovery. Sie liegt in `scope`, weil Suchreihenfolge,
+/// `MAX_VDF_READ_BYTES` und der Parser `parse_library_folder_paths` hier
+/// verankert sind; `compat_auth` ist nur ein Konsument derselben Datei.
+///
+/// Rückgabeform für beide Aufrufer: `Ok(Some(text))` = Datei gelesen,
+/// `Ok(None)` = keine Datei, aber `steamapps` vorhanden (Root-Fallback), `Err`
+/// = harter Fehler (weder config noch steamapps, oder unlesbar).
+#[cfg(target_os = "linux")]
+pub(super) fn libraryfolders_contents_from_root_fd(
+    root_fd: &OwnedFd,
+    hook: &mut dyn FnMut(LibraryFoldersStage),
+) -> Result<Option<String>, String> {
+    const NAME: &str = "libraryfolders.vdf";
+    const LABEL: &str = "libraryfolders.vdf";
+
+    for directory in ["config", "steamapps"] {
+        let parent_fd = match open_dir_at(root_fd.as_raw_fd(), OsStr::new(directory)) {
+            Ok(fd) => fd,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("{LABEL}: {error}")),
+        };
+        hook(LibraryFoldersStage::DirectoryOpened);
+        let mut file = match open_file_at(parent_fd.as_raw_fd(), OsStr::new(NAME)) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(libraryfolders_open_error(error)),
+        };
+        hook(LibraryFoldersStage::FileOpened);
+        let content = crate::commands::fd::read_fd_text(&mut file, LABEL, MAX_VDF_READ_BYTES)?;
+        return Ok(Some(content));
+    }
+    if open_dir_at(root_fd.as_raw_fd(), OsStr::new("steamapps")).is_err() {
+        return Err(format!("{LABEL}: no config or steamapps directory"));
+    }
+    Ok(None)
+}
+
 /// Liest `libraryfolders.vdf` über die gebundene no-follow-Deskriptorkette
 /// (S-2): Root und Unterverzeichnis werden als Deskriptor gebunden, die Datei
 /// per `openat(O_NOFOLLOW|O_NONBLOCK)` geöffnet und erst am Deskriptor auf
@@ -614,30 +665,12 @@ fn libraryfolders_contents_with_hook<F>(
 where
     F: FnMut(),
 {
-    const NAME: &str = "libraryfolders.vdf";
-    const LABEL: &str = "libraryfolders.vdf";
-
     let root_fd = open_bound_root_fd(steam_root, &mut || {})?;
-    for directory in ["config", "steamapps"] {
-        let parent_fd = match open_dir_at(root_fd.as_raw_fd(), OsStr::new(directory)) {
-            Ok(fd) => fd,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(format!("{LABEL}: {error}")),
-        };
-        hook();
-        let mut file = match open_file_at(parent_fd.as_raw_fd(), OsStr::new(NAME)) {
-            Ok(file) => file,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(libraryfolders_open_error(error)),
-        };
-        let content =
-            crate::commands::fd::read_fd_text(&mut file, LABEL, MAX_ENVIRONMENT_READ_BYTES)?;
-        return Ok(Some(content));
-    }
-    if open_dir_at(root_fd.as_raw_fd(), OsStr::new("steamapps")).is_err() {
-        return Err(format!("{LABEL}: no config or steamapps directory"));
-    }
-    Ok(None)
+    libraryfolders_contents_from_root_fd(&root_fd, &mut |stage| {
+        if stage == LibraryFoldersStage::DirectoryOpened {
+            hook();
+        }
+    })
 }
 
 #[cfg(target_os = "linux")]

@@ -1,4 +1,5 @@
 use super::*;
+use crate::commands::compat_auth::MAX_MANIFEST_BYTES;
 use crate::commands::fd::open_bound_root_fd;
 use crate::commands::shortcuts_bin::make_test_bin_shortcuts;
 use crate::commands::test_util::wsg_fixture;
@@ -97,7 +98,7 @@ fn uebergrosses_manifest_blockiert_delete_inspektion() {
     let lib = root.join("lib");
     let steamapps = lib.join("steamapps");
     std::fs::create_dir_all(&steamapps).unwrap();
-    let oversized = vec![b'x'; (MAX_DELETE_MANIFEST_BYTES + 1) as usize];
+    let oversized = vec![b'x'; (MAX_MANIFEST_BYTES + 1) as usize];
     std::fs::write(steamapps.join("appmanifest_570.acf"), oversized).unwrap();
 
     let error = is_app_installed_in_libraries(&[lib], 570).unwrap_err();
@@ -139,7 +140,7 @@ fn delete_reads_begrenzen_wachstum_nach_fd_pruefung() {
                 .write(true)
                 .open(&manifest_path)
                 .unwrap()
-                .set_len(MAX_DELETE_MANIFEST_BYTES + 1)
+                .set_len(MAX_MANIFEST_BYTES + 1)
                 .unwrap();
         }
     };
@@ -222,7 +223,7 @@ fn manifest_read_bleibt_am_geoeffneten_fd_bei_pfadtausch() {
             std::fs::rename(&before_path, old).unwrap();
             std::fs::File::create(&before_path)
                 .unwrap()
-                .set_len(MAX_DELETE_MANIFEST_BYTES + 1)
+                .set_len(MAX_MANIFEST_BYTES + 1)
                 .unwrap();
         }
     };

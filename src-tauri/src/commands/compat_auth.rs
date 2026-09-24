@@ -7,10 +7,12 @@
 #[cfg(target_os = "linux")]
 use crate::commands::errcode;
 use crate::commands::fd::{
-    fd_identity, open_absolute_dir, open_bound_root_fd, open_dir_at, open_file_at, read_fd_text,
-    FdIdentity,
+    fd_identity, open_absolute_dir, open_bound_root_fd, open_dir_at, open_file_at, read_fd_bytes,
+    read_fd_text, FdIdentity,
 };
-use crate::commands::scope::{MAX_VDF_READ_BYTES, SYSTEM_COMPAT_DIRS};
+#[cfg(target_os = "linux")]
+use crate::commands::scope::LibraryFoldersStage;
+use crate::commands::scope::SYSTEM_COMPAT_DIRS;
 use crate::commands::vdf_patch;
 #[cfg(target_os = "linux")]
 use std::ffi::OsStr;
@@ -22,9 +24,11 @@ use std::io;
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::path::{Path, PathBuf};
 
-/// Deckel für appmanifest-reads in der Autorität (1 MiB, wie im
-/// delete-pfad): appmanifeste sind klein, eine übergrosse datei ist präpariert.
-const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+/// Der eine Deckel für appmanifest-reads (1 MiB), geteilt von der
+/// Valve-Autorität und der delete-inspektion: appmanifeste sind klein, eine
+/// übergrosse datei ist präpariert. Der frühere doppelte cap
+/// (`MAX_DELETE_MANIFEST_BYTES`) ist entfallen (r-05).
+pub(super) const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 
 // Die Webview-Blocklist ist keine Autorität; diese Tabelle bindet Valve-Namen
 // an ihre Steam-App, deren Manifest danach frisch aus den Libraries gelesen wird.
@@ -180,31 +184,25 @@ fn read_library_folders_from_root_fd<F>(
 where
     F: FnMut(u8),
 {
-    // dieselbe grenze wie die Discovery (MAX_VDF_READ_BYTES): beide lesen
-    // dieselbe datei. Mit dem früheren 1-MiB-cap scheiterte diese autorisierung
-    // an einer datei, die die Discovery vollständig gelesen hatte, sichtbar
-    // (kein stiller fallback; der greift nur, wenn die datei ganz fehlt).
+    // r-06: dieselbe Suchreihenfolge, dasselbe Cap und derselbe
+    // steamapps-Fallback wie die Discovery, geteilt über die eine fd-Kette in
+    // `scope::libraryfolders_contents_from_root_fd`. Der frühere eigene 1-MiB-cap
+    // (eine datei zwischen 1 und 16 MiB ließ diese autorisierung sichtbar
+    // scheitern, obwohl die Discovery sie vollständig las) ist damit entfallen.
+    // hook(1) bleibt der Start-Haken (Root-Tausch), hook(2) der Open-Haken.
     hook(1);
-    for directory in ["config", "steamapps"] {
-        let directory_fd = match open_dir_at(steam_root_fd.as_raw_fd(), OsStr::new(directory)) {
-            Ok(fd) => fd,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(format!("cannot open Steam {directory}: {error}")),
-        };
-        let mut file =
-            match open_file_at(directory_fd.as_raw_fd(), OsStr::new("libraryfolders.vdf")) {
-                Ok(file) => file,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-                Err(error) => return Err(format!("cannot open libraryfolders.vdf: {error}")),
-            };
-        hook(2);
-        let text = read_fd_text(&mut file, "libraryfolders.vdf", MAX_VDF_READ_BYTES)?;
-        return crate::commands::scope::parse_library_folder_paths(&text);
+    let mut libraryfolders_hook = |stage: LibraryFoldersStage| {
+        if stage == LibraryFoldersStage::FileOpened {
+            hook(2);
+        }
+    };
+    match crate::commands::scope::libraryfolders_contents_from_root_fd(
+        steam_root_fd,
+        &mut libraryfolders_hook,
+    )? {
+        Some(text) => crate::commands::scope::parse_library_folder_paths(&text),
+        None => Ok(vec![steam_root.to_path_buf()]),
     }
-    if open_dir_at(steam_root_fd.as_raw_fd(), OsStr::new("steamapps")).is_ok() {
-        return Ok(vec![steam_root.to_path_buf()]);
-    }
-    Err("steam root has no steamapps directory and no libraryfolders.vdf".into())
 }
 
 #[cfg(target_os = "linux")]
@@ -250,11 +248,97 @@ pub(super) enum ManifestReadError {
 
 #[cfg(target_os = "linux")]
 impl ManifestReadError {
-    fn into_message(self) -> String {
+    pub(super) fn into_message(self) -> String {
         match self {
             Self::Blocked(message) | Self::Unreadable(message) => message,
         }
     }
+}
+
+/// Zeitpunkte des einen Manifest-Readers (r-05). `delete_inspect` bildet alle
+/// drei auf seine `DeleteReadStage` ab, die Valve-Autorität nur `AfterOpen` auf
+/// ihren Hook-kanal 4; die Zeitpunkte bleiben je Aufrufer unverändert.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ManifestStage {
+    BeforeOpen,
+    AfterOpen,
+    BeforeRead,
+}
+
+/// Identität eines gelesenen Manifests: die interne AppID (nach
+/// Dateiname-/AppID-Prüfung) und der optionale Anzeigename.
+#[cfg(target_os = "linux")]
+pub(super) struct ManifestIdentity {
+    pub(super) app_id: u32,
+    pub(super) name: Option<String>,
+}
+
+/// Liest genau ein `appmanifest_<id>.acf` aus einem bereits gebundenen
+/// steamapps-Deskriptor (r-05): no-follow-Open, gedeckelter Read, AppID inkl.
+/// „AppId“-Fallback, Dateiname-/AppID-Mismatch. `file_id` ist die aus dem
+/// Dateinamen gelesene ID, an der der innere `appid` geprüft wird. Die Politik
+/// (Skip vs. fail-closed, Hook-Zeitpunkte) bleibt beim Aufrufer; `Ok(None)`
+/// heißt „Manifest fehlt/für diese App nicht vorhanden“.
+#[cfg(target_os = "linux")]
+pub(super) fn read_app_manifest_with_hook(
+    steamapps_fd: RawFd,
+    manifest_name: &OsStr,
+    file_id: u32,
+    hook: &mut dyn FnMut(ManifestStage, Option<&mut std::fs::File>),
+) -> Result<Option<ManifestIdentity>, ManifestReadError> {
+    let manifest_name = manifest_name.to_string_lossy();
+    hook(ManifestStage::BeforeOpen, None);
+    let mut manifest = match open_file_at(steamapps_fd, OsStr::new(manifest_name.as_ref())) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            let message = format!("cannot open manifest {manifest_name}: {error}");
+            return Err(
+                if matches!(error.raw_os_error(), Some(libc::ELOOP | libc::ENOTDIR)) {
+                    ManifestReadError::Blocked(message)
+                } else {
+                    ManifestReadError::Unreadable(message)
+                },
+            );
+        }
+    };
+    hook(ManifestStage::AfterOpen, Some(&mut manifest));
+    let unreadable = ManifestReadError::Unreadable;
+    let label = format!("manifest {manifest_name}");
+    let bytes = read_fd_bytes(&mut manifest, &label, MAX_MANIFEST_BYTES, &mut |file| {
+        hook(ManifestStage::BeforeRead, Some(file));
+    })
+    .map_err(unreadable)?;
+    let content = String::from_utf8(bytes).map_err(|error| {
+        unreadable(errcode::with_detail(
+            errcode::UNREADABLE,
+            format!("cannot read {label}: {error}"),
+        ))
+    })?;
+    let parse_error = |error| unreadable(format!("cannot parse manifest {manifest_name}: {error}"));
+    let internal_id = vdf_patch::get_vdf_value(&content, &["AppState", "appid"])
+        .map_err(parse_error)?
+        .or(vdf_patch::get_vdf_value(&content, &["AppState", "AppId"]).map_err(parse_error)?)
+        .ok_or_else(|| unreadable(format!("manifest {manifest_name} has no AppState appid")))?;
+    let internal_id = crate::commands::scope::parse_app_id(internal_id.trim())
+        .map_err(|_| unreadable(format!("manifest {manifest_name} has invalid appid")))?;
+    if internal_id != file_id {
+        return Err(ManifestReadError::Blocked(format!(
+            "manifest {manifest_name} filename/appid mismatch ({file_id} != {internal_id})"
+        )));
+    }
+    // der name wird erst nach belegter identität gelesen; die lookup-region ist
+    // dieselbe wie bei `appid`, ein parsefehler hätte also schon dort gezogen.
+    let name = vdf_patch::get_vdf_value(&content, &["AppState", "name"]).map_err(|error| {
+        unreadable(format!(
+            "cannot parse manifest name {manifest_name}: {error}"
+        ))
+    })?;
+    Ok(Some(ManifestIdentity {
+        app_id: internal_id,
+        name,
+    }))
 }
 
 #[cfg(target_os = "linux")]
@@ -267,39 +351,24 @@ where
     F: FnMut(u8),
 {
     let manifest_name = format!("appmanifest_{app_id}.acf");
-    let mut manifest = match open_file_at(steamapps_fd, OsStr::new(&manifest_name)) {
-        Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => {
-            let message = format!("cannot open {manifest_name}: {error}");
-            return Err(
-                if matches!(error.raw_os_error(), Some(libc::ELOOP | libc::ENOTDIR)) {
-                    ManifestReadError::Blocked(message)
-                } else {
-                    ManifestReadError::Unreadable(message)
-                },
-            );
-        }
-    };
-    hook(4);
-    let unreadable = ManifestReadError::Unreadable;
     // appmanifeste sind klein; dasselbe limit wie im valve-pfad
     // (delete_inspect), nicht das 16-MiB-limit der config-dateien.
-    let content =
-        read_fd_text(&mut manifest, &manifest_name, MAX_MANIFEST_BYTES).map_err(unreadable)?;
-    let parse_error = |error| unreadable(format!("cannot parse manifest {manifest_name}: {error}"));
-    let internal_id = vdf_patch::get_vdf_value(&content, &["AppState", "appid"])
-        .map_err(parse_error)?
-        .or(vdf_patch::get_vdf_value(&content, &["AppState", "AppId"]).map_err(parse_error)?)
-        .ok_or_else(|| unreadable(format!("manifest {manifest_name} has no AppState appid")))?;
-    let internal_id = crate::commands::scope::parse_app_id(internal_id.trim())
-        .map_err(|_| unreadable(format!("manifest {manifest_name} has invalid appid")))?;
-    if internal_id != app_id {
-        return Err(ManifestReadError::Blocked(format!(
-            "manifest {manifest_name} filename/appid mismatch ({app_id} != {internal_id})"
-        )));
+    let mut manifest_hook = |stage: ManifestStage, _file: Option<&mut std::fs::File>| {
+        if stage == ManifestStage::AfterOpen {
+            hook(4);
+        }
+    };
+    match read_app_manifest_with_hook(
+        steamapps_fd,
+        OsStr::new(&manifest_name),
+        app_id,
+        &mut manifest_hook,
+    )? {
+        // der dateiname-/appid-mismatch ist im reader bereits fail-closed, ein
+        // vorhandenes manifest belegt die identität also schon.
+        Some(_) => Ok(true),
+        None => Ok(false),
     }
-    Ok(true)
 }
 
 #[cfg(target_os = "linux")]
