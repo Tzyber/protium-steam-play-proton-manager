@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
+import type { SortDir, SortKey } from "../../core/filter";
 import type { CompatToolSource, Tier } from "../../core/types";
-import type { SortDir, SortKey } from "../filter";
 
 interface State {
   search: string;

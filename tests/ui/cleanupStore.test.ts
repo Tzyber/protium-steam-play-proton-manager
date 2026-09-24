@@ -59,11 +59,16 @@ const {
   mockIsProcessRunning: vi.fn(async () => false),
 }));
 
-vi.mock("../../src/core/cleanup", () => ({
-  findOrphans: mockFindOrphans,
-  findIncompleteDeletions: mockFindIncompleteDeletions,
-  findSteamOwnedPrefixes: mockFindSteamOwnedPrefixes,
-}));
+vi.mock("../../src/core/cleanup", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/core/cleanup")>();
+  return {
+    findOrphans: mockFindOrphans,
+    findIncompleteDeletions: mockFindIncompleteDeletions,
+    findSteamOwnedPrefixes: mockFindSteamOwnedPrefixes,
+    // klassifikation (U-04) ist rein und wird ungemockt mitgetestet
+    classifyOrphans: actual.classifyOrphans,
+  };
+});
 vi.mock("../../src/core/shortcuts", () => ({
   readAllShortcutAppIds: mockReadAllShortcutAppIds,
   SHORTCUT_ID_THRESHOLD: 2_147_483_648,
@@ -1582,7 +1587,7 @@ describe("cleanupStore, S-02: Pfadbasierte Keys (A-04)", () => {
     expect(store.deleting.size).toBe(0);
   });
 
-  it("key(entry) liefert den vollständigen Pfad", () => {
+  it("orphanKey(entry) liefert den vollständigen Pfad", () => {
     const store = useCleanupStore();
     const entry = {
       appId: 570,
@@ -1590,7 +1595,7 @@ describe("cleanupStore, S-02: Pfadbasierte Keys (A-04)", () => {
       path: "/lib1/steamapps/compatdata/570",
       library: "/lib1",
     };
-    expect(store.key(entry)).toBe("/lib1/steamapps/compatdata/570");
+    expect(store.orphanKey(entry)).toBe("/lib1/steamapps/compatdata/570");
   });
 
   it("gleiche AppID in unterschiedlichen Libraries erzeugt unterschiedliche Keys", () => {
@@ -1607,7 +1612,7 @@ describe("cleanupStore, S-02: Pfadbasierte Keys (A-04)", () => {
       path: "/lib2/steamapps/compatdata/570",
       library: "/lib2",
     };
-    expect(store.key(entry1)).not.toBe(store.key(entry2));
+    expect(store.orphanKey(entry1)).not.toBe(store.orphanKey(entry2));
   });
 
   it("Unavailable-Getter teilen nur die Claim-Lesefehler-Basis", () => {

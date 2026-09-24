@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { EXPLAIN_TOPICS, type ExplainTopic } from "../../src/ui/explain.js";
 import { setLocale, t } from "../../src/ui/i18n/index.js";
+import { EXPLAIN_GLOSSARY } from "../support/explainGlossary.js";
 
 const GLOSSARY = readFileSync(resolve(process.cwd(), "docs/glossar.md"), "utf8");
 const TOPICS: readonly ExplainTopic[] = [
@@ -39,7 +40,7 @@ describe("Explain-Registry", () => {
         }
       }
 
-      for (const glossary of definition.glossary) {
+      for (const glossary of EXPLAIN_GLOSSARY[topic]) {
         expect(GLOSSARY).toContain(`| ${glossary.de} | ${glossary.en} |`);
       }
     }

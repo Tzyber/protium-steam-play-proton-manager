@@ -1,5 +1,6 @@
 import { joinPath, paths } from "./paths.js";
 import type { DirEntry, FileSystem } from "./ports.js";
+import { SHORTCUT_ID_THRESHOLD } from "./shortcuts.js";
 import { ORPHAN_TYPES, type OrphanEntry, type OrphanType, parseSafeAppId } from "./types.js";
 
 /** Namenspräfix, das `claim_delete_target` (delete_ops.rs) einem Ziel vor der
@@ -109,6 +110,28 @@ export async function findOrphans(
   );
 
   return orphans;
+}
+
+/**
+ * Klassifiziert die gefundenen Orphans für die Anzeige.
+ *
+ * Ist `shortcuts.vdf` unlesbar, sind Non-Steam-Shortcuts nicht von echten
+ * Orphans unterscheidbar. compatdata kann echte Savegames enthalten, deshalb
+ * fail-closed blockieren; shadercache ist regenerierbar und darf bereinigt
+ * werden. Shortcut-AppIDs liegen ab 2^31 und sind nicht über ein App-Manifest
+ * identifizierbar; sie werden als `potentialShortcut` markiert und von der
+ * Prefix-Löschung ausgenommen.
+ */
+export function classifyOrphans(
+  orphans: readonly OrphanEntry[],
+  shortcutsUnreadable: boolean,
+): OrphanEntry[] {
+  const usable = shortcutsUnreadable
+    ? orphans.filter((orphan) => orphan.type === "shadercache")
+    : orphans;
+  return usable.map((orphan) =>
+    orphan.appId >= SHORTCUT_ID_THRESHOLD ? { ...orphan, potentialShortcut: true } : orphan,
+  );
 }
 
 /** Prefix eines Steam-eigenen Pakets (Proton-Builtin oder Runtime), das der

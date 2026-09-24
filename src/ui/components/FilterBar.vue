@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { TIER_ORDER } from "../filter";
+import { TIER_ORDER } from "../../core/filter";
 import { pathBasename } from "../format";
 import { t } from "../i18n";
 import { useLibraryStore } from "../stores/libraryStore";
 import { useScanStore } from "../stores/scanStore";
-import { tierTone } from "../tier";
+import { tierName, tierTone } from "../tier";
 
 const scan = useScanStore();
 const lib = useLibraryStore();
@@ -28,7 +28,7 @@ const compatSourceLabel = computed(() => {
 // nur tatsächlich vorkommende werte als filteroptionen anbieten
 const tiersPresent = computed(() => {
   const set = new Set(scan.games.map((g) => g.protonDb?.tier ?? "unknown"));
-  return TIER_ORDER.filter((t) => set.has(t));
+  return TIER_ORDER.filter((tier) => set.has(tier));
 });
 const compatToolsPresent = computed(() => [...new Set(scan.games.map((g) => g.compatTool))].sort());
 const librariesPresent = computed(() => [...new Set(scan.games.map((g) => g.library))]);
@@ -76,16 +76,16 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
 
     <div class="group">
       <button
-        v-for="t in tiersPresent"
-        :key="t"
+        v-for="tier in tiersPresent"
+        :key="tier"
         class="tier-pill"
-        :class="{ on: lib.tiers.includes(t) }"
-        :style="{ '--c': tierTone(t) }"
+        :class="{ on: lib.tiers.includes(tier) }"
+        :style="{ '--c': tierTone(tier) }"
         type="button"
-        :aria-pressed="lib.tiers.includes(t)"
-        @click="lib.toggle('tiers', t)"
+        :aria-pressed="lib.tiers.includes(tier)"
+        @click="lib.toggle('tiers', tier)"
       >
-        {{ t }}
+        {{ tierName(tier) }}
       </button>
     </div>
 

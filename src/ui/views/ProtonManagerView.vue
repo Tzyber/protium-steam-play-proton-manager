@@ -96,7 +96,6 @@ const statusLine = computed(() => {
     case "fresh":
       return { icon: "✓", text: t("proton.statusUpdated", { n }), ok: true };
     case "not-modified":
-      return { icon: "✓", text: t("proton.statusCurrent", { when }), ok: true };
     case "cache":
       return { icon: "✓", text: t("proton.statusCurrent", { when }), ok: true };
     case "offline":

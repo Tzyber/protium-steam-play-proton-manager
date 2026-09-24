@@ -7,6 +7,7 @@ import {
   openLogsFolder,
   readLogTail,
 } from "../../core/adapters/tauri";
+import { parseLogRecord } from "../../core/logline";
 import { dateTimeText, timeText } from "../dateTime";
 import { formatBytes } from "../format";
 import { formatError } from "../formatError";
@@ -19,29 +20,43 @@ const logText = ref("");
 const logLoading = ref(false);
 const logError = ref<string | null>(null);
 
+// Auftrags-Guard wie `useLatestRequest`: ein zweiter Ladevorgang (refresh-knopf,
+// neuer mount) macht die ältere antwort ungültig, damit sie weder inhalt noch
+// ladezustand der jüngeren überschreibt.
+let snapshotsRequest = 0;
+let logRequest = 0;
+
 async function loadSnapshots() {
+  const requestId = ++snapshotsRequest;
   snapshotsLoading.value = true;
   snapshotsError.value = null;
   try {
-    snapshots.value = await listConfigBackups();
+    const entries = await listConfigBackups();
+    if (requestId !== snapshotsRequest) return;
+    snapshots.value = entries;
   } catch (e) {
+    if (requestId !== snapshotsRequest) return;
     snapshots.value = [];
     snapshotsError.value = formatError(e);
   } finally {
-    snapshotsLoading.value = false;
+    if (requestId === snapshotsRequest) snapshotsLoading.value = false;
   }
 }
 
 async function loadLog() {
+  const requestId = ++logRequest;
   logLoading.value = true;
   logError.value = null;
   try {
-    logText.value = await readLogTail();
+    const text = await readLogTail();
+    if (requestId !== logRequest) return;
+    logText.value = text;
   } catch (e) {
+    if (requestId !== logRequest) return;
     logText.value = "";
     logError.value = formatError(e);
   } finally {
-    logLoading.value = false;
+    if (requestId === logRequest) logLoading.value = false;
   }
 }
 
@@ -72,16 +87,14 @@ interface LogLine {
   message: string;
 }
 
-/** Logzeilen der Form "[<sekunden>] [LEVEL] text" fuer die Anzeige zerlegen. */
-function parseLogLine(line: string, index: number): LogLine {
-  const match = /^\[(\d+)\] \[(\w+)\] ?([\s\S]*)$/.exec(line);
-  if (match === null) return { key: `${index}`, time: "", level: "", message: line };
-  const seconds = Number.parseInt(match[1] ?? "", 10);
+/** Grammatik kommt aus dem Kern; hier nur noch die Sprachformatierung. */
+function toLogLine(line: string, index: number): LogLine {
+  const record = parseLogRecord(line);
   return {
     key: `${index}`,
-    time: Number.isFinite(seconds) ? timeText(seconds * 1000) : "",
-    level: (match[2] ?? "").toLowerCase(),
-    message: match[3] ?? "",
+    time: record.seconds === null ? "" : timeText(record.seconds * 1000),
+    level: record.level,
+    message: record.message,
   };
 }
 
@@ -89,7 +102,7 @@ const logLines = computed<LogLine[]>(() =>
   logText.value
     .split("\n")
     .filter((line) => line.length > 0)
-    .map((line, index) => parseLogLine(line, index)),
+    .map((line, index) => toLogLine(line, index)),
 );
 
 onMounted(() => {

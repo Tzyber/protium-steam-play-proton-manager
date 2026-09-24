@@ -197,8 +197,9 @@ describe("GameDetailDrawer Config-Provenienz", () => {
   });
 
   it("zeigt den lokalisierten stufennamen statt der langbeschreibung", () => {
-    // die kurznamen kommen aus der gemeinsamen tier-darstellung; `tier.*` sind
-    // die ausführlichen ProtonDB-beschreibungen und hier bewusst nicht sichtbar.
+    // die kurznamen kommen aus der gemeinsamen tier-darstellung (tierName);
+    // die früheren langbeschreibungen (toter `tier.*`-block, U-07) sind hier
+    // bewusst nicht sichtbar.
     const withTier = (tier: "platinum" | "borked") =>
       scanResult({
         games: [
@@ -210,7 +211,7 @@ describe("GameDetailDrawer Config-Provenienz", () => {
     setLocale("de");
     const de = mountDrawer(withTier("platinum"));
     expect(de.get(".meta-tier").text()).toContain("Platin");
-    expect(de.get(".meta-tier").text()).not.toContain(t("tier.platinum"));
+    expect(de.get(".meta-tier").text()).not.toContain("läuft perfekt, out of the box");
 
     setLocale("en");
     const en = mountDrawer(withTier("borked"));

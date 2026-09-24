@@ -105,7 +105,6 @@ export const en = {
     coverageReasonVdfUnreadable: "VDF unreadable",
     coverageReasonVdfInvalid: "invalid VDF",
     coverageReasonSizeUnreadable: "size unavailable",
-    coverageUnknownWarning: "unknown scan fact",
     noGames: "no games found in the scan.",
     nothingFound: "nothing found, ",
     resetFilter: "reset filters",
@@ -163,8 +162,6 @@ export const en = {
     pathMissingNote:
       "are these old/removed drives? then cleanup is safe. if they are disconnected drives with games on them: mount them first, or you risk data loss.",
     pathMissingDismiss: "ignore old drives and continue",
-    shortcutUnreadableMessage:
-      "shortcuts.vdf unreadable, non-Steam games cannot be identified. Wine-prefix cleanup is blocked. affected files:",
     shaderCaches: "shader-caches",
     winePrefixes: "Wine-Prefixes",
     winePrefixWarn: "warning, may contain local savegames!",
@@ -259,6 +256,7 @@ export const en = {
   drawer: {
     close: "close",
     dismissError: "Dismiss error message",
+    metaAppId: "AppID - {appId}",
     saveBlocked: "Saving blocked",
     saveUncertain:
       "Completion could not be confirmed. Check the value in Steam before saving again.",
@@ -337,8 +335,8 @@ export const en = {
     openDetails: "open {name} details",
     launch: "start {name}",
   },
-  // short names for visible labels (drawer/tier badge); `tier.*` are the
-  // full ProtonDB descriptions
+  // short names for visible tier labels; used by `tierName()` in `tier.ts` in
+  // the drawer, tier badge and filter bar.
   tierName: {
     platinum: "Platinum",
     gold: "Gold",
@@ -347,13 +345,8 @@ export const en = {
     borked: "Borked",
     unknown: "Unknown",
   },
-  tier: {
-    platinum: "runs perfectly, out of the box",
-    gold: "runs perfectly after small tweaks",
-    silver: "runs with limitations",
-    bronze: "runs, but with issues",
-    borked: "does not run currently",
-    unknown: "no ProtonDB rating loaded (no report or offline)",
+  tierBadge: {
+    confidence: "confidence: {confidence}",
   },
   explain: {
     open: "show explanation for {topic}",

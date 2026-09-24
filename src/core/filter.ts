@@ -1,4 +1,4 @@
-import type { CompatToolSource, Game, Tier } from "../core/types";
+import type { CompatToolSource, Game, Tier } from "./types.js";
 
 export type SortKey = "name" | "size" | "tier" | "lastPlayed";
 export type SortDir = "asc" | "desc";
@@ -18,7 +18,7 @@ export interface LibraryQuery {
 export const TIER_ORDER: Tier[] = ["platinum", "gold", "silver", "bronze", "borked", "unknown"];
 
 const TIER_RANK = Object.fromEntries(
-  TIER_ORDER.map((t, i) => [t, TIER_ORDER.length - 1 - i]),
+  TIER_ORDER.map((tier, i) => [tier, TIER_ORDER.length - 1 - i]),
 ) as Record<Tier, number>;
 
 /** case-insensitiv: substring ODER subsequence (leichtgewichtiges fuzzy). */

@@ -100,7 +100,6 @@ export const de = {
     coverageReasonVdfUnreadable: "VDF nicht lesbar",
     coverageReasonVdfInvalid: "ungültiges VDF",
     coverageReasonSizeUnreadable: "größe nicht lesbar",
-    coverageUnknownWarning: "unbekannter scan-fakt",
     noGames: "keine spiele im scan gefunden.",
     nothingFound: "nichts gefunden, ",
     resetFilter: "filter zurücksetzen",
@@ -159,8 +158,6 @@ export const de = {
     pathMissingNote:
       "Sind das alte/entfernte Platten? Dann ist die Bereinigung sicher. Falls es abgehängte Platten mit Spielen sind: erst einhängen, sonst droht Datenverlust.",
     pathMissingDismiss: "alte Platten ignorieren und fortfahren",
-    shortcutUnreadableMessage:
-      "shortcuts.vdf nicht lesbar, Non-Steam-Spiele können nicht identifiziert werden. Wine-Prefix-Bereinigung ist daher blockiert. Betroffene Dateien:",
     shaderCaches: "Shader-Caches",
     winePrefixes: "Wine-Prefixes",
     winePrefixWarn: "Vorsicht, kann lokale Spielstände enthalten!",
@@ -259,6 +256,7 @@ export const de = {
   drawer: {
     close: "schließen",
     dismissError: "fehlermeldung schließen",
+    metaAppId: "appid - {appId}",
     saveBlocked: "Speichern blockiert",
     saveUncertain:
       "Der Abschluss ließ sich nicht bestätigen. Bitte den Wert in Steam prüfen, bevor du erneut speicherst.",
@@ -338,8 +336,8 @@ export const de = {
     openDetails: "{name} details öffnen",
     launch: "{name} starten",
   },
-  // kurznamen für sichtbare labels (drawer/tierbadge); `tier.*` sind die
-  // ausführlichen ProtonDB-beschreibungen
+  // kurznamen für sichtbare stufenlabels; verwendet von `tierName()` in
+  // `tier.ts` in drawer, tierbadge und filterleiste.
   tierName: {
     platinum: "Platin",
     gold: "Gold",
@@ -348,13 +346,8 @@ export const de = {
     borked: "Defekt",
     unknown: "Unbekannt",
   },
-  tier: {
-    platinum: "läuft perfekt, out of the box",
-    gold: "läuft perfekt nach kleinen tweaks",
-    silver: "läuft mit einschränkungen",
-    bronze: "läuft, aber mit problemen",
-    borked: "läuft aktuell nicht",
-    unknown: "keine protondb-bewertung geladen (kein report oder offline)",
+  tierBadge: {
+    confidence: "Konfidenz: {confidence}",
   },
   explain: {
     open: "Erklärung zu {topic} anzeigen",

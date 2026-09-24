@@ -2,12 +2,14 @@ import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  classifyOrphans,
   DELETE_CLAIM_PREFIX,
   findIncompleteDeletions,
   findOrphans,
   findSteamOwnedPrefixes,
 } from "../../src/core/cleanup.js";
 import { scanGames } from "../../src/core/scan/games.js";
+import type { OrphanEntry } from "../../src/core/types.js";
 import { buildFakeSteam, nodeFs } from "../support/fakeSteam";
 
 async function setup() {
@@ -419,5 +421,36 @@ describe("findIncompleteDeletions", () => {
     const incomplete = await findIncompleteDeletions(libraries, root, fs);
 
     expect(incomplete.unreadable).toContain(unreadableDir);
+  });
+});
+
+describe("classifyOrphans", () => {
+  const orphan = (appId: number, type: OrphanEntry["type"]): OrphanEntry => ({
+    appId,
+    type,
+    path: `/lib/steamapps/${type}/${appId}`,
+    library: "/lib",
+  });
+
+  it("markiert shortcut-bereich-appIDs als potentialShortcut", () => {
+    const [shortcut, regular] = classifyOrphans(
+      [orphan(3_641_016_077, "compatdata"), orphan(999999, "compatdata")],
+      false,
+    );
+
+    expect(shortcut?.potentialShortcut).toBe(true);
+    expect(regular?.potentialShortcut).toBeUndefined();
+  });
+
+  it("behält ohne shortcut-fehler beide typen", () => {
+    const entries = classifyOrphans([orphan(1, "compatdata"), orphan(2, "shadercache")], false);
+
+    expect(entries.map((entry) => entry.type)).toEqual(["compatdata", "shadercache"]);
+  });
+
+  it("fail-closed: unlesbare shortcuts lassen nur shadercache stehen", () => {
+    const entries = classifyOrphans([orphan(1, "compatdata"), orphan(2, "shadercache")], true);
+
+    expect(entries.map((entry) => entry.type)).toEqual(["shadercache"]);
   });
 });

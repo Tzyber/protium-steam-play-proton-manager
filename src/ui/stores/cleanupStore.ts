@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
 import {
+  classifyOrphans,
   findIncompleteDeletions,
   findOrphans,
   findSteamOwnedPrefixes,
@@ -9,7 +10,7 @@ import {
 } from "../../core/cleanup";
 import { readAppName } from "../../core/localconfig";
 import { paths } from "../../core/paths";
-import { readAllShortcutAppIds, SHORTCUT_ID_THRESHOLD } from "../../core/shortcuts";
+import { readAllShortcutAppIds } from "../../core/shortcuts";
 import { findTrashEntries, type TrashEntry, type TrashLibraryStatus } from "../../core/trash";
 import type { OrphanEntry, ScanResult } from "../../core/types";
 import { localizeConsequences } from "../consequences";
@@ -101,7 +102,8 @@ export const useCleanupStore = defineStore("cleanup", {
     },
   },
   actions: {
-    key(entry: OrphanEntry): string {
+    /** stabiler Auswahl-schlüssel eines Orphans: sein Pfad. */
+    orphanKey(entry: OrphanEntry): string {
       return entry.path;
     },
 
@@ -290,17 +292,10 @@ export const useCleanupStore = defineStore("cleanup", {
         if (!isCurrent()) return;
         this.steamOwnedPrefixes = steamOwnedPrefixes;
 
-        if (this.shortcutUnreadable) {
-          // WHY fail-closed: unlesbares shortcuts.vdf → Non-Steam-Shortcuts sind nicht
-          // von echten Orphans unterscheidbar. compatdata kann echte Savegames enthalten,
-          // deshalb blockieren. shadercache ist regenerierbar und darf bereinigt werden.
-          this.orphans = this.orphans.filter((o) => o.type === "shadercache");
-          this.syncError();
-        }
-
-        for (const o of this.orphans) {
-          if (o.appId >= SHORTCUT_ID_THRESHOLD) o.potentialShortcut = true;
-        }
+        if (this.shortcutUnreadable) this.syncError();
+        // Klassifikation (fail-closed bei unlesbarer shortcuts.vdf, Shortcut-
+        // bereich) liegt fachlich bei findOrphans in core/cleanup.
+        this.orphans = classifyOrphans(this.orphans, this.shortcutUnreadable);
 
         const orphanNames = await this.readOrphanNames(result);
         if (!isCurrent()) return;
@@ -397,7 +392,7 @@ export const useCleanupStore = defineStore("cleanup", {
           continue;
         }
 
-        const k = this.key(entry);
+        const k = this.orphanKey(entry);
         this.deleting.add(k);
         try {
           const pending = await tauriPorts.system.prepareDelete({
@@ -464,7 +459,7 @@ export const useCleanupStore = defineStore("cleanup", {
               try {
                 await tauriPorts.system.executeDelete(p.token);
                 if (isCurrent()) {
-                  this.orphans = this.orphans.filter((o) => this.key(o) !== p.key);
+                  this.orphans = this.orphans.filter((o) => this.orphanKey(o) !== p.key);
                   // shadercache wird hart gelöscht, landet nie im papierkorb
                   if (p.type === "compatdata") trashedCompatdata = true;
                 }

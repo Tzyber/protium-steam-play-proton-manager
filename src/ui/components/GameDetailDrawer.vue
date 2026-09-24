@@ -34,7 +34,6 @@ const cleanup = useCleanupStore();
 const game = computed(() => scan.result?.games.find((g) => g.appId === ui.selectedAppId) ?? null);
 
 const {
-  context: footprintContext,
   result: footprintResult,
   state: footprintState,
   invalidate: invalidateFootprint,
@@ -43,11 +42,6 @@ const {
   summaryLabel: footprintSummaryLabel,
   summaryText: footprintSummaryText,
 } = useGameFootprint(game, scan);
-
-// fehlertext: einheitlich formatieren und uebersetzen (B1 Fehlersemantik).
-function errorText(e: unknown): string {
-  return formatError(e);
-}
 
 // cover-kandidaten wie in der karte
 const { src: cover, onError } = useCover(() => game.value);
@@ -102,7 +96,7 @@ async function openProtonDb() {
   if (game.value) {
     await openExternal(protonDbAppUrl(game.value.appId)).catch((e: unknown) => {
       // kein stilles scheitern: fehler als notification sichtbar machen
-      ui.showNotification(t("drawer.protondbOpenFailed", { error: errorText(e) }));
+      ui.showNotification(t("drawer.protondbOpenFailed", { error: formatError(e) }));
     });
   }
 }
@@ -192,12 +186,12 @@ const compatOptions = computed(() => {
 
   list.push({ value: "__default__", label: t("drawer.compatDefault") });
 
-  for (const t of builtIns) {
-    list.push({ value: t.internalName, label: t.displayName });
+  for (const tool of builtIns) {
+    list.push({ value: tool.internalName, label: tool.displayName });
   }
 
-  for (const t of tools) {
-    list.push({ value: t.internalName, label: t.displayName });
+  for (const tool of tools) {
+    list.push({ value: tool.internalName, label: tool.displayName });
   }
 
   const seen = new Set(list.map((o) => o.value));
@@ -297,7 +291,7 @@ function dismissError() {
             :confidence="game.protonDb.confidence"
           />
         </div>
-        <p class="meta mono">{{ formatBytes(game.sizeBytes) }} · appid - {{ game.appId }}</p>
+        <p class="meta mono">{{ formatBytes(game.sizeBytes) }} · {{ t("drawer.metaAppId", { appId: game.appId }) }}</p>
         <p class="meta-tier">
           {{ tierName(game.protonDb?.tier ?? "unknown") }}
           <ExplainInfo

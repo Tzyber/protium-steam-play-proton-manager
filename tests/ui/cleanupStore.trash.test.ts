@@ -58,11 +58,16 @@ const {
   mockIsProcessRunning: vi.fn(async () => false),
 }));
 
-vi.mock("../../src/core/cleanup", () => ({
-  findOrphans: mockFindOrphans,
-  findIncompleteDeletions: mockFindIncompleteDeletions,
-  findSteamOwnedPrefixes: mockFindSteamOwnedPrefixes,
-}));
+vi.mock("../../src/core/cleanup", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/core/cleanup")>();
+  return {
+    findOrphans: mockFindOrphans,
+    findIncompleteDeletions: mockFindIncompleteDeletions,
+    findSteamOwnedPrefixes: mockFindSteamOwnedPrefixes,
+    // klassifikation (U-04) ist rein und wird ungemockt mitgetestet
+    classifyOrphans: actual.classifyOrphans,
+  };
+});
 vi.mock("../../src/core/shortcuts", () => ({
   readAllShortcutAppIds: mockReadAllShortcutAppIds,
   SHORTCUT_ID_THRESHOLD: 2_147_483_648,

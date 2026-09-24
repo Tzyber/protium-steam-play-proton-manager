@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { filterAndSortGames } from "../../core/filter";
 import type { ScanWarning, SkipReason } from "../../core/types";
 import ExplainInfo from "../components/ExplainInfo.vue";
 import FilterBar from "../components/FilterBar.vue";
 import GameCard from "../components/GameCard.vue";
 import GameDetailDrawer from "../components/GameDetailDrawer.vue";
 import { formatConfigStatus, formatLibraryReason, formatWarning } from "../coverageText";
-import { filterAndSortGames } from "../filter";
 import type { Key } from "../i18n";
 import { t } from "../i18n";
 import { useLibraryStore } from "../stores/libraryStore";

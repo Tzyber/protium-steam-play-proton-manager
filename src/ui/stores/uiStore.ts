@@ -3,6 +3,10 @@ import { useLibraryStore } from "./libraryStore";
 
 export type ViewId = "library" | "proton" | "cleanup" | "history";
 
+// Timer-handle lebt bewusst außerhalb des reaktiven Zustands (U-16): ein
+// Timer-Objekt gehört nicht in den Snapshot, und nur eine Stelle schreibt ihn.
+let notificationTimer: ReturnType<typeof setTimeout> | null = null;
+
 export const useUiStore = defineStore("ui", {
   state: () => ({
     activeView: "library" as ViewId,
@@ -21,7 +25,6 @@ export const useUiStore = defineStore("ui", {
     inertMain: false,
     /** globale notification-toast. neueste überschreibt, 30s auto-dismiss. */
     notification: null as { message: string } | null,
-    notificationTimer: null as ReturnType<typeof setTimeout> | null,
   }),
   actions: {
     go(view: ViewId) {
@@ -53,16 +56,16 @@ export const useUiStore = defineStore("ui", {
     },
     /** fehler als kopierbare notification anzeigen. 30s auto-dismiss als fallback. */
     showNotification(message: string) {
-      if (this.notificationTimer) clearTimeout(this.notificationTimer);
+      if (notificationTimer) clearTimeout(notificationTimer);
       this.notification = { message };
-      this.notificationTimer = setTimeout(() => {
+      notificationTimer = setTimeout(() => {
         this.dismissNotification();
       }, 30_000);
     },
     dismissNotification() {
-      if (this.notificationTimer) {
-        clearTimeout(this.notificationTimer);
-        this.notificationTimer = null;
+      if (notificationTimer) {
+        clearTimeout(notificationTimer);
+        notificationTimer = null;
       }
       this.notification = null;
     },

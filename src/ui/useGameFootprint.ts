@@ -144,7 +144,6 @@ export function useGameFootprint(
   }
 
   return {
-    context,
     result,
     state,
     invalidate,

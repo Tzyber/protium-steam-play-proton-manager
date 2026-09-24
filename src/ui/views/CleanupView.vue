@@ -135,11 +135,11 @@ const steamOwnedTotal = computed(() => displaySize(cleanup.steamOwnedPrefixes));
 const shaderAllSelected = computed(
   () =>
     shadercacheOrphans.value.length > 0 &&
-    shadercacheOrphans.value.every((o) => selected.has(cleanup.key(o))),
+    shadercacheOrphans.value.every((o) => selected.has(cleanup.orphanKey(o))),
 );
 const compatAllSelected = computed(() => {
   const candidates = compatdataOrphans.value.filter((o) => !o.potentialShortcut);
-  return candidates.length > 0 && candidates.every((o) => selected.has(cleanup.key(o)));
+  return candidates.length > 0 && candidates.every((o) => selected.has(cleanup.orphanKey(o)));
 });
 
 /** auswahl-umschalter: alle an- oder alle abwählen, je nach ist-zustand. */
@@ -156,19 +156,21 @@ function toggleAll<T>(
 }
 
 function selectAllShader() {
-  toggleAll(shadercacheOrphans.value, selected, shaderAllSelected.value, (o) => cleanup.key(o));
+  toggleAll(shadercacheOrphans.value, selected, shaderAllSelected.value, (o) =>
+    cleanup.orphanKey(o),
+  );
 }
 
 function selectAllCompat() {
   const candidates = compatdataOrphans.value.filter((o) => !o.potentialShortcut);
-  toggleAll(candidates, selected, compatAllSelected.value, (o) => cleanup.key(o));
+  toggleAll(candidates, selected, compatAllSelected.value, (o) => cleanup.orphanKey(o));
 }
 
 const selectedShader = computed(() =>
-  shadercacheOrphans.value.filter((o) => selected.has(cleanup.key(o))),
+  shadercacheOrphans.value.filter((o) => selected.has(cleanup.orphanKey(o))),
 );
 const selectedCompat = computed(() =>
-  compatdataOrphans.value.filter((o) => selected.has(cleanup.key(o))),
+  compatdataOrphans.value.filter((o) => selected.has(cleanup.orphanKey(o))),
 );
 
 /** auswahl des SICHTBAREN tabs, sonst stünde "0 ausgewählt", während in einer
@@ -385,14 +387,14 @@ const shortcutBlockedItems = computed(() =>
         </div>
 
         <ul v-if="shadercacheOrphans.length" class="list">
-          <li v-for="o in shadercacheOrphans" :key="cleanup.key(o)">
+          <li v-for="o in shadercacheOrphans" :key="cleanup.orphanKey(o)">
             <CleanupRow
               :label="orphanLabel(o)"
               :path="o.path"
               :short-path="shortPath(o.path)"
               :size-text="sizeText(o.sizeBytes)"
-              :selected="selected.has(cleanup.key(o))"
-              @toggle="toggle(cleanup.key(o))"
+              :selected="selected.has(cleanup.orphanKey(o))"
+              @toggle="toggle(cleanup.orphanKey(o))"
             />
           </li>
         </ul>
@@ -450,15 +452,15 @@ const shortcutBlockedItems = computed(() =>
         </div>
 
         <ul v-if="compatdataOrphans.length" class="list">
-          <li v-for="o in compatdataOrphans" :key="cleanup.key(o)">
+          <li v-for="o in compatdataOrphans" :key="cleanup.orphanKey(o)">
             <CleanupRow
               :label="orphanLabel(o)"
               :path="o.path"
               :short-path="shortPath(o.path)"
               :size-text="sizeText(o.sizeBytes)"
-              :selected="selected.has(cleanup.key(o))"
+              :selected="selected.has(cleanup.orphanKey(o))"
               :warning="o.potentialShortcut ? t('cleanup.potentialShortcutTooltip') : undefined"
-              @toggle="toggle(cleanup.key(o))"
+              @toggle="toggle(cleanup.orphanKey(o))"
             />
           </li>
         </ul>

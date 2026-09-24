@@ -11,6 +11,10 @@ afterEach(() => setLocale("en"));
 
 const SKIP_REASONS: SkipReason[] = ["path-missing", "scope-failed", "read-failed", "unverified"];
 
+// Sentinel statt eines i18n-keys: `library.coverageUnknownWarning` war ein toter
+// key und wurde entfernt (U-07). Kein grund darf auf einen sammeltext fallen.
+const UNKNOWN_SCAN_FACT = { de: "unbekannter scan-fakt", en: "unknown scan fact" } as const;
+
 // jeder grund einer gattung braucht einen eigenen text: fällt einer auf den
 // sammel-fallback zurück, ist die coverage-zeile für den nutzer wertlos.
 // Beide sprachen laufen mit: der alte switch in `LibraryView.vue` hatte den
@@ -22,7 +26,7 @@ describe.each(["de", "en"] as const)("coverageText, warnungsgründe (%s)", (loca
     const texts = SKIP_REASONS.map((reason) => {
       const warning: ScanWarning = { type: "library", path: "/lib", reason };
       const text = formatWarning(warning);
-      expect(text).not.toBe(t("library.coverageUnknownWarning"));
+      expect(text).not.toBe(UNKNOWN_SCAN_FACT[locale]);
       expect(text).toContain("/lib");
       return text;
     });
@@ -46,7 +50,7 @@ describe.each(["de", "en"] as const)("coverageText, warnungsgründe (%s)", (loca
       manifestName: "appmanifest_620.acf",
       reason,
     });
-    expect(text).not.toBe(t("library.coverageUnknownWarning"));
+    expect(text).not.toBe(UNKNOWN_SCAN_FACT[locale]);
     expect(text).toContain("appmanifest_620.acf");
   });
 
@@ -64,13 +68,13 @@ describe.each(["de", "en"] as const)("coverageText, warnungsgründe (%s)", (loca
       toolName: "GE-Proton9-27",
       reason,
     });
-    expect(text).not.toBe(t("library.coverageUnknownWarning"));
+    expect(text).not.toBe(UNKNOWN_SCAN_FACT[locale]);
     expect(text).toContain("GE-Proton9-27");
   });
 
   it.each(["missing", "unreadable"] as const)("übersetzt compat-config-grund %s", (reason) => {
     const text = formatWarning({ type: "compat-config", reason, detail: "blocked-location" });
-    expect(text).not.toBe(t("library.coverageUnknownWarning"));
+    expect(text).not.toBe(UNKNOWN_SCAN_FACT[locale]);
     // V1: nur ein bekannter code wird übersetzt angehängt
     expect(text).toContain(t("errors.codes.blockedLocation"));
   });
@@ -100,7 +104,7 @@ describe.each(["de", "en"] as const)("coverageText, warnungsgründe (%s)", (loca
         steamUserId: "12345",
         detail: "steam-running",
       });
-      expect(text).not.toBe(t("library.coverageUnknownWarning"));
+      expect(text).not.toBe(UNKNOWN_SCAN_FACT[locale]);
       // kontonummer und übersetztes detail werden in einer zeile verbunden
       expect(text).toContain("12345");
       expect(text).toContain(t("errors.codes.steamRunning"));
@@ -110,7 +114,7 @@ describe.each(["de", "en"] as const)("coverageText, warnungsgründe (%s)", (loca
   it("lässt die kontoklammer weg, wenn kein konto bekannt ist", () => {
     const text = formatWarning({ type: "launch-config", reason: "missing" });
     expect(text).not.toContain("12345");
-    expect(text).not.toBe(t("library.coverageUnknownWarning"));
+    expect(text).not.toBe(UNKNOWN_SCAN_FACT[locale]);
   });
 
   it.each(["available", "missing", "unreadable", "ambiguous"] as const)(

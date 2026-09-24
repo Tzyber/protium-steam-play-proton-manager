@@ -23,10 +23,12 @@ describe("i18n, locale-wechsel per setLocale (regression: englische UI rendert)"
     expect(t("proton.usedBy", { n: 3 })).toBe("explicit game mappings: 3 →");
   });
 
-  it("tier-labels sind in en idiomatisch", () => {
+  it("tier-kurznamen sind in en idiomatisch", () => {
     setLocale("en");
-    expect(t("tier.platinum")).toBe("runs perfectly, out of the box");
-    expect(t("tier.borked")).toBe("does not run currently");
+    // die ausführlichen ProtonDB-beschreibungen (`tier.*`) waren tote keys und
+    // wurden entfernt (U-07); sichtbar ist der kurzname aus `tierName.*`.
+    expect(t("tierName.platinum")).toBe("Platinum");
+    expect(t("tierName.borked")).toBe("Borked");
   });
 
   it("footprint-texte bleiben in de und en vorhanden", () => {

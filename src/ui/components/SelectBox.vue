@@ -18,7 +18,7 @@ const emit = defineEmits<{
 const open = ref(false);
 const listRef = ref<HTMLUListElement | null>(null);
 const btnRef = ref<HTMLButtonElement | null>(null);
-const ho = ref(0);
+const highlightIndex = ref(0);
 const instanceId = ++selectBoxCount;
 const triggerId = props.id ?? `select-box-trigger-${instanceId}`;
 const listboxId = `select-box-listbox-${instanceId}`;
@@ -30,7 +30,7 @@ const selectedLabel = computed(
 function select(value: string) {
   emit("update:modelValue", value);
   open.value = false;
-  ho.value = 0;
+  highlightIndex.value = 0;
   nextTick(() => btnRef.value?.focus());
 }
 
@@ -40,12 +40,12 @@ function onBtnKeydown(e: KeyboardEvent) {
   } else if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
     e.preventDefault();
     open.value = true;
-    ho.value = 0;
+    highlightIndex.value = 0;
     nextTick(() => focusItem(0));
   } else if (e.key === "ArrowUp") {
     e.preventDefault();
     open.value = true;
-    ho.value = props.options.length - 1;
+    highlightIndex.value = props.options.length - 1;
     nextTick(() => focusItem(props.options.length - 1));
   }
 }
@@ -61,15 +61,15 @@ function onListKeydown(e: KeyboardEvent) {
     open.value = false;
   } else if (e.key === "ArrowDown") {
     e.preventDefault();
-    ho.value = (ho.value + 1) % n;
-    nextTick(() => focusItem(ho.value));
+    highlightIndex.value = (highlightIndex.value + 1) % n;
+    nextTick(() => focusItem(highlightIndex.value));
   } else if (e.key === "ArrowUp") {
     e.preventDefault();
-    ho.value = (ho.value - 1 + n) % n;
-    nextTick(() => focusItem(ho.value));
+    highlightIndex.value = (highlightIndex.value - 1 + n) % n;
+    nextTick(() => focusItem(highlightIndex.value));
   } else if (e.key === "Enter" || e.key === " ") {
     e.preventDefault();
-    const o = props.options[ho.value];
+    const o = props.options[highlightIndex.value];
     if (o) select(o.value);
   } else if (e.key === "Escape") {
     // stopPropagation: sonst schließt das event auch den drawer-keydown
@@ -131,10 +131,10 @@ onBeforeUnmount(() => {
 				:key="o.value"
 				role="option"
 				class="sb-opt"
-				:class="{ on: o.value === modelValue, hl: i === ho }"
+				:class="{ on: o.value === modelValue, hl: i === highlightIndex }"
 				:aria-selected="o.value === modelValue"
 				tabindex="-1"
-				@mouseenter="ho = i"
+				@mouseenter="highlightIndex = i"
 				@click="select(o.value)"
 			>
 				{{ o.label }}

@@ -1,17 +1,24 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { Tier } from "../../core/types";
-import { tierTone } from "../tier";
+import { t } from "../i18n";
+import { tierName, tierTone } from "../tier";
 
 const props = defineProps<{ tier: Tier; confidence?: string }>();
 
 const color = computed(() => tierTone(props.tier));
+const name = computed(() => tierName(props.tier));
+// Konfidenz sichtbar machen: `title` allein ist für Screenreader und Tastatur
+// nicht erreichbar, deshalb zusätzlich als versteckter Text (U-11).
+const confidenceText = computed(() =>
+  props.confidence ? t("tierBadge.confidence", { confidence: props.confidence }) : null,
+);
 </script>
 
 <template>
-  <span class="tier" :style="{ '--c': color }" :title="confidence ? `confidence: ${confidence}` : undefined">
-    <span class="dot" />
-    {{ tier }}
+  <span class="tier" :style="{ '--c': color }" :title="confidenceText ?? undefined">
+    <span class="dot" aria-hidden="true" />
+    {{ name }}<span v-if="confidenceText" class="sr-only">, {{ confidenceText }}</span>
   </span>
 </template>
 
