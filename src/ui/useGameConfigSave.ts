@@ -80,10 +80,13 @@ export function useGameConfigSave(game: Readonly<Ref<Game | null>>, config: Game
     return compatSelected.value !== expected;
   });
 
+  // Ein echter Spielwechsel (andere appId) verwirft den Entwurf. Ein Rescan
+  // tauscht dagegen das Spiel-Objekt bei gleicher appId aus; dann gehört der
+  // halb getippte Entwurf weiter dem Nutzer (U-15).
   watch(
-    game,
-    (g) => {
-      launchInput.value = g?.launchOptions ?? "";
+    () => game.value?.appId ?? null,
+    () => {
+      launchInput.value = game.value?.launchOptions ?? "";
       launchState.value = { kind: "idle" };
     },
     { immediate: true },
@@ -93,9 +96,9 @@ export function useGameConfigSave(game: Readonly<Ref<Game | null>>, config: Game
   });
 
   watch(
-    game,
-    (g) => {
-      const tool = g?.compatTool;
+    () => game.value?.appId ?? null,
+    () => {
+      const tool = game.value?.compatTool;
       compatSelected.value = tool && tool !== "default" ? tool : "__default__";
       compatState.value = { kind: "idle" };
     },

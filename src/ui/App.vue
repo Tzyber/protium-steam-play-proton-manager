@@ -31,7 +31,10 @@ onMounted(() => {
 function openUpdateRelease() {
   const version = updateVersion.value;
   const url = version ? `${UPDATE_RELEASE_URL}/tag/v${version}` : UPDATE_RELEASE_URL;
-  void openExternal(url).catch(() => {});
+  void openExternal(url).catch(() => {
+    // kein stilles scheitern: ein wirkungsloser klick wäre sonst nicht erklärbar
+    ui.showNotification(t("app.openReleaseFailed"));
+  });
 }
 
 // dialoge (bestätigung, detail-drawer, erklär-panel) sperren den hintergrund
@@ -90,22 +93,45 @@ const rootShort = computed(() => {
   return r ? r.replace(/^\/home\/[^/]+/, "~") : "-";
 });
 
-const copied = ref(false);
+type CopyState = "idle" | "copied" | "failed";
+
+const copyState = ref<CopyState>("idle");
+/** Wie lange das kopier-häkchen stehen bleibt: lang genug zum sehen, kurz
+ *  genug, um den knopf nicht dauerhaft als bestätigung zu zeigen. */
+const COPY_CONFIRM_MS = 2000;
+// nur "copied" läuft über COPY_CONFIRM_MS ab. "failed" hat bewusst keinen
+// timer und bleibt bis zur nächsten meldung oder einem erfolgreichen kopieren
+// stehen, damit ein fehlschlag nicht unbemerkt verschwindet (U-14).
 let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function copyError() {
   if (!ui.notification) return;
+  const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard;
+  if (!clipboard || typeof clipboard.writeText !== "function") {
+    copyState.value = "failed";
+    return;
+  }
   try {
-    await navigator.clipboard.writeText(ui.notification.message);
-    copied.value = true;
+    await clipboard.writeText(ui.notification.message);
+    copyState.value = "copied";
     if (copiedTimer) clearTimeout(copiedTimer);
     copiedTimer = setTimeout(() => {
-      copied.value = false;
-    }, 2000);
+      copyState.value = "idle";
+    }, COPY_CONFIRM_MS);
   } catch {
-    // clipboard nicht verfügbar (unsicherer kontext, keine berechtigung), ignorieren
+    // clipboard gesperrt (unsicherer kontext, fehlende berechtigung): sichtbar
+    // melden statt den klick stumm zu verwerfen.
+    copyState.value = "failed";
   }
 }
+
+// eine neue meldung trägt ihren eigenen kopierstatus
+watch(
+  () => ui.notification,
+  () => {
+    copyState.value = "idle";
+  },
+);
 </script>
 
 <template>
@@ -156,7 +182,17 @@ async function copyError() {
         <div v-if="ui.notification" :key="ui.notification.message" class="note toast" role="alert">
           <span class="note-icon" aria-hidden="true">⚠</span>
           <span class="note-msg">{{ ui.notification.message }}</span>
-          <button class="note-copy" type="button" :aria-label="copied ? t('app.copied') : t('app.copyError')" @click="copyError">{{ copied ? "✓" : "📋" }}</button>
+          <!-- der knopf kopiert weiterhin: sein name bleibt die aktion, nicht
+               der fehlertext. der fehlschlag lebt in der live-region (U-14). -->
+          <button
+            class="note-copy"
+            type="button"
+            :aria-label="copyState === 'copied' ? t('app.copied') : t('app.copyError')"
+            @click="copyError"
+          >
+            {{ copyState === "copied" ? "✓" : copyState === "failed" ? "⚠" : "📋" }}
+          </button>
+          <span v-if="copyState === 'failed'" class="sr-only" role="alert">{{ t("app.copyFailed") }}</span>
           <button class="note-close" type="button" :aria-label="t('app.dismissNotification')" @click="ui.dismissNotification()">✕</button>
         </div>
       </transition>
@@ -293,7 +329,8 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .update-open:hover { background: var(--signal-bright); }
 .update-close:hover { color: var(--fg-0); background: color-mix(in srgb, var(--fg-1) 10%, transparent); }
 
-/* notification-toast: sticky oben, copy-button, kein auto-dismiss (nur 30s fallback via store) */
+/* app-weite meldung (store-notification, nicht der frühere drawer-toast): sticky
+   oben, copy-button, kein auto-dismiss im view (der store räumt nach 30s auf) */
 .note.toast {
   position: sticky;
   top: 8px;

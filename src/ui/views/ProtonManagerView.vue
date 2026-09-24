@@ -43,6 +43,14 @@ function pct(tag: string): number | null {
   return Math.min(100, Math.round((j.downloaded / j.total) * 100));
 }
 
+/** Ohne bekannte Gesamtgröße gibt es keinen echten Prozentwert: dann läuft der
+ *  Balken als indeterminierte Animation (U-06), statt einen erfundenen
+ *  Füllstand vorzutäuschen. */
+function fillStyle(tag: string): Record<string, string> | undefined {
+  const value = pct(tag);
+  return value === null ? undefined : { transform: `scaleX(${value / 100})` };
+}
+
 // literale keys statt laufzeit-konkatenation: fehlt eine übersetzung, schlägt
 // der typecheck fehl statt erst die UI.
 const PHASE_KEYS = {
@@ -64,13 +72,16 @@ function speedLabel(tag: string): string {
 
 const statusFlash = ref(false);
 let flashTimer: ReturnType<typeof setTimeout> | null = null;
+/** Kurzes aufleuchten der Statuszeile nach dem Refresh: lang genug zum sehen,
+ *  kurz genug, um nicht als dauerzustand zu wirken. */
+const STATUS_FLASH_MS = 1400;
 async function refreshReleases() {
   await proton.loadReleases(true); // expliziter klick → cache umgehen
   statusFlash.value = true;
   if (flashTimer) clearTimeout(flashTimer);
   flashTimer = setTimeout(() => {
     statusFlash.value = false;
-  }, 1400);
+  }, STATUS_FLASH_MS);
 }
 onBeforeUnmount(() => {
   if (flashTimer) clearTimeout(flashTimer);
@@ -199,7 +210,7 @@ const statusLine = computed(() => {
             <div class="rsub mono">{{ formatBytes(r.tarball.size) }}</div>
             <div v-if="proton.jobs[r.tag]" class="progress" role="progressbar" :aria-valuemin="0" :aria-valuemax="100" :aria-valuenow="pct(r.tag) ?? undefined" :aria-label="phaseLabel(r.tag)">
               <template v-if="proton.jobs[r.tag]?.phase === 'downloading'">
-                <div class="track"><div class="fill" :style="{ transform: `scaleX(${(pct(r.tag) ?? 30) / 100})` }" /></div>
+                <div class="track"><div class="fill" :class="{ 'fill--indeterminate': pct(r.tag) === null }" :style="fillStyle(r.tag)" /></div>
                 <span class="phase" aria-live="polite">{{ phaseLabel(r.tag) }}<span v-if="pct(r.tag) !== null"> · {{ pct(r.tag) }}%</span><span v-if="speedLabel(r.tag)"> · {{ speedLabel(r.tag) }}</span></span>
               </template>
               <span v-else class="phase act" aria-live="polite">{{ phaseLabel(r.tag) }}<span v-if="proton.jobs[r.tag]?.phase === 'extracting' && proton.jobs[r.tag]?.verified"> ✓ {{ t("proton.checksumOk") }}</span></span>
@@ -307,6 +318,16 @@ const statusLine = computed(() => {
 .progress { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .track { flex: 1; max-width: 320px; height: 5px; background: var(--bg-0); border-radius: 999px; overflow: hidden; }
 .fill { width: 100%; height: 100%; background: var(--signal); transform-origin: left; transition: transform 0.2s; }
+/* unbekannte gesamtgröße: ein durchlaufender Balken statt eines erfundenen
+   Prozentwerts (aria-valuenow fehlt, also indeterminierte progressbar). */
+.fill--indeterminate { width: 40%; transform: none; animation: fill-indeterminate 1.2s ease-in-out infinite; }
+@keyframes fill-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fill--indeterminate { width: 100%; opacity: 0.4; animation: none; }
+}
 .phase { color: var(--fg-2); font-size: 0.75rem; }
 .phase.act::before {
   content: "●";

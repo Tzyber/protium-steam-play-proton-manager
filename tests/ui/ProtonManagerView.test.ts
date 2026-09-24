@@ -226,3 +226,53 @@ describe("bekannte explizite Zuordnungen", () => {
     wrapper.unmount();
   });
 });
+
+describe("ProtonManagerView downloadfortschritt", () => {
+  // U-06: ohne bekannte gesamtgröße gibt es keinen echten wert, deshalb läuft
+  // der balken indeterminiert statt einen erfundenen füllstand (früher 30 %)
+  // vorzutäuschen.
+  it("zeigt bei unbekanntem total einen indeterminierten balken ohne prozentwert", () => {
+    setLocale("de");
+    protonState.releases = [makeRelease("GE-Proton11-5", "GE-Proton11-5-x86_64")];
+    protonState.jobs = {
+      "GE-Proton11-5": {
+        tag: "GE-Proton11-5",
+        downloadId: "d1",
+        phase: "downloading",
+        downloaded: 0,
+        total: null,
+      },
+    };
+
+    const wrapper = mount(ProtonManagerView);
+    const bar = wrapper.get('[role="progressbar"]');
+    expect(bar.find(".fill").classes()).toContain("fill--indeterminate");
+    expect(bar.attributes("aria-valuenow")).toBeUndefined();
+    expect(bar.text()).not.toContain("%");
+    expect(bar.text()).not.toContain("30");
+    wrapper.unmount();
+  });
+
+  it("rendert bei bekanntem total einen echten wert als scaleX und aria-valuenow", () => {
+    setLocale("de");
+    protonState.releases = [makeRelease("GE-Proton11-5", "GE-Proton11-5-x86_64")];
+    protonState.jobs = {
+      "GE-Proton11-5": {
+        tag: "GE-Proton11-5",
+        downloadId: "d1",
+        phase: "downloading",
+        downloaded: 30,
+        total: 100,
+      },
+    };
+
+    const wrapper = mount(ProtonManagerView);
+    const bar = wrapper.get('[role="progressbar"]');
+    expect(bar.attributes("aria-valuenow")).toBe("30");
+    const fill = bar.get(".fill");
+    expect(fill.classes()).not.toContain("fill--indeterminate");
+    expect(fill.attributes("style")).toContain("scaleX(0.3)");
+    expect(bar.text()).toContain("30%");
+    wrapper.unmount();
+  });
+});

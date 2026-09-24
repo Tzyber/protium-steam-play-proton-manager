@@ -67,10 +67,13 @@ function onKeydown(event: KeyboardEvent) {
   trapFocus(event, drawerRef.value);
 }
 
+// nur der appId-tausch ist ein spielwechsel. ein rescan ersetzt den snapshot
+// und damit das spiel-objekt bei gleicher appId; dann darf weder der fokus
+// springen noch der entwurf verfallen (der liegt in useGameConfigSave).
 watch(
-  game,
-  async (current) => {
-    if (current) {
+  () => game.value?.appId ?? null,
+  async (appId) => {
+    if (appId !== null) {
       lastFocusedElement =
         document.activeElement instanceof HTMLElement ? document.activeElement : null;
       await nextTick();
@@ -92,7 +95,6 @@ watch(
 onBeforeUnmount(() => {
   invalidateFootprint();
   invalidateSupportCopy();
-  if (toastTimer) clearTimeout(toastTimer);
   restoreFocus(lastFocusedElement);
 });
 
@@ -239,7 +241,7 @@ const {
   computed(() => launchState.value.kind === "saving"),
 );
 
-// fehler-toast: nur der fehlerfall trägt eine meldung.
+// inline-fehler im drawer (der frühere toast ist weg): nur der fehlerfall trägt eine meldung.
 function stateError(s: SaveState): string | null {
   return s.kind === "error" ? s.message : null;
 }
@@ -250,17 +252,15 @@ const errorUncertain = computed(() => {
   const launch = launchState.value;
   return launch.kind === "error" ? launch.uncertain : false;
 });
+// der fehler bleibt stehen, bis der nutzer ihn schließt: ein fehlgeschlagener
+// schreibvorgang darf nicht unbemerkt verschwinden (U-02).
 function dismissError() {
   if (stateError(compatState.value)) compatState.value = { kind: "idle" };
   if (stateError(launchState.value)) launchState.value = { kind: "idle" };
+  // der knopf verschwindet mit der meldung; ohne umzug fiele der fokus auf body
+  // und der dialog hätte kein fokusziel mehr.
+  drawerRef.value?.focus();
 }
-
-// toast nach 6s automatisch schließen (bleibt bei erneutem fehler frisch stehen).
-let toastTimer: ReturnType<typeof setTimeout> | null = null;
-watch(errorMessage, (msg) => {
-  if (toastTimer) clearTimeout(toastTimer);
-  if (msg) toastTimer = setTimeout(dismissError, 6000);
-});
 </script>
 
 <template>
@@ -534,14 +534,24 @@ watch(errorMessage, (msg) => {
         <p class="hint">{{ t("drawer.protondbHint") }}</p>
 
         <!-- Ablehnung im B2-Muster: Titel, Pruefbericht, Garantiesatz -->
-        <BlockedExplanation
-          v-if="errorMessage"
-          class="drawer-blocked"
-          :title="t('drawer.saveBlocked')"
-          :intro="t('common.couldNotVerify')"
-          :items="[errorMessage]"
-          :guarantee="errorUncertain ? t('drawer.saveUncertain') : t('common.nothingChanged')"
-        />
+        <div v-if="errorMessage" class="drawer-error">
+          <BlockedExplanation
+            class="drawer-blocked"
+            :title="t('drawer.saveBlocked')"
+            :intro="t('common.couldNotVerify')"
+            :items="[errorMessage]"
+            :guarantee="errorUncertain ? t('drawer.saveUncertain') : t('common.nothingChanged')"
+          />
+          <button
+            class="drawer-error-close"
+            data-testid="drawer-error-close"
+            type="button"
+            :aria-label="t('drawer.dismissError')"
+            @click="dismissError"
+          >
+            <span aria-hidden="true">✕</span>
+          </button>
+        </div>
       </aside>
       </div>
     </transition>
@@ -672,7 +682,7 @@ watch(errorMessage, (msg) => {
 }
 .save:hover:not(:disabled) { background: var(--bg-3); border-color: var(--signal); }
 .save:disabled { opacity: 0.4; cursor: default; }
-.save:focus-visible, .close:focus-visible, .toast-close:focus-visible {
+.save:focus-visible, .close:focus-visible, .drawer-error-close:focus-visible {
   outline: 2px solid var(--signal);
   outline-offset: 2px;
 }
@@ -696,31 +706,20 @@ watch(errorMessage, (msg) => {
 }
 .pdb-link:hover { color: var(--signal); text-decoration: underline; }
 
-.toast {
-  position: sticky;
-  top: 8px;
-  z-index: 3;
-  margin: 12px 0 0;
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  background: var(--bg-2);
-  border: 1px solid var(--tier-borked);
-  border-radius: var(--r-sm);
-  padding: 11px 13px;
-  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.6);
+.drawer-error {
+  position: relative;
+  /* platz für den absolut positionierten schließen-knopf, sonst laufen lange
+     titel/lokalisierungen darunter. */
+  padding-right: 40px;
 }
-.toast-icon { color: var(--tier-borked); font-size: 0.875rem; flex-shrink: 0; margin-top: 1px; }
-.toast-msg { flex: 1; color: var(--fg-0); font-size: 0.84375rem; line-height: 1.5; }
-.toast-close {
-  flex-shrink: 0; width: 32px; height: 32px;
+.drawer-error-close {
+  position: absolute; top: 8px; right: 8px;
+  width: 32px; height: 32px;
   background: none; border: none; color: var(--fg-2);
   font-size: 0.75rem; cursor: pointer; padding: 0; line-height: 1;
   display: grid; place-items: center;
 }
-.toast-close:hover { color: var(--fg-0); }
-.toast-enter-active, .toast-leave-active { transition: opacity 0.2s, transform 0.2s; }
-.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(-6px); }
+.drawer-error-close:hover { color: var(--fg-0); }
 
 .drawer-enter-active .drawer, .drawer-leave-active .drawer { transition: transform 0.2s ease; }
 .drawer-enter-from .drawer, .drawer-leave-to .drawer { transform: translateX(100%); }

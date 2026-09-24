@@ -35,9 +35,11 @@ export const en = {
     version: "version",
     copyError: "copy error",
     copied: "copied",
+    copyFailed: "could not copy the error.",
     dismissNotification: "dismiss message",
     updateAvailable: "Protium v{version} is available (installed: v{current}).",
     openRelease: "open release",
+    openReleaseFailed: "Could not open the release page.",
     dismissUpdate: "dismiss update notice",
   },
   status: {
@@ -256,6 +258,7 @@ export const en = {
   },
   drawer: {
     close: "close",
+    dismissError: "Dismiss error message",
     saveBlocked: "Saving blocked",
     saveUncertain:
       "Completion could not be confirmed. Check the value in Steam before saving again.",

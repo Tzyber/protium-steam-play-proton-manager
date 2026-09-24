@@ -1186,7 +1186,7 @@ describe("GameDetailDrawer Speicherstatus", () => {
 
     expect(launchSaveButton(wrapper).text()).not.toBe(t("drawer.saved"));
     expect(launchSaveButton(wrapper).text()).toBe(t("drawer.save"));
-    expect(wrapper.find(".toast").exists()).toBe(false);
+    expect(wrapper.find(".blocked-explanation").exists()).toBe(false);
   });
 
   it("zeigt nach einem Spielwechsel keinen fremden Startoptionen-Fehler", async () => {
@@ -1208,7 +1208,7 @@ describe("GameDetailDrawer Speicherstatus", () => {
     await flushPromises();
     await nextTick();
 
-    expect(wrapper.find(".toast").exists()).toBe(false);
+    expect(wrapper.find(".blocked-explanation").exists()).toBe(false);
     expect(wrapper.text()).not.toContain("fremder Fehler 934");
   });
 
@@ -1257,7 +1257,7 @@ describe("GameDetailDrawer Speicherstatus", () => {
 
     expect(compatSaveButton(wrapper).text()).not.toBe(t("drawer.saved"));
     expect(compatSaveButton(wrapper).text()).toBe(t("drawer.save"));
-    expect(wrapper.find(".toast").exists()).toBe(false);
+    expect(wrapper.find(".blocked-explanation").exists()).toBe(false);
   });
 
   it("zeigt nach einem Spielwechsel keinen fremden Compat-Fehler", async () => {
@@ -1276,7 +1276,70 @@ describe("GameDetailDrawer Speicherstatus", () => {
     await flushPromises();
     await nextTick();
 
-    expect(wrapper.find(".toast").exists()).toBe(false);
+    expect(wrapper.find(".blocked-explanation").exists()).toBe(false);
     expect(wrapper.text()).not.toContain("fremder Compat-Fehler 935");
+  });
+
+  it("hält den Fehler stehen, bis der Nutzer ihn schließt (U-02)", async () => {
+    vi.useFakeTimers();
+    try {
+      configState.saveLaunchOptions.mockRejectedValueOnce("steam-running");
+      const wrapper = mountDrawer(
+        result("available", "default", "default", null, { launchOptions: "" }),
+      );
+      const input = wrapper.get<HTMLInputElement>("#launch-options");
+
+      await input.setValue("gamemoderun %command%");
+      await launchSaveButton(wrapper).trigger("click");
+      await vi.advanceTimersByTimeAsync(7000);
+      await nextTick();
+
+      // kein auto-hide mehr: der block überlebt die frühere 6-s-grenze
+      expect(wrapper.get(".blocked-explanation").text()).toContain(t("common.nothingChanged"));
+
+      await wrapper.get("[data-testid='drawer-error-close']").trigger("click");
+      expect(wrapper.find(".blocked-explanation").exists()).toBe(false);
+      expect(document.activeElement).toBe(wrapper.get(".drawer").element);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("behält den Entwurf bei einem Rescan derselben AppID (U-15)", async () => {
+    const wrapper = mountDrawer(
+      result("available", "default", "default", null, { launchOptions: "" }),
+    );
+    const input = wrapper.get<HTMLInputElement>("#launch-options");
+    await input.setValue("gamemoderun %command%");
+
+    // ein Rescan ersetzt den Snapshot; AppID und Bibliothek bleiben gleich
+    scanState.scanGeneration = 2;
+    scanState.result = result("available", "default", "default", null, { launchOptions: "" });
+    await nextTick();
+
+    expect(wrapper.get<HTMLInputElement>("#launch-options").element.value).toBe(
+      "gamemoderun %command%",
+    );
+    expect(launchSaveButton(wrapper).attributes("disabled")).toBeUndefined();
+  });
+
+  it("verwirft Entwurf und Fehler bei einem echten Spielwechsel (U-15)", async () => {
+    configState.saveLaunchOptions.mockRejectedValueOnce("steam-running");
+    const wrapper = mountDrawer(
+      result("available", "default", "default", null, { launchOptions: "" }),
+    );
+    const input = wrapper.get<HTMLInputElement>("#launch-options");
+
+    await input.setValue("gamemoderun %command%");
+    await launchSaveButton(wrapper).trigger("click");
+    await flushPromises();
+    await nextTick();
+    expect(wrapper.find(".blocked-explanation").exists()).toBe(true);
+
+    switchToGame43();
+    await nextTick();
+
+    expect(wrapper.get<HTMLInputElement>("#launch-options").element.value).toBe("");
+    expect(wrapper.find(".blocked-explanation").exists()).toBe(false);
   });
 });

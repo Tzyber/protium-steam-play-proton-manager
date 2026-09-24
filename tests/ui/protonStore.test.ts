@@ -65,7 +65,7 @@ import type { DownloadProgressEvent, InstallPhaseEvent } from "../../src/core/po
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useProtonStore } from "../../src/ui/stores/protonStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
-import { scanResult } from "../support/factories";
+import { deferred, scanResult } from "../support/factories";
 
 const release: GeRelease = {
   tag: "GE-Proton9-27",
@@ -89,6 +89,33 @@ function fakeScanResult(): ScanResult {
 /** registrierungen gesamt: jeder init-Versuch startet beide Abos. */
 function listenerCalls(): number {
   return mockOnDownloadProgress.mock.calls.length + mockOnInstallPhase.mock.calls.length;
+}
+
+type HttpReply = { status: number; ok: boolean; text: string; headers: Record<string, string> };
+
+/** Frische GitHub-Antwort mit genau einem modernen x86_64-asset. */
+function releasesReply(tag: string): HttpReply {
+  const assetName = `${tag}-x86_64.tar.gz`;
+  return {
+    status: 200,
+    ok: true,
+    headers: {},
+    text: JSON.stringify([
+      {
+        tag_name: tag,
+        name: tag,
+        published_at: "",
+        body: "",
+        assets: [
+          {
+            name: assetName,
+            browser_download_url: `https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${tag}/${assetName}`,
+            size: 400,
+          },
+        ],
+      },
+    ]),
+  };
 }
 
 describe("protonStore init + pump-robustheit", () => {
@@ -357,6 +384,50 @@ describe("protonStore init + pump-robustheit", () => {
     expect(mockHttpGet).not.toHaveBeenCalled();
     expect(store.releases).toEqual([]);
     expect(store.loadError).toContain("Prozessorarchitektur");
+  });
+
+  it("loadReleases: eine überholte antwort überschreibt die frischeren daten nicht (U-05)", async () => {
+    const older = deferred<HttpReply>();
+    const newer = deferred<HttpReply>();
+    mockHttpGet.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+    const store = useProtonStore();
+
+    const olderRun = store.loadReleases();
+    const newerRun = store.loadReleases(true);
+    await vi.waitFor(() => expect(mockHttpGet).toHaveBeenCalledTimes(2));
+
+    newer.resolve(releasesReply("GE-Proton11-5"));
+    await newerRun;
+    expect(store.releases.map((r) => r.tag)).toEqual(["GE-Proton11-5"]);
+    expect(store.loading).toBe(false);
+
+    // der ältere Auftrag trifft verspätet ein und darf nichts mehr schreiben
+    older.resolve(releasesReply("GE-Proton11-6"));
+    await olderRun;
+    expect(store.releases.map((r) => r.tag)).toEqual(["GE-Proton11-5"]);
+    expect(store.loading).toBe(false);
+  });
+
+  it("loadReleases: der ladezustand endet erst mit dem jüngsten auftrag (U-05)", async () => {
+    const older = deferred<HttpReply>();
+    const newer = deferred<HttpReply>();
+    mockHttpGet.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+    const store = useProtonStore();
+
+    const olderRun = store.loadReleases();
+    const newerRun = store.loadReleases(true);
+    await vi.waitFor(() => expect(mockHttpGet).toHaveBeenCalledTimes(2));
+
+    older.resolve(releasesReply("GE-Proton11-6"));
+    await olderRun;
+    // der jüngere Auftrag lädt noch: weder Ergebnis noch Ende dürfen von ihm kommen
+    expect(store.loading).toBe(true);
+    expect(store.releases).toEqual([]);
+
+    newer.resolve(releasesReply("GE-Proton11-5"));
+    await newerRun;
+    expect(store.loading).toBe(false);
+    expect(store.releases.map((r) => r.tag)).toEqual(["GE-Proton11-5"]);
   });
 
   it("pump: release nicht (mehr) in der liste → job-leiche wird aufgeräumt, queue hängt nicht", async () => {

@@ -11,8 +11,9 @@ const rawUiState = vi.hoisted(() => ({
   inertMain: true,
   selectedAppId: null as number | null,
   explanationCount: 0,
-  notification: null,
+  notification: null as { message: string } | null,
   dismissNotification: vi.fn(),
+  showNotification: vi.fn(),
   // Der Store setzt die Auswahl beim Verlassen der Library zurück; der Mock
   // bildet das nach, sonst wäre der Lockout im Test unsichtbar (V2).
   go(this: { activeView: string; selectedAppId: number | null }, view: string) {
@@ -215,5 +216,66 @@ describe("App update-hinweis", () => {
     await flushPromises();
 
     expect(wrapper.find(".update-notice").exists()).toBe(false);
+  });
+
+  it("meldet, wenn der release-link nicht geöffnet werden kann", async () => {
+    mockCheckForUpdate.mockResolvedValue("0.6.11");
+    mockOpenExternal.mockRejectedValueOnce(new Error("handler-unavailable"));
+    const ui = useUiStore();
+    const wrapper = mount(App);
+    await flushPromises();
+
+    await wrapper.get(".update-open").trigger("click");
+    await flushPromises();
+
+    expect(ui.showNotification).toHaveBeenCalledWith("app.openReleaseFailed");
+  });
+});
+
+describe("App Fehler kopieren", () => {
+  it("behält den aktionsnamen und meldet den fehlschlag nur in der live-region (U-14)", async () => {
+    const previousClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) },
+    });
+    try {
+      mockUiState.notification = { message: "kein platz" };
+      const wrapper = mount(App);
+
+      await wrapper.get(".note-copy").trigger("click");
+      await flushPromises();
+
+      // der knopf kopiert weiterhin: name = aktion, nicht der fehlertext
+      const button = wrapper.get(".note-copy");
+      expect(button.attributes("aria-label")).toBe("app.copyError");
+      expect(button.text()).toBe("⚠");
+      expect(wrapper.get(".sr-only[role='alert']").text()).toBe("app.copyFailed");
+    } finally {
+      if (previousClipboard) Object.defineProperty(navigator, "clipboard", previousClipboard);
+      mockUiState.notification = null;
+    }
+  });
+
+  it("quittiert ein erfolgreiches kopieren mit häkchen und kopiert-status", async () => {
+    const previousClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
+    try {
+      mockUiState.notification = { message: "kein platz" };
+      const wrapper = mount(App);
+
+      await wrapper.get(".note-copy").trigger("click");
+      await flushPromises();
+
+      const button = wrapper.get(".note-copy");
+      expect(button.attributes("aria-label")).toBe("app.copied");
+      expect(button.text()).toBe("✓");
+    } finally {
+      if (previousClipboard) Object.defineProperty(navigator, "clipboard", previousClipboard);
+      mockUiState.notification = null;
+    }
   });
 });

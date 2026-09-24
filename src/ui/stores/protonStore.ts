@@ -50,6 +50,17 @@ function createDownloadId(): string {
   return `proton-${Date.now().toString(36)}-${downloadSequence.toString(36)}`;
 }
 
+/** Gleitender Mittelwert der Download-Rate: der neue Messwert wiegt leichter
+ *  als der bisherige, sonst flackert die Anzeige zwischen den ~1-MB-Events. */
+const SPEED_SMOOTHING_KEEP = 0.6;
+const SPEED_SMOOTHING_NEW = 0.4;
+
+/** Auftrags-Token je Store für `loadReleases`: `init()` und der Refresh-Knopf
+ *  können parallel laden, und eine langsame ältere Antwort darf weder die
+ *  frischeren Releases überschreiben noch den Ladezustand des jüngeren
+ *  Auftrags beenden (U-05). */
+const releasesRequestSequence = new WeakMap<object, number>();
+
 /** backend-ablehnungen beim löschen lokalisieren; das write-gate (steam läuft)
  *  bekommt einen eigenen text statt des rohen backend-strings. */
 function removeErrorText(e: unknown): string {
@@ -148,11 +159,11 @@ export const useProtonStore = defineStore("proton", {
               if (job) {
                 const now = Date.now();
                 if (job.speedLastTs) {
-                  // instantan-rate aus dem event-abstand, weich geglättet
-                  // events sind ~1-MB-throttled, rohwerte würden flackern
                   const inst =
                     ((payload.downloaded - job.downloaded) * 1000) / (now - job.speedLastTs);
-                  job.speed = job.speed ? 0.6 * job.speed + 0.4 * inst : inst;
+                  job.speed = job.speed
+                    ? SPEED_SMOOTHING_KEEP * job.speed + SPEED_SMOOTHING_NEW * inst
+                    : inst;
                 }
                 job.speedLastTs = now;
                 job.downloaded = payload.downloaded;
@@ -239,6 +250,11 @@ export const useProtonStore = defineStore("proton", {
     },
 
     async loadReleases(force = false) {
+      const requestId = (releasesRequestSequence.get(this) ?? 0) + 1;
+      releasesRequestSequence.set(this, requestId);
+      // nur der jüngste Auftrag schreibt Ergebnis, Fehler und Ladezustand;
+      // ältere Antworten verpuffen.
+      const isCurrent = (): boolean => releasesRequestSequence.get(this) === requestId;
       this.loading = true;
       this.loadError = null;
       try {
@@ -250,6 +266,7 @@ export const useProtonStore = defineStore("proton", {
           Date.now,
           force,
         );
+        if (!isCurrent()) return;
         this.releases = result.releases;
         this.lastFetchedAt = result.fetchedAt;
         this.lastSource = result.source;
@@ -258,9 +275,12 @@ export const useProtonStore = defineStore("proton", {
         }
       } catch (e) {
         logError("GE-Releases laden fehlgeschlagen", e);
+        if (!isCurrent()) return;
         this.loadError = formatError(e);
       } finally {
-        this.loading = false;
+        // der Ladezustand endet erst mit dem aktuellen Auftrag; sonst gäbe ein
+        // überholter Lauf den Refresh-Knopf frei, während der neue noch lädt.
+        if (isCurrent()) this.loading = false;
       }
     },
 
