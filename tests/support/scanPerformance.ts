@@ -7,10 +7,12 @@ import { nodeFs } from "./fakeSteam";
 
 export const SCAN_FIXTURE_GAME_COUNT = 500;
 export const SCAN_FIXTURE_HEADER_COUNT = 250;
-export const SCAN_FIXTURE_FIRST_APP_ID = 10_000_000;
-export const SCAN_FIXTURE_HTTP_DELAY_MS = 5;
+// die drei folgenden werte sind fixture-intern (manifest-kennung, http-latenz,
+// startoptionen-raster); exportiert wurden sie von keinem aufrufer genutzt.
+const SCAN_FIXTURE_FIRST_APP_ID = 10_000_000;
+const SCAN_FIXTURE_HTTP_DELAY_MS = 5;
 /** launch-options nur bei jedem zwanzigsten spiel (reale datei: 22 von 476). */
-export const SCAN_FIXTURE_LAUNCH_OPTION_EVERY = 20;
+const SCAN_FIXTURE_LAUNCH_OPTION_EVERY = 20;
 
 export type ScanPerformanceScenario = "cold" | "warm" | "offline";
 

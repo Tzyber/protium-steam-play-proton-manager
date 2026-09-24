@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { filterAndSortGames, fuzzyMatch, type LibraryQuery } from "../../src/core/filter";
-import type { Game, Tier } from "../../src/core/types";
+import { filterAndSortGames, fuzzyMatch, type LibraryQuery } from "../../src/core/filter.js";
+import type { Game, Tier } from "../../src/core/types.js";
 
 function game(
   partial: Omit<Partial<Game>, "compatToolSource"> & { appId: number; name: string },

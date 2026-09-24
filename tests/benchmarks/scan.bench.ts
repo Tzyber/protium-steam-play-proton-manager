@@ -1,4 +1,6 @@
 import { writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { afterAll, describe, expect, it } from "vitest";
 import { CALIBRATION_NAME, formatMeasurementLine } from "../../scripts/bench-gate-lib.mjs";
@@ -6,7 +8,7 @@ import { scanGames } from "../../src/core/scan/games.js";
 import { scanLocal } from "../../src/core/scan/local.js";
 import { enrichProtondb } from "../../src/core/scan/protondb.js";
 import { fakeSystem } from "../support/fakeSteam";
-import { median } from "../support/median.js";
+import { median } from "../support/median";
 import {
   buildScanPerformanceFixture,
   createScanPerformanceCache,
@@ -155,14 +157,14 @@ describe("scan performance fixture", () => {
     expect(value).toBeGreaterThan(0);
   });
 
-  it("cold cache, five paired runs", () => measureScenario("cold"));
-  it("warm cache, five paired runs", () => measureScenario("warm"));
-  it("offline, five paired runs", () => measureScenario("offline"));
+  it("kalter cache, fünf gepaarte läufe", () => measureScenario("cold"));
+  it("warmer cache, fünf gepaarte läufe", () => measureScenario("warm"));
+  it("offline, fünf gepaarte läufe", () => measureScenario("offline"));
 });
 
 afterAll(() =>
   writeFile(
-    process.env.PROTIUM_BENCH_FILE ?? "/tmp/protium-scan-benchmark.txt",
+    process.env.PROTIUM_BENCH_FILE ?? join(tmpdir(), "protium-scan-benchmark.txt"),
     `${output.join("\n")}\n`,
     "utf8",
   ),

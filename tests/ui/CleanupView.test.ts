@@ -3,6 +3,7 @@
 import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { nextTick } from "vue";
 import type { TrashEntry } from "../../src/core/trash";
 import type { OrphanEntry } from "../../src/core/types";
 import { formatBytes } from "../../src/ui/format";
@@ -16,6 +17,15 @@ import {
   trashEntry as makeTrashEntry,
   scanResult,
 } from "../support/factories";
+
+/** T-05: der view-flow hängt nur an Vue-Ticks und microtasks, es gibt keinen
+ *  timer im pfad. Zwei Ticks plus ein microtask-drain sind deterministisch,
+ *  während die früheren setTimeout(20)-Waits unter Last flakten. */
+async function settleView(): Promise<void> {
+  await nextTick();
+  await nextTick();
+  await Promise.resolve();
+}
 
 describe("CleanupView incomplete deletions", () => {
   beforeEach(() => {
@@ -306,7 +316,7 @@ describe("CleanupView incomplete deletions", () => {
     });
 
     mount(CleanupView);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await settleView();
     expect(store.error).toBeNull();
     expect(calls).toEqual([]);
 
@@ -318,7 +328,7 @@ describe("CleanupView incomplete deletions", () => {
     expect(store.error).toBeNull();
 
     // kein endlos-watcher: weitere ticks lösen keinen weiteren scan aus
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await settleView();
     expect(calls).toEqual(["orphans", "trash"]);
   });
 
@@ -370,7 +380,7 @@ describe("CleanupView incomplete deletions", () => {
     scan.status = "done";
     await vi.waitFor(() => expect(calls).toEqual(["orphans", "trash", "orphans", "trash"]));
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await settleView();
     expect(calls).toEqual(["orphans", "trash", "orphans", "trash"]);
   });
 
@@ -470,6 +480,30 @@ describe("CleanupView incomplete deletions", () => {
 
     expect(wrapper.text()).toContain(t("cleanup.empty"));
     expect(wrapper.text()).not.toContain(t("cleanup.unavailable"));
+  });
+
+  it("rendert am echten DOM '…' für verschwundene und '-' für leere größen (T-02)", async () => {
+    // T-02: früher prüfte ein lokales `renderSize` nur seine eigene Kopie des
+    // ternären Ausdrucks aus CleanupView.vue; ein Bruch der View blieb grün.
+    // Jetzt bindet der Test die Unterscheidung an die reale Zeilenausgabe:
+    // "verschwunden (…)" vs "echtes leeres verzeichnis (-)" vs gemessene größe.
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    store.orphans = [
+      makeOrphan(1, "shadercache"),
+      makeOrphan(2, "shadercache", 0),
+      makeOrphan(3, "shadercache", 8192),
+    ];
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+
+    const sizes = wrapper.findAll("#cv-panel-shaders .rsize").map((cell) => cell.text());
+    expect(sizes).toContain("…");
+    expect(sizes).toContain("-");
+    expect(sizes).toContain(formatBytes(8192));
+    expect(sizes).not.toContain("0 B");
   });
 });
 

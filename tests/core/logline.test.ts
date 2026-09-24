@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseLogRecord } from "../../src/core/logline";
+import { parseLogRecord } from "../../src/core/logline.js";
 
 describe("parseLogRecord", () => {
   it("zerlegt die kanonische form in zeit, level und nachricht", () => {

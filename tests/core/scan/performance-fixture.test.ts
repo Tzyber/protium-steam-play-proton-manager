@@ -7,6 +7,8 @@ import {
   buildScanPerformanceFixture,
   createScanPerformanceCache,
   nodeFs,
+  SCAN_FIXTURE_GAME_COUNT,
+  SCAN_FIXTURE_HEADER_COUNT,
   warmScanPerformanceCache,
 } from "../../support/scanPerformance";
 
@@ -30,7 +32,7 @@ function immediateHttp(offline: boolean): { http: Http; calls: string[] } {
 }
 
 describe("scan performance fixture", () => {
-  it("erzeugt genau 500 spiele und 250 lokale header", async () => {
+  it(`erzeugt genau ${SCAN_FIXTURE_GAME_COUNT} spiele und ${SCAN_FIXTURE_HEADER_COUNT} lokale header`, async () => {
     const fixture = await buildScanPerformanceFixture();
     try {
       const local = await scanLocal(
@@ -43,11 +45,13 @@ describe("scan performance fixture", () => {
         fixture.environment,
       );
 
-      expect(fixture.appIds).toHaveLength(500);
-      expect(new Set(fixture.appIds)).toHaveLength(500);
-      expect(fixture.headerAppIds).toHaveLength(250);
-      expect(local.games).toHaveLength(500);
-      expect(local.games.filter((game) => game.localHeader !== null)).toHaveLength(250);
+      expect(fixture.appIds).toHaveLength(SCAN_FIXTURE_GAME_COUNT);
+      expect(new Set(fixture.appIds)).toHaveLength(SCAN_FIXTURE_GAME_COUNT);
+      expect(fixture.headerAppIds).toHaveLength(SCAN_FIXTURE_HEADER_COUNT);
+      expect(local.games).toHaveLength(SCAN_FIXTURE_GAME_COUNT);
+      expect(local.games.filter((game) => game.localHeader !== null)).toHaveLength(
+        SCAN_FIXTURE_HEADER_COUNT,
+      );
       expect(local.warnings).toEqual([]);
       expect(local.skippedLibraries).toEqual([]);
       expect(local.cleanupUnsafeLibraries).toEqual([]);
@@ -72,14 +76,14 @@ describe("scan performance fixture", () => {
       await enrichProtondb(ports, local.games, 0);
 
       expect(countedHttp.calls).toHaveLength(0);
-      expect(local.games).toHaveLength(500);
+      expect(local.games).toHaveLength(SCAN_FIXTURE_GAME_COUNT);
       expect(local.games.every((game) => game.protonDb?.tier === "gold")).toBe(true);
     } finally {
       await fixture.cleanup();
     }
   });
 
-  it("degradiert offline alle 500 ProtonDB-Tiers zu unknown", async () => {
+  it(`degradiert offline alle ${SCAN_FIXTURE_GAME_COUNT} ProtonDB-Tiers zu unknown`, async () => {
     const fixture = await buildScanPerformanceFixture();
     try {
       const countedHttp = immediateHttp(true);
@@ -92,8 +96,8 @@ describe("scan performance fixture", () => {
       const local = await scanLocal(ports, fixture.environment);
       await enrichProtondb(ports, local.games, 0);
 
-      expect(countedHttp.calls).toHaveLength(500);
-      expect(local.games).toHaveLength(500);
+      expect(countedHttp.calls).toHaveLength(SCAN_FIXTURE_GAME_COUNT);
+      expect(local.games).toHaveLength(SCAN_FIXTURE_GAME_COUNT);
       expect(local.games.every((game) => game.protonDb?.tier === "unknown")).toBe(true);
     } finally {
       await fixture.cleanup();

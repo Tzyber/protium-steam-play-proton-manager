@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { parse } from "@node-steam/vdf";
 import { describe, expect, it } from "vitest";
-import { asNode, getPath, parseVdf, type VdfNode, type VdfValue } from "../../src/core/vdf";
+import { asNode, getPath, parseVdf, type VdfNode, type VdfValue } from "../../src/core/vdf.js";
 import { getVdfValue } from "../../src/core/vdfpatch.js";
 
 describe("parseVdf prototype-safety", () => {
@@ -221,7 +222,7 @@ ${key}
 // fehl, ist von Rust geschriebenes VDF für die lesende seite kaputt.
 describe("cross-parser-vertrag Rust -> @node-steam/vdf", () => {
   const RUST_OUTPUT = readFileSync(
-    `${process.cwd()}/tests/fixtures/cross-parser-expected.vdf`,
+    resolve(import.meta.dirname, "../fixtures/cross-parser-expected.vdf"),
     "utf8",
   );
   const APPS = ["UserLocalConfigStore", "Software", "Valve", "Steam", "Apps"];

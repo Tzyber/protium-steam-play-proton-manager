@@ -1,5 +1,5 @@
 import { rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   BinVdfError,
@@ -465,7 +465,7 @@ describe("parseBinaryShortcutIds", () => {
     // tests/fixtures/shortcuts-golden.vdf wird von tests/core/shortcuts.test.ts
     // und dem rust-test in steam.rs mit derselben erwarteten menge geparst.
     const { readFile } = await import("node:fs/promises");
-    const buf = await readFile(join(process.cwd(), "tests/fixtures/shortcuts-golden.vdf"));
+    const buf = await readFile(resolve(import.meta.dirname, "../fixtures/shortcuts-golden.vdf"));
     const ids = parseBinaryShortcutIds(new Uint8Array(buf));
     expect(ids).toEqual(new Set([3641016077, 123456, 42]));
     // LastPlayTime (0x02, kein "appid"-key) darf nicht landen

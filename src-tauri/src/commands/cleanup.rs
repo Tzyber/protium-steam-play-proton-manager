@@ -105,3 +105,7 @@ pub async fn list_trash_entries(
     })
     .await
 }
+
+#[cfg(test)]
+#[path = "cleanup_tests.rs"]
+mod tests;

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { errText } from "../../src/core/errtext";
 import { formatBytes, formatKnownBytes, sizeText } from "../../src/ui/format";
 
 describe("formatBytes", () => {
@@ -52,15 +51,6 @@ describe("sizeText", () => {
   });
 });
 
-describe("errText", () => {
-  it("string-rejection (rust-command) bleibt erhalten", () => {
-    expect(errText("forbidden path")).toBe("forbidden path");
-  });
-  it("Error → message", () => {
-    expect(errText(new Error("kaputt"))).toBe("kaputt");
-  });
-  it("sonstiges → String()", () => {
-    expect(errText(null)).toBe("null");
-    expect(errText(7)).toBe("7");
-  });
-});
+// T-09: `errText` gehört zum Core (src/core/errtext.ts) und wird dort von
+// tests/core/units.test.ts umfassender geprüft (inkl. undefined und parseError);
+// die hier entfernte wortgleiche Kopie brachte keine zusätzliche Deckung.

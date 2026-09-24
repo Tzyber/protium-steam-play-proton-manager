@@ -1,19 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { enrichProtondb } from "../../../src/core/scan/protondb.js";
 import type { Game } from "../../../src/core/types.js";
+import { game as fixtureGame } from "../../support/factories";
 import { buildFakeSteam, fakeSystem, memCache, nodeFs } from "../../support/fakeSteam";
 
-const game = (appId: number, library = "/steam"): Game => ({
-  appId,
-  name: `game-${appId}`,
-  library,
-  sizeBytes: 0,
-  compatTool: "default",
-  compatToolSource: "default",
-  protonDb: null,
-  localHeader: null,
-  headerImage: null,
-});
+/** kurzform für die spiele dieses tests; die feldliste kommt aus der geteilten
+ *  fabrik, damit neue pflichtfelder nicht hier nachgezogen werden. */
+const game = (appId: number, library: string): Game => fixtureGame({ appId, library });
 
 describe("enrichProtondb", () => {
   afterEach(() => {

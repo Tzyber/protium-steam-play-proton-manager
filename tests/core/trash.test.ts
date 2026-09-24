@@ -1,40 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { System, TrashListing } from "../../src/core/ports";
-import { findTrashEntries } from "../../src/core/trash";
+import type { System, TrashListing } from "../../src/core/ports.js";
+import { findTrashEntries } from "../../src/core/trash.js";
+import { fakeSystem as supportSystem } from "../support/fakeSteam";
 
-/** minimales System-fake: nur listTrashEntries wird von findTrashEntries genutzt. */
+/** `findTrashEntries` liest nur `listTrashEntries`; der rest des system-ports
+ *  kommt aus dem geteilten fake, damit neue pflichtfelder nicht hier dupliziert
+ *  nachgezogen werden muessen. */
 function fakeSystem(impl: (library: string) => Promise<TrashListing>): System {
-  return {
-    geTargetArch: async () => "x86_64" as const,
-    discoverSteamEnvironment: async () => ({
-      generation: 1,
-      steamRoot: "/tmp/steam",
-      libraries: ["/tmp/steam"],
-      unavailableLibraries: [],
-      systemCompatDirs: [],
-      appCacheDir: "/tmp/cache",
-      appConfigDir: "/tmp/config",
-    }),
-    listTrashEntries: impl,
-    isProcessRunning: async () => false,
-    dirSize: async () => ({ status: "measured" as const, sizeBytes: 0 }),
-    batchDirSizes: async () => ({}),
-    pathIdentity: async () => null,
-    installGeProton: async () => "verified" as const,
-    cancelDownload: async () => {},
-    onDownloadProgress: async () => () => {},
-    onInstallPhase: async () => () => {},
-    saveLaunchOptions: async () => "written" as const,
-    saveCompatTool: async () => "written" as const,
-    prepareDelete: async (req) => ({
-      token: "tok",
-      expiresAt: Date.now() + 60000,
-      targetType: req.targetType,
-      targetPath: req.path,
-      consequences: [],
-    }),
-    executeDelete: async () => ({ deletedPath: "" }),
-  };
+  return { ...supportSystem(), listTrashEntries: impl };
 }
 
 const listing = (dir: string, names: string[]): TrashListing => ({
@@ -208,7 +181,7 @@ describe("findTrashEntries", () => {
     expect(r.libraries[1]?.count).toBe(0);
   });
 
-  it("present-flag ist true wenn papierkorb vorhanden und einträge hat (142:60)", async () => {
+  it("present-flag ist true wenn papierkorb vorhanden und einträge hat", async () => {
     const sys = fakeSystem(async () =>
       listing("/lib/steamapps/.protium-trash", ["compatdata_570_1000000000000"]),
     );
@@ -219,7 +192,7 @@ describe("findTrashEntries", () => {
     expect(r.libraries[0]?.count).toBeGreaterThan(0);
   });
 
-  it("present-flag ist true bei lesefehler (74:53), fehler != leerer papierkorb", async () => {
+  it("present-flag ist true bei lesefehler, fehler != leerer papierkorb", async () => {
     const sys = fakeSystem(async () => {
       throw "blocked";
     });
@@ -232,7 +205,7 @@ describe("findTrashEntries", () => {
     expect(r.unreadable).toContain("/lib");
   });
 
-  it("zeitstempel 0 → unknown (M4.1-kommentar: 0 ist nie gültig) (121:60)", async () => {
+  it("zeitstempel 0 → unknown (0 ist nie gültiges unix-ms)", async () => {
     const sys = fakeSystem(async () => ({
       dir: "/lib/steamapps/.protium-trash",
       present: true,
@@ -260,7 +233,7 @@ describe("findTrashEntries", () => {
     expect(r.unknown[0]).toContain("compatdata_570_9007199254740992");
   });
 
-  it("vollständig verankerte regex: präfix und suffix werden abgelehnt (51:23)", async () => {
+  it("vollständig verankerte regex: präfix und suffix werden abgelehnt", async () => {
     // xcompatdata_1_2 hat ein präfix → kein match
     // compatdata_1_2junk hat ein suffix → kein match
     const sys = fakeSystem(async () => ({

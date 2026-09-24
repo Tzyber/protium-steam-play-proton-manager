@@ -15,7 +15,7 @@ function sourceFiles(root: string): string[] {
   return result;
 }
 
-describe("korrekturpaket 2 static bypass contract", () => {
+describe("statisch belegter bypass-vertrag der tauri-konfiguration", () => {
   it("hält Capability und Asset-Konfiguration frei von Environment-Grants", () => {
     const capability = readFileSync(join(repo, "src-tauri/capabilities/default.json"), "utf8");
     const config = readFileSync(join(repo, "src-tauri/tauri.conf.json"), "utf8");

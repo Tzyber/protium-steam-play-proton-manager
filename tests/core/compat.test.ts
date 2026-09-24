@@ -181,6 +181,40 @@ describe("listCompatTools", () => {
     expect(result.counts).toEqual({ read: 1, failed: 1 });
   });
 
+  it("überspringt ein zweites verzeichnis mit gleicher kanonischer identität", async () => {
+    const fs: FileSystem = {
+      exists: vi.fn(async () => true),
+      readTextFile: vi.fn(
+        async () => `"compatibilitytools"
+{
+	"compat_tools"
+	{
+		"GE-Proton9-27"
+		{
+			"display_name" "GE"
+		}
+	}
+}`,
+      ),
+      readFile: vi.fn(async () => new Uint8Array()),
+      readDir: vi.fn(async () => [{ name: "GE-Proton9-27", isDirectory: true, isSymlink: false }]),
+    };
+    const system = {
+      pathIdentity: vi.fn(async () => ({ realpath: "/compat", dev: "1", ino: "1" })),
+      dirSize: vi.fn(async () => ({ status: "measured" as const, sizeBytes: 12 })),
+    } as unknown as System;
+
+    // zwei kandidatenpfade (user + system), dieselbe kanonische identität: nur
+    // der erste wird gelesen, der zweite ist ein symlink-duplikat.
+    const result = await listCompatTools(fs, system, "/library", new Map(), new Set(), ["/system"]);
+
+    expect(system.pathIdentity).toHaveBeenCalledTimes(2);
+    expect(fs.readDir).toHaveBeenCalledTimes(1);
+    expect(result.tools).toHaveLength(1);
+    expect(result.counts).toEqual({ read: 1, failed: 0 });
+    expect(result.warnings).toEqual([]);
+  });
+
   it("zählt fehlendes tool-verzeichnis nicht als fehler", async () => {
     const fs: FileSystem = {
       exists: vi.fn(async () => false),

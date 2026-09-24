@@ -40,6 +40,45 @@ describe("scanGames", () => {
     expect(result.cleanupUnsafeLibraries).toEqual([]);
   });
 
+  it("klassifiziert einen fehlschlag der existenz-probe als read-failed und prüft weitere libraries zuende", async () => {
+    const { root, lib2: readableLibrary } = await buildFakeSteam();
+    const baseFs = nodeFs();
+    const appsDir = join(root, "steamapps");
+    const readDirs: string[] = [];
+    const fs = {
+      ...baseFs,
+      exists: async (path: string) => {
+        if (path === appsDir) throw new Error("stat denied");
+        return baseFs.exists(path);
+      },
+      readDir: async (path: string) => {
+        readDirs.push(path);
+        return baseFs.readDir(path);
+      },
+    };
+
+    const result = await scanGames(
+      fs,
+      root,
+      [root, readableLibrary],
+      () => ({ compatTool: "default", compatToolSource: "default" }),
+      null,
+    );
+
+    // die erste library fällt über die probe aus, die zweite wird trotzdem gelesen
+    expect(result.warnings).toEqual([
+      {
+        type: "library",
+        path: root,
+        reason: "read-failed",
+        detail: `library "${root}" not readable: stat denied`,
+      },
+    ]);
+    expect(result.skippedLibraries).toEqual([{ path: root, reason: "read-failed" }]);
+    expect(readDirs).not.toContain(appsDir);
+    expect(result.games.every((game) => game.library === readableLibrary)).toBe(true);
+  });
+
   it("klassifiziert fehlendes steamapps als path-missing ohne cleanup-sperre", async () => {
     const { root, lib2: readableLibrary } = await buildFakeSteam();
     const baseFs = nodeFs();

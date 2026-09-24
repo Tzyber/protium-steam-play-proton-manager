@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { getVdfChildFieldValues, getVdfValue, VdfPatchError } from "../../src/core/vdfpatch.js";
 
@@ -26,7 +27,11 @@ const LOCALCONFIG = `"UserLocalConfigStore"
 `;
 
 const LAUNCH_620 = ["UserLocalConfigStore", "Software", "Valve", "Steam", "Apps", "620"];
-const GOLDEN = readFileSync(`${process.cwd()}/tests/fixtures/text-vdf-golden.vdf`, "utf8");
+// Der pfad haengt am dateistandort, nicht am arbeitsverzeichnis (T-11).
+const GOLDEN = readFileSync(
+  resolve(import.meta.dirname, "../fixtures/text-vdf-golden.vdf"),
+  "utf8",
+);
 
 describe("getVdfValue", () => {
   it("liest einen bestehenden wert", () => {

@@ -1,156 +1,34 @@
+// T-01: die mock-preamble liegt in tests/support/cleanupStoreMocks.ts und MUSS
+// vor dem ersten store-/modul-import geladen werden, sonst baut der modulgraph
+// die echten ports auf, bevor vi.mock registriert ist. Die reihenfolge weicht
+// davon ab, was biome als alphabetische import-gruppierung erzwingen wuerde.
+// biome-ignore assist/source/organizeImports: mock-registrierung muss vor dem store-import laufen (T-01)
+import {
+  fakeScan,
+  fakeTrashEntry,
+  MOCK_TOKEN_TTL_MS,
+  mockBatchDirSizes,
+  mockExecuteDelete,
+  mockFindOrphans,
+  mockPrepareDelete,
+  mockReadLocalConfig,
+  resetCleanupMocks,
+} from "../support/cleanupStoreMocks";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  findIncompleteDeletions,
-  findOrphans,
-  findSteamOwnedPrefixes,
-} from "../../src/core/cleanup";
-import type { DirectorySize, PendingDeleteInfo, PrepareDeleteRequest } from "../../src/core/ports";
-import type { readAllShortcutAppIds } from "../../src/core/shortcuts";
-import type { findTrashEntries, TrashEntry } from "../../src/core/trash";
-import type { ScanResult } from "../../src/core/types";
-import { formatBytes } from "../../src/ui/format";
+import type { PendingDeleteInfo } from "../../src/core/ports";
 import { setLocale } from "../../src/ui/i18n";
-
-const {
-  mockFindOrphans,
-  mockFindIncompleteDeletions,
-  mockFindSteamOwnedPrefixes,
-  mockReadAllShortcutAppIds,
-  mockFindTrashEntries,
-  mockPrepareDelete,
-  mockExecuteDelete,
-  mockBatchDirSizes,
-  mockReadLocalConfig,
-  mockIsProcessRunning,
-} = vi.hoisted(() => ({
-  mockFindOrphans: vi.fn<typeof findOrphans>(async () => []),
-  mockFindIncompleteDeletions: vi.fn<typeof findIncompleteDeletions>(async () => ({
-    entries: [],
-    unreadable: [],
-  })),
-  mockFindSteamOwnedPrefixes: vi.fn<typeof findSteamOwnedPrefixes>(async () => []),
-  mockReadAllShortcutAppIds: vi.fn<typeof readAllShortcutAppIds>(async () => ({
-    status: "none" as const,
-  })),
-  mockFindTrashEntries: vi.fn<typeof findTrashEntries>(async () => ({
-    entries: [],
-    unknown: [],
-    unreadable: [],
-    libraries: [],
-  })),
-  mockPrepareDelete: vi.fn<(req: PrepareDeleteRequest) => Promise<PendingDeleteInfo>>(
-    async (req) => ({
-      token: `token-${req.path}`,
-      expiresAt: Date.now() + 60000,
-      targetType: req.targetType,
-      targetPath: req.path,
-      consequences: [],
-    }),
-  ),
-  mockExecuteDelete: vi.fn(async (_token: string) => ({
-    deletedPath: "",
-  })),
-  mockBatchDirSizes: vi.fn<(paths: string[]) => Promise<Record<string, DirectorySize>>>(
-    async (paths) =>
-      Object.fromEntries(paths.map((path) => [path, { status: "missing" as const }])),
-  ),
-  mockReadLocalConfig: vi.fn(async () => ""),
-  mockIsProcessRunning: vi.fn(async () => false),
-}));
-
-vi.mock("../../src/core/cleanup", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/core/cleanup")>();
-  return {
-    findOrphans: mockFindOrphans,
-    findIncompleteDeletions: mockFindIncompleteDeletions,
-    findSteamOwnedPrefixes: mockFindSteamOwnedPrefixes,
-    // klassifikation (U-04) ist rein und wird ungemockt mitgetestet
-    classifyOrphans: actual.classifyOrphans,
-  };
-});
-vi.mock("../../src/core/shortcuts", () => ({
-  readAllShortcutAppIds: mockReadAllShortcutAppIds,
-  SHORTCUT_ID_THRESHOLD: 2_147_483_648,
-}));
-vi.mock("../../src/core/trash", () => ({
-  findTrashEntries: mockFindTrashEntries,
-}));
-vi.mock("../../src/core/adapters/tauri", async () => {
-  // in-memory cache statt {}, der store persistiert die ignorier-entscheidung
-  const cacheStore = new Map<string, string>();
-  const tauriPorts = {
-    fs: {
-      readTextFile: mockReadLocalConfig,
-    },
-    http: {},
-    system: {
-      isProcessRunning: mockIsProcessRunning,
-      batchDirSizes: mockBatchDirSizes,
-      prepareDelete: mockPrepareDelete,
-      executeDelete: mockExecuteDelete,
-    },
-    cache: {
-      get: async (k: string) => cacheStore.get(k) ?? null,
-      set: async (k: string, v: string) => {
-        cacheStore.set(k, v);
-      },
-    },
-  };
-  return { tauriPorts };
-});
-
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useProtonStore } from "../../src/ui/stores/protonStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
-import { deferred, scanResult } from "../support/factories";
-
-beforeEach(() => {
-  mockFindIncompleteDeletions.mockReset();
-  mockFindIncompleteDeletions.mockResolvedValue({ entries: [], unreadable: [] });
-  mockIsProcessRunning.mockReset();
-  mockIsProcessRunning.mockResolvedValue(false);
-});
-
-function fakeScan(
-  skipped?: ScanResult["skippedLibraries"],
-  cleanupUnsafeLibraries?: string[],
-): ScanResult {
-  return scanResult({
-    skippedLibraries: skipped ?? [],
-    cleanupUnsafeLibraries: cleanupUnsafeLibraries ?? [],
-  });
-}
-
-function fakeTrashEntry(overrides?: Partial<TrashEntry>): TrashEntry {
-  return {
-    path: "/lib/steamapps/.protium-trash/compatdata_1091500_1753372800123",
-    library: "/lib",
-    name: "compatdata_1091500_1753372800123",
-    type: "compatdata",
-    appId: 1091500,
-    trashedAt: 1753372800123,
-    ...overrides,
-  };
-}
+import { deferred } from "../support/factories";
 
 describe("cleanupStore, gemeinsame confirm-reservierung", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     setLocale("de");
-    mockReadAllShortcutAppIds.mockReset();
-    mockReadAllShortcutAppIds.mockResolvedValue({ status: "none" });
-    mockPrepareDelete.mockReset();
-    mockPrepareDelete.mockImplementation(async (req) => ({
-      token: `token-${req.path}`,
-      expiresAt: Date.now() + 60000,
-      targetType: req.targetType,
-      targetPath: req.path,
-      consequences: [],
-    }));
-    mockExecuteDelete.mockReset();
-    mockExecuteDelete.mockResolvedValue({ deletedPath: "" });
+    resetCleanupMocks();
   });
 
   it("erzeugt keinen orphan-token bei belegter GE-reservierung", async () => {
@@ -213,7 +91,7 @@ describe("cleanupStore, gemeinsame confirm-reservierung", () => {
 
     prepared.resolve({
       token: "ge-token",
-      expiresAt: Date.now() + 60000,
+      expiresAt: Date.now() + MOCK_TOKEN_TTL_MS,
       targetType: "compatTool",
       targetPath: "/root/compatibilitytools.d/GE-Proton9-27",
       consequences: [],
@@ -233,7 +111,7 @@ describe("cleanupStore, gemeinsame confirm-reservierung", () => {
       expect(confirm.reserved).toBe(true);
       return {
         token: `token-${req.path}`,
-        expiresAt: Date.now() + 60000,
+        expiresAt: Date.now() + MOCK_TOKEN_TTL_MS,
         targetType: req.targetType,
         targetPath: req.path,
         consequences: [],
@@ -289,15 +167,7 @@ describe("cleanupStore, batch_dir_sizes NotFound-Skip", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     setLocale("de");
-    mockFindOrphans.mockReset();
-    mockReadAllShortcutAppIds.mockReset();
-    mockPrepareDelete.mockReset();
-    mockExecuteDelete.mockReset();
-    mockBatchDirSizes.mockReset();
-    mockBatchDirSizes.mockImplementation(async (paths) =>
-      Object.fromEntries(paths.map((path) => [path, { status: "missing" as const }])),
-    );
-    mockReadAllShortcutAppIds.mockResolvedValue({ status: "none" });
+    resetCleanupMocks();
   });
 
   it("übersprungener pfad → sizeBytes undefined, vorhandener pfad → gemessene größe", async () => {
@@ -401,18 +271,6 @@ describe("cleanupStore, batch_dir_sizes NotFound-Skip", () => {
 
     expect(store.error).toContain("ungültig");
     expect(store.orphans.map((entry) => entry.sizeBytes)).toEqual([undefined, undefined]);
-  });
-
-  it("UI-ternary: undefined-sizeBytes rendert '…' (nicht '-', nicht die größe)", () => {
-    // derselbe ausdruck wie in CleanupView.vue, als regressionstest, damit eine
-    // zukünftige änderung an formatBytes oder dem ternären operator die
-    // unterscheidung "verschwunden (…)" vs "leer (-)" nicht wieder verwischt.
-    // WICHTIG: die echte formatBytes importieren, kein lokales duplikat, ein
-    // duplikat bliebe grün, selbst wenn das original bricht.
-    const renderSize = (sb?: number) => (sb != null ? formatBytes(sb) : "…");
-    expect(renderSize(undefined)).toBe("…");
-    expect(renderSize(0)).toBe("-"); // echtes leeres verzeichnis
-    expect(renderSize(8192)).toBe(formatBytes(8192));
   });
 
   it("reichert orphan-namen aus steams localconfig an, fallback app-id", async () => {

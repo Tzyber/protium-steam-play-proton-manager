@@ -72,21 +72,16 @@ describe("i18n, interpolation", () => {
     expect(t("cleanup.selectedInfo", { n: 28, size: "14.2 GB" })).toBe("28 ausgewählt · 14.2 GB");
   });
 
-  it("zahlen werden zu string konvertiert", () => {
-    setLocale("en");
-    expect(t("library.gamesCount", { n: 0 })).toBe("/ 0 games");
-  });
-
   it("fehlender parameter: platzhalter bleibt sichtbar stehen", () => {
     setLocale("de");
     // {n} fehlt im params-objekt
     expect(t("library.gamesCount", {})).toBe("/ {n} spiele");
   });
 
-  it("interpolation funktioniert in en genauso", () => {
-    setLocale("en");
-    expect(t("cleanup.selectedInfo", { n: 28, size: "14.2 GB" })).toBe("28 selected · 14.2 GB");
-  });
+  // T-09: die beiden wortgleichen en-interpolations-Assertions ("… selected · …"
+  // und gamesCount {n:0}) wurden entfernt; die stärkere en-Abdeckung (mehrere
+  // Keys, n:0 und n:42) liegt in tests/ui/i18n-en.test.ts, hier bleibt die
+  // de-seite plus der sichtbare-platzhalter-fall.
 });
 
 describe("i18n, fallback (vertrag)", () => {

@@ -172,13 +172,8 @@ where
     F: FnMut() + ?Sized,
 {
     let metadata = fs::metadata(canonical).map_err(|error| {
-        // belegte abwesenheit ist not-found, jeder andere stat-fehler unreadable.
-        let code = match error.kind() {
-            io::ErrorKind::NotFound => errcode::NOT_FOUND,
-            _ => errcode::UNREADABLE,
-        };
         errcode::with_detail(
-            code,
+            errcode::code_for_io(&error),
             format!("cannot stat {} before open: {error}", canonical.display()),
         )
     })?;
@@ -378,3 +373,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "fd_tests.rs"]
+mod fd_tests;
