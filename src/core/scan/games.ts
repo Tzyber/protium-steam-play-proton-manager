@@ -119,8 +119,10 @@ export async function scanGames(
       if (!m) continue;
 
       const manifestPath = joinPath(appsDir, entry.name);
-      const filenameRaw = m[1];
-      const filenameAppId = filenameRaw ? parseSafeAppId(filenameRaw) : null;
+      // der leere string deckt den typgetriebenen Fall ab (`m[1]` ist durch
+      // noUncheckedIndexedAccess `string | undefined`); parseSafeAppId weist
+      // ihn ohnehin ab und liefert null.
+      const filenameAppId = parseSafeAppId(m[1] ?? "");
       if (filenameAppId === null) {
         failManifest(lib, entry.name, "invalid-filename", "invalid appid in filename");
         continue;

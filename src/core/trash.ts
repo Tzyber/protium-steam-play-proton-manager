@@ -119,6 +119,12 @@ export async function findTrashEntries(
         unknown.push(fullPath);
         continue;
       }
+      // fail-closed statt `as`-cast: die regex-gruppe ist heute einer der beiden
+      // typen, die prüfung hält den cast aus dem code (K-14).
+      if (typeRaw !== "compatdata" && typeRaw !== "shadercache") {
+        unknown.push(fullPath);
+        continue;
+      }
 
       // Riesige Ziffernfolgen und 0 sind im Zeitstempelteil
       // nie gültige unix-ms (appId-guard steckt in parseSafeAppId)
@@ -138,7 +144,7 @@ export async function findTrashEntries(
         path: fullPath,
         library: lib,
         name: entry.name,
-        type: typeRaw as "compatdata" | "shadercache",
+        type: typeRaw,
         appId,
         trashedAt,
       });

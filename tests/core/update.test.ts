@@ -101,6 +101,13 @@ describe("checkForUpdate", () => {
         "0.6.10",
       ),
     ).resolves.toBeNull();
+    // tags ohne "v"-präfix werden verworfen (policy, K-14).
+    await expect(
+      checkForUpdate(
+        httpResponse({ tag_name: "0.7.0", draft: false, prerelease: false }),
+        "0.6.10",
+      ),
+    ).resolves.toBeNull();
   });
 
   it("bleibt bei http- und json-fehlern still", async () => {

@@ -84,24 +84,20 @@ export function parseManifest(text: string): ManifestData {
   try {
     root = parseVdf(text);
   } catch (e) {
-    throw new ManifestParseError(
-      "manifest-missing-appstate",
-      "appmanifest ohne AppState-block",
-      errText(e),
-    );
+    throw new ManifestParseError("manifest-missing-appstate", errText(e));
   }
   const app = getKeyInsensitive(root, "AppState");
 
   if (typeof app !== "object" || app === null) {
-    throw new ManifestParseError("manifest-missing-appstate", "appmanifest ohne AppState-block");
+    throw new ManifestParseError("manifest-missing-appstate");
   }
   const appIdRaw = asString(getKeyInsensitive(app, "appid"));
   if (appIdRaw === undefined) {
-    throw new ManifestParseError("manifest-invalid-appid", "appmanifest ohne gültige appid");
+    throw new ManifestParseError("manifest-invalid-appid");
   }
   const appId = parseSafeAppId(appIdRaw);
   if (appId === null) {
-    throw new ManifestParseError("manifest-invalid-appid", "appmanifest ohne gültige appid");
+    throw new ManifestParseError("manifest-invalid-appid");
   }
 
   const name = asString(getKeyInsensitive(app, "name")) ?? `app ${appId}`;

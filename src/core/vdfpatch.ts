@@ -2,6 +2,8 @@
 
 import { errText } from "./errtext.js";
 
+/** strukturbruch im VDF. der export dient nur den tests: produktiv wird der
+ *  fehler nie per `instanceof` gefangen, sondern über `errText` klassifiziert (K-13). */
 export class VdfPatchError extends Error {
   constructor(message: string) {
     super(message);

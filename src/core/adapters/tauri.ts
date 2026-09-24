@@ -57,6 +57,9 @@ const fs: FileSystem = {
 // die verbindung annimmt und nichts sendet, würde den aufrufer sonst endlos
 // hängen lassen (INV-3). der timer umfasst fetch UND body-read.
 const HTTP_TIMEOUT_MS = 30_000;
+// plugin-http: connectTimeout deckt nur den verbindungsaufbau, den rest des
+// laufs umfasst der timer oben. eigener name statt magic number (K-14).
+const CONNECT_TIMEOUT_MS = 10_000;
 
 const http: Http = {
   async get(url, opts) {
@@ -70,7 +73,7 @@ const http: Http = {
           const res = await tauriFetch(url, {
             method: "GET",
             headers: opts?.headers,
-            connectTimeout: 10_000,
+            connectTimeout: CONNECT_TIMEOUT_MS,
           });
           const text = await res.text();
           const headers: Record<string, string> = {};

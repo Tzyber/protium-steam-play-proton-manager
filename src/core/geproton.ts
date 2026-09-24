@@ -1,4 +1,5 @@
 import type { Cache, Http, InstallPhase, System, TargetArch } from "./ports.js";
+import { isRecord } from "./types.js";
 
 const RELEASES_URL =
   "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases?per_page=15";
@@ -9,7 +10,9 @@ const MAX_NOTES = 280;
 interface GeAsset {
   name: string;
   url: string;
-  size: number;
+  /** größe aus dem GitHub-asset; undefined heißt unbekannt, nie still 0 (K-11,
+   *  gleiche regel wie `CompatTool.sizeBytes` in types.ts). */
+  size?: number;
 }
 
 export interface GeRelease {
@@ -135,7 +138,7 @@ export function parseReleases(json: string, targetArch: TargetArch): GeRelease[]
       ) {
         continue;
       }
-      tarballCandidates.push({ name, url, size: typeof a.size === "number" ? a.size : 0 });
+      tarballCandidates.push({ name, url, size: typeof a.size === "number" ? a.size : undefined });
     }
 
     const selectedTarball = tarballCandidates[0];
@@ -177,10 +180,18 @@ export async function fetchReleases(
   let cached: CacheEntry | null = null;
   try {
     const raw = await cache.get(cacheKey);
-    if (raw) cached = JSON.parse(raw) as CacheEntry;
-    // Ein ungültiger oder fehlerhafter Cache
-    // (releases: null/objekt) wird wie ein miss behandelt statt durchgereicht
-    if (cached && !Array.isArray(cached.releases)) cached = null;
+    if (raw) {
+      const entry: unknown = JSON.parse(raw);
+      // shape-prüfung statt blindem cast (K-14): ein ungültiger oder fehlerhafter
+      // Cache (fremde form, releases kein array) wird wie ein miss behandelt.
+      if (isRecord(entry) && typeof entry.fetchedAt === "number" && Array.isArray(entry.releases)) {
+        cached = {
+          etag: typeof entry.etag === "string" ? entry.etag : null,
+          fetchedAt: entry.fetchedAt,
+          releases: entry.releases,
+        };
+      }
+    }
   } catch {
     cached = null;
   }

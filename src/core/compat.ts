@@ -2,7 +2,7 @@ import type { CompatToolMapping } from "./compatTools.js";
 import { readToolVdf, usedBy } from "./compatTools.js";
 import { errText } from "./errtext.js";
 import { joinPath, paths } from "./paths.js";
-import type { DirEntry, FileSystem, System } from "./ports.js";
+import type { DirEntry, FileSystem, PathIdentity, System } from "./ports.js";
 import type { CompatTool, ReadFailedCounts, ScanWarning } from "./types.js";
 
 interface CompatToolScanResult {
@@ -52,15 +52,21 @@ export async function listCompatTools(
     }
     if (!present) continue;
 
-    let id: Awaited<ReturnType<System["pathIdentity"]>>;
+    // `pathIdentity` meldet einen erwarteten `null`-zustand (ports.ts:82): direkt
+    // als warnung behandeln statt über eine selbst gefangene exception (K-10).
+    let identity: PathIdentity;
     try {
-      id = await system.pathIdentity(dir);
-      if (!id) throw new Error("pathIdentity not available");
+      const resolved = await system.pathIdentity(dir);
+      if (resolved === null) {
+        fail("path-identity", "path identity unavailable", dir);
+        continue;
+      }
+      identity = resolved;
     } catch (e) {
       fail("path-identity", errText(e), dir);
       continue;
     }
-    const identityKeys = [`path:${id.realpath}`, `inode:${id.dev}:${id.ino}`];
+    const identityKeys = [`path:${identity.realpath}`, `inode:${identity.dev}:${identity.ino}`];
     if (identityKeys.some((key) => seenDirs.has(key))) continue;
     for (const key of identityKeys) seenDirs.add(key); // symlink-duplikat
 

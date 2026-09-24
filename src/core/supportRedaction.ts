@@ -5,8 +5,7 @@
 
 import { BLOCKLIST } from "./blocklist.js";
 import { MANAGED_GE_NAME_RE } from "./geproton.js";
-import type { Game, ScanResult } from "./types.js";
-import { isCompatToolSentinel, MAX_APP_ID } from "./types.js";
+import { type Game, isCompatToolSentinel, MAX_APP_ID, type ScanResult } from "./types.js";
 
 /** platzhalter für einen compat-tool-namen, der nicht als builtin oder
  *  managed GE-Name belegt ist. */

@@ -119,7 +119,9 @@ export interface PrepareDeleteRequest {
   steamRoot: string;
 }
 
-export interface DeleteConsequence {
+/** feldtyp von `PendingDeleteInfo.consequences`; kein fremdimport, deshalb nicht
+ *  exportiert (K-13). */
+interface DeleteConsequence {
   path: string;
   action: "trash" | "permanentDelete";
   description: string;

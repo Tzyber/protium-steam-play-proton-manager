@@ -188,4 +188,35 @@ describe("enrichProtondb", () => {
     expect(settled).toBe(0);
     expect(checks).toBe(2);
   });
+
+  it("überspringt lücken eines sparse-arrays statt die anreicherung abzubrechen (K-12)", async () => {
+    const { root } = await buildFakeSteam();
+    const games = new Array<Game>(3);
+    games[1] = game(620, root);
+    const settled: number[] = [];
+    await enrichProtondb(
+      {
+        fs: nodeFs(),
+        system: fakeSystem(),
+        cache: memCache(),
+        http: {
+          async get() {
+            return {
+              status: 200,
+              ok: true,
+              text: JSON.stringify({ tier: "gold", confidence: "strong" }),
+              headers: {},
+            };
+          },
+        },
+      },
+      games,
+      0,
+      { onSettled: (candidate) => settled.push(candidate.appId) },
+    );
+
+    // alt: `return` an der lücke brach die ganze schleife ab, spiel 620 blieb leer.
+    expect(settled).toEqual([620]);
+    expect(games[1]?.protonDb).toEqual({ tier: "gold", confidence: "strong" });
+  });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { availableBuiltinProtons, BLOCKLIST, isBlocked } from "../../src/core/blocklist.js";
+import { availableBuiltinProtons, BLOCKLIST, blockReason } from "../../src/core/blocklist.js";
 import { parseCompatToolMapping } from "../../src/core/compatTools.js";
 import { errText, parseError } from "../../src/core/errtext.js";
 import { parseManifest } from "../../src/core/manifest.js";
@@ -71,19 +71,19 @@ describe("parseManifest", () => {
   });
   it("wirft bei ungültiger appid (0, negativ, NaN, overflow)", () => {
     expect(() => parseManifest('"AppState"\n{\n\t"appid"\t\t"0"\n}')).toThrow(
-      "appmanifest ohne gültige appid",
+      "manifest-invalid-appid",
     );
     expect(() => parseManifest('"AppState"\n{\n\t"appid"\t\t"-1"\n}')).toThrow(
-      "appmanifest ohne gültige appid",
+      "manifest-invalid-appid",
     );
     expect(() => parseManifest('"AppState"\n{\n\t"appid"\t\t"abc"\n}')).toThrow(
-      "appmanifest ohne gültige appid",
+      "manifest-invalid-appid",
     );
     expect(() => parseManifest('"AppState"\n{\n\t"appid"\t\t""\n}')).toThrow(
-      "appmanifest ohne gültige appid",
+      "manifest-invalid-appid",
     );
     expect(() => parseManifest('"AppState"\n{\n\t"appid"\t\t"9007199254740992"\n}')).toThrow(
-      "appmanifest ohne gültige appid",
+      "manifest-invalid-appid",
     );
   });
   it("akzeptiert führende Nullen in appid", () => {
@@ -143,10 +143,10 @@ describe("parseManifest", () => {
 
 describe("blocklist", () => {
   it("blockt bekannte proton-appid", () =>
-    expect(isBlocked(1493710, "Proton Experimental")).toBe(true));
+    expect(blockReason(1493710, "Proton Experimental")).toBe("id"));
   it("blockt via namens-heuristik", () =>
-    expect(isBlocked(4242, "Steam Linux Runtime 3.0")).toBe(true));
-  it("lässt echtes spiel durch", () => expect(isBlocked(620, "Portal 2")).toBe(false));
+    expect(blockReason(4242, "Steam Linux Runtime 3.0")).toBe("name-heuristic"));
+  it("lässt echtes spiel durch", () => expect(blockReason(620, "Portal 2")).toBe(null));
 });
 
 // one source of truth: BLOCKLIST ist die kanonische tabelle. der dropdown-flow

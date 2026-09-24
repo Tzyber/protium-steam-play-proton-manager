@@ -154,6 +154,27 @@ describe("fetchReleases", () => {
     expect(arm.map((release) => release.installName)).toEqual(["GE-Proton11-4-aarch64"]);
   });
 
+  it("unbekannte asset-größe bleibt undefined statt 0 (K-11)", () => {
+    const body = JSON.stringify([
+      {
+        tag_name: "GE-Proton9-27",
+        assets: [
+          {
+            name: "GE-Proton9-27.tar.gz",
+            browser_download_url:
+              "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton9-27/GE-Proton9-27.tar.gz",
+          },
+        ],
+      },
+    ]);
+
+    const [release] = parseReleases(body, X86_64);
+
+    // alt: 0 wurde als gemessene größe durchgereicht (widerspruch zu types.ts "nie still 0").
+    expect(release).toBeDefined();
+    expect(release?.tarball.size).toBeUndefined();
+  });
+
   it("verwirft gekreuzte, zusätzliche und encodierte asset-urls", () => {
     const raw = JSON.parse(ghBody()) as Array<{
       tag_name: string;

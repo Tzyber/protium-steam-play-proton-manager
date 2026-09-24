@@ -78,6 +78,8 @@ export { join as joinPath };
 // distro-/paket-tools (z. B. proton-cachyos); steam durchsucht diese zusätzlich.
 // spiegel zu SYSTEM_COMPAT_DIRS in src-tauri/src/commands/scope.rs
 // beide zusammen pflegen (drift = distro-protonen verschwinden aus der UI).
+// export nur für den spiegel-test (tests/security/mirrored-constants.test.ts)
+// und den pfad-test (tests/core/paths.test.ts; K-13).
 export const SYSTEM_COMPAT_DIRS = [
   "/usr/share/steam/compatibilitytools.d",
   "/usr/local/share/steam/compatibilitytools.d",

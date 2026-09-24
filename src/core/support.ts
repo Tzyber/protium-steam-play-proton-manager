@@ -99,7 +99,6 @@ function projectCompatTool(
     };
   }
 
-  const assignedTool = source === "explicit" ? game.compatTool : result.defaultCompatTool;
   if (source === "unavailable") {
     return {
       compatToolSource: "unavailable",
@@ -107,6 +106,7 @@ function projectCompatTool(
       compatToolAvailability: "unknown",
     };
   }
+  const assignedTool = source === "explicit" ? game.compatTool : result.defaultCompatTool;
   if (!isToolName(assignedTool)) {
     return {
       compatToolSource: source === "default" ? "unavailable" : source,

@@ -18,7 +18,8 @@ describe("ProtiumError und Fehlersemantik (B1)", () => {
     expect(err.name).toBe("SteamRunningError");
     expect(err.kind).toBe("blocked");
     expect(err.code).toBe("steam-running");
-    expect(err.message).toContain("steam läuft gerade");
+    // der anzeigetext selbst liegt in der i18n-ebene; hier zählt der code-vertrag.
+    expect(err.message).toBe("steam-running");
     expect(err instanceof ProtiumError).toBe(true);
   });
 

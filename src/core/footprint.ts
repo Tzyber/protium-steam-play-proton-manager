@@ -134,9 +134,7 @@ export async function measureGameFootprint(
   try {
     response = await system.batchDirSizes(requestedPaths);
   } catch {
-    for (const target of targets) {
-      if (target.part === "gameInstall") gameInstall = failedPart();
-    }
+    if (targets.some((target) => target.part === "gameInstall")) gameInstall = failedPart();
     const compatdata = targets.some((target) => target.part === "compatdata")
       ? failedPart()
       : notRequestedPart();

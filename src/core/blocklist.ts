@@ -1,5 +1,5 @@
 // Tabelle statt Liste: kanonische Quelle für Filter und Dropdown.
-// (availableBuiltinProtons filtert hier nach `installedAppIds`).
+// (availableBuiltinProtons filtert die tabelle nach den app-ids, die ein App-Manifest haben).
 
 import type { BuiltinProton } from "./types.js";
 
@@ -76,13 +76,10 @@ export function blockReason(appId: number, name: string): BlockReason {
   return null;
 }
 
-export function isBlocked(appId: number, name: string): boolean {
-  return blockReason(appId, name) !== null;
-}
-
-/** die built-in protons, deren steam-app im scan als installiert erkannt wurde. */
-export function availableBuiltinProtons(installedAppIds: ReadonlySet<number>): BuiltinProton[] {
+/** die built-in protons, deren steam-app ein vorhandenes App-Manifest im scan hat
+ *  (der aufrufer übergibt die blocklisteten app-ids aus `scanGames`; K-08). */
+export function availableBuiltinProtons(manifestAppIds: ReadonlySet<number>): BuiltinProton[] {
   return BLOCKLIST.filter(
-    (e) => e.category === "proton-builtin" && installedAppIds.has(e.appId),
+    (e) => e.category === "proton-builtin" && manifestAppIds.has(e.appId),
   ).map((e) => ({ internalName: e.toolName as string, displayName: e.label }));
 }

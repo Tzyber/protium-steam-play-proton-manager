@@ -8,7 +8,8 @@ export const SHORTCUT_ID_THRESHOLD = 2_147_483_648; // 2^31
 /** dasselbe feste tiefenlimit wie der rust-parser (MAX_BINARY_VDF_DEPTH in
  *  steam.rs): echte dateien sind flach (shortcut → werte). ohne cap liesse
  *  eine künstlich tief geschachtelte datei den rekursiven walker den stack
- *  überlaufen lassen (abort). 65 ebenen werfen, 64 bleiben ok. */
+ *  überlaufen lassen (abort). 65 ebenen werfen, 64 bleiben ok.
+ *  export nur für den spiegel-test (tests/security/mirrored-constants.test.ts; K-13). */
 export const MAX_BINARY_VDF_DEPTH = 64;
 
 export type ShortcutResult =
@@ -210,4 +211,6 @@ export async function readAllShortcutAppIds(
   return { status: "ok", ids };
 }
 
+// nur für tests exportiert: produktiv laufen die beiden ausschließlich intern
+// (`readAllShortcutAppIds` bzw. interne wirfe; K-13).
 export { BinVdfError, parseBinaryShortcutIds };

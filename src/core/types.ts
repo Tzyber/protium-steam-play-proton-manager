@@ -213,12 +213,13 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 export const MAX_APP_ID = 4_294_967_295;
 
 /** Riesige Ziffernfolgen parsen jenseits der JS-Präzision (NAME_MAX erlaubt
- *  254 Ziffern → 1.8e254). solche strings sind nie gültige u32-IDs; der
- *  `Number.isSafeInteger`-Guard weist sie ab, bevor die Grenzprüfung greift.
+ *  254 Ziffern → 1.8e254). solche strings liegen über MAX_APP_ID und werden
+ *  schon von der Grenzprüfung abgewiesen; jeder wert ≤ MAX_APP_ID ist ohnehin
+ *  ein sicherer Integer, ein eigener `isSafeInteger`-Guard wäre tot (K-14).
  *  null = kein brauchbarer wert. */
 export function parseSafeAppId(str: string): number | null {
   if (!NUMERIC_RE.test(str)) return null;
   const appId = Number.parseInt(str, 10);
-  if (appId < 1 || appId > MAX_APP_ID || !Number.isSafeInteger(appId)) return null;
+  if (appId < 1 || appId > MAX_APP_ID) return null;
   return appId;
 }

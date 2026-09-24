@@ -1,6 +1,8 @@
 import type { Http } from "./ports.js";
 import { isRecord } from "./types.js";
 
+/** aufrufer-/test-typ von `checkForUpdate` (nur `get`); kein produktiver
+ *  fremdimport (K-13). */
 export type UpdateHttp = Pick<Http, "get">;
 
 export const UPDATE_RELEASE_URL =
@@ -22,13 +24,13 @@ function parseVersion(value: string): [number, number, number] | null {
 }
 
 function isHigher(candidate: [number, number, number], current: [number, number, number]): boolean {
-  for (let index = 0; index < candidate.length; index += 1) {
-    const candidatePart = candidate[index];
-    const currentPart = current[index];
-    if (candidatePart === undefined || currentPart === undefined) return false;
-    if (candidatePart !== currentPart) return candidatePart > currentPart;
-  }
-  return false;
+  // feste tupellänge: positionale destrukturierung kennt keine lücken, ein
+  // undefined-guard wäre tot (K-14).
+  const [candidateMajor, candidateMinor, candidatePatch] = candidate;
+  const [currentMajor, currentMinor, currentPatch] = current;
+  if (candidateMajor !== currentMajor) return candidateMajor > currentMajor;
+  if (candidateMinor !== currentMinor) return candidateMinor > currentMinor;
+  return candidatePatch > currentPatch;
 }
 
 function latestStableVersion(value: unknown): string | null {
@@ -41,6 +43,8 @@ function latestStableVersion(value: unknown): string | null {
   ) {
     return null;
   }
+  // policy: die releases dieses repos tragen ein "v"-präfix; ein tag ohne
+  // präfix ist kein release-stand für den versionsvergleich und wird verworfen (K-14).
   const version = release.tag_name.startsWith("v") ? release.tag_name.slice(1) : "";
   return parseVersion(version) ? version : null;
 }

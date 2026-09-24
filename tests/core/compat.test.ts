@@ -196,6 +196,29 @@ describe("listCompatTools", () => {
     expect(system.pathIdentity).not.toHaveBeenCalled();
   });
 
+  it("behandelt erwartetes pathIdentity-null direkt als warnung (K-10)", async () => {
+    const fs: FileSystem = {
+      exists: vi.fn(async () => true),
+      readTextFile: vi.fn(async () => ""),
+      readFile: vi.fn(async () => new Uint8Array()),
+      readDir: vi.fn(async () => []),
+    };
+    // ports.ts:82 definiert `null` als erwarteten zustand. der detailltext kommt
+    // aus dem fail-pfad, nicht aus einer selbst gefangenen exception.
+    const system = { pathIdentity: vi.fn(async () => null) } as unknown as System;
+
+    const result = await listCompatTools(fs, system, "/fake/steam", new Map(), new Set());
+
+    expect(result.counts).toEqual({ read: 0, failed: 1 });
+    expect(result.warnings).toEqual([
+      expect.objectContaining({
+        type: "compat-tool",
+        reason: "path-identity",
+        detail: "path identity unavailable",
+      }),
+    ]);
+  });
+
   it("zählt einen readDir-fehler des tool-verzeichnisses als directory-unreadable", async () => {
     const fs: FileSystem = {
       exists: vi.fn(async () => true),

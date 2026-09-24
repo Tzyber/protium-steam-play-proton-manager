@@ -1,5 +1,5 @@
 import type { Cache, Http } from "./ports.js";
-import { asTier, type Tier } from "./types.js";
+import { asTier, isRecord, type Tier } from "./types.js";
 
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -30,11 +30,14 @@ export class ProtonDbClient {
     try {
       const cached = await this.cache.get(key);
       if (cached) {
-        const entry = JSON.parse(cached) as CacheEntry;
-        // Der Cache wird wie frische Daten validiert: Tier normalisieren,
-        // confidence-typ geprüft), ein vergifteter cache darf keine fremden
-        // tier-werte durchreichen
-        if (this.now() - entry.fetchedAt < TTL_MS) {
+        const entry: unknown = JSON.parse(cached);
+        // shape-prüfung statt blindem cast (K-14): ein fremd geformter cache
+        // wird wie ein miss behandelt. tier normalisiert, confidence-typ geprüft.
+        if (
+          isRecord(entry) &&
+          typeof entry.fetchedAt === "number" &&
+          this.now() - entry.fetchedAt < TTL_MS
+        ) {
           return {
             tier: asTier(entry.tier),
             confidence: typeof entry.confidence === "string" ? entry.confidence : "unknown",

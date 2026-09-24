@@ -22,7 +22,8 @@ export async function enrichProtondb(
   for (let index = 0; index < games.length; index += 1) {
     if (!shouldApply()) return;
     const game = games[index];
-    if (!game) return;
+    // sparse-arrays: eine lücke überspringen statt die ganze anreicherung zu beenden.
+    if (!game) continue;
     const summary = (await client.getSummary(game.appId)) ?? {
       tier: "unknown",
       confidence: "unknown",

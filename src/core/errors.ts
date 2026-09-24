@@ -23,13 +23,11 @@ export class ProtiumError extends Error {
 }
 
 export class SteamRunningError extends ProtiumError {
+  // Der Anzeigetext liegt in der i18n-Ebene (`errors.codes.steamRunning`);
+  // `formatError` übersetzt allein anhand des Codes. Die Meldung trägt deshalb
+  // nur den Code, damit im Kern kein Endnutzertext doppelt geführt wird (K-09).
   constructor(detail?: string) {
-    super(
-      "blocked",
-      "steam-running",
-      "steam läuft gerade, die änderung würde beim beenden überschrieben. bitte steam erst beenden.",
-      detail,
-    );
+    super("blocked", "steam-running", "steam-running", detail);
     this.name = "SteamRunningError";
   }
 }
@@ -37,13 +35,10 @@ export class SteamRunningError extends ProtiumError {
 type ManifestParseErrorCode = "manifest-missing-appstate" | "manifest-invalid-appid";
 
 export class ManifestParseError extends ProtiumError {
-  constructor(code: ManifestParseErrorCode, message: string, detail?: string) {
-    super(
-      code === "manifest-missing-appstate" ? "unreadable" : "incomplete",
-      code,
-      message,
-      detail,
-    );
+  /** `detail` trägt die diagnostik; die Anzeige kommt aus dem Code über
+   *  `errors.codes.manifestMissingAppstate`/`manifestInvalidAppid` (K-09). */
+  constructor(code: ManifestParseErrorCode, detail?: string) {
+    super(code === "manifest-missing-appstate" ? "unreadable" : "incomplete", code, code, detail);
     this.name = "ManifestParseError";
   }
 }
