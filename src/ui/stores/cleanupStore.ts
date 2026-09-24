@@ -25,6 +25,7 @@ import {
   formatTrashErrors,
   hasOrphanUnavailableBase,
   hasUnreadableIncompleteDeletions,
+  isCurrentForScan,
 } from "./cleanupHelpers";
 import { useConfirmStore } from "./confirmStore";
 import { useScanStore } from "./scanStore";
@@ -188,9 +189,12 @@ export const useCleanupStore = defineStore("cleanup", {
       const scan = useScanStore();
       const sourceScanGeneration = scan.scanGeneration;
       const isCurrent = () =>
-        this._orphanScanGeneration === generation &&
-        scan.scanGeneration === sourceScanGeneration &&
-        (scan.status === "done" || scan.status === "idle");
+        isCurrentForScan({
+          generation,
+          currentGeneration: this._orphanScanGeneration,
+          sourceScanGeneration,
+          scan,
+        });
       const result = scan.status === "done" || scan.status === "idle" ? scan.result : null;
       if (!result) {
         // gleiches verhalten wie scanTrash: klick vor scan-ende darf nicht
@@ -335,9 +339,12 @@ export const useCleanupStore = defineStore("cleanup", {
       const generation = this._orphanScanGeneration;
       const sourceScanGeneration = scan.scanGeneration;
       const isCurrent = () =>
-        this._orphanScanGeneration === generation &&
-        scan.scanGeneration === sourceScanGeneration &&
-        (scan.status === "done" || scan.status === "idle");
+        isCurrentForScan({
+          generation,
+          currentGeneration: this._orphanScanGeneration,
+          sourceScanGeneration,
+          scan,
+        });
       const result = scan.status === "done" || scan.status === "idle" ? scan.result : null;
       if (!result) {
         this.setOrphanError(t("errors.noScanResult"));
@@ -554,9 +561,12 @@ export const useCleanupStore = defineStore("cleanup", {
       const scan = useScanStore();
       const sourceScanGeneration = scan.scanGeneration;
       const isCurrent = () =>
-        this._trashScanGeneration === generation &&
-        scan.scanGeneration === sourceScanGeneration &&
-        (scan.status === "done" || scan.status === "idle");
+        isCurrentForScan({
+          generation,
+          currentGeneration: this._trashScanGeneration,
+          sourceScanGeneration,
+          scan,
+        });
       const result = scan.status === "done" || scan.status === "idle" ? scan.result : null;
       if (!result) {
         this.setTrashError(t("errors.noScanResult"));
@@ -610,9 +620,12 @@ export const useCleanupStore = defineStore("cleanup", {
       const scan = useScanStore();
       const sourceScanGeneration = scan.scanGeneration;
       const isCurrent = () =>
-        this._trashScanGeneration === generation &&
-        scan.scanGeneration === sourceScanGeneration &&
-        (scan.status === "done" || scan.status === "idle");
+        isCurrentForScan({
+          generation,
+          currentGeneration: this._trashScanGeneration,
+          sourceScanGeneration,
+          scan,
+        });
       const result = scan.status === "done" || scan.status === "idle" ? scan.result : null;
       const steamRoot = result?.steamRoot ?? "";
       const confirm = useConfirmStore();

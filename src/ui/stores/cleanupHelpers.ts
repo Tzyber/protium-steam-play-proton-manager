@@ -133,3 +133,21 @@ export function toggleInSet(set: Set<string>, key: string): void {
   if (set.has(key)) set.delete(key);
   else set.add(key);
 }
+
+/** Generations-guard eines cleanup-Laufs: eigene Generation, Generation des
+ *  Library-Scans und ein Scan-Stand, in dem ein Ergebnis gilt. Eine neue eigene
+ *  Generation oder ein Library-Rescan macht den Lauf ungültig, seine Antwort
+ *  darf nichts mehr eintragen (INV-2); genau deshalb bleibt der Vergleich streng
+ *  und wird nicht gelockert. */
+export function isCurrentForScan(guard: {
+  generation: number;
+  currentGeneration: number;
+  sourceScanGeneration: number;
+  scan: { scanGeneration: number; status: string };
+}): boolean {
+  return (
+    guard.generation === guard.currentGeneration &&
+    guard.scan.scanGeneration === guard.sourceScanGeneration &&
+    (guard.scan.status === "done" || guard.scan.status === "idle")
+  );
+}

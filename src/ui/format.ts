@@ -16,6 +16,19 @@ export function formatBytes(bytes: number | undefined): string {
   return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
+/** Anzeigetext einer größe aus dem bericht. Fehlt der wert oder ist er
+ *  unbrauchbar, steht der platzhalter (INV-2: „nicht gemessen" statt „0 B").
+ *  `measured` steht für eine belegte messung: dort ist die 0 ein gültiger wert
+ *  („0 B") und nicht das „-", das leer/ungültig bedeutet. */
+export function sizeText(
+  sizeBytes: number | undefined,
+  options: { missing?: string; measured?: boolean } = {},
+): string {
+  const { missing = "…", measured = false } = options;
+  if (sizeBytes === undefined || !Number.isSafeInteger(sizeBytes) || sizeBytes < 0) return missing;
+  return measured ? formatKnownBytes(sizeBytes) : formatBytes(sizeBytes);
+}
+
 /** letztes pfadsegment; ein pfad ohne "/" bleibt unverändert. Für knappe
  *  anzeigen (Library-name, Papierkorb-eintrag), nicht für sicherheitsprüfungen. */
 export function pathBasename(path: string): string {

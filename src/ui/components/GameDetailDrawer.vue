@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { openExternal, tauriPorts } from "../../core/adapters/tauri";
-import { parseError } from "../../core/errtext";
 import { analyzeLaunchOptions, type LaunchHint } from "../../core/launchHints";
 import { protonDbAppUrl } from "../../core/protondb";
 import type { LaunchConfigStatus, Tier } from "../../core/types";
@@ -16,8 +15,8 @@ import { useScanStore } from "../stores/scanStore";
 import { useUiStore } from "../stores/uiStore";
 import { tierName } from "../tier";
 import { useCover } from "../useCover";
+import { type SaveState, useGameConfigSave } from "../useGameConfigSave";
 import { useGameFootprint } from "../useGameFootprint";
-import { useLatestRequest } from "../useLatestRequest";
 import { usePrefixOpen } from "../usePrefixOpen";
 import { useSupportCopy } from "../useSupportCopy";
 import BlockedExplanation from "./BlockedExplanation.vue";
@@ -106,39 +105,18 @@ async function openProtonDb() {
   }
 }
 
-// Status eines Speichervorgangs: bekannte schlagworte ODER die fehlermeldung.
-// Als tagged union, damit `stateError` nicht aus einem freien string raten muss.
-type SaveState =
-  | { kind: "idle" | "saving" | "saved" }
-  | { kind: "error"; message: string; uncertain: boolean };
-
-const save = (kind: "idle" | "saving" | "saved"): SaveState => ({ kind });
-// `uncertain` unterscheidet den Fall "möglicherweise geschrieben" (Code
-// write-may-have-applied) vom belegten "nichts verändert": der Garantiesatz
-// darf dort nicht stehen (SECURITY.md).
-const saveError = (e: unknown): SaveState => ({
-  kind: "error",
-  message: formatError(e),
-  uncertain: parseError(e).code === "write-may-have-applied",
-});
-
-// Status für das Speichern von Startoptionen.
-const launchInput = ref("");
-const launchState = ref<SaveState>(save("idle"));
-const launchDirty = computed(() => launchInput.value !== (game.value?.launchOptions ?? ""));
-const launchRequest = useLatestRequest(() => game.value);
-
-watch(
-  game,
-  (g) => {
-    launchInput.value = g?.launchOptions ?? "";
-    launchState.value = save("idle");
-  },
-  { immediate: true },
-);
-watch(launchInput, () => {
-  if (launchState.value.kind === "saved") launchState.value = save("idle");
-});
+// Startoptionen- und Compat-Feld samt Speicherstatus: die beiden Schreibpfade
+// waren bis auf das Feld wortgleich und liegen jetzt in einem Baustein.
+const {
+  launchInput,
+  launchState,
+  launchDirty,
+  saveLaunch,
+  compatSelected,
+  compatState,
+  compatDirty,
+  saveCompat,
+} = useGameConfigSave(game, config);
 
 function launchHintText(hint: LaunchHint): string {
   switch (hint) {
@@ -166,39 +144,6 @@ const launchConfigUnavailable = computed(
   () =>
     scan.result?.launchConfigStatus !== undefined && scan.result.launchConfigStatus !== "available",
 );
-
-async function saveLaunch() {
-  const g = game.value;
-  if (!g || launchState.value.kind === "saving") return;
-  // dirty-vergleich und gespeicherter wert laufen beide getrimmt, sonst bliebe
-  // der save-button nach dem speichern von " foo " fälschlich aktiv.
-  launchInput.value = launchInput.value.trim();
-  if (!launchDirty.value) return;
-  const token = launchRequest.begin();
-  const submitted = launchInput.value;
-  // ein abweichender entwurf beendet den status trotzdem, sonst bliebe der
-  // knopf dauerhaft gesperrt.
-  const stillMatches = (): boolean =>
-    launchRequest.matchesValue(token, () => launchInput.value === submitted);
-  launchState.value = save("saving");
-  try {
-    const result = await config.saveLaunchOptions(token.appId ?? g.appId, submitted);
-    if (!launchRequest.matches(token)) return;
-    if (!stillMatches()) {
-      launchState.value = save("idle");
-      return;
-    }
-    launchState.value = save(result === "written" ? "saved" : "idle");
-  } catch (e) {
-    if (!stillMatches()) return;
-    launchState.value = saveError(e);
-  }
-}
-
-// Auswahl und Status für Compat-Tools.
-const compatSelected = ref("__default__");
-const compatState = ref<SaveState>(save("idle"));
-const compatRequest = useLatestRequest(() => game.value);
 
 const compatProvenance = computed(() => {
   const result = scan.result;
@@ -271,51 +216,6 @@ const compatOptions = computed(() => {
   return list;
 });
 
-const compatDirty = computed(() => {
-  const current = game.value?.compatTool ?? "default";
-  const expected = current === "default" ? "__default__" : current;
-  return compatSelected.value !== expected;
-});
-
-watch(
-  game,
-  (g) => {
-    const tool = g?.compatTool;
-    compatSelected.value = tool && tool !== "default" ? tool : "__default__";
-    compatState.value = save("idle");
-  },
-  { immediate: true },
-);
-
-watch(compatSelected, () => {
-  if (compatState.value.kind === "saved") compatState.value = save("idle");
-});
-
-async function saveCompat() {
-  const g = game.value;
-  if (!g || compatState.value.kind === "saving" || !compatDirty.value) return;
-  const token = compatRequest.begin();
-  const selected = compatSelected.value;
-  const stillMatches = (): boolean =>
-    compatRequest.matchesValue(token, () => compatSelected.value === selected);
-  compatState.value = save("saving");
-  try {
-    const result = await config.saveCompatTool(
-      token.appId ?? g.appId,
-      selected === "__default__" ? null : selected,
-    );
-    if (!compatRequest.matches(token)) return;
-    if (!stillMatches()) {
-      compatState.value = save("idle");
-      return;
-    }
-    compatState.value = save(result === "written" ? "saved" : "idle");
-  } catch (e) {
-    if (!stillMatches()) return;
-    compatState.value = saveError(e);
-  }
-}
-
 const {
   state: supportCopyState,
   canCopy: canCopySupport,
@@ -351,8 +251,8 @@ const errorUncertain = computed(() => {
   return launch.kind === "error" ? launch.uncertain : false;
 });
 function dismissError() {
-  if (stateError(compatState.value)) compatState.value = save("idle");
-  if (stateError(launchState.value)) launchState.value = save("idle");
+  if (stateError(compatState.value)) compatState.value = { kind: "idle" };
+  if (stateError(launchState.value)) launchState.value = { kind: "idle" };
 }
 
 // toast nach 6s automatisch schließen (bleibt bei erneutem fehler frisch stehen).

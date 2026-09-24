@@ -2,7 +2,7 @@
 // eigener Baustein: die Zustandsmaschine aus Kontext, Auftrags-Klammer und
 // Fehlerdegradation war der größte Block im Drawer und wird nur dort gebraucht.
 
-import { computed, type Ref, ref, watch } from "vue";
+import { computed, type Ref, ref } from "vue";
 import { tauriPorts } from "../core/adapters/tauri";
 import {
   type FootprintPart,
@@ -11,8 +11,9 @@ import {
   measureGameFootprint,
 } from "../core/footprint";
 import type { Game, LaunchConfigStatus, ScanResult } from "../core/types";
-import { formatKnownBytes } from "./format";
+import { sizeText } from "./format";
 import { t } from "./i18n";
+import { sameContext, watchContext } from "./sameContext";
 import { useLatestRequest } from "./useLatestRequest";
 
 type FootprintUiState = "idle" | "measuring" | "ready";
@@ -29,21 +30,15 @@ interface FootprintContext {
   compatdataNotChecked: boolean;
 }
 
-function sameFootprintContext(
-  left: FootprintContext | null,
-  right: FootprintContext | null,
-): boolean {
-  if (left === null || right === null) return left === right;
-  return (
-    left.appId === right.appId &&
-    left.scanGeneration === right.scanGeneration &&
-    left.library === right.library &&
-    left.installdir === right.installdir &&
-    left.launchConfigStatus === right.launchConfigStatus &&
-    left.externalCompatdata === right.externalCompatdata &&
-    left.compatdataNotChecked === right.compatdataNotChecked
-  );
-}
+const sameFootprintContext = sameContext<FootprintContext>([
+  "appId",
+  "scanGeneration",
+  "library",
+  "installdir",
+  "launchConfigStatus",
+  "externalCompatdata",
+  "compatdataNotChecked",
+]);
 
 /** ein fehlgeschlagener Messlauf degradiert sichtbar (INV-2) statt zu werfen;
  *  externe oder ungeprüfte compatdata wird dabei nicht als Fehler gemeldet. */
@@ -92,15 +87,7 @@ export function useGameFootprint(
     state.value = "idle";
   }
 
-  watch(
-    context,
-    (current, previous) => {
-      if (previous === undefined || !sameFootprintContext(current, previous)) {
-        invalidate();
-      }
-    },
-    { immediate: true },
-  );
+  watchContext(context, sameFootprintContext, invalidate);
 
   async function measure(): Promise<void> {
     const current = game.value;
@@ -129,11 +116,9 @@ export function useGameFootprint(
     }
   }
 
-  function sizeText(sizeBytes: number | undefined): string {
-    if (typeof sizeBytes !== "number" || !Number.isSafeInteger(sizeBytes) || sizeBytes < 0) {
-      return t("common.notMeasured");
-    }
-    return formatKnownBytes(sizeBytes);
+  /** gemessene werte: die belegte 0 heißt „0 B", nicht „nicht gemessen". */
+  function footprintSizeText(sizeBytes: number | undefined): string {
+    return sizeText(sizeBytes, { missing: t("common.notMeasured"), measured: true });
   }
 
   function partText(part: FootprintPart | undefined): string {
@@ -141,7 +126,7 @@ export function useGameFootprint(
     if (!part || part.status === "not-requested") return t("common.notMeasured");
     if (part.status === "failed") return t("drawer.footprintFailed");
     if (part.status === "missing") return t("drawer.footprintMissing");
-    return sizeText(part.sizeBytes);
+    return footprintSizeText(part.sizeBytes);
   }
 
   function summaryLabel(summary: GameFootprint["summary"]): string {
@@ -155,7 +140,7 @@ export function useGameFootprint(
     if (state.value === "measuring") return t("drawer.footprintLoading");
     const summary = result.value?.summary;
     if (!summary || summary.status === "not-measured") return t("common.notMeasured");
-    return sizeText(summary.sizeBytes);
+    return footprintSizeText(summary.sizeBytes);
   }
 
   return {

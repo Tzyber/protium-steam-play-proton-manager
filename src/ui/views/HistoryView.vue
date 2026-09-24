@@ -7,9 +7,10 @@ import {
   openLogsFolder,
   readLogTail,
 } from "../../core/adapters/tauri";
+import { dateTimeText, timeText } from "../dateTime";
 import { formatBytes } from "../format";
 import { formatError } from "../formatError";
-import { getLocale, t } from "../i18n";
+import { t } from "../i18n";
 
 const snapshots = ref<ConfigBackupEntry[]>([]);
 const snapshotsLoading = ref(false);
@@ -61,7 +62,7 @@ function snapshotLabel(entry: ConfigBackupEntry): string {
 }
 
 function snapshotTime(entry: ConfigBackupEntry): string {
-  return new Date(entry.timestampMs).toLocaleString(getLocale());
+  return dateTimeText(entry.timestampMs);
 }
 
 interface LogLine {
@@ -78,7 +79,7 @@ function parseLogLine(line: string, index: number): LogLine {
   const seconds = Number.parseInt(match[1] ?? "", 10);
   return {
     key: `${index}`,
-    time: Number.isFinite(seconds) ? new Date(seconds * 1000).toLocaleTimeString(getLocale()) : "",
+    time: Number.isFinite(seconds) ? timeText(seconds * 1000) : "",
     level: (match[2] ?? "").toLowerCase(),
     message: match[3] ?? "",
   };

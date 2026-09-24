@@ -7,9 +7,10 @@ import BlockedExplanation from "../components/BlockedExplanation.vue";
 import CleanupRow from "../components/CleanupRow.vue";
 import ConfirmDialogHost from "../components/ConfirmDialogHost.vue";
 import ExplainInfo from "../components/ExplainInfo.vue";
-import { formatBytes, formatKnownBytes } from "../format";
+import { shortDate } from "../dateTime";
+import { formatKnownBytes, sizeText } from "../format";
 import { formatError, formatErrorKind } from "../formatError";
-import { getLocale, t } from "../i18n";
+import { t } from "../i18n";
 import { bySizeDesc, formatSizeSummary } from "../sizeSummary";
 import { toggleInSet } from "../stores/cleanupHelpers";
 import { useCleanupStore } from "../stores/cleanupStore";
@@ -118,11 +119,6 @@ function toggle(key: string) {
   toggleInSet(selected, key);
 }
 
-/** größe einer zeile; unbekannt bleibt sichtbar "…" statt "0 B". */
-function sizeText(sizeBytes: number | undefined): string {
-  return sizeBytes != null ? formatBytes(sizeBytes) : "…";
-}
-
 function displaySize(entries: readonly { sizeBytes?: number }[]): string {
   return formatSizeSummary(entries, formatKnownBytes);
 }
@@ -224,15 +220,6 @@ async function deleteTrashEntries(all: boolean) {
   } finally {
     trashDeleting.value = false;
   }
-}
-/** kurzform für die spalte, der volle satz steht im title-attribut. eine
- *  datumsspalte in flexibler breite hat die zeile über den viewport geschoben. */
-function trashDate(ms: number): string {
-  return new Date(ms).toLocaleDateString(getLocale() === "de" ? "de-DE" : "en-GB", {
-    year: "2-digit",
-    month: "2-digit",
-    day: "2-digit",
-  });
 }
 
 const trashAllSelected = computed(
@@ -542,8 +529,8 @@ const shortcutBlockedItems = computed(() =>
               :path="e.path"
               :short-path="shortPath(e.path)"
               :size-text="sizeText(e.sizeBytes)"
-              :extra="trashDate(e.trashedAt)"
-              :extra-title="t('cleanup.trashTrashedAt', { date: trashDate(e.trashedAt) })"
+              :extra="shortDate(e.trashedAt)"
+              :extra-title="t('cleanup.trashTrashedAt', { date: shortDate(e.trashedAt) })"
               with-date
               :selected="trashSelected.has(e.path)"
               @toggle="toggleTrash(e.path)"

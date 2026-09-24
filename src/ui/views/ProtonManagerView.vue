@@ -4,7 +4,8 @@ import { isManagedGeName } from "../../core/geproton";
 import type { CompatTool } from "../../core/types";
 import ConfirmDialogHost from "../components/ConfirmDialogHost.vue";
 import ExplainInfo from "../components/ExplainInfo.vue";
-import { formatBytes, formatKnownBytes } from "../format";
+import { relativeTime } from "../dateTime";
+import { formatBytes, formatKnownBytes, sizeText } from "../format";
 import type { Key } from "../i18n";
 import { t } from "../i18n";
 import { formatSizeSummary } from "../sizeSummary";
@@ -61,16 +62,6 @@ function speedLabel(tag: string): string {
   return speed > 0 ? `${formatBytes(Math.round(speed))}/s` : "";
 }
 
-function relTime(ts: number): string {
-  const s = Math.round((Date.now() - ts) / 1000);
-  if (s < 60) return t("time.justNow");
-  const m = Math.round(s / 60);
-  if (m < 60) return t("time.minutesAgo", { n: m });
-  const h = Math.round(m / 60);
-  if (h < 24) return t("time.hoursAgo", { n: h });
-  return t("time.daysAgo", { n: Math.round(h / 24) });
-}
-
 const statusFlash = ref(false);
 let flashTimer: ReturnType<typeof setTimeout> | null = null;
 async function refreshReleases() {
@@ -88,7 +79,7 @@ onBeforeUnmount(() => {
 const statusLine = computed(() => {
   if (proton.loading) return null;
   if (proton.lastFetchedAt == null) return null;
-  const when = relTime(proton.lastFetchedAt);
+  const when = relativeTime(proton.lastFetchedAt);
   const n = proton.releases.length;
   switch (proton.lastSource) {
     case "fresh":
@@ -148,7 +139,7 @@ const statusLine = computed(() => {
           <div class="rmain">
             <div class="rname">{{ tt.displayName }}</div>
             <div class="rsub mono">
-              {{ tt.internalName }} · {{ tt.sizeBytes === undefined ? "…" : formatBytes(tt.sizeBytes) }}
+              {{ tt.internalName }} · {{ sizeText(tt.sizeBytes) }}
               <span v-if="tt.source === 'system'" class="tag distro">{{ t("proton.distroReadonly") }}</span>
             </div>
           </div>

@@ -3,11 +3,12 @@
 // Ergebnis eintragen (Spiel- oder Scan-Wechsel macht eine laufende Kopie
 // ungültig), damit nach einem Rescan kein fremder Status stehen bleibt.
 
-import { computed, type Ref, ref, watch } from "vue";
+import { computed, type Ref, ref } from "vue";
 import { version as appVersion } from "../../package.json";
 import type { GameFootprint } from "../core/footprint";
 import { projectSupportFacts } from "../core/support";
 import type { Game, ScanResult } from "../core/types";
+import { sameContext, watchContext } from "./sameContext";
 import { formatSupportFacts } from "./supportText";
 import { useLatestRequest } from "./useLatestRequest";
 
@@ -18,13 +19,7 @@ interface SupportCopyContext {
   scanGeneration: number;
 }
 
-function sameSupportCopyContext(
-  left: SupportCopyContext | null,
-  right: SupportCopyContext | null,
-): boolean {
-  if (left === null || right === null) return left === right;
-  return left.appId === right.appId && left.scanGeneration === right.scanGeneration;
-}
+const sameSupportCopyContext = sameContext<SupportCopyContext>(["appId", "scanGeneration"]);
 
 /** Quelle der cleanup-fakten für den Bericht: die flaggen und die beiden
  *  listen, aus denen die zähler entstehen. Bewusst die Store-Form, damit der
@@ -61,15 +56,7 @@ export function useSupportCopy(
     state.value = "idle";
   }
 
-  watch(
-    context,
-    (current, previous) => {
-      if (previous === undefined || !sameSupportCopyContext(current, previous)) {
-        invalidate();
-      }
-    },
-    { immediate: true },
-  );
+  watchContext(context, sameSupportCopyContext, invalidate);
 
   const canCopy = computed(
     () => context.value !== null && !isSaving.value && state.value !== "copying",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { errText } from "../../src/core/errtext";
-import { formatBytes, formatKnownBytes } from "../../src/ui/format";
+import { formatBytes, formatKnownBytes, sizeText } from "../../src/ui/format";
 
 describe("formatBytes", () => {
   it("unbekannt → auslassungspunkte", () => {
@@ -31,6 +31,24 @@ describe("formatKnownBytes", () => {
   it("belegte 0 → 0 B, sonst wie formatBytes", () => {
     expect(formatKnownBytes(0)).toBe("0 B");
     expect(formatKnownBytes(1536)).toBe("1.5 KB");
+  });
+});
+
+describe("sizeText", () => {
+  it("fehlend → platzhalter, sonst wie formatBytes", () => {
+    expect(sizeText(undefined)).toBe("…");
+    expect(sizeText(1536)).toBe("1.5 KB");
+    expect(sizeText(0)).toBe("-");
+  });
+
+  it("gemessene 0 zählt als 0 B, nicht als leer", () => {
+    expect(sizeText(0, { measured: true })).toBe("0 B");
+  });
+
+  it("unbrauchbare werte bleiben der platzhalter, auch als eigener text", () => {
+    expect(sizeText(undefined, { missing: "nicht gemessen" })).toBe("nicht gemessen");
+    expect(sizeText(-1, { missing: "nicht gemessen" })).toBe("nicht gemessen");
+    expect(sizeText(1.5)).toBe("…");
   });
 });
 
