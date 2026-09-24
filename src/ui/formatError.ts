@@ -12,6 +12,7 @@ const CODE_KEYS: Record<string, Key> = {
   "tool-already-exists": "errors.codes.toolAlreadyExists",
   "invalid-appid": "errors.codes.invalidAppId",
   "invalid-id": "errors.codes.invalidId",
+  "invalid-value": "errors.codes.invalidValue",
   "invalid-account-id": "errors.codes.invalidAccountId",
   "invalid-url": "errors.codes.invalidUrl",
   "unallowed-scheme": "errors.codes.unallowedScheme",

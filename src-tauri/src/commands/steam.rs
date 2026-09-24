@@ -53,16 +53,22 @@ fn ensure_size(text: &str, limit: u64, label: &str) -> Result<(), String> {
 /// inhalt ins backup und durch den patch lassen.
 #[cfg(target_os = "linux")]
 fn read_config_text_bounded(path: &Path, label: &str) -> Result<String, String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| format!("{label}: no parent directory"))?;
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| format!("{label}: no file name"))?;
-    let parent_fd =
-        open_bound_root_fd(parent, &mut || {}).map_err(|error| format!("{label}: {error}"))?;
-    let mut file = open_file_at(parent_fd.as_raw_fd(), file_name)
-        .map_err(|error| format!("{label}: {error}"))?;
+    let parent = path.parent().ok_or_else(|| {
+        errcode::with_detail(errcode::UNREADABLE, format!("{label}: no parent directory"))
+    })?;
+    let file_name = path.file_name().ok_or_else(|| {
+        errcode::with_detail(errcode::UNREADABLE, format!("{label}: no file name"))
+    })?;
+    let parent_fd = open_bound_root_fd(parent, &mut || {})
+        .map_err(|error| errcode::with_context(label, &error))?;
+    let mut file = open_file_at(parent_fd.as_raw_fd(), file_name).map_err(|error| {
+        let code = if error.kind() == io::ErrorKind::NotFound {
+            errcode::NOT_FOUND
+        } else {
+            errcode::UNREADABLE
+        };
+        errcode::with_detail(code, format!("{label}: {error}"))
+    })?;
     read_fd_text(&mut file, label, MAX_CONFIG_VDF_BYTES)
 }
 
@@ -236,7 +242,12 @@ impl std::fmt::Display for PersistAtomicError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Aborted(error) => write!(formatter, "{error}"),
-            Self::BeforeRename(error) => write!(formatter, "write not applied: {error}"),
+            // der bindefehler des parents traegt (target-changed) bereits einen
+            // code; with_context haelt ihn im leitfeld, sonst waere der code
+            // hinter dem kontext verborgen
+            Self::BeforeRename(error) => {
+                formatter.write_str(&errcode::with_context("write not applied", error))
+            }
             // Der Code muss bis in die Oberfläche durchkommen: dieser Fall ist
             // kein "nichts verändert" (SECURITY.md).
             Self::AfterRename(error) => {
@@ -441,13 +452,20 @@ where
     if process_reader()? {
         return Err(errcode::STEAM_RUNNING.into());
     }
-    let root = fs::canonicalize(steam_root).map_err(|e| format!("steam root canonicalize: {e}"))?;
+    let root = fs::canonicalize(steam_root).map_err(|e| {
+        errcode::with_detail(errcode::NOT_FOUND, format!("steam root canonicalize: {e}"))
+    })?;
     let target = root
         .join("userdata")
         .join(account_id)
         .join("config")
         .join("localconfig.vdf");
-    let canon = fs::canonicalize(&target).map_err(|e| format!("write target canonicalize: {e}"))?;
+    let canon = fs::canonicalize(&target).map_err(|e| {
+        errcode::with_detail(
+            errcode::NOT_FOUND,
+            format!("write target canonicalize: {e}"),
+        )
+    })?;
     if !is_safe_path(&canon.to_string_lossy()) {
         return Err(errcode::BLOCKED_LOCATION.into());
     }
@@ -536,11 +554,18 @@ where
     if process_reader()? {
         return Err(errcode::STEAM_RUNNING.into());
     }
-    let root = fs::canonicalize(steam_root).map_err(|e| format!("steam root canonicalize: {e}"))?;
+    let root = fs::canonicalize(steam_root).map_err(|e| {
+        errcode::with_detail(errcode::NOT_FOUND, format!("steam root canonicalize: {e}"))
+    })?;
     #[cfg(target_os = "linux")]
     let steam_root_fd = open_bound_root_fd(&root, &mut || {})?;
     let target = root.join("config").join("config.vdf");
-    let canon = fs::canonicalize(&target).map_err(|e| format!("write target canonicalize: {e}"))?;
+    let canon = fs::canonicalize(&target).map_err(|e| {
+        errcode::with_detail(
+            errcode::NOT_FOUND,
+            format!("write target canonicalize: {e}"),
+        )
+    })?;
     if !is_safe_path(&canon.to_string_lossy()) {
         return Err(errcode::BLOCKED_LOCATION.into());
     }
@@ -749,13 +774,14 @@ pub(super) fn list_config_backups_in_dir(
     // symlinkten Ordner als Blockade melden.
     match fs::symlink_metadata(backup_dir) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(format!("unavailable: {error}")),
+        Err(error) => return Err(errcode::with_detail(errcode::UNAVAILABLE, error)),
         Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
-            return Err("blocked".into());
+            return Err(errcode::BLOCKED.into());
         }
         Ok(_) => {}
     }
-    let entries = fs::read_dir(backup_dir).map_err(|e| format!("unreadable: {e}"))?;
+    let entries =
+        fs::read_dir(backup_dir).map_err(|e| errcode::with_detail(errcode::UNREADABLE, e))?;
     let mut results = Vec::new();
     for entry in entries.flatten() {
         // Ein defekter Eintrag darf die Liste nicht als Ganzes verhindern.
@@ -815,7 +841,7 @@ pub async fn open_backups_folder(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(not(target_os = "linux"))]
     {
         let _ = backup_dir;
-        Err("unsupported-platform".into())
+        Err(errcode::UNSUPPORTED_PLATFORM.into())
     }
 }
 

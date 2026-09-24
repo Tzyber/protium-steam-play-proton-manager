@@ -12,7 +12,9 @@ fn archive_entry_path(
 ) -> Result<PathBuf, String> {
     let path = entry
         .path()
-        .map_err(|error| format!("read archive path: {error}"))?
+        .map_err(|error| {
+            errcode::with_detail(errcode::UNREADABLE, format!("read archive path: {error}"))
+        })?
         .into_owned();
     if path.as_os_str().is_empty()
         || path.is_absolute()
@@ -20,9 +22,12 @@ fn archive_entry_path(
             .components()
             .any(|component| matches!(component, Component::ParentDir))
     {
-        return Err(format!(
-            "archive path is not relative and confined: {}",
-            path.display()
+        return Err(errcode::with_detail(
+            errcode::INCOMPLETE,
+            format!(
+                "archive path is not relative and confined: {}",
+                path.display()
+            ),
         ));
     }
     Ok(path)
@@ -30,15 +35,18 @@ fn archive_entry_path(
 
 fn validate_link_target(path: &Path, target: &Path, kind: &str) -> Result<(), String> {
     if target.as_os_str().is_empty() {
-        return Err(errcode::with_detail(errcode::INVALID_ID, kind));
+        return Err(errcode::with_detail(errcode::INCOMPLETE, kind));
     }
     if target.is_absolute()
         || !link_target_stays_inside(path.parent().unwrap_or(Path::new("")), target)
     {
-        return Err(format!(
-            "{kind} target leaves archive: {} -> {}",
-            path.display(),
-            target.display()
+        return Err(errcode::with_detail(
+            errcode::INCOMPLETE,
+            format!(
+                "{kind} target leaves archive: {} -> {}",
+                path.display(),
+                target.display()
+            ),
         ));
     }
     Ok(())
@@ -106,8 +114,9 @@ pub(super) fn extract_blocking_with_tag_with_hook(
         return Err(errcode::BLOCKED_LOCATION.into());
     }
 
-    let expected_tag =
-        expected_tag.ok_or_else(|| "archive install name is required".to_string())?;
+    let expected_tag = expected_tag.ok_or_else(|| {
+        errcode::with_detail(errcode::INVALID_ID, "archive install name is required")
+    })?;
     if expected_tag.is_empty()
         || expected_tag.contains('\0')
         || expected_tag.contains('/')
@@ -183,8 +192,9 @@ pub(super) fn extract_blocking_with_tag_with_hook(
                     }
                 }
                 _ => {
-                    return Err(format!(
-                        "archive contains unsupported entry type: {entry_type:?}"
+                    return Err(errcode::with_detail(
+                        errcode::INCOMPLETE,
+                        format!("archive contains unsupported entry type: {entry_type:?}"),
                     ));
                 }
             }
@@ -242,7 +252,7 @@ fn extract_archive_into_bound_parent(
     use tar::Archive;
 
     let dest_fd = open_bound_root_fd(dest_canon, before_bind)
-        .map_err(|error| format!("bind extract destination: {error}"))?;
+        .map_err(|error| errcode::with_context("bind extract destination", &error))?;
     let dest_dir_file = fs::File::from(dest_fd);
     let temp_name = format!(
         ".protium-extract-{}-{}",

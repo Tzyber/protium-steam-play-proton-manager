@@ -16,6 +16,7 @@ const CODE_KINDS: Record<string, ProtiumErrorKind> = {
   "invalid-appid": "unknown",
   "invalid-url": "unknown",
   "invalid-id": "unknown",
+  "invalid-value": "blocked",
   "invalid-account-id": "unknown",
   "unallowed-scheme": "blocked",
   "credentials-disallowed": "blocked",

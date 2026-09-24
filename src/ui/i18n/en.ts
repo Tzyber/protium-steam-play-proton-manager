@@ -495,6 +495,7 @@ export const en = {
       toolAlreadyExists: "Tool already exists at destination.",
       invalidAppId: "Invalid App ID.",
       invalidId: "Invalid identifier.",
+      invalidValue: "The value contains disallowed characters or line breaks.",
       invalidAccountId: "Invalid Steam account ID.",
       invalidUrl: "Invalid address.",
       unallowedScheme: "Only HTTPS addresses are allowed.",

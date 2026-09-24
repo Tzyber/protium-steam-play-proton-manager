@@ -1,4 +1,5 @@
 use super::*;
+use crate::commands::errcode;
 use crate::commands::path::random_suffix;
 use crate::commands::scope::{EnvironmentSnapshot, EnvironmentState};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -492,8 +493,8 @@ async fn install_ge_proton_meldet_extract_crash_reste_und_loescht_nicht() {
 
     let err = res.unwrap_err();
     assert!(
-        err.contains("incomplete extraction leftovers"),
-        "crash-reste müssen sichtbar gemeldet werden: {err}"
+        errcode::has_code(&err, errcode::INCOMPLETE),
+        "crash-reste müssen als incomplete gemeldet werden: {err}"
     );
     assert!(err.contains(".protium-extract-"), "err: {err}");
     assert!(
@@ -501,6 +502,29 @@ async fn install_ge_proton_meldet_extract_crash_reste_und_loescht_nicht() {
         "crash-rest darf nie automatisch gelöscht werden"
     );
     let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn extract_fehler_behalten_ihren_code_statt_unavailable() {
+    // r-09: der frühere pauschale umschluss auf unavailable hat einem abbruch
+    // oder einem belegten ziel die klasse genommen; die oberfläche zeigte
+    // "nicht verfügbar" statt "abgebrochen" oder "tool existiert bereits".
+    for code in [
+        errcode::CANCELLED,
+        errcode::TOOL_EXISTS,
+        errcode::SIZE_LIMIT,
+        errcode::SYMLINK_REJECTED,
+        errcode::BLOCKED_LOCATION,
+    ] {
+        assert_eq!(extract_error_with_code(code.to_string()), code);
+        let with_detail = errcode::with_detail(code, "detail");
+        assert_eq!(extract_error_with_code(with_detail.clone()), with_detail);
+    }
+    // ein echter restfehler ohne code bleibt unavailable mit detail
+    assert_eq!(
+        extract_error_with_code("boese".to_string()),
+        errcode::with_detail(errcode::UNAVAILABLE, "boese")
+    );
 }
 
 #[tokio::test]

@@ -181,7 +181,12 @@ impl EnvironmentState {
             .lock()
             .map_err(|_| "environment snapshot lock poisoned".to_string())?
             .clone()
-            .ok_or_else(|| "steam environment has not been discovered".to_string())
+            .ok_or_else(|| {
+                errcode::with_detail(
+                    errcode::UNAVAILABLE,
+                    "steam environment has not been discovered",
+                )
+            })
     }
 
     fn lock_current(&self) -> Result<MutexGuard<'_, Option<EnvironmentSnapshot>>, String> {
@@ -201,7 +206,12 @@ impl EnvironmentState {
         let metadata = match fs::symlink_metadata(raw_path) {
             Ok(metadata) => Some(metadata),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound && allow_missing => None,
-            Err(error) => return Err(format!("{label}: {error}")),
+            Err(error) => {
+                return Err(errcode::with_detail(
+                    authorization_error_code(&error),
+                    format!("{label}: {error}"),
+                ));
+            }
         };
 
         // Kein Webview-Claim darf über einen Zwischen-Symlink in einen anderen
@@ -210,15 +220,23 @@ impl EnvironmentState {
         reject_symlink_components(raw_path, metadata.is_some(), label)?;
 
         let canonical = if metadata.is_some() {
-            fs::canonicalize(raw_path).map_err(|error| format!("{label}: {error}"))?
+            fs::canonicalize(raw_path).map_err(|error| {
+                errcode::with_detail(
+                    authorization_error_code(&error),
+                    format!("{label}: {error}"),
+                )
+            })?
         } else {
             canonicalize_nearest_ancestor(raw_path, label)?
         };
         if !is_safe_path(&canonical.to_string_lossy()) {
-            return Err(format!("blocked path: {raw}"));
+            return Err(errcode::with_detail(errcode::BLOCKED_LOCATION, raw));
         }
         if !snapshot.authorizes(&canonical) {
-            return Err(format!("path outside current environment: {raw}"));
+            return Err(errcode::with_detail(
+                errcode::BLOCKED_LOCATION,
+                format!("outside snapshot: {raw}"),
+            ));
         }
         Ok(AuthorizedPath {
             real: canonical,
@@ -248,9 +266,12 @@ impl EnvironmentState {
         // Der blocking worker hält diesen Guard bis nach dem Dateizugriff;
         // Discovery kann alte Snapshot-Authorität nicht währenddessen fortsetzen.
         let current = self.lock_current()?;
-        let snapshot = current
-            .as_ref()
-            .ok_or_else(|| "steam environment has not been discovered".to_string())?;
+        let snapshot = current.as_ref().ok_or_else(|| {
+            errcode::with_detail(
+                errcode::UNAVAILABLE,
+                "steam environment has not been discovered",
+            )
+        })?;
         let authorized = Self::authorize_path_with_status(snapshot, raw, label, allow_missing)?;
         operation(authorized)
     }
@@ -277,9 +298,12 @@ impl EnvironmentState {
         F: FnOnce(Option<PathBuf>) -> Result<T, String>,
     {
         let current = self.lock_current()?;
-        let snapshot = current
-            .as_ref()
-            .ok_or_else(|| "steam environment has not been discovered".to_string())?;
+        let snapshot = current.as_ref().ok_or_else(|| {
+            errcode::with_detail(
+                errcode::UNAVAILABLE,
+                "steam environment has not been discovered",
+            )
+        })?;
         let authorized = Self::authorize_path_with_status(snapshot, raw, label, true)?;
         operation(authorized.exists.then_some(authorized.real))
     }
@@ -289,12 +313,18 @@ impl EnvironmentState {
         F: FnOnce(PathBuf) -> Result<T, String>,
     {
         let current = self.lock_current()?;
-        let snapshot = current
-            .as_ref()
-            .ok_or_else(|| "steam environment has not been discovered".to_string())?;
+        let snapshot = current.as_ref().ok_or_else(|| {
+            errcode::with_detail(
+                errcode::UNAVAILABLE,
+                "steam environment has not been discovered",
+            )
+        })?;
         let real = Self::authorize_path_against(snapshot, raw, "library path", false)?;
         if !snapshot.libraries.iter().any(|library| library == &real) {
-            return Err(format!("path is not a current Steam library: {raw}"));
+            return Err(errcode::with_detail(
+                errcode::BLOCKED_LOCATION,
+                format!("path is not a current Steam library: {raw}"),
+            ));
         }
         operation(real)
     }
@@ -307,13 +337,19 @@ impl EnvironmentState {
         raw_steam_root: &str,
     ) -> Result<(PathBuf, PathBuf), String> {
         let current = self.lock_current()?;
-        let snapshot = current
-            .as_ref()
-            .ok_or_else(|| "steam environment has not been discovered".to_string())?;
+        let snapshot = current.as_ref().ok_or_else(|| {
+            errcode::with_detail(
+                errcode::UNAVAILABLE,
+                "steam environment has not been discovered",
+            )
+        })?;
         let steam_root =
             Self::authorize_path_against(snapshot, raw_steam_root, "steam root", false)?;
         if steam_root != snapshot.steam_root {
-            return Err("steam root is not the current environment root".into());
+            return Err(errcode::with_detail(
+                errcode::BLOCKED_LOCATION,
+                "steam root is not the current environment root",
+            ));
         }
         let tools_dir = steam_root.join("compatibilitytools.d");
         Self::authorize_path_against(
@@ -360,12 +396,18 @@ impl EnvironmentState {
         F: FnOnce() -> Result<T, String>,
     {
         let current = self.lock_current()?;
-        let snapshot = current
-            .as_ref()
-            .ok_or_else(|| "steam environment has not been discovered".to_string())?;
+        let snapshot = current.as_ref().ok_or_else(|| {
+            errcode::with_detail(
+                errcode::UNAVAILABLE,
+                "steam environment has not been discovered",
+            )
+        })?;
         if snapshot.steam_root != steam_root || tools_dir != steam_root.join("compatibilitytools.d")
         {
-            return Err("steam root is not the current environment root".into());
+            return Err(errcode::with_detail(
+                errcode::BLOCKED_LOCATION,
+                "steam root is not the current environment root",
+            ));
         }
         Self::authorize_path_against(
             snapshot,
@@ -386,9 +428,12 @@ impl EnvironmentState {
     {
         // Batch-Autorisierung und alle Größenläufe bilden eine Generation.
         let current = self.lock_current()?;
-        let snapshot = current
-            .as_ref()
-            .ok_or_else(|| "steam environment has not been discovered".to_string())?;
+        let snapshot = current.as_ref().ok_or_else(|| {
+            errcode::with_detail(
+                errcode::UNAVAILABLE,
+                "steam environment has not been discovered",
+            )
+        })?;
         let mut authorized = Vec::with_capacity(paths.len());
         for path in paths {
             let authorized_path =
@@ -411,9 +456,12 @@ impl EnvironmentState {
     #[cfg(test)]
     pub(crate) fn authorize_for_test(&self, path: &Path) -> Result<PathBuf, String> {
         let current = self.lock_current()?;
-        let snapshot = current
-            .as_ref()
-            .ok_or_else(|| "steam environment has not been discovered".to_string())?;
+        let snapshot = current.as_ref().ok_or_else(|| {
+            errcode::with_detail(
+                errcode::UNAVAILABLE,
+                "steam environment has not been discovered",
+            )
+        })?;
         Self::authorize_path_against(snapshot, &path.to_string_lossy(), "test", true)
     }
 
@@ -421,9 +469,12 @@ impl EnvironmentState {
     pub(crate) fn exists_for_test(&self, path: &Path) -> Result<bool, String> {
         let raw = path.to_string_lossy();
         let current = self.lock_current()?;
-        let snapshot = current
-            .as_ref()
-            .ok_or_else(|| "steam environment has not been discovered".to_string())?;
+        let snapshot = current.as_ref().ok_or_else(|| {
+            errcode::with_detail(
+                errcode::UNAVAILABLE,
+                "steam environment has not been discovered",
+            )
+        })?;
         Self::authorize_path_against(snapshot, &raw, "exists", true)?;
         match fs::symlink_metadata(path) {
             Ok(metadata) if !metadata.file_type().is_symlink() => Ok(true),
@@ -452,6 +503,17 @@ impl EnvironmentState {
             .try_lock()
             .ok()
             .and_then(|current| current.clone())
+    }
+}
+
+/// Autorisierungsfehler eines Stat/Canonicalize: belegte abwesenheit ist
+/// `NOT_FOUND` (INV-2: nur das darf still übersprungen werden), jeder andere
+/// io-fehler `UNREADABLE`.
+fn authorization_error_code(error: &std::io::Error) -> &'static str {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        errcode::NOT_FOUND
+    } else {
+        errcode::UNREADABLE
     }
 }
 
@@ -581,10 +643,14 @@ where
 #[cfg(target_os = "linux")]
 fn libraryfolders_open_error(error: io::Error) -> String {
     match error.raw_os_error() {
-        Some(libc::ELOOP | libc::ENOTDIR) => {
-            format!("libraryfolders.vdf is not a regular file: {error}")
-        }
-        _ => format!("cannot open libraryfolders.vdf: {error}"),
+        Some(libc::ELOOP | libc::ENOTDIR) => errcode::with_detail(
+            errcode::UNREADABLE,
+            format!("libraryfolders.vdf is not a regular file: {error}"),
+        ),
+        _ => errcode::with_detail(
+            errcode::UNREADABLE,
+            format!("cannot open libraryfolders.vdf: {error}"),
+        ),
     }
 }
 
@@ -663,7 +729,7 @@ fn canonical_library(path: &Path) -> Result<PathBuf, (LibraryUnavailableReason, 
     if !is_safe_path(&canonical.to_string_lossy()) {
         return Err((
             LibraryUnavailableReason::ScopeFailed,
-            format!("blocked path: {path:?}"),
+            errcode::with_detail(errcode::BLOCKED_LOCATION, format!("{path:?}")),
         ));
     }
 
@@ -764,7 +830,10 @@ pub(crate) fn prepare_app_dir(path: &Path, label: &str) -> Result<PathBuf, Strin
     let raw = path.to_string_lossy();
     sanitize_path(&raw, label)?;
     if !is_safe_path(&raw) {
-        return Err(format!("blocked path: {path:?}"));
+        return Err(errcode::with_detail(
+            errcode::BLOCKED_LOCATION,
+            format!("{path:?}"),
+        ));
     }
     reject_symlink_components(path, path.exists(), label)?;
     fs::create_dir_all(path).map_err(|error| format!("{label}: {error}"))?;
@@ -774,7 +843,10 @@ pub(crate) fn prepare_app_dir(path: &Path, label: &str) -> Result<PathBuf, Strin
     }
     let canonical = fs::canonicalize(path).map_err(|error| format!("{label}: {error}"))?;
     if !is_safe_path(&canonical.to_string_lossy()) {
-        return Err(format!("blocked path: {path:?}"));
+        return Err(errcode::with_detail(
+            errcode::BLOCKED_LOCATION,
+            format!("{path:?}"),
+        ));
     }
     Ok(canonical)
 }

@@ -77,8 +77,8 @@ fn read_environment_file_with_hook(
         let file_name = real
             .file_name()
             .ok_or_else(|| format!("{label}: no file name"))?;
-        let parent_fd =
-            open_bound_root_fd(parent, before_open).map_err(|error| format!("{label}: {error}"))?;
+        let parent_fd = open_bound_root_fd(parent, before_open)
+            .map_err(|error| errcode::with_context(label, &error))?;
         let mut file = open_file_at(parent_fd.as_raw_fd(), file_name)
             .map_err(|error| format!("{label}: {error}"))?;
         after_open(&mut file);
@@ -157,8 +157,8 @@ fn read_environment_dir_with_hook(
     before_open: &mut dyn FnMut(),
 ) -> Result<Vec<EnvironmentDirEntry>, String> {
     state.with_authorized_existing(path, label, |real| {
-        let dir_fd =
-            open_bound_root_fd(&real, before_open).map_err(|error| format!("{label}: {error}"))?;
+        let dir_fd = open_bound_root_fd(&real, before_open)
+            .map_err(|error| errcode::with_context(label, &error))?;
         let proc_path = Path::new("/proc/self/fd").join(dir_fd.as_raw_fd().to_string());
         let mut entries = Vec::new();
         for (index, entry) in fs::read_dir(&proc_path)
@@ -223,7 +223,7 @@ fn walk_directory_fd(
     total: &mut u64,
 ) -> Result<(), String> {
     if depth > MAX_DIRECTORY_WALK_DEPTH {
-        return Err(errcode::with_detail(errcode::INCOMPLETE, "walk depth"));
+        return Err(errcode::with_detail(errcode::SIZE_LIMIT, "walk depth"));
     }
     let proc_path = Path::new("/proc/self/fd").join(dir_fd.as_raw_fd().to_string());
     let rd = fs::read_dir(&proc_path).map_err(|error| format!("read_dir {relative:?}: {error}"))?;
@@ -277,7 +277,7 @@ fn measure_directory_with_hook(
         return Err(errcode::NOT_A_DIRECTORY.into());
     }
     let root_fd = open_bound_root_fd(path, before_bind)
-        .map_err(|error| format!("directory size: {error}"))?;
+        .map_err(|error| errcode::with_context("directory size", &error))?;
     let mut total = 0u64;
     before_read(Path::new(""))?;
     match walk_directory_fd(&root_fd, Path::new(""), 0, before_read, &mut total) {

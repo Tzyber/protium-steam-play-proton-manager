@@ -97,13 +97,13 @@ fn open_prefix_folder_with(
     hook: &mut dyn FnMut(PrefixReadStage),
     spawn: &mut SpawnOs<'_>,
 ) -> Result<(), &'static str> {
-    let app_id = parse_app_id(app_id).map_err(|_| "blocked")?;
+    let app_id = parse_app_id(app_id).map_err(|_| errcode::BLOCKED)?;
     // Der Snapshot bleibt bis zum Spawn gesperrt; Scope-Fehler verlassen diese Grenze nie.
     state
         .with_authorized_library(library, |canonical| {
             Ok(open_authorized_prefix(&canonical, app_id, hook, spawn).map_err(PrefixError::code))
         })
-        .map_err(|_| "blocked")?
+        .map_err(|_| errcode::BLOCKED)?
 }
 
 #[cfg(target_os = "linux")]
@@ -166,13 +166,13 @@ pub async fn open_prefix_folder(
             )
         })
         .await
-        .map_err(|_| "blocked".to_owned())?
+        .map_err(|_| errcode::BLOCKED.to_owned())?
         .map_err(str::to_owned)
     }
     #[cfg(not(target_os = "linux"))]
     {
         let _ = (state, library, app_id);
-        Err("blocked".into())
+        Err(errcode::BLOCKED.into())
     }
 }
 

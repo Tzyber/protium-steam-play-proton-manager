@@ -148,7 +148,7 @@ pub(super) fn open_directory_with_handler(
             return Ok(());
         }
     }
-    Err("handler-unavailable".into())
+    Err(errcode::HANDLER_UNAVAILABLE.into())
 }
 
 fn detached_command(program: &str, args: &[&str], target: &OsStr) -> Command {

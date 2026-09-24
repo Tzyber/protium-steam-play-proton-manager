@@ -1,5 +1,7 @@
 // Chirurgischer VDF-String-Patch in Rust: ändert nur den Ziel-Wert, der Rest der Datei bleibt byte-für-byte erhalten.
 // Verhindert Korruption durch Voll-Serialisierung (Umsortieren, Escaping-Verlust).
+use crate::commands::errcode;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenKind {
     String(String),
@@ -63,7 +65,10 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, String> {
                 i += 2 + pos + 2;
                 continue;
             } else {
-                return Err("unterminierter block-kommentar".into());
+                return Err(errcode::with_detail(
+                    errcode::UNREADABLE,
+                    "unterminated block comment",
+                ));
             }
         }
         if b == b'{' || b == b'}' {
@@ -101,7 +106,10 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, String> {
                 }
             }
             if i >= len {
-                return Err("unterminierter string".into());
+                return Err(errcode::with_detail(
+                    errcode::UNREADABLE,
+                    "unterminated string",
+                ));
             }
             i += 1; // closing quote
             tokens.push(Token {
@@ -117,8 +125,12 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, String> {
         while i < len && !b" \t\r\n\"{}".contains(&bytes[i]) {
             i += 1;
         }
-        let bare_str = std::str::from_utf8(&bytes[start..i])
-            .map_err(|e| format!("ungültiges UTF-8 in bare token: {e}"))?;
+        let bare_str = std::str::from_utf8(&bytes[start..i]).map_err(|e| {
+            errcode::with_detail(
+                errcode::UNREADABLE,
+                format!("invalid UTF-8 in bare token: {e}"),
+            )
+        })?;
         tokens.push(Token {
             kind: TokenKind::String(bare_str.to_string()),
             start,
@@ -129,6 +141,7 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, String> {
     Ok(tokens)
 }
 
+#[derive(Debug)]
 pub(crate) struct Entry<'a> {
     pub(crate) key: &'a Token,
     pub(crate) value: &'a Token,
@@ -144,19 +157,26 @@ pub(crate) fn scan_entries<'a>(
     let mut i = from;
     while i < to {
         let t = &tokens[i];
-        if let TokenKind::String(val) = &t.kind {
-            if val.starts_with('[') {
-                i += 1;
-                continue;
-            }
-        }
-        if !matches!(t.kind, TokenKind::String(_)) {
-            return Err(format!("unerwartetes token bei offset {}", t.start));
+        // r-17: das let-else belegt den String hart. der frueher redundante
+        // matches!-check plus die if-let-schale waren toter code; im
+        // nicht-fall waere der aufruf in tokens[i + 1] gelaufen (index-panik).
+        let TokenKind::String(key) = &t.kind else {
+            return Err(errcode::with_detail(
+                errcode::UNREADABLE,
+                format!("unexpected token at offset {}", t.start),
+            ));
+        };
+        if key.starts_with('[') {
+            i += 1;
+            continue;
         }
         if i + 1 >= to {
-            if let TokenKind::String(k) = &t.kind {
-                return Err(format!("key \"{}\" ohne wert", k));
-            }
+            // kein folge-token: der key hat keinen wert. kein zugriff auf
+            // tokens[i + 1]; der alte if-let-zweig traf hier immer zu.
+            return Err(errcode::with_detail(
+                errcode::UNREADABLE,
+                format!("key \"{key}\" has no value"),
+            ));
         }
         let next = &tokens[i + 1];
         match next.kind {
@@ -172,9 +192,12 @@ pub(crate) fn scan_entries<'a>(
                     j += 1;
                 }
                 if depth != 0 {
-                    if let TokenKind::String(k) = &t.kind {
-                        return Err(format!("unbalancierte klammern bei \"{}\"", k));
-                    }
+                    // der key ist durch das let-else oben bereits belegt; der
+                    // alte if-let-zweig war immer wahr und toter code.
+                    return Err(errcode::with_detail(
+                        errcode::UNREADABLE,
+                        format!("unbalanced braces in \"{key}\""),
+                    ));
                 }
                 entries.push(Entry {
                     key: t,
@@ -184,9 +207,14 @@ pub(crate) fn scan_entries<'a>(
                 i = j;
             }
             TokenKind::Close => {
-                if let TokenKind::String(k) = &t.kind {
-                    return Err(format!("key \"{}\" ohne wert", k));
-                }
+                // r-17: hartes return statt durchfallen. der key ist durch das
+                // let-else oben belegt, ein nicht-String kann hier nicht mehr
+                // auftreten; ohne return liefe die schleife mit unveraendertem
+                // i endlos.
+                return Err(errcode::with_detail(
+                    errcode::UNREADABLE,
+                    format!("key \"{key}\" has no value"),
+                ));
             }
             TokenKind::String(_) => {
                 entries.push(Entry {
@@ -228,7 +256,10 @@ fn splice(text: &str, start: usize, end: usize, insert: &str) -> String {
 
 fn render_entries(keys: &[&str], value: &str, indent: &str) -> Result<String, String> {
     if keys.is_empty() {
-        return Err("interner fehler: leerer restpfad".into());
+        return Err(errcode::with_detail(
+            errcode::INVALID_ID,
+            "empty path remainder",
+        ));
     }
     let key = keys[0];
     let head = format!("{}{}", indent, quote(key));
@@ -270,7 +301,10 @@ fn insertion_point(
     };
     let closing_indent = &text[line_start..close.start];
     if !closing_indent.chars().all(|c| c == ' ' || c == '\t') {
-        return Err("schließende klammer nicht auf eigener zeile, abbruch".into());
+        return Err(errcode::with_detail(
+            errcode::UNREADABLE,
+            "closing brace is not on its own line",
+        ));
     }
     Ok(InsertionPoint {
         pos: line_start,
@@ -288,13 +322,19 @@ fn set_in_scope(
     value: &str,
 ) -> Result<String, String> {
     if keys.is_empty() {
-        return Err("interner fehler: leerer restpfad".into());
+        return Err(errcode::with_detail(
+            errcode::INVALID_ID,
+            "empty path remainder",
+        ));
     }
     let key = keys[0];
     if let Some(entry) = find_entry(tokens, from, to, key)? {
         if keys.len() == 1 {
             if entry.block.is_some() {
-                return Err(format!("\"{}\" ist ein block, kein wert", key));
+                return Err(errcode::with_detail(
+                    errcode::UNREADABLE,
+                    format!("key \"{key}\" is a block, not a value"),
+                ));
             }
             if let TokenKind::String(existing_val) = &entry.value.kind {
                 if existing_val == value {
@@ -310,7 +350,12 @@ fn set_in_scope(
         }
         let (sub_from, sub_to) = match entry.block {
             Some(range) => range,
-            None => return Err(format!("\"{}\" ist ein wert, kein block", key)),
+            None => {
+                return Err(errcode::with_detail(
+                    errcode::UNREADABLE,
+                    format!("key \"{key}\" is a value, not a block"),
+                ));
+            }
         };
         return set_in_scope(text, tokens, sub_from, sub_to, &keys[1..], value);
     }
@@ -343,7 +388,12 @@ fn remove_in_scope(
     if keys.len() > 1 {
         let (sub_from, sub_to) = match entry.block {
             Some(range) => range,
-            None => return Err(format!("\"{}\" ist ein wert, kein block", key)),
+            None => {
+                return Err(errcode::with_detail(
+                    errcode::UNREADABLE,
+                    format!("key \"{key}\" is a value, not a block"),
+                ));
+            }
         };
         return remove_in_scope(text, tokens, sub_from, sub_to, &keys[1..]);
     }
@@ -360,9 +410,9 @@ fn remove_in_scope(
     };
     let between = &text[raw_line_start..entry.key.start];
     if between.chars().any(|c| c != ' ' && c != '\t') {
-        return Err(format!(
-            "\"{}\" beginnt nicht auf eigener zeile, strukturbruch",
-            key
+        return Err(errcode::with_detail(
+            errcode::UNREADABLE,
+            format!("key \"{key}\" does not start on its own line"),
         ));
     }
     let line_start = raw_line_start;
@@ -411,17 +461,23 @@ pub fn get_vdf_value(text: &str, path: &[&str]) -> Result<Option<String>, String
 
 pub fn set_vdf_value(text: &str, path: &[&str], value: &str) -> Result<String, String> {
     if path.is_empty() {
-        return Err("leerer pfad".into());
+        return Err(errcode::with_detail(errcode::INVALID_ID, "empty path"));
     }
     if value.contains('\r') || value.contains('\n') {
-        return Err("wert darf keine zeilenumbrüche enthalten".into());
+        return Err(errcode::with_detail(
+            errcode::INVALID_VALUE,
+            "value must not contain line breaks",
+        ));
     }
     // Spiegel zur identity-prüfung in parse_compat_tool_vdf (steam.rs): vales
     // keyvalues-parser liest C-strings, ein NUL oder anderes steuerzeichen im
     // wert würde die datei für steam unlesbar machen. die webview ist keine
     // vertrauensgrenze, deshalb lehnt das backend hier ab (INV-1).
     if value.chars().any(char::is_control) {
-        return Err("wert darf keine steuerzeichen enthalten".into());
+        return Err(errcode::with_detail(
+            errcode::INVALID_VALUE,
+            "value must not contain control characters",
+        ));
     }
     let tokens = tokenize(text)?;
     set_in_scope(text, &tokens, 0, tokens.len(), path, value)
@@ -429,7 +485,7 @@ pub fn set_vdf_value(text: &str, path: &[&str], value: &str) -> Result<String, S
 
 pub fn remove_vdf_entry(text: &str, path: &[&str]) -> Result<String, String> {
     if path.is_empty() {
-        return Err("leerer pfad".into());
+        return Err(errcode::with_detail(errcode::INVALID_ID, "empty path"));
     }
     let tokens = tokenize(text)?;
     remove_in_scope(text, &tokens, 0, tokens.len(), path)

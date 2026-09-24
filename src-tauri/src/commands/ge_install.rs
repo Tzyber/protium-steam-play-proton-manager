@@ -167,6 +167,19 @@ fn extract_after_cancel_check<T>(
     operation()
 }
 
+/// r-09: ein extract-fehler, der bereits einen kanonischen code traegt
+/// (cancelled, tool-already-exists, size-limit-exceeded, symlink-rejected,
+/// blocked-location), muss unveraendert durchgereicht werden; sonst zeigt die
+/// oberflaeche fuer einen abbruch "unavailable". nur echte restfehler werden
+/// zu UNAVAILABLE mit detail.
+fn extract_error_with_code(error: String) -> String {
+    if errcode::has_known_code(&error) {
+        error
+    } else {
+        errcode::with_detail(errcode::UNAVAILABLE, error)
+    }
+}
+
 #[derive(Serialize, Clone)]
 pub struct DownloadProgress {
     pub id: String,
@@ -333,9 +346,12 @@ pub(super) async fn install_ge_proton_inner(
             })
             .collect();
         if !leftovers.is_empty() {
-            return Err(format!(
-                "incomplete extraction leftovers found: {}; remove them manually",
-                leftovers.join(", ")
+            return Err(errcode::with_detail(
+                errcode::INCOMPLETE,
+                format!(
+                    "incomplete extraction leftovers found: {}; remove them manually",
+                    leftovers.join(", ")
+                ),
             ));
         }
     }
@@ -537,7 +553,7 @@ pub(super) async fn install_ge_proton_inner(
     match extract_res {
         Ok((extract_result, _downloaded_file)) => match extract_result {
             Ok(_) => Ok(result_status),
-            Err(error) => Err(errcode::with_detail(errcode::UNAVAILABLE, error)),
+            Err(error) => Err(extract_error_with_code(error)),
         },
         Err(error) => Err(error),
     }

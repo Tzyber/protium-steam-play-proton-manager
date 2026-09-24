@@ -126,13 +126,19 @@ where
         // nicht kippen: unlesbare, nicht-UTF8-, übergroße und syntaktisch
         // defekte VDFs werden wie fehlende verlassen. Die Autorität des
         // angefragten Namens bleibt fail-closed, er wird weiterhin nur aus
-        // geparstem Inhalt belegt (S-1).
+        // geparstem Inhalt belegt (S-1). Die skip-entscheidung hängt seit der
+        // Fehlersemantik-Umstellung nicht mehr an der Formulierung, sondern am
+        // strukturierten Code (r-15); alle übrigen Fehler schlagen weiter hart
+        // durch. Einzige Erweiterung gegenüber der alten Textmenge: ein
+        // gescheitertes `fstat` auf dem bereits geöffneten Deskriptor
+        // (unreachable in der Praxis) zählt jetzt ebenfalls zum Skip, was
+        // fail-safe bleibt: Skip heißt "dieser Kandidat belegt den Namen nicht".
         let text = match read_fd_text(&mut vdf, "compatibilitytool.vdf", MAX_COMPAT_VDF_BYTES) {
             Ok(text) => text,
             Err(error)
-                if error.starts_with("cannot read compatibilitytool.vdf:")
+                if errcode::has_code(&error, errcode::UNREADABLE)
                     || errcode::has_code(&error, errcode::SIZE_LIMIT)
-                    || error.ends_with("is not a regular file") =>
+                    || errcode::has_code(&error, errcode::NOT_A_DIRECTORY) =>
             {
                 continue;
             }

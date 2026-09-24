@@ -225,7 +225,7 @@ pub async fn open_logs_folder(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(not(target_os = "linux"))]
     {
         let _ = log_dir;
-        Err("unsupported-platform".into())
+        Err(errcode::UNSUPPORTED_PLATFORM.into())
     }
 }
 

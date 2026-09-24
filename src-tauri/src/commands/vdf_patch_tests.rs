@@ -1,4 +1,5 @@
 use super::*;
+use crate::commands::errcode;
 
 const LOCALCONFIG: &str = r#""UserLocalConfigStore"
 {
@@ -231,7 +232,85 @@ fn set_vdf_value_unterminierter_string_wirft() {
         "\"InstallConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"name\"\t\t\"wert ohne schlussquote";
     let err =
         set_vdf_value(truncated, &["InstallConfigStore", "Software", "name"], "x").unwrap_err();
-    assert_eq!(err, "unterminierter string");
+    assert_eq!(
+        err,
+        errcode::with_detail(errcode::UNREADABLE, "unterminated string")
+    );
+}
+
+#[test]
+fn scan_entries_meldet_key_ohne_wert_codiert() {
+    // r-17: der alte if-let-zweig war nach dem matches!-waechter immer wahr,
+    // also toter code; der zweig ist jetzt hart und codiert. Der vom audit
+    // behauptete index-panic war nicht erreichbar (der waechter fing den
+    // nicht-string-fall vorher ab); der test pinnt die meldung.
+    let tokens = tokenize("\"Root\"").unwrap();
+    let error = scan_entries(&tokens, 0, tokens.len()).unwrap_err();
+    assert_eq!(
+        error,
+        errcode::with_detail(errcode::UNREADABLE, "key \"Root\" has no value")
+    );
+}
+
+#[test]
+fn scan_entries_meldet_key_vor_klammer_codiert() {
+    // r-17: auch dieser zweig war toter code (der key ist an dieser stelle
+    // bereits als String belegt) und returnt jetzt hart mit code, statt
+    // stillschweigend durchzufallen.
+    let tokens = tokenize("\"Root\" }").unwrap();
+    let error = scan_entries(&tokens, 0, tokens.len()).unwrap_err();
+    assert_eq!(
+        error,
+        errcode::with_detail(errcode::UNREADABLE, "key \"Root\" has no value")
+    );
+}
+
+#[test]
+fn scan_entries_meldet_klammer_an_key_position_codiert() {
+    // r-17: ein klammer-token an key-position wird jetzt vom let-else hart
+    // abgewiesen und codiert gemeldet; der alte matches!-waechter lieferte
+    // hier schon denselben abbruch, nur ohne code.
+    let tokens = tokenize("{ \"A\" \"1\" }").unwrap();
+    let error = scan_entries(&tokens, 0, tokens.len()).unwrap_err();
+    assert_eq!(
+        error,
+        errcode::with_detail(errcode::UNREADABLE, "unexpected token at offset 0")
+    );
+}
+
+#[test]
+fn set_vdf_value_codiert_zeilenumbruch_und_steuerzeichen() {
+    let path = ["UserLocalConfigStore", "Key"];
+    assert_eq!(
+        set_vdf_value(
+            "\"UserLocalConfigStore\"\n{\n\t\"Key\"\t\t\"a\"\n}\n",
+            &path,
+            "a\nb"
+        )
+        .unwrap_err(),
+        errcode::with_detail(errcode::INVALID_VALUE, "value must not contain line breaks")
+    );
+    assert_eq!(
+        set_vdf_value(
+            "\"UserLocalConfigStore\"\n{\n\t\"Key\"\t\t\"a\"\n}\n",
+            &path,
+            "a\0b"
+        )
+        .unwrap_err(),
+        errcode::with_detail(
+            errcode::INVALID_VALUE,
+            "value must not contain control characters"
+        )
+    );
+    assert_eq!(
+        set_vdf_value(
+            "\"UserLocalConfigStore\"\n{\n\t\"Key\"\t\t\"a\"\n}\n",
+            &[],
+            "a"
+        )
+        .unwrap_err(),
+        errcode::with_detail(errcode::INVALID_ID, "empty path")
+    );
 }
 
 #[test]

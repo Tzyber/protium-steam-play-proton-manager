@@ -275,7 +275,7 @@ pub(super) async fn download_stream_in_directory(
                 biased;
                 _ = cancel.cancelled() => return Err(errcode::CANCELLED.to_owned()),
                 result = tokio::time::timeout(STALL_TIMEOUT, stream.next()) => {
-                    result.map_err(|_| "download stalled".to_string())?
+                    result.map_err(|_| errcode::with_detail(errcode::INCOMPLETE, "download stalled"))?
                 }
             };
             match chunk {

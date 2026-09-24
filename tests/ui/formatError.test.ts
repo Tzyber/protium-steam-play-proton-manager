@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ProtiumError, SteamRunningError } from "../../src/core/errors.js";
-import { formatError } from "../../src/ui/formatError.js";
+import { formatDetail, formatError } from "../../src/ui/formatError.js";
 import { setLocale } from "../../src/ui/i18n/index.js";
 
 describe("formatError (B1)", () => {
@@ -41,6 +41,22 @@ describe("formatError (B1)", () => {
 
     setLocale("en");
     expect(formatError("cannot read backup dir: permission denied")).toBe("unknown");
+  });
+
+  // Der Vertrag aus errcode.rs: das Detail (darf Pfade tragen) landet im Log,
+  // nicht in der Uebersetzung. Diese Erwartung haelt den Vertrag auf der
+  // UI-Seite fest, damit kein spaeterer Umbau das Detail durchreicht.
+  it("rendert kein Detail, weder bei bekanntem Code noch bei Rohtext", () => {
+    setLocale("de");
+    const withPath =
+      "blocked-location: /home/dominik/.steam/steam/userdata/12345/config/localconfig.vdf";
+    expect(formatError(withPath)).toBe("Der Ort ist aus Sicherheitsgründen gesperrt.");
+    expect(formatDetail(withPath)).not.toContain("/home/dominik");
+
+    expect(formatDetail("unreadable: cannot read /etc/passwd: Permission denied")).not.toContain(
+      "/etc/passwd",
+    );
+    expect(formatDetail("/etc/passwd ist kaputt")).toBeUndefined();
   });
 
   it("faellt auf Fehlerklasse zurueck wenn Code unbekannt", () => {

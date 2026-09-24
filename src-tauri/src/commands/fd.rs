@@ -171,10 +171,22 @@ pub(super) fn open_bound_root_fd<F>(canonical: &Path, hook: &mut F) -> Result<Ow
 where
     F: FnMut() + ?Sized,
 {
-    let metadata = fs::metadata(canonical)
-        .map_err(|error| format!("cannot stat {} before open: {error}", canonical.display()))?;
+    let metadata = fs::metadata(canonical).map_err(|error| {
+        // belegte abwesenheit ist not-found, jeder andere stat-fehler unreadable.
+        let code = match error.kind() {
+            io::ErrorKind::NotFound => errcode::NOT_FOUND,
+            _ => errcode::UNREADABLE,
+        };
+        errcode::with_detail(
+            code,
+            format!("cannot stat {} before open: {error}", canonical.display()),
+        )
+    })?;
     if !metadata.is_dir() {
-        return Err(format!("{} is not a directory", canonical.display()));
+        return Err(errcode::with_detail(
+            errcode::NOT_A_DIRECTORY,
+            format!("{} is not a directory", canonical.display()),
+        ));
     }
     use std::os::unix::fs::MetadataExt;
     let expected = FdIdentity {
@@ -182,18 +194,25 @@ where
         ino: metadata.ino(),
     };
     hook();
-    let fd = open_absolute_dir(canonical)
-        .map_err(|error| format!("{} descriptor open: {error}", canonical.display()))?;
+    let fd = open_absolute_dir(canonical).map_err(|error| {
+        errcode::with_detail(
+            errcode::UNREADABLE,
+            format!("{} descriptor open: {error}", canonical.display()),
+        )
+    })?;
     let actual = fd_identity(fd.as_raw_fd()).map_err(|error| {
-        format!(
-            "cannot stat descriptor for {}: {error}",
-            canonical.display()
+        errcode::with_detail(
+            errcode::UNREADABLE,
+            format!(
+                "cannot stat descriptor for {}: {error}",
+                canonical.display()
+            ),
         )
     })?;
     if actual != expected {
-        return Err(format!(
-            "{} changed while opening descriptor",
-            canonical.display()
+        return Err(errcode::with_detail(
+            errcode::TARGET_CHANGED,
+            format!("{} changed while opening descriptor", canonical.display()),
         ));
     }
     Ok(fd)
@@ -243,11 +262,14 @@ pub(super) fn fd_identity(fd: RawFd) -> io::Result<FdIdentity> {
 
 #[cfg(target_os = "linux")]
 pub(super) fn ensure_regular_fd(file: &std::fs::File, label: &str) -> Result<u64, String> {
-    let metadata = file
-        .metadata()
-        .map_err(|error| format!("cannot stat {label}: {error}"))?;
+    let metadata = file.metadata().map_err(|error| {
+        errcode::with_detail(errcode::UNREADABLE, format!("cannot stat {label}: {error}"))
+    })?;
     if !metadata.is_file() {
-        return Err(format!("{label} is not a regular file"));
+        return Err(errcode::with_detail(
+            errcode::NOT_A_DIRECTORY,
+            format!("{label} is not a regular file"),
+        ));
     }
     Ok(metadata.len())
 }
@@ -267,14 +289,16 @@ pub(super) fn read_fd_bytes(
     if length > max_bytes {
         return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
     }
-    let read_limit = max_bytes
-        .checked_add(1)
-        .ok_or_else(|| format!("{label} read limit overflows"))?;
+    let read_limit = max_bytes.checked_add(1).ok_or_else(|| {
+        errcode::with_detail(errcode::INVALID_ID, format!("{label} read limit overflows"))
+    })?;
     before_read(file);
     let mut bytes = Vec::new();
     file.take(read_limit)
         .read_to_end(&mut bytes)
-        .map_err(|error| format!("cannot read {label}: {error}"))?;
+        .map_err(|error| {
+            errcode::with_detail(errcode::UNREADABLE, format!("cannot read {label}: {error}"))
+        })?;
     if bytes.len() as u64 > max_bytes {
         return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
     }
@@ -288,7 +312,9 @@ pub(super) fn read_fd_text(
     max_bytes: u64,
 ) -> Result<String, String> {
     let bytes = read_fd_bytes(file, label, max_bytes, &mut |_| {})?;
-    String::from_utf8(bytes).map_err(|error| format!("cannot read {label}: {error}"))
+    String::from_utf8(bytes).map_err(|error| {
+        errcode::with_detail(errcode::UNREADABLE, format!("cannot read {label}: {error}"))
+    })
 }
 
 /// Bytes als kleingeschriebener Hex-String. Drei Stellen (Token-Generierung,
