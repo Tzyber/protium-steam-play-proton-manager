@@ -1190,3 +1190,40 @@ fn claim_leftovers(dir: &std::path::Path) -> bool {
         })
         .unwrap_or(false)
 }
+
+#[test]
+fn rename_mutationen_synchronisieren_quell_und_zielverzeichnis() {
+    // r-08: papierkorb-move und claim-restore brauchen nach der mutation ein
+    // verzeichnis-fsync. die fsync-fehlerpfade sind ohne injektionshaken nicht
+    // testbar (prüflücke); dieser statische beleg fällt beim verlust der
+    // syncs auf.
+    let production = production_source(include_str!("delete_ops.rs"));
+
+    let trash_move = production
+        .find("cannot move to trash")
+        .expect("papierkorb-move muss vorhanden sein");
+    let target_sync = production[trash_move..]
+        .find("sync_dir_fd(trash_parent.as_raw_fd())")
+        .map(|offset| trash_move + offset)
+        .expect("papierkorb-move braucht ein ziel-verzeichnis-fsync");
+    let source_sync = production[trash_move..]
+        .find("sync_dir_fd(source_parent.as_raw_fd())")
+        .map(|offset| trash_move + offset)
+        .expect("papierkorb-move braucht ein quell-verzeichnis-fsync");
+    assert!(
+        target_sync < source_sync,
+        "zielverzeichnis muss vor dem quellverzeichnis synchronisiert werden"
+    );
+
+    let restore = production
+        .find("impl Drop for ClaimRestoreGuard")
+        .expect("claim-restore muss vorhanden sein");
+    let drop_body = &production[restore..];
+    let drop_end = drop_body
+        .find("\n    }")
+        .expect("claim-restore braucht einen funktionskörper");
+    assert!(
+        drop_body[..drop_end].contains("sync_dir_fd(self.parent.as_raw_fd())"),
+        "claim-restore braucht ein verzeichnis-fsync im rückweg"
+    );
+}

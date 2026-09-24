@@ -1,5 +1,5 @@
 use super::*;
-use crate::commands::test_util::wsg_fixture;
+use crate::commands::test_util::{production_source, wsg_fixture};
 use std::path::PathBuf;
 
 #[test]
@@ -825,4 +825,63 @@ fn read_library_folders_happy_path_und_corrupt() {
     assert!(read_library_folders(&steam).is_err());
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn environment_exists_uebernimmt_existenz_aus_der_autorisierungs_stat() {
+    // r-16: existenz und autorisierung stammen aus derselben stat, der
+    // roheingabepfad wird nicht ein zweites mal aufgelöst. das wegfallende
+    // zweite stat-fenster ist ohne injektionshaken funktional nicht
+    // beobachtbar (prüflücke), der quelltext-beleg darunter deckt es ab.
+    let root = wsg_fixture("env-exists-auth");
+    let library = root.join("library");
+    let existing = library.join("steamapps/compatdata/12345");
+    let missing = library.join("steamapps/compatdata/99999");
+    std::fs::create_dir_all(&existing).unwrap();
+    let state = EnvironmentState::for_test(snapshot(&root, &library));
+
+    assert_eq!(
+        state.environment_exists(existing.to_str().unwrap()),
+        Ok(true)
+    );
+    assert_eq!(
+        state.environment_exists(missing.to_str().unwrap()),
+        Ok(false)
+    );
+    assert!(state
+        .environment_exists(root.join("Documents").to_str().unwrap())
+        .is_err());
+
+    let link = library.join("steamapps/link");
+    std::os::unix::fs::symlink(&existing, &link).unwrap();
+    let error = state
+        .environment_exists(link.to_str().unwrap())
+        .unwrap_err();
+    assert!(error.contains("symlink"), "unexpected error: {error}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn environment_exists_statet_den_roheingabepfad_nicht_erneut() {
+    // r-16: statischer beleg: environment_exists wertet nur die
+    // autorisierungs-stat aus und löst den roheingabepfad nicht ein zweites
+    // mal auf
+    let production = production_source(include_str!("scope.rs"));
+    let body_start = production
+        .find("fn environment_exists")
+        .expect("environment_exists muss vorhanden sein");
+    let body_end = body_start
+        + production[body_start..]
+            .find("\n    }")
+            .expect("environment_exists braucht einen funktionskörper");
+    let body = &production[body_start..body_end];
+    assert!(
+        body.contains("authorized.exists"),
+        "existenz muss aus der autorisierungs-stat kommen"
+    );
+    assert!(
+        !body.contains("symlink_metadata"),
+        "der roheingabepfad darf nicht erneut gestatet werden"
+    );
 }

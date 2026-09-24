@@ -1790,3 +1790,60 @@ fn list_config_backups_lehnt_symlinkten_ordner_ab() {
     assert_eq!(list_config_backups_in_dir(&link).unwrap_err(), "blocked");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn config_read_folgt_keinem_vorbereiteten_symlink() {
+    // r-01: im fenster zwischen pfadprüfung und read kann die config gegen
+    // einen symlink getauscht werden. der read darf ihm nicht folgen: fremder
+    // inhalt darf weder gelesen noch ins backup gelangen.
+    let root = wsg_fixture("config-read-symlink");
+    let dir = root.join("userdata/123/config");
+    std::fs::create_dir_all(&dir).unwrap();
+    let victim = root.join("opfer.vdf");
+    std::fs::write(&victim, "fremder inhalt").unwrap();
+    let link = dir.join("localconfig.vdf");
+    std::os::unix::fs::symlink(&victim, &link).unwrap();
+
+    let error = read_config_text_bounded(&link, "read target").unwrap_err();
+
+    assert!(error.contains("read target"), "unexpected error: {error}");
+    assert_eq!(
+        std::fs::read_to_string(&victim).unwrap(),
+        "fremder inhalt",
+        "die verlinkte fremddatei darf nicht angetastet werden"
+    );
+    // gegenprobe: die echte datei bleibt über dieselbe funktion lesbar
+    let real = dir.join("localconfig-echt.vdf");
+    std::fs::write(&real, "\"UserLocalConfigStore\"").unwrap();
+    assert_eq!(
+        read_config_text_bounded(&real, "read target").unwrap(),
+        "\"UserLocalConfigStore\""
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn config_read_ist_an_den_gebundenen_parent_angebunden() {
+    // r-01: statischer beleg: der linux-config-read öffnet die datei per
+    // O_NOFOLLOW aus einem gebundenen parent und nicht mehr pfadbasiert. der
+    // genaue tauschzeitpunkt im fenster ist ohne injektionshaken nicht
+    // belegbar (prüflücke), der direkte symlink-fall darüber deckt die
+    // no-follow-kette ab.
+    let production = production_source(include_str!("steam.rs"));
+    let linux_read = production
+        .split("fn read_config_text_bounded")
+        .nth(1)
+        .expect("read_config_text_bounded muss vorhanden sein")
+        .split("#[cfg(not(target_os = \"linux\"))]")
+        .next()
+        .expect("nicht-linux-variante muss markiert sein");
+    assert!(
+        linux_read.contains("open_file_at(parent_fd.as_raw_fd(), file_name)"),
+        "config-read muss die datei aus dem gebundenen parent öffnen"
+    );
+    assert!(
+        !linux_read.contains("std::fs::File::open"),
+        "config-read darf nicht pfadbasiert öffnen"
+    );
+}

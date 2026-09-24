@@ -243,16 +243,16 @@ impl EnvironmentState {
         operation: F,
     ) -> Result<T, String>
     where
-        F: FnOnce(PathBuf) -> Result<T, String>,
+        F: FnOnce(AuthorizedPath) -> Result<T, String>,
     {
         // Der blocking worker hält diesen Guard bis nach dem Dateizugriff;
-        // Discovery kann alte Snapshot-Autorität nicht währenddessen fortsetzen.
+        // Discovery kann alte Snapshot-Authorität nicht währenddessen fortsetzen.
         let current = self.lock_current()?;
         let snapshot = current
             .as_ref()
             .ok_or_else(|| "steam environment has not been discovered".to_string())?;
-        let real = Self::authorize_path_against(snapshot, raw, label, allow_missing)?;
-        operation(real)
+        let authorized = Self::authorize_path_with_status(snapshot, raw, label, allow_missing)?;
+        operation(authorized)
     }
 
     pub(crate) fn with_authorized_existing<T, F>(
@@ -264,7 +264,7 @@ impl EnvironmentState {
     where
         F: FnOnce(PathBuf) -> Result<T, String>,
     {
-        self.with_authorized_path(raw, label, false, operation)
+        self.with_authorized_path(raw, label, false, |authorized| operation(authorized.real))
     }
 
     pub(crate) fn with_authorized_optional<T, F>(
@@ -402,14 +402,10 @@ impl EnvironmentState {
     }
 
     pub(crate) fn environment_exists(&self, raw: &str) -> Result<bool, String> {
-        self.with_authorized_path(raw, "exists", true, |_| match fs::symlink_metadata(raw) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                Err("exists: symlink rejected".into())
-            }
-            Ok(_) => Ok(true),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-            Err(error) => Err(format!("exists: {error}")),
-        })
+        // r-16: die existenzangabe stammt aus der autorisierungs-stat; ein
+        // zweites stat des roheingabepfads würde genau das fenster wieder
+        // öffnen, das die autorisierung schließt
+        self.with_authorized_path(raw, "exists", true, |authorized| Ok(authorized.exists))
     }
 
     #[cfg(test)]
@@ -447,7 +443,7 @@ impl EnvironmentState {
     where
         F: FnOnce(PathBuf) -> Result<T, String>,
     {
-        self.with_authorized_path(raw, label, false, operation)
+        self.with_authorized_path(raw, label, false, |authorized| operation(authorized.real))
     }
 
     #[cfg(test)]

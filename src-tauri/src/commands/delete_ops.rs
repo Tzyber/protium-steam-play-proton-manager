@@ -365,6 +365,15 @@ impl Drop for ClaimRestoreGuard<'_> {
             self.parent,
             self.original_name,
         );
+        // r-08: der rückweg braucht wie jede rename-mutation ein
+        // verzeichnis-fsync; quelle und ziel liegen im selben verzeichnis, ein
+        // sync genügt. best effort wie der rückweg selbst, der sync-fehler darf
+        // den ursprünglichen fehler nicht verdecken
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::fd::AsRawFd;
+            let _ = crate::commands::fd::sync_dir_fd(self.parent.as_raw_fd());
+        }
     }
 }
 
@@ -625,6 +634,30 @@ fn execute_delete_pipeline_inner(
                         OsStr::new(&trash_name),
                     )
                     .map_err(|e| format!("cannot move to trash: {e}"))?;
+                    // r-08: ohne verzeichnis-fsync kann der papierkorb-eintrag
+                    // nach absturz driftig sichtbar sein; erst das ziel, dann
+                    // die quelle. ein sync-fehler meldet die möglich angewandte
+                    // mutation statt "nichts passiert"
+                    #[cfg(target_os = "linux")]
+                    {
+                        use std::os::fd::AsRawFd;
+                        crate::commands::fd::sync_dir_fd(trash_parent.as_raw_fd()).map_err(
+                            |e| {
+                                errcode::with_detail(
+                                    errcode::WRITE_UNCERTAIN,
+                                    format!("trash move target sync: {e}"),
+                                )
+                            },
+                        )?;
+                        crate::commands::fd::sync_dir_fd(source_parent.as_raw_fd()).map_err(
+                            |e| {
+                                errcode::with_detail(
+                                    errcode::WRITE_UNCERTAIN,
+                                    format!("trash move source sync: {e}"),
+                                )
+                            },
+                        )?;
+                    }
                 }
                 _ => return Err(errcode::UNSUPPORTED_TARGET.into()),
             }

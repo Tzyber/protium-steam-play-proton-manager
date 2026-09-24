@@ -235,7 +235,7 @@ fn extract_archive_into_bound_parent(
     before_rename: &mut dyn FnMut(),
 ) -> Result<(), String> {
     use crate::commands::delete_ops::renameat2_no_replace;
-    use crate::commands::fd::open_bound_root_fd;
+    use crate::commands::fd::{open_bound_root_fd, sync_dir_fd};
     use flate2::read::GzDecoder;
     use std::os::fd::AsRawFd;
     use std::os::unix::ffi::OsStrExt;
@@ -296,6 +296,18 @@ fn extract_archive_into_bound_parent(
             std::ffi::OsStr::from_bytes(expected_tag.as_bytes()),
         )
         .map_err(|error| format!("atomically install extracted tool: {error}"))?;
+        // r-08: ohne verzeichnis-fsync kann die tool-installation nach absturz
+        // driftig sichtbar sein. quell- und zielendpunkt des renames liegen
+        // beide in dest_dir_file, ein sync deckt den neuen dirent ab; ein
+        // zusätzlicher sync des temp-verzeichnisses hätte keine wirkung, weil
+        // es direkt danach entfernt wird. ein sync-fehler meldet die möglich
+        // angewandte mutation statt "nichts passiert"
+        sync_dir_fd(dest_dir_file.as_raw_fd()).map_err(|error| {
+            errcode::with_detail(
+                errcode::WRITE_UNCERTAIN,
+                format!("extract target sync: {error}"),
+            )
+        })?;
         Ok(())
     })();
     let _ = fs::remove_dir_all(&temp_path);
@@ -629,5 +641,21 @@ mod tests {
             .collect();
         assert!(leftovers.is_empty(), "cancel muss das temp aufräumen");
         let _ = fs::remove_dir_all(source.parent().unwrap());
+    }
+
+    #[test]
+    fn installations_rename_synchronisiert_das_zielverzeichnis() {
+        // r-08: der installations-rename braucht nach der mutation ein
+        // verzeichnis-fsync auf dem ziel-dirent. der fsync-fehlerpfad ist ohne
+        // injektionshaken nicht testbar (prüflücke); dieser statische beleg
+        // fällt beim verlust des syncs auf.
+        let production = crate::commands::test_util::production_source(include_str!("extract.rs"));
+        let rename = production
+            .find("renameat2_no_replace(")
+            .expect("installations-rename muss vorhanden sein");
+        assert!(
+            production[rename..].contains("sync_dir_fd(dest_dir_file.as_raw_fd())"),
+            "installations-rename braucht ein verzeichnis-fsync auf dem ziel"
+        );
     }
 }

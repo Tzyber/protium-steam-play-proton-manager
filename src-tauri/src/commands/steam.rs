@@ -15,7 +15,8 @@ use crate::commands::errcode;
 use crate::commands::fd;
 #[cfg(target_os = "linux")]
 use crate::commands::fd::{
-    open_absolute_dir, open_bound_root_fd, open_or_create_dir_at, read_fd_text, sync_dir_fd,
+    open_absolute_dir, open_bound_root_fd, open_file_at, open_or_create_dir_at, read_fd_text,
+    sync_dir_fd,
 };
 use crate::commands::fs_ops::is_process_running_sync;
 use crate::commands::path::{is_safe_path, random_suffix, sanitize_path};
@@ -45,9 +46,23 @@ fn ensure_size(text: &str, limit: u64, label: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// r-01: der read läuft wie der harte lesepfad in fs_ops über eine gebundene
+/// no-follow-deskriptorkette: der parent wird identitätsgeprüft gebunden, die
+/// datei per `open_file_at` (O_NOFOLLOW) daraus geöffnet. ein im fenster
+/// zwischen pfadprüfung und open getauschter symlink würde sonst fremden
+/// inhalt ins backup und durch den patch lassen.
 #[cfg(target_os = "linux")]
 fn read_config_text_bounded(path: &Path, label: &str) -> Result<String, String> {
-    let mut file = std::fs::File::open(path).map_err(|error| format!("{label}: {error}"))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("{label}: no parent directory"))?;
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| format!("{label}: no file name"))?;
+    let parent_fd =
+        open_bound_root_fd(parent, &mut || {}).map_err(|error| format!("{label}: {error}"))?;
+    let mut file = open_file_at(parent_fd.as_raw_fd(), file_name)
+        .map_err(|error| format!("{label}: {error}"))?;
     read_fd_text(&mut file, label, MAX_CONFIG_VDF_BYTES)
 }
 
