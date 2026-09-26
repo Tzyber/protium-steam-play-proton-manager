@@ -47,11 +47,11 @@ when protium is sure:
 
 grab the AppImage or Debian package from the [releases page](https://github.com/Tzyber/protium-steam-play-proton-manager/releases). make the AppImage executable and run it:
 
-current version: `v0.11.0`.
+current version: `v0.11.1`.
 
 ```sh
-chmod +x protium_0.11.0_amd64.AppImage
-./protium_0.11.0_amd64.AppImage
+chmod +x protium_0.11.1_amd64.AppImage
+./protium_0.11.1_amd64.AppImage
 ```
 
 each release ships the AppImage, the Debian package, `SHA256SUMS` and
@@ -83,13 +83,13 @@ if you don't like that, build it yourself (see dev setup). Debian-based
 systems can install the accompanying Debian package:
 
 ```sh
-sudo apt install ./protium_0.11.0_amd64.deb
+sudo apt install ./protium_0.11.1_amd64.deb
 ```
 
 if nothing starts and no error message appears, fuse2 is usually missing. then either `sudo pacman -S fuse2` or run it once without fuse:
 
 ```sh
-./protium_0.11.0_amd64.AppImage --appimage-extract-and-run
+./protium_0.11.1_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## what it does
@@ -242,6 +242,9 @@ rules for the implementation: writes to steam files go through the write gate wi
   accessibility with an automatic gate, a performance baseline in CI, a single-instance
   guard, and backups plus the local log in a new history view; the Steam config write
   path is now descriptor-bound
+- [x] v0.11.1: second audit round: one shared write path, one tokenizer for all
+  readers, stable error classes instead of raw texts, linear runtime when
+  reading large VDF files, and honest UI states
 - [x] v0.10.1: the Wayland hook now finds the system library on distributions
   without development packages
 

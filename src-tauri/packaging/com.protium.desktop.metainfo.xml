@@ -45,6 +45,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.11.1" date="2026-09-26">
+      <description>
+        <p>Structural round after an external audit: one write path, one VDF tokenizer, stable error classes instead of raw texts, plus a linear tokenizer and honest UI states.</p>
+      </description>
+    </release>
     <release version="0.11.0" date="2026-09-22">
       <description>
         <p>Translated error messages, a new history view with the local log, a single-instance guard and a descriptor-bound write path.</p>
