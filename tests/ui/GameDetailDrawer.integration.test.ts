@@ -8,6 +8,7 @@ import { version as appVersion } from "../../package.json";
 import type { IncompleteDeletion } from "../../src/core/cleanup";
 import type { WriteResult } from "../../src/core/ports";
 import type { Game, ScanResult } from "../../src/core/types";
+import { routeQueriesToBody } from "./drawerDom";
 
 const { measureGameFootprintMock, openExternalMock, openPrefixFolderMock } = vi.hoisted(() => ({
   measureGameFootprintMock: vi.fn(),
@@ -24,21 +25,20 @@ vi.mock("../../src/core/footprint", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/core/footprint")>();
   return { ...actual, measureGameFootprint: measureGameFootprintMock };
 });
-vi.mock("../../src/ui/useCover", () => ({
-  useCover: () => ({ src: null, onError: vi.fn() }),
+// async-fabriken mit dynamischem import: die stubs liegen gemeinsam in
+// GameDetailDrawer.stubs.ts, damit preamble und integrationstest nicht
+// auseinanderlaufen (N-1).
+vi.mock("../../src/ui/useCover", async () => ({
+  useCover: (await import("./GameDetailDrawer.stubs")).useCoverStub,
 }));
-vi.mock("../../src/ui/components/PlayButton.vue", () => ({
-  default: { template: '<button data-testid="play-button" />' },
+vi.mock("../../src/ui/components/PlayButton.vue", async () => ({
+  default: (await import("./GameDetailDrawer.stubs")).playButtonStub,
 }));
-vi.mock("../../src/ui/components/SelectBox.vue", () => ({
-  default: {
-    props: ["options"],
-    template:
-      '<select data-testid="select-box"><option v-for="option in options" :key="option.value">{{ option.label }}</option></select>',
-  },
+vi.mock("../../src/ui/components/SelectBox.vue", async () => ({
+  default: (await import("./GameDetailDrawer.stubs")).selectBoxStub,
 }));
-vi.mock("../../src/ui/components/TierBadge.vue", () => ({
-  default: { template: '<span data-testid="tier-badge" />' },
+vi.mock("../../src/ui/components/TierBadge.vue", async () => ({
+  default: (await import("./GameDetailDrawer.stubs")).tierBadgeStub,
 }));
 
 import { tauriPorts } from "../../src/core/adapters/tauri";
@@ -158,10 +158,8 @@ function mountDrawer(locale: "de" | "en" = "en") {
   scan.scanGeneration = 7;
   scan.result = result;
   ui.selectedAppId = current.appId;
-  const wrapper = mount(GameDetailDrawer, {
-    attachTo: document.body,
-    global: { stubs: { Teleport: true } },
-  });
+  const wrapper = mount(GameDetailDrawer, { attachTo: document.body });
+  routeQueriesToBody(wrapper);
   mountedWrappers.push(wrapper);
   return { wrapper, current, result, scan, ui, cleanup, config };
 }
@@ -607,7 +605,11 @@ describe("Prefix-Ordner öffnen", () => {
     );
     scan.result = null;
     await nextTick();
-    expect(wrapper.find('[data-testid="prefix-open"]').exists()).toBe(false);
+    // der drawer verlässt das DOM über die schließ-animation; happy-dom feuert
+    // keine transition-events, deshalb auf das tatsächliche entfernen warten
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-testid="prefix-open"]').exists()).toBe(false),
+    );
     expect(openPrefixFolderMock).not.toHaveBeenCalled();
   });
 

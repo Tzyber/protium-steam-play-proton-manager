@@ -530,17 +530,17 @@ const shortcutBlockedItems = computed(() =>
         </div>
 
         <ul v-if="trashBySize.length" class="list">
-          <li v-for="e in trashBySize" :key="e.path">
+          <li v-for="entry in trashBySize" :key="entry.path">
             <CleanupRow
-              :label="String(e.appId)"
-              :path="e.path"
-              :short-path="shortPath(e.path)"
-              :size-text="sizeText(e.sizeBytes)"
-              :extra="shortDate(e.trashedAt)"
-              :extra-title="t('cleanup.trashTrashedAt', { date: shortDate(e.trashedAt) })"
+              :label="String(entry.appId)"
+              :path="entry.path"
+              :short-path="shortPath(entry.path)"
+              :size-text="sizeText(entry.sizeBytes)"
+              :extra="shortDate(entry.trashedAt)"
+              :extra-title="t('cleanup.trashTrashedAt', { date: shortDate(entry.trashedAt) })"
               with-date
-              :selected="trashSelected.has(e.path)"
-              @toggle="toggleTrash(e.path)"
+              :selected="trashSelected.has(entry.path)"
+              @toggle="toggleTrash(entry.path)"
             />
           </li>
         </ul>

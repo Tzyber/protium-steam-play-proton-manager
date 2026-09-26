@@ -100,8 +100,8 @@ export type CompatToolSource = "explicit" | "default" | "unavailable";
  *  (genutzt von `supportRedaction`); `scan/games.ts` und `scan/local.ts` führen
  *  die werte weiterhin literal, ein drift-schutz über alle aufrufer ist das
  *  nicht (K-06). */
-export const COMPAT_TOOL_SENTINELS = ["default", "unknown"] as const;
-export type CompatToolSentinel = (typeof COMPAT_TOOL_SENTINELS)[number];
+const COMPAT_TOOL_SENTINELS = ["default", "unknown"] as const;
+type CompatToolSentinel = (typeof COMPAT_TOOL_SENTINELS)[number];
 
 export function isCompatToolSentinel(value: string): value is CompatToolSentinel {
   return (COMPAT_TOOL_SENTINELS as readonly string[]).includes(value);

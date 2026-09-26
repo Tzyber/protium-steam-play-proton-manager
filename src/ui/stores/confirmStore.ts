@@ -5,8 +5,9 @@ import { computed, ref } from "vue";
 interface ConfirmRequest {
   title: string;
   message: string;
-  /** beschriftung des bestätigen-knopfs; ohne wert zeigt der dialog
-   *  `common.confirm`. */
+  /** beschriftung des bestätigen-knopfs; ohne wert vergibt der host
+   *  `common.delete` (ConfirmDialogHost), `common.confirm` ist nur noch der
+   *  fallback eines direkten dialog-mounts ohne label (tests). */
   confirmLabel?: string;
 }
 

@@ -73,7 +73,7 @@ describe("collectInstalledAppIds", () => {
     games: [makeGame({ appId: 1 }), makeGame({ appId: 2 })],
   });
 
-  it("nimmt spiele und — bei lesbaren shortcuts — auch deren ids", () => {
+  it("nimmt spiele und bei lesbaren shortcuts auch deren ids", () => {
     expect([...collectInstalledAppIds(result, { status: "none" })].sort()).toEqual([1, 2]);
     expect(
       [...collectInstalledAppIds(result, { status: "ok", ids: new Set([3641016077]) })].sort(),

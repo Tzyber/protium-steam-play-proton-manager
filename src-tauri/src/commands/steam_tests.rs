@@ -689,6 +689,10 @@ fn persist_atomic_temp_sync_fehler_laesst_ziel_unveraendert_und_raeumt_temp() {
     )
     .unwrap_err();
 
+    assert!(
+        errcode::has_code(&error.to_string(), errcode::UNREADABLE),
+        "unexpected error: {error}"
+    );
     assert!(matches!(error, PersistAtomicError::BeforeRename(_)));
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "alt");
     assert!(!root.join(tmp_name).exists());
@@ -726,6 +730,10 @@ fn persist_atomic_rename_fehler_laesst_ziel_unveraendert_und_raeumt_temp() {
     )
     .unwrap_err();
 
+    assert!(
+        errcode::has_code(&error.to_string(), errcode::UNREADABLE),
+        "unexpected error: {error}"
+    );
     assert!(matches!(error, PersistAtomicError::BeforeRename(_)));
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "alt");
     assert!(!root.join(tmp_name).exists());
@@ -793,6 +801,10 @@ fn write_gate_folgt_keinem_vorbereiteten_temp_symlink() {
     let error = persist_atomic(&target, b"neu", &mut reader).unwrap_err();
     PERSIST_TEMP_PROBE.with(|slot| *slot.borrow_mut() = None);
 
+    assert!(
+        errcode::has_code(&error.to_string(), errcode::UNREADABLE),
+        "unexpected error: {error}"
+    );
     assert!(matches!(error, PersistAtomicError::BeforeRename(_)));
     assert_eq!(std::fs::read_to_string(&victim).unwrap(), "opfer");
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "alt");
@@ -812,6 +824,35 @@ fn write_gate_folgt_keinem_vorbereiteten_temp_symlink() {
         "der vorbereitete symlink bleibt unangetastet liegen"
     );
     let _ = std::fs::remove_dir_all(root);
+}
+
+/// Producer 2 der Restmenge (A-04): die pfadbeschaffung der tauri-commands
+/// liefert keine rohe englische meldung mehr. Der fehler stammt aus der
+/// tauri-runtime und ist ohne AppHandle nicht konstruierbar; der pin unten ist
+/// deshalb der verhaltensbeleg (er war zuerst rot), dieser fall sichert den
+/// kontrakt des eingeführten helpers.
+#[test]
+fn path_resolution_error_traegt_unavailable_und_das_label() {
+    let message = path_resolution_error("home dir", std::io::Error::other("boom"));
+    assert!(
+        errcode::has_code(&message, errcode::UNAVAILABLE),
+        "unexpected error: {message}"
+    );
+    assert!(message.contains("home dir"), "unexpected error: {message}");
+}
+
+#[test]
+fn pfadbeschaffung_der_commands_ist_codiert() {
+    let production = production_source(include_str!("steam.rs"));
+    // der rohtext darf nicht zurückkehren: der code fehlt dann im leitfeld.
+    assert!(!production.contains("cannot resolve home dir: {e}"));
+    assert!(!production.contains("cannot resolve app cache dir: {e}"));
+    // definition plus die fünf beschaffungsstellen (save_launch_options,
+    // save_compat_tool, list_config_backups).
+    assert!(
+        production.matches("path_resolution_error(").count() >= 6,
+        "jede pfadbeschaffung muss den helper benutzen"
+    );
 }
 
 #[cfg(target_os = "linux")]
@@ -1310,6 +1351,52 @@ fn save_compat_tool_fremder_root_abgelehnt() {
     );
     assert!(res.is_err());
     assert!(res.unwrap_err().contains("not-a-steam-config"));
+    let _ = std::fs::remove_dir_all(home.parent().unwrap());
+}
+
+#[test]
+fn save_compat_tool_autoritaet_kommt_aus_dem_zielroot_nicht_aus_dem_parameter() {
+    let (home, cache, steam) = wsg_env("compat-authority-root");
+    // präpariertes root: eigenes compatibilitytools.d, aber config zeigt per
+    // symlink auf das echte steam-config-verzeichnis (INV-7).
+    let fake = home.join(".local/share/fake");
+    let evil_tool = fake.join("compatibilitytools.d/Evil-Tool");
+    std::fs::create_dir_all(&evil_tool).unwrap();
+    std::fs::write(
+        evil_tool.join("compatibilitytool.vdf"),
+        "\"compatibilitytools\" { \"compat_tools\" { \"Evil-Tool\" { } } }",
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(steam.join("config"), fake.join("config")).unwrap();
+    let target = steam.join("config/config.vdf");
+
+    let mut reader = || Ok(false);
+    let res = save_compat_tool_inner(
+        fake.to_str().unwrap(),
+        620,
+        Some("Evil-Tool"),
+        &cache,
+        &home,
+        &mut reader,
+    );
+    let error = res.unwrap_err();
+    assert!(error.contains("unknown-tool"), "{error}");
+    let content = std::fs::read_to_string(&target).unwrap();
+    assert!(!content.contains("Evil-Tool"));
+
+    // dieselbe ableitung erlaubt weiterhin tools, die im zielroot installiert sind
+    let mut reader = || Ok(false);
+    let res = save_compat_tool_inner(
+        fake.to_str().unwrap(),
+        620,
+        Some("GE-Proton9-28"),
+        &cache,
+        &home,
+        &mut reader,
+    );
+    assert_eq!(res.unwrap(), WriteResult::Written);
+    let content = std::fs::read_to_string(&target).unwrap();
+    assert!(content.contains("\"GE-Proton9-28\""));
     let _ = std::fs::remove_dir_all(home.parent().unwrap());
 }
 

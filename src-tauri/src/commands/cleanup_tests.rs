@@ -1,6 +1,6 @@
 use super::*;
 use crate::commands::test_util::fixture_dir;
-use std::os::unix::fs::symlink;
+use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::PathBuf;
 
 /// tempdir-fixture mit `library/steamapps`: `list_trash_entries_at` ist
@@ -107,6 +107,23 @@ fn steamapps_symlink_ist_kein_verzeichnis() {
     fs::remove_dir(fixture.steamapps()).unwrap();
     symlink(&outside, fixture.steamapps()).unwrap();
     assert_eq!(fixture.error_of(), errcode::NOT_A_DIRECTORY);
+}
+
+#[test]
+fn nicht_lesbarer_papierkorb_traegt_den_io_code() {
+    // Producer 3 (A-04): chmod 000 auf `.protium-trash`. Der pfad ist als
+    // verzeichnis bestätigt (symlink_metadata + is_dir), erst `read_dir`
+    // scheitert mit EACCES. Als nicht-root greift das — wie in
+    // `prefix_tests::denied_prefix_is_unreadable`; als root umgeht der kernel die
+    // rechteprüfung, dann ist der zweig nicht erreichbar und `error_of` schlägt
+    // mit seiner meldung fehl, statt still zu bestehen.
+    let fixture = Fixture::new("trash-unreadable");
+    fs::create_dir_all(fixture.trash()).unwrap();
+    fs::set_permissions(fixture.trash(), fs::Permissions::from_mode(0o000)).unwrap();
+    let error = fixture.error_of();
+    fs::set_permissions(fixture.trash(), fs::Permissions::from_mode(0o700)).unwrap();
+
+    assert!(errcode::has_code(&error, errcode::UNREADABLE), "{error}");
 }
 
 #[test]

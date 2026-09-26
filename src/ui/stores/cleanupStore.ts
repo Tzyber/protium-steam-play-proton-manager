@@ -622,7 +622,14 @@ export const useCleanupStore = defineStore("cleanup", {
           scan,
         });
       const result = scan.status === "done" || scan.status === "idle" ? scan.result : null;
-      const steamRoot = result?.steamRoot ?? "";
+      // fail-closed wie deleteOrphans: ohne scan-snapshot gibt es kein steamRoot,
+      // und mit leerem root lief der pfad als irreführender prepare-fehler weiter
+      // statt als noScanResult abzubrechen (N-7).
+      if (!result) {
+        this.setTrashError(t("errors.noScanResult"));
+        return;
+      }
+      const steamRoot = result.steamRoot;
       const confirm = useConfirmStore();
       const reservation = confirm.reserve();
       if (reservation === null) return;
@@ -687,8 +694,10 @@ export const useCleanupStore = defineStore("cleanup", {
       // ausgewiesen.
       const preparedPaths = new Set(prepared.map((p) => p.path));
       const preparedEntries = entries.filter((entry) => preparedPaths.has(entry.path));
-      // formatKnownBytes: eine gemessene 0 ist "0 B", nicht "nicht gemessen"
-      const sizeText = formatSizeSummary(preparedEntries, formatKnownBytes);
+      // formatKnownBytes: eine gemessene 0 ist "0 B", nicht "nicht gemessen".
+      // der name ist bewusst nicht `sizeText`: so heißt die format-hilfe in
+      // format.ts, hier steht ein fertiger summentext.
+      const summaryText = formatSizeSummary(preparedEntries, formatKnownBytes);
       const accepted = confirm.ask(
         {
           title:
@@ -696,7 +705,7 @@ export const useCleanupStore = defineStore("cleanup", {
               ? t("cleanup.trashDeleteConfirmSingle", { n: prepared.length })
               : t("cleanup.trashDeleteConfirmTitle", { n: prepared.length }),
           message: [
-            t("cleanup.trashDeleteWarning", { size: sizeText }),
+            t("cleanup.trashDeleteWarning", { size: summaryText }),
             partialPrepareMessage,
             ...batchInfo,
             ...prepared.flatMap((p) => p.descriptions),
@@ -706,17 +715,30 @@ export const useCleanupStore = defineStore("cleanup", {
         },
         {
           onSuccess: async () => {
+            let deleted = false;
             for (const p of prepared) {
               try {
                 await tauriPorts.system.executeDelete(p.token);
                 if (isCurrent()) {
                   this.trash = this.trash.filter((e) => e.path !== p.path);
+                  deleted = true;
                 }
               } catch (e) {
                 if (isCurrent()) executeErrors.push(`${p.name}: ${formatError(e)}`);
               }
             }
-            if (isCurrent()) this.setTrashError(formatTrashErrors(prepareErrors, executeErrors));
+            if (!isCurrent()) return;
+            // A-06: der stand je library (einträge im papierkorb) wird nach der
+            // mutation neu gelesen; sonst bleibt der zähler von vor dem löschen
+            // stehen. reihenfolge wie in deleteOrphans: erst refreshen, dann die
+            // löschfehler setzen, weil scanTrash() trashError zurücksetzt.
+            if (deleted) {
+              const refresh = this._trashScanGeneration + 1;
+              await this.scanTrash();
+              // ein neuerer lauf hat übernommen: dessen ergebnis stehen lassen.
+              if (this._trashScanGeneration !== refresh) return;
+            }
+            this.setTrashError(formatTrashErrors(prepareErrors, executeErrors));
           },
           onError: (e) => {
             logError("Papierkorb leeren fehlgeschlagen", e);

@@ -604,7 +604,12 @@ fn trash_revalidierung_lehnt_verschachteltes_ziel_vor_claim_ab() {
         },
     );
     let error = result.unwrap_err();
-    assert!(error.contains("direct child"), "error: {error}");
+    // A-04: die ablehnung eines verschachtelten ziels trägt jetzt ihren code
+    // statt des rohtexts ("must be a direct child of .protium-trash").
+    assert!(
+        errcode::has_code(&error, errcode::NOT_AN_ORPHAN),
+        "error: {error}"
+    );
     assert!(!claim_called.load(Ordering::SeqCst));
     assert!(nested_target.join("replacement-marker").exists());
 
@@ -915,7 +920,51 @@ fn neue_defekte_compat_config_blockiert_fail_closed() {
     std::fs::write(steam.join("config/config.vdf"), "\"broken\" {").unwrap();
 
     let result = execute_confirmed(&registry, &info.token, || Ok(false));
-    assert!(result.is_err(), "broken compat config must block delete");
+    let error = match result {
+        Ok(_) => panic!("broken compat config must block delete"),
+        Err(error) => error,
+    };
+    // Pin (heute grün): der fehler aus dem eintrags-scanner trägt seinen code
+    // bereits im leitfeld. Die lücke sitzt im tokenizer-zweig, der eigene test
+    // steht direkt darunter.
+    assert!(
+        errcode::has_code(&error, errcode::UNREADABLE),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(target.exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Producer 7 (A-04): der tokenizer-fehler trug `unreadable` bereits, wurde aber
+/// mit einem rohtext-kontext verdeckt (`cannot tokenize config.vdf: …`), sodass
+/// die oberfläche nur „unbekannt" sah. Der fall oben läuft über den scanner
+/// (`unbalanced braces`), dieser über den tokenizer.
+#[cfg(target_os = "linux")]
+#[test]
+fn unterminierte_compat_config_traegt_den_io_code() {
+    let root = wsg_fixture("delete-ops-live-compat-unterminated");
+    let steam = root.join("steam");
+    let target = steam.join("compatibilitytools.d/GE-Proton9-27");
+    std::fs::create_dir_all(&target).unwrap();
+    let registry = PendingDeleteRegistry::default();
+    let request = PrepareDeleteRequest {
+        target_type: "compatTool".to_string(),
+        path: target.to_str().unwrap().to_string(),
+        steam_root: steam.to_str().unwrap().to_string(),
+    };
+    let info = prepare_with_snapshot(&registry, &request, || Ok(false)).unwrap();
+
+    std::fs::create_dir_all(steam.join("config")).unwrap();
+    std::fs::write(steam.join("config/config.vdf"), "\"unterminated").unwrap();
+
+    let error = match execute_confirmed(&registry, &info.token, || Ok(false)) {
+        Ok(_) => panic!("unterminated compat config must block delete"),
+        Err(error) => error,
+    };
+    assert!(
+        errcode::has_code(&error, errcode::UNREADABLE),
+        "unerwarteter fehler: {error}"
+    );
     assert!(target.exists());
     let _ = std::fs::remove_dir_all(root);
 }
@@ -1127,6 +1176,10 @@ fn claim_mismatch_benennt_replacement_zurueck() {
     assert!(
         error.contains("target changed before mutation"),
         "error: {error}"
+    );
+    assert!(
+        errcode::has_code(&error, errcode::TARGET_CHANGED),
+        "unerwarteter fehler: {error}"
     );
     assert!(
         target.exists(),

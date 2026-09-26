@@ -5,7 +5,9 @@ import { EXPLAIN_TOPICS, type ExplainTopic } from "../../src/ui/explain.js";
 import { setLocale, t } from "../../src/ui/i18n/index.js";
 import { EXPLAIN_GLOSSARY } from "../support/explainGlossary.js";
 
-const GLOSSARY = readFileSync(resolve(process.cwd(), "docs/glossar.md"), "utf8");
+// auflösung über den dateistandort statt über das arbeitsverzeichnis (T-11):
+// der testlauf darf nicht davon abhängen, aus welchem cwd vitest startet.
+const GLOSSARY = readFileSync(resolve(import.meta.dirname, "../../docs/glossar.md"), "utf8");
 const TOPICS: readonly ExplainTopic[] = [
   "compat-tool",
   "compat-source",

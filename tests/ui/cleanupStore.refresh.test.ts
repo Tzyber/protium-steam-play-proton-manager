@@ -70,7 +70,7 @@ describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
   });
 
   it("shadercache löschen lädt den papierkorb NICHT neu (hard delete)", async () => {
-    // T-09: statt `not.toHaveBeenCalled` wird der vorbestand geprüft — ein
+    // T-09: statt `not.toHaveBeenCalled` wird der vorbestand geprüft: ein
     // (fälschlicher) refresh würde ihn gegen die frisch gelieferte liste tauschen.
     const seeded = fakeTrashEntry();
     mockFindTrashEntries.mockResolvedValue({

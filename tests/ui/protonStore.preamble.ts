@@ -31,7 +31,16 @@ const {
   mockOnInstallPhase: vi.fn<(handler: PhaseHandler) => Promise<() => void>>(async () => () => {}),
 }));
 
-vi.mock("../../src/core/adapters/tauri", async () => {
+import type { DownloadProgressEvent, InstallPhaseEvent } from "../../src/core/ports";
+import { MOCK_TOKEN_TTL_MS } from "../support/cleanupStoreMocks";
+import { scanResult } from "../support/factories";
+
+// doMock statt vi.mock: cleanupStoreMocks (quelle der TTL-konstante) bringt sein
+// eigenes tauri-mock mit, und vitest behält von zwei registrierungen derselben
+// datei die zuletzt registrierte fassung. die registrierung nach den imports
+// macht diese fassung zur letzten, unabhängig von der import-reihenfolge der
+// testdateien (N-3).
+vi.doMock("../../src/core/adapters/tauri", async () => {
   return {
     tauriPorts: {
       fs: {},
@@ -43,7 +52,7 @@ vi.mock("../../src/core/adapters/tauri", async () => {
         installGeProton: mockInstallGeProton,
         prepareDelete: vi.fn(async (req) => ({
           token: "tok-ge",
-          expiresAt: Date.now() + 60000,
+          expiresAt: Date.now() + MOCK_TOKEN_TTL_MS,
           targetType: req.targetType,
           targetPath: req.path,
           consequences: [],
@@ -57,9 +66,6 @@ vi.mock("../../src/core/adapters/tauri", async () => {
     },
   };
 });
-
-import type { DownloadProgressEvent, InstallPhaseEvent } from "../../src/core/ports";
-import { scanResult } from "../support/factories";
 
 export const release: GeRelease = {
   tag: "GE-Proton9-27",

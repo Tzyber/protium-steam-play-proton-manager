@@ -71,7 +71,7 @@ export const paths = {
     join(cacheAppDir, hashDir, LOCAL_HEADER_FILENAME),
 };
 
-export const LOCAL_HEADER_FILENAME = "library_header.jpg";
+const LOCAL_HEADER_FILENAME = "library_header.jpg";
 
 export { join as joinPath };
 

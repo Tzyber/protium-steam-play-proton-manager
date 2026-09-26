@@ -127,17 +127,17 @@ onBeforeUnmount(() => {
 			@keydown="onListKeydown"
 		>
 			<li
-				v-for="(o, i) in options"
-				:key="o.value"
+				v-for="(option, i) in options"
+				:key="option.value"
 				role="option"
 				class="sb-opt"
-				:class="{ on: o.value === modelValue, hl: i === highlightIndex }"
-				:aria-selected="o.value === modelValue"
+				:class="{ on: option.value === modelValue, hl: i === highlightIndex }"
+				:aria-selected="option.value === modelValue"
 				tabindex="-1"
 				@mouseenter="highlightIndex = i"
-				@click="select(o.value)"
+				@click="select(option.value)"
 			>
-				{{ o.label }}
+				{{ option.label }}
 			</li>
 		</ul>
 	</div>

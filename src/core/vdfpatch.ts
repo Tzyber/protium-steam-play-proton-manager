@@ -1,4 +1,6 @@
-// minimaler VDF-reader: navigiert ohne voll-serialisierung durch Steam-Dateien.
+// doppelfunktion der datei: bytegenauer VDF-leser für den string-patch-pfad
+// (getVdfValue; das patchen selbst lebt in rust, vdf_patch.rs) und gemeinsamer
+// text-vdf-tokenizer (K-02) für den vdf.ts-pre-pass und manifest.ts.
 
 import { errText } from "./errtext.js";
 
@@ -14,9 +16,9 @@ export class VdfPatchError extends Error {
 /** Signifikante VDF-tokens; trivia (whitespace, zeilen- und blockkommentar)
  *  liegt in den lücken zwischen zwei tokens und wird bei bedarf mit
  *  `text.slice(prev.end, token.start)` rekonstruiert. */
-export type VdfTokenKind = "string" | "open" | "close" | "conditional";
+type VdfTokenKind = "string" | "open" | "close" | "conditional";
 
-export interface VdfToken {
+interface VdfToken {
   kind: VdfTokenKind;
   /** roh-inhalt ohne quotes; escapes (`\"`, `\\`, sonstige `\x`) bleiben
    *  erhalten. autorität für rohe key-/manifest-vergleiche. */
@@ -32,7 +34,7 @@ export interface VdfToken {
   quoted: boolean;
 }
 
-export interface VdfTokenizeResult {
+interface VdfTokenizeResult {
   tokens: VdfToken[];
   /** gesetzt, wenn der text mitten in einem token endet (offener string oder
    *  offenes blockkommentar). die betroffene restfolge fehlt in `tokens`. */
@@ -105,13 +107,22 @@ export function tokenizeVdf(text: string): VdfTokenizeResult {
       // steam-conditional `[...]` hängt am vorigen wert und ist kein
       // key-/value-token; würde er zählen, kippte die key-erwartung und ein
       // gefährlicher block-key liefe ungefiltert durch (R1). ein token statt
-      // mehrerer bare-tokens hält auch `[$WIN32 || $OSX64]` zusammen — die
+      // mehrerer bare-tokens hält auch `[$WIN32 || $OSX64]` zusammen; die
       // vorfassung in `vdfpatch.ts` zerlegte solche marker, was hier bewusst
       // vereinheitlicht wird. ende ist `]` oder das zeilenende.
-      const closing = text.indexOf("]", cursor + 1);
-      const newline = text.indexOf("\n", cursor + 1);
-      const stop = closing !== -1 && (newline === -1 || closing < newline) ? closing + 1 : newline;
-      const end = stop === -1 ? text.length : stop;
+      //
+      // WARUM vorwärtsscan statt zwei `indexOf` (A-01): beide suchen liefen ab
+      // dem cursor bis ans textende, wenn das gesuchte zeichen fehlt. ohne
+      // umbruch kostete damit jeder marker den rest des textes ⇒ O(n²). der
+      // scan hier verbraucht genau die zeichen des tokens, der cursor springt
+      // danach darüber; die gesamtlaufzeit bleibt linear.
+      let end = cursor + 1;
+      for (;;) {
+        const current = text[end];
+        if (current === undefined || current === "]" || current === "\n") break;
+        end += 1;
+      }
+      if (text[end] === "]") end += 1;
       const raw = text.slice(cursor, end);
       tokens.push({ kind: "conditional", raw, value: raw, start: cursor, end, quoted: false });
       cursor = end;
@@ -154,9 +165,9 @@ export function tokenizeVdf(text: string): VdfTokenizeResult {
     }
 
     // bare token: unquoted key/value (alte dateien). bricht zusätzlich am
-    // kommentaranfang ab, damit `value//rest` kein token wird — zwei der drei
-    // vorfassungen und die geparste lib tun das; `vdfpatch.ts` tat es zuvor
-    // nicht, was hier bewusst vereinheitlicht wird.
+    // kommentaranfang ab, damit `value//rest` kein token wird; zwei der drei
+    // vorfassungen und die geparste lib tun das, `vdfpatch.ts` tat es zuvor
+    // nicht (bewusste vereinheitlichung, K-02).
     const start = cursor;
     while (cursor < text.length) {
       const current = text[cursor];
@@ -174,6 +185,16 @@ export function tokenizeVdf(text: string): VdfTokenizeResult {
     }
     const raw = text.slice(start, cursor);
     tokens.push({ kind: "string", raw, value: raw, start, end: cursor, quoted: false });
+    // ein `/*` mitten im bare-token ist wertmüll, kein blockkommentar: der wert
+    // bricht wie bei `http://x` → `http:` am kommentaranfang ab und der tote
+    // rest endet am zeilenende, auch ohne `*/`. sonst würde ein unterminierter
+    // blockkommentar im wert die ganze datei verschlucken und als lexikalisch
+    // defekt markieren (N-5). echte blockkommentare stehen nach einem trenner
+    // und laufen wie bisher bis `*/`.
+    if (text[cursor] === "/" && text[cursor + 1] === "*") {
+      const newline = text.indexOf("\n", cursor + 2);
+      cursor = newline === -1 ? text.length : newline + 1;
+    }
   }
 
   return { tokens, unterminated };
@@ -237,11 +258,18 @@ function scanEntries(tokens: VdfToken[], from: number, to: number): Entry[] {
     if (t.kind !== "string") {
       throw new VdfPatchError(`unerwartetes "${t.value}" (offset ${t.start})`);
     }
-    if (i + 1 >= to) throw new VdfPatchError(`key "${t.value}" ohne wert`);
-    const next = tokenAt(tokens, i + 1);
+    // marker zwischen key und wert werden wie in `manifest.ts` ausgelassen
+    // (dort `token.kind === "conditional" continue`): der marker zählt nie als
+    // wert. `key [cond] value` paart damit key→value, `key [cond]` ohne echten
+    // wert bleibt strukturbruch wie `key` allein (N-01). steam schreibt marker
+    // nach dem wert, die fälle sind degeneriert.
+    let valueIdx = i + 1;
+    while (valueIdx < to && tokenAt(tokens, valueIdx).kind === "conditional") valueIdx++;
+    if (valueIdx >= to) throw new VdfPatchError(`key "${t.value}" ohne wert`);
+    const next = tokenAt(tokens, valueIdx);
     if (next.kind === "open") {
       let depth = 1;
-      let j = i + 2;
+      let j = valueIdx + 1;
       while (j < to && depth > 0) {
         const tj = tokenAt(tokens, j);
         if (tj.kind === "open") depth++;
@@ -249,13 +277,13 @@ function scanEntries(tokens: VdfToken[], from: number, to: number): Entry[] {
         j++;
       }
       if (depth !== 0) throw new VdfPatchError(`unbalancierte klammern bei "${t.value}"`);
-      entries.push({ key: t, value: next, block: { from: i + 2, to: j - 1 } });
+      entries.push({ key: t, value: next, block: { from: valueIdx + 1, to: j - 1 } });
       i = j;
       continue;
     }
     if (next.kind === "close") throw new VdfPatchError(`key "${t.value}" ohne wert`);
     entries.push({ key: t, value: next });
-    i += 2;
+    i = valueIdx + 1;
   }
   return entries;
 }
@@ -285,8 +313,11 @@ export function getVdfValue(text: string, path: readonly string[]): string | und
 
 /** alle direkten kind-blöcke am pfad in EINEM tokenize-lauf lesen:
  *  blockKey → (angefragter leafKey → wert). leere map, wenn der pfad fehlt.
- *  defekte einzelblöcke werden übersprungen und als erster fehler gemeldet,
- *  damit der scan wie bisher degradiert. */
+ *  nur defekte kind-blöcke werden übersprungen und als erster fehler gemeldet,
+ *  damit der scan wie bisher degradiert. ein strukturbruch außerhalb der
+ *  kind-blöcke (pfadnavigation oder kind-ebene selbst) wirft dagegen, weil
+ *  dort kein einzelner block zum überspringen bleibt; den wirf fängt der
+ *  aufrufer und degradiert dort (INV-2, N-8). */
 export function getVdfChildFieldValues(
   text: string,
   path: readonly string[],

@@ -328,9 +328,12 @@ pub(super) fn read_app_manifest_with_hook(
             let message = format!("cannot open manifest {manifest_name}: {error}");
             return Err(
                 if matches!(error.raw_os_error(), Some(libc::ELOOP | libc::ENOTDIR)) {
-                    ManifestReadError::Blocked(message)
+                    ManifestReadError::Blocked(errcode::with_detail(errcode::BLOCKED, message))
                 } else {
-                    ManifestReadError::Unreadable(message)
+                    ManifestReadError::Unreadable(errcode::with_detail(
+                        errcode::code_for_io(&error),
+                        message,
+                    ))
                 },
             );
         }
@@ -348,23 +351,44 @@ pub(super) fn read_app_manifest_with_hook(
             format!("cannot read {label}: {error}"),
         ))
     })?;
-    let parse_error = |error| unreadable(format!("cannot parse manifest {manifest_name}: {error}"));
+    // A-04: jede meldung dieses readers trägt den kanonischen code im leitfeld,
+    // wie die zeile darüber (`cannot read {label}`); sonst fällt die
+    // klassifikation in der oberfläche auf "unbekannt" zurück.
+    let parse_error = |error| {
+        unreadable(errcode::with_detail(
+            errcode::UNREADABLE,
+            format!("cannot parse manifest {manifest_name}: {error}"),
+        ))
+    };
     let internal_id = vdf_patch::get_vdf_value(&content, &["AppState", "appid"])
         .map_err(parse_error)?
         .or(vdf_patch::get_vdf_value(&content, &["AppState", "AppId"]).map_err(parse_error)?)
-        .ok_or_else(|| unreadable(format!("manifest {manifest_name} has no AppState appid")))?;
-    let internal_id = crate::commands::scope::parse_app_id(internal_id.trim())
-        .map_err(|_| unreadable(format!("manifest {manifest_name} has invalid appid")))?;
+        .ok_or_else(|| {
+            unreadable(errcode::with_detail(
+                errcode::UNREADABLE,
+                format!("manifest {manifest_name} has no AppState appid"),
+            ))
+        })?;
+    let internal_id = crate::commands::scope::parse_app_id(internal_id.trim()).map_err(|_| {
+        unreadable(errcode::with_detail(
+            errcode::UNREADABLE,
+            format!("manifest {manifest_name} has invalid appid"),
+        ))
+    })?;
     if internal_id != file_id {
-        return Err(ManifestReadError::Blocked(format!(
-            "manifest {manifest_name} filename/appid mismatch ({file_id} != {internal_id})"
+        return Err(ManifestReadError::Blocked(errcode::with_detail(
+            errcode::BLOCKED,
+            format!(
+                "manifest {manifest_name} filename/appid mismatch ({file_id} != {internal_id})"
+            ),
         )));
     }
     // der name wird erst nach belegter identität gelesen; die lookup-region ist
     // dieselbe wie bei `appid`, ein parsefehler hätte also schon dort gezogen.
     let name = vdf_patch::get_vdf_value(&content, &["AppState", "name"]).map_err(|error| {
-        unreadable(format!(
-            "cannot parse manifest name {manifest_name}: {error}"
+        unreadable(errcode::with_detail(
+            errcode::UNREADABLE,
+            format!("cannot parse manifest name {manifest_name}: {error}"),
         ))
     })?;
     Ok(Some(ManifestIdentity {

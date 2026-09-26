@@ -1,9 +1,9 @@
 // warum (T-01): die drei cleanupStore-Testdateien trugen dieselbe Mock-Preamble
-// dreifach — je ein vi.hoisted-Block und vier identische vi.mock-Blöcke. Jede
+// dreifach, je ein vi.hoisted-Block und vier identische vi.mock-Blöcke. Jede
 // Änderung an der Port-Form musste dreimal nachgezogen werden. Hier steht sie
 // einmal. Die Datei registriert die Mocks beim Import als Seiteneffekt, deshalb
 // MUSS sie in den Testdateien VOR den Stores/Modulen unter Test importiert
-// werden — sonst lädt der Modulgraph die echten Ports.
+// werden, sonst lädt der Modulgraph die echten Ports.
 //
 // Die Mocks liefern exakt dieselben Module/Funktionen wie die alten lokalen
 // Preambles (findOrphans, findIncompleteDeletions, findSteamOwnedPrefixes,

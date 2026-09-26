@@ -1,5 +1,5 @@
-import { parseError } from "../core/errtext.js";
-import { type Key, t } from "./i18n/index.js";
+import { parseError } from "../core/errtext";
+import { type Key, t } from "./i18n";
 
 /** Code zu gepflegtem Text. Codes ohne eigenen Eintrag fallen auf die
  *  Uebersetzung ihrer Fehlerklasse zurueck; Rohtext zeigt die UI nie. */
@@ -40,6 +40,13 @@ const CODE_KEYS: Record<string, Key> = {
   "size-missing": "errors.codes.sizeMissing",
   "manifest-missing-appstate": "errors.codes.manifestMissingAppstate",
   "manifest-invalid-appid": "errors.codes.manifestInvalidAppid",
+  // nur TS-seitig (configStore.ts, protonStore.ts), nicht in errcode.rs:
+  // absichtsfehler der stores. ohne eintrag fielen sie auf "unbekannt" zurück
+  // und die ursache war nirgends sichtbar (N-3). die texte bestehen bereits,
+  // deshalb greifen die codes hier auf die errors-sätze statt auf eigene
+  // codes-einträge.
+  "no-scan-result": "errors.noScanResult",
+  "no-steam-account": "errors.noSteamAccount",
 };
 
 const KIND_KEYS: Record<string, Key> = {

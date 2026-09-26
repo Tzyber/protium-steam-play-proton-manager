@@ -17,6 +17,18 @@ use std::path::Path;
 
 use crate::commands::errcode;
 
+// die o-flag-masken leben einmal je flag modulweit: open_dir_at,
+// create_exclusive_at, open_absolute_dir und open_file_at setzten sie sonst
+// je lokal an (n-07), jede änderung an einem flag müsste an vier stellen
+// mitlaufen.
+const O_RDONLY: i32 = 0;
+const O_WRONLY: i32 = 1;
+const O_CREAT: i32 = 0o100;
+const O_EXCL: i32 = 0o200;
+const O_DIRECTORY: i32 = 0o200000;
+const O_NOFOLLOW: i32 = 0o400000;
+const O_CLOEXEC: i32 = 0o2000000;
+
 #[cfg(target_os = "linux")]
 pub(super) fn component_name(component: &OsStr) -> io::Result<CString> {
     CString::new(component.as_bytes())
@@ -25,10 +37,6 @@ pub(super) fn component_name(component: &OsStr) -> io::Result<CString> {
 
 #[cfg(target_os = "linux")]
 pub(super) fn open_dir_at(parent_fd: RawFd, component: &OsStr) -> io::Result<OwnedFd> {
-    const O_RDONLY: i32 = 0;
-    const O_DIRECTORY: i32 = 0o200000;
-    const O_NOFOLLOW: i32 = 0o400000;
-    const O_CLOEXEC: i32 = 0o2000000;
     let component = component_name(component)?;
     let fd = unsafe {
         libc::openat(
@@ -92,11 +100,6 @@ pub(super) fn open_or_create_dir_at(parent_fd: RawFd, component: &OsStr) -> io::
 /// Datei oder eines Symlinks, `O_NOFOLLOW` das Folgen eines solchen.
 #[cfg(target_os = "linux")]
 pub(super) fn create_exclusive_at(dir_fd: RawFd, name: &OsStr) -> io::Result<fs::File> {
-    const O_WRONLY: i32 = 1;
-    const O_CREAT: i32 = 0o100;
-    const O_EXCL: i32 = 0o200;
-    const O_NOFOLLOW: i32 = 0o400000;
-    const O_CLOEXEC: i32 = 0o2000000;
     const MODE_600: u32 = 0o600;
     let name = component_name(name)?;
     let fd = unsafe {
@@ -146,10 +149,6 @@ pub(super) fn unlink_at(dir_fd: RawFd, name: &OsStr) -> io::Result<()> {
 #[cfg(target_os = "linux")]
 pub(super) fn open_absolute_dir(path: &Path) -> io::Result<OwnedFd> {
     const AT_FDCWD: RawFd = -100;
-    const O_RDONLY: i32 = 0;
-    const O_DIRECTORY: i32 = 0o200000;
-    const O_NOFOLLOW: i32 = 0o400000;
-    const O_CLOEXEC: i32 = 0o2000000;
     let path = CString::new(path.as_os_str().as_bytes())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path contains NUL"))?;
     let fd = unsafe {
@@ -211,9 +210,6 @@ where
 
 #[cfg(target_os = "linux")]
 pub(super) fn open_file_at(parent_fd: RawFd, name: &OsStr) -> io::Result<std::fs::File> {
-    const O_RDONLY: i32 = 0;
-    const O_NOFOLLOW: i32 = 0o400000;
-    const O_CLOEXEC: i32 = 0o2000000;
     let name = component_name(name)?;
     let fd = unsafe {
         libc::openat(

@@ -4,9 +4,9 @@
 // wird hier auf i18n-Keys gemappt. Der Backend-String bleibt als Fallback:
 // das Backend ist die Autorität für WAS passiert, das Frontend lokalisiert
 // nur die Darstellung.
-import type { PendingDeleteInfo } from "../core/ports.js";
-import { pathBasename } from "./format.js";
-import { t } from "./i18n/index.js";
+import type { PendingDeleteInfo } from "../core/ports";
+import { pathBasename } from "./format";
+import { t } from "./i18n";
 
 export function localizeConsequences(
   pending: PendingDeleteInfo,

@@ -206,8 +206,10 @@ where
 }
 
 pub(super) fn validate_trash_target(canon_str: &str, meta: &fs::Metadata) -> Result<(), String> {
+    // A-04: die live-ablehnungen dieser funktion tragen ihren kanonischen code;
+    // als rohtext erschienen sie in der oberfläche als "unbekannt".
     if meta.file_type().is_symlink() {
-        return Err("trash target must not be a symlink".into());
+        return Err(errcode::SYMLINK_REJECTED.into());
     }
     if !meta.is_dir() {
         return Err(errcode::NOT_A_DIRECTORY.into());
@@ -216,36 +218,43 @@ pub(super) fn validate_trash_target(canon_str: &str, meta: &fs::Metadata) -> Res
     let suffix = crate::commands::scope::suffix_after_steamapps(canon_str)?;
     let name = suffix
         .strip_prefix(".protium-trash/")
-        .ok_or_else(|| "trash target must be inside .protium-trash".to_string())?;
+        .ok_or_else(|| errcode::NOT_AN_ORPHAN.to_string())?;
     if name.is_empty() || name.contains('/') {
-        return Err("trash target must be a direct child of .protium-trash".into());
+        return Err(errcode::NOT_AN_ORPHAN.into());
     }
 
     let mut fields = name.split('_');
     let typ = fields
         .next()
-        .ok_or_else(|| "trash target has invalid name".to_string())?;
+        .ok_or_else(|| errcode::INVALID_ID.to_string())?;
     let app_id_str = fields
         .next()
-        .ok_or_else(|| "trash target has invalid name".to_string())?;
+        .ok_or_else(|| errcode::INVALID_ID.to_string())?;
     let timestamp_str = fields
         .next()
-        .ok_or_else(|| "trash target has invalid name".to_string())?;
+        .ok_or_else(|| errcode::INVALID_ID.to_string())?;
     if fields.next().is_some() {
-        return Err("trash target has invalid name".into());
+        return Err(errcode::INVALID_ID.into());
     }
 
     crate::commands::scope::parse_compat_id((typ, app_id_str))?;
     if !timestamp_str.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Err(format!(
-            "trash target has non-numeric timestamp: {timestamp_str}"
+        return Err(errcode::with_detail(
+            errcode::INVALID_VALUE,
+            format!("trash target has non-numeric timestamp: {timestamp_str}"),
         ));
     }
-    let timestamp = timestamp_str
-        .parse::<u64>()
-        .map_err(|_| format!("trash target timestamp out of range: {timestamp_str}"))?;
+    let timestamp = timestamp_str.parse::<u64>().map_err(|_| {
+        errcode::with_detail(
+            errcode::INVALID_VALUE,
+            format!("trash target timestamp out of range: {timestamp_str}"),
+        )
+    })?;
     if timestamp == 0 {
-        return Err("trash target timestamp must be positive".into());
+        return Err(errcode::with_detail(
+            errcode::INVALID_VALUE,
+            "trash target timestamp must be positive",
+        ));
     }
 
     Ok(())
@@ -400,8 +409,8 @@ where
     )
     .map_err(|error| errcode::remap_size_limit(error, "config.vdf"))?;
 
-    let tokens =
-        vdf_patch::tokenize(&content).map_err(|e| format!("cannot tokenize config.vdf: {e}"))?;
+    let tokens = vdf_patch::tokenize(&content)
+        .map_err(|error| errcode::with_context("cannot tokenize config.vdf", &error))?;
 
     let base_paths = [
         vec![

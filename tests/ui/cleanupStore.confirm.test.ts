@@ -146,6 +146,8 @@ describe("cleanupStore, gemeinsame confirm-reservierung", () => {
   });
 
   it("gibt die trash-reservierung bei ask-ablehnung frei", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
     const store = useCleanupStore();
     const confirm = useConfirmStore();
     vi.spyOn(confirm, "ask").mockReturnValue(false);

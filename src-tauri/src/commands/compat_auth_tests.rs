@@ -2,6 +2,7 @@ use super::*;
 #[cfg(target_os = "linux")]
 use crate::commands::fd::{open_absolute_dir, open_bound_root_fd};
 use crate::commands::test_util::{write_appmanifest, wsg_fixture};
+use std::os::unix::fs::PermissionsExt;
 
 #[cfg(target_os = "linux")]
 fn valve_authority_fixture(tag: &str) -> (PathBuf, PathBuf) {
@@ -650,9 +651,37 @@ mod manifest_reader_tests {
                     }),
                 expected
             );
+            // Producer 5 (A-04): die meldungen des gemeinsamen readers tragen den
+            // kanonischen code im leitfeld, nicht nur die klassifikation.
+            match &shared {
+                Err(ManifestReadError::Unreadable(message)) => assert!(
+                    errcode::has_code(message, errcode::UNREADABLE),
+                    "unerwarteter fehler: {message}"
+                ),
+                Err(ManifestReadError::Blocked(message)) => assert!(
+                    errcode::has_code(message, errcode::BLOCKED),
+                    "unerwarteter fehler: {message}"
+                ),
+                Ok(_) => {}
+            }
             assert_eq!(
                 is_app_installed_in_library_fd(library.as_raw_fd(), 620, &mut |_| {}),
                 shared.map_err(ManifestReadError::into_message)
+            );
+        }
+
+        // offener lesefehler (EACCES): der open-zweig trägt den io-code. Als root
+        // greifen die rechte nicht; dann bleibt die assertion aus (der
+        // parse-zweig ist oben belegt), statt still grün zu sein.
+        let manifest = root.join("steamapps/appmanifest_620.acf");
+        fs::write(&manifest, "\"AppState\" { \"appid\" \"620\" }").unwrap();
+        fs::set_permissions(&manifest, fs::Permissions::from_mode(0o000)).unwrap();
+        let denied = is_app_installed_in_steamapps_fd(steamapps.as_raw_fd(), 620, &mut |_| {});
+        fs::set_permissions(&manifest, fs::Permissions::from_mode(0o600)).unwrap();
+        if let Err(ManifestReadError::Unreadable(message)) = &denied {
+            assert!(
+                errcode::has_code(message, errcode::UNREADABLE),
+                "unerwarteter fehler: {message}"
             );
         }
         fs::remove_dir_all(root).unwrap();

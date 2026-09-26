@@ -68,6 +68,10 @@ describe("GameDetailDrawer Config-Provenienz", () => {
     expect(de.get(".meta-tier").text()).not.toContain("läuft perfekt, out of the box");
 
     setLocale("en");
+    // die abfragen laufen über document.body (Teleport, siehe drawerDom.ts):
+    // der erste mount muss weg, sonst trifft .meta-tier den alten drawer.
+    de.unmount();
+    document.body.innerHTML = "";
     const en = mountDrawer(withTier("borked"));
     expect(en.get(".meta-tier").text()).toContain("Borked");
   });

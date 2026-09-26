@@ -39,12 +39,16 @@ pub(crate) struct TrashListing {
 }
 
 fn list_trash_entries_at(real: &Path) -> Result<TrashListing, String> {
-    let library_metadata = fs::symlink_metadata(real).map_err(|error| error.to_string())?;
+    // n-01: die io-restfehler tragen die io-regel als code, nicht nur den
+    // rohen fehlertext.
+    let library_metadata = fs::symlink_metadata(real)
+        .map_err(|error| errcode::with_detail(errcode::code_for_io(&error), error))?;
     if library_metadata.file_type().is_symlink() || !library_metadata.is_dir() {
         return Err(errcode::NOT_A_DIRECTORY.into());
     }
     let steamapps = real.join("steamapps");
-    let steamapps_metadata = fs::symlink_metadata(&steamapps).map_err(|error| error.to_string())?;
+    let steamapps_metadata = fs::symlink_metadata(&steamapps)
+        .map_err(|error| errcode::with_detail(errcode::code_for_io(&error), error))?;
     if steamapps_metadata.file_type().is_symlink() || !steamapps_metadata.is_dir() {
         return Err(errcode::NOT_A_DIRECTORY.into());
     }
@@ -61,7 +65,7 @@ fn list_trash_entries_at(real: &Path) -> Result<TrashListing, String> {
                 entries: Vec::new(),
             })
         }
-        Err(e) => return Err(e.to_string()),
+        Err(error) => return Err(errcode::with_detail(errcode::code_for_io(&error), error)),
     };
     if md.file_type().is_symlink() {
         return Err(errcode::SYMLINK_REJECTED.into());
@@ -71,9 +75,13 @@ fn list_trash_entries_at(real: &Path) -> Result<TrashListing, String> {
     }
 
     let mut entries = Vec::new();
-    for e in fs::read_dir(&trash_dir).map_err(|e| e.to_string())? {
-        let e = e.map_err(|e| e.to_string())?;
-        let ft = e.file_type().map_err(|e| e.to_string())?;
+    for e in fs::read_dir(&trash_dir)
+        .map_err(|error| errcode::with_detail(errcode::code_for_io(&error), error))?
+    {
+        let e = e.map_err(|error| errcode::with_detail(errcode::code_for_io(&error), error))?;
+        let ft = e
+            .file_type()
+            .map_err(|error| errcode::with_detail(errcode::code_for_io(&error), error))?;
         entries.push(TrashDirEntry {
             name: e.file_name().to_string_lossy().into_owned(),
             is_dir: ft.is_dir(),

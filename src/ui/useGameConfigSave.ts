@@ -44,7 +44,10 @@ interface SaveRun {
  *  kein Lauf offen ist (dann darf der Entwurf nicht mehr angetastet werden);
  *  hier gilt nur noch: die Antwort zählt allein, wenn Auftrag und Entwurf noch
  *  aktuell sind. Ein abweichender Entwurf beendet den Status trotzdem, sonst
- *  bliebe der Knopf dauerhaft gesperrt. */
+ *  bliebe der Knopf dauerhaft gesperrt. Jeder Pfad, dem der Zustand noch
+ *  gehört, endet in einem Ruhe- oder Fehlerzustand; nur ein überholter Auftrag
+ *  (Spielwechsel, jüngeres `begin`) lässt ihn stehen, weil dann ein anderer
+ *  Auftrag oder der appId-Reset Eigentümer ist. */
 async function runSave(run: SaveRun): Promise<void> {
   const token = run.request.begin();
   const submitted = run.draft();
@@ -60,7 +63,12 @@ async function runSave(run: SaveRun): Promise<void> {
     }
     run.state.value = result === "written" ? { kind: "saved" } : { kind: "idle" };
   } catch (e) {
-    if (!stillMatches()) return;
+    // Ein Fehler bleibt sichtbar (U-02), auch wenn der Entwurf während des
+    // Writes weiterlief: der Vorgang ist gescheitert, und ein unsicherer
+    // Ausgang (write-may-have-applied) darf nicht verlorengehen. Nur ein
+    // überholter Auftrag verwirft die Meldung. (N-2: `stillMatches` ließ den
+    // Ladezustand hier dauerhaft stehen.)
+    if (!run.request.matches(token)) return;
     run.state.value = errorState(e);
   }
 }

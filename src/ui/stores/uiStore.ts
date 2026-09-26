@@ -7,6 +7,8 @@ export type ViewId = "library" | "proton" | "cleanup" | "history";
 // Timer-Objekt gehört nicht in den Snapshot, und nur eine Stelle schreibt ihn.
 let notificationTimer: ReturnType<typeof setTimeout> | null = null;
 
+const NOTIFICATION_AUTO_DISMISS_MS = 30_000;
+
 export const useUiStore = defineStore("ui", {
   state: () => ({
     activeView: "library" as ViewId,
@@ -23,7 +25,7 @@ export const useUiStore = defineStore("ui", {
     explanationCount: 0,
     /** modal/drawer/dialog offen → hauptinhalt + sidebar via inert stillgelegt */
     inertMain: false,
-    /** globale notification-toast. neueste überschreibt, 30s auto-dismiss. */
+    /** globale notification-toast. neueste überschreibt, auto-dismiss als fallback. */
     notification: null as { message: string } | null,
   }),
   actions: {
@@ -54,13 +56,14 @@ export const useUiStore = defineStore("ui", {
       lib.compatTools = [internalName];
       this.activeView = "library";
     },
-    /** fehler als kopierbare notification anzeigen. 30s auto-dismiss als fallback. */
+    /** fehler als kopierbare notification anzeigen. auto-dismiss nur als
+     *  fallback: ohne timer klebte eine alte meldung dauerhaft. */
     showNotification(message: string) {
       if (notificationTimer) clearTimeout(notificationTimer);
       this.notification = { message };
       notificationTimer = setTimeout(() => {
         this.dismissNotification();
-      }, 30_000);
+      }, NOTIFICATION_AUTO_DISMISS_MS);
     },
     dismissNotification() {
       if (notificationTimer) {

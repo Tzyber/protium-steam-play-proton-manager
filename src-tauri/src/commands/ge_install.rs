@@ -105,7 +105,12 @@ fn is_legacy_release(tag: &str) -> bool {
 
 fn exact_release_url(url: &str, release_tag: &str, asset_name: &str) -> Result<(), String> {
     validate_download_url(url)?;
-    let parsed = reqwest::Url::parse(url).map_err(|e| format!("invalid release URL: {e}"))?;
+    let parsed = reqwest::Url::parse(url).map_err(|error| {
+        errcode::with_detail(
+            errcode::INVALID_URL,
+            format!("invalid release URL: {error}"),
+        )
+    })?;
     let expected_path =
         format!("/GloriousEggroll/proton-ge-custom/releases/download/{release_tag}/{asset_name}");
     if parsed.path() != expected_path {
@@ -122,12 +127,18 @@ pub(super) fn validate_release_identity(
     if release_version(release_tag).is_none() {
         return Err(errcode::with_detail(errcode::INVALID_ID, "release tag"));
     }
-    let parsed =
-        reqwest::Url::parse(download_url).map_err(|e| format!("invalid download URL: {e}"))?;
+    let parsed = reqwest::Url::parse(download_url).map_err(|error| {
+        errcode::with_detail(
+            errcode::INVALID_URL,
+            format!("invalid download URL: {error}"),
+        )
+    })?;
     let asset_name = parsed
         .path_segments()
         .and_then(|mut segments| segments.next_back())
-        .ok_or_else(|| "download URL has no asset name".to_string())?;
+        .ok_or_else(|| {
+            errcode::with_detail(errcode::INVALID_URL, "download URL has no asset name")
+        })?;
     let current_name = format!("{release_tag}-{}.tar.gz", target_arch.as_str());
     let legacy_name = format!("{release_tag}.tar.gz");
     let allowed = asset_name == current_name
@@ -135,15 +146,20 @@ pub(super) fn validate_release_identity(
             && is_legacy_release(release_tag)
             && asset_name == legacy_name);
     if !allowed {
-        return Err(format!(
-            "asset {asset_name} is not authorized for target architecture {}",
-            target_arch.as_str()
+        return Err(errcode::with_detail(
+            errcode::UNSUPPORTED_ARCH,
+            format!(
+                "asset {asset_name} is not authorized for target architecture {}",
+                target_arch.as_str()
+            ),
         ));
     }
     exact_release_url(download_url, release_tag, asset_name)?;
     let install_name = asset_name
         .strip_suffix(".tar.gz")
-        .ok_or_else(|| "download asset must end in .tar.gz".to_string())?
+        .ok_or_else(|| {
+            errcode::with_detail(errcode::INVALID_ID, "download asset must end in .tar.gz")
+        })?
         .to_string();
     let identity = GeReleaseIdentity {
         asset_name: asset_name.to_string(),
@@ -221,8 +237,9 @@ pub(super) fn parse_sha512_hash(text: &str, expected_asset: &str) -> Result<Stri
             return Ok(hash.to_ascii_lowercase());
         }
     }
-    Err(format!(
-        "no valid sha512 checksum line for asset {expected_asset}"
+    Err(errcode::with_detail(
+        errcode::CHECKSUM_FAILED,
+        format!("no valid sha512 checksum line for asset {expected_asset}"),
     ))
 }
 
@@ -237,28 +254,42 @@ pub(super) fn verify_file_hash_on_disk(
     expected_hash: &str,
     cancel: &CancelSignal,
 ) -> Result<(), String> {
-    file.seek(SeekFrom::Start(0))
-        .map_err(|e| format!("seek downloaded file: {e}"))?;
+    file.seek(SeekFrom::Start(0)).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("seek downloaded file: {error}"),
+        )
+    })?;
     let mut hasher = Sha512::new();
     let mut buf = [0u8; HASH_READ_BUF_BYTES];
     loop {
         if cancel.is_cancelled() {
             return Err(errcode::CANCELLED.into());
         }
-        let n = file
-            .read(&mut buf)
-            .map_err(|e| format!("read downloaded file: {e}"))?;
+        let n = file.read(&mut buf).map_err(|error| {
+            errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("read downloaded file: {error}"),
+            )
+        })?;
         if n == 0 {
             break;
         }
         hasher.update(&buf[..n]);
     }
     let actual = crate::commands::fd::hex_lower(&hasher.finalize());
-    file.seek(SeekFrom::Start(0))
-        .map_err(|e| format!("rewind downloaded file: {e}"))?;
+    file.seek(SeekFrom::Start(0)).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("rewind downloaded file: {error}"),
+        )
+    })?;
     if actual != expected_hash {
-        return Err(format!(
-            "hash swap detected: disk hash ({actual}) does not match expected ({expected_hash})"
+        return Err(errcode::with_detail(
+            errcode::CHECKSUM_FAILED,
+            format!(
+                "hash swap detected: disk hash ({actual}) does not match expected ({expected_hash})"
+            ),
         ));
     }
     Ok(())
@@ -397,9 +428,10 @@ pub(super) async fn install_ge_proton_inner(
 
     on_phase("extracting", result_status == InstallGeResult::Verified);
 
-    // Extraktions-Phase. `root` und `tools` werden in die Scope-closure UND in
-    // die autorisierte Umgebung gereicht, deshalb je EINE zusätzliche Kopie
-    // (r-18: die vorige Fassung hielt je zwei Namen pro Identität).
+    // extraktions-phase (r-18 clone-stand): tools_dir geht in zwei formen in
+    // die closure (string als dest_dir, pfad fuer den scope-closure-vergleich),
+    // root_canon und install_name je in einer; die originale bleiben fuer die
+    // autorisierte umgebung.
     let tools_dir_str = tools_dir.to_string_lossy().to_string();
     let install_name = identity.install_name.clone();
     let extract_dest = tools_dir.clone();
@@ -463,8 +495,12 @@ fn resolve_ge_install_targets(
     let identity = validate_release_identity(target_arch, release_tag, download_url)?;
     validate_download_id(download_id)?;
 
-    let root_canon =
-        fs::canonicalize(steam_root).map_err(|e| format!("steam root canonicalize: {e}"))?;
+    let root_canon = fs::canonicalize(steam_root).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("steam root canonicalize: {error}"),
+        )
+    })?;
     let tools_dir = root_canon.join("compatibilitytools.d");
     if !scope_ok(&tools_dir) || !scope_ok(&root_canon) {
         return Err(errcode::BLOCKED_LOCATION.into());
@@ -511,34 +547,69 @@ fn resolve_ge_install_targets(
 /// Identität, damit der anonyme Download-Descriptor nicht in einen
 /// ausgetauschten Ordner schreibt.
 fn open_downloads_directory(cache_dir: &Path) -> Result<(fs::File, (u64, u64)), String> {
-    fs::create_dir_all(cache_dir).map_err(|e| format!("create app cache dir: {e}"))?;
-    let cache_canon =
-        fs::canonicalize(cache_dir).map_err(|e| format!("app cache canonicalize: {e}"))?;
+    fs::create_dir_all(cache_dir).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("create app cache dir: {error}"),
+        )
+    })?;
+    let cache_canon = fs::canonicalize(cache_dir).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("app cache canonicalize: {error}"),
+        )
+    })?;
     let downloads_dir = cache_canon.join("downloads");
-    fs::create_dir_all(&downloads_dir).map_err(|e| format!("create downloads dir: {e}"))?;
-    let downloads_dir =
-        fs::canonicalize(&downloads_dir).map_err(|e| format!("downloads dir canonicalize: {e}"))?;
+    fs::create_dir_all(&downloads_dir).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("create downloads dir: {error}"),
+        )
+    })?;
+    let downloads_dir = fs::canonicalize(&downloads_dir).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("downloads dir canonicalize: {error}"),
+        )
+    })?;
     if !is_descendant_of(&downloads_dir, &cache_canon) {
         return Err(errcode::BLOCKED_LOCATION.into());
     }
-    let downloads_metadata = fs::symlink_metadata(&downloads_dir)
-        .map_err(|e| format!("stat canonical downloads dir: {e}"))?;
+    let downloads_metadata = fs::symlink_metadata(&downloads_dir).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("stat canonical downloads dir: {error}"),
+        )
+    })?;
     if downloads_metadata.file_type().is_symlink() || !downloads_metadata.is_dir() {
         return Err(errcode::NOT_A_DIRECTORY.into());
     }
     let expected_identity = crate::commands::download::metadata_identity(&downloads_metadata)
-        .ok_or_else(|| "canonical downloads directory has no identity".to_string())?;
+        .ok_or_else(|| {
+            errcode::with_detail(
+                errcode::UNAVAILABLE,
+                "canonical downloads directory has no identity",
+            )
+        })?;
     #[cfg(target_os = "linux")]
     let directory = {
         // r-13: dieselbe no-follow-open-kette wie fd::open_absolute_dir statt
         // eines dritten handgeschriebenen libc::open.
-        let fd = crate::commands::fd::open_absolute_dir(&downloads_dir)
-            .map_err(|e| format!("open downloads directory: {e}"))?;
+        let fd = crate::commands::fd::open_absolute_dir(&downloads_dir).map_err(|error| {
+            errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("open downloads directory: {error}"),
+            )
+        })?;
         fs::File::from(fd)
     };
     #[cfg(not(target_os = "linux"))]
-    let directory =
-        fs::File::open(&downloads_dir).map_err(|e| format!("open downloads directory: {e}"))?;
+    let directory = fs::File::open(&downloads_dir).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("open downloads directory: {error}"),
+        )
+    })?;
     Ok((directory, expected_identity))
 }
 
@@ -562,8 +633,11 @@ async fn verify_downloaded_artifact(
                 return Err(errcode::CANCELLED.into());
             }
             if stream_hash.to_ascii_lowercase() != expected_hash {
-                return Err(format!(
-                    "SHA512 hash mismatch: stream ({stream_hash}) != expected ({expected_hash})"
+                return Err(errcode::with_detail(
+                    errcode::CHECKSUM_FAILED,
+                    format!(
+                        "SHA512 hash mismatch: stream ({stream_hash}) != expected ({expected_hash})"
+                    ),
                 ));
             }
 
@@ -594,7 +668,12 @@ async fn verify_downloaded_artifact(
                 &checksum_url,
                 confirm_unverified,
             )
-            .map_err(|error| format!("unverified installation confirmation failed: {error}"))?;
+            .map_err(|error| {
+                errcode::with_detail(
+                    errcode::UNAVAILABLE,
+                    format!("unverified installation confirmation failed: {error}"),
+                )
+            })?;
             if !confirmed {
                 return Err(errcode::UNVERIFIED_REJECTED.into());
             }
@@ -644,10 +723,12 @@ pub async fn install_ge_proton(
     let scope_ok = move |path: &Path| {
         environment_for_scope.is_current_ge_install_path(path, &authorized_root, &authorized_tools)
     };
-    let cache_dir = app
-        .path()
-        .app_cache_dir()
-        .map_err(|e| format!("cannot resolve app cache dir: {e}"))?;
+    let cache_dir = app.path().app_cache_dir().map_err(|error| {
+        errcode::with_detail(
+            errcode::UNAVAILABLE,
+            format!("cannot resolve app cache dir: {error}"),
+        )
+    })?;
 
     let cancel_flag = crate::commands::download::register_download(&state, &download_id)?;
     let cancel_flag_clone = Arc::clone(&cancel_flag);

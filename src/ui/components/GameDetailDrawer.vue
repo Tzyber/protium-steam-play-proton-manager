@@ -239,13 +239,20 @@ const {
 function stateError(s: SaveState): string | null {
   return s.kind === "error" ? s.message : null;
 }
-const errorMessage = computed(() => stateError(compatState.value) ?? stateError(launchState.value));
-const errorUncertain = computed(() => {
-  const compat = compatState.value;
-  if (compat.kind === "error") return compat.uncertain;
-  const launch = launchState.value;
-  return launch.kind === "error" ? launch.uncertain : false;
-});
+// beide schreibpfade können gleichzeitig im fehlerland stehen. die meldung
+// zeigt jeden fehler (reihenfolge wie im formular: compat über startoptionen),
+// sonst verdeckte der eine den anderen (N-4).
+const errorItems = computed(() =>
+  [compatState.value, launchState.value]
+    .map(stateError)
+    .filter((message): message is string => message !== null),
+);
+// der garantiesatz gilt nur, wenn kein einziger zustand einen unsicheren
+// schreibausgang trägt: ein zweiter, sicherer fehler darf „nichts wurde
+// verändet" nicht freigeben, obwohl ein anderer vorgang womöglich griff (N-4).
+const hasUncertainError = computed(() =>
+  [compatState.value, launchState.value].some((s) => s.kind === "error" && s.uncertain),
+);
 // der fehler bleibt stehen, bis der nutzer ihn schließt: ein fehlgeschlagener
 // schreibvorgang darf nicht unbemerkt verschwinden (U-02).
 function dismissError() {
@@ -528,13 +535,13 @@ function dismissError() {
         <p class="hint">{{ t("drawer.protondbHint") }}</p>
 
         <!-- Ablehnung im B2-Muster: Titel, Pruefbericht, Garantiesatz -->
-        <div v-if="errorMessage" class="drawer-error">
+        <div v-if="errorItems.length" class="drawer-error">
           <BlockedExplanation
             class="drawer-blocked"
             :title="t('drawer.saveBlocked')"
             :intro="t('common.couldNotVerify')"
-            :items="[errorMessage]"
-            :guarantee="errorUncertain ? t('drawer.saveUncertain') : t('common.nothingChanged')"
+            :items="errorItems"
+            :guarantee="hasUncertainError ? t('drawer.saveUncertain') : t('common.nothingChanged')"
           />
           <button
             class="drawer-error-close"

@@ -268,3 +268,107 @@ describe("cross-parser-vertrag Rust -> @node-steam/vdf", () => {
     expect(getVdfValue(RUST_OUTPUT, [...APPS, "730", "LaunchOptions"])).toBe("-novid -high");
   });
 });
+
+describe("parseVdf schließt geteilte objekte ab (Regression, versteckte klammern)", () => {
+  // Die Bibliothek ist zeilenbasiert: nach dem ersten paar einer zeile wird der
+  // rest verworfen, und ein key ohne parsebaren wert öffnet einen block. Werte,
+  // Conditionals und ungerade tokenfolgen können die klammer für den pre-pass
+  // verstecken. Das Containment muss die klasse deshalb komplett schließen,
+  // auch über Function und Function.prototype (kette toString -> constructor ->
+  // prototype) und über prototypenwechsel, die keine eigene property sind.
+  const shared: [string, object][] = [
+    ["Object.prototype", Object.prototype],
+    ["Object", Object],
+    ["Function", Function],
+    ["Function.prototype", Function.prototype],
+    ["Object.prototype.toString", Object.prototype.toString],
+    ["Object.prototype.valueOf", Object.prototype.valueOf],
+    ["Object.prototype.hasOwnProperty", Object.prototype.hasOwnProperty],
+  ];
+
+  type SharedState = { names: string; proto: object | null; apply: unknown };
+
+  function capture(): SharedState[] {
+    return shared.map(([, obj]) => {
+      const record = obj as Record<string, unknown>;
+      return {
+        names: Object.getOwnPropertyNames(obj).join(","),
+        proto: Object.getPrototypeOf(obj),
+        apply: record.apply,
+      };
+    });
+  }
+
+  // heilt den prozess, bevor geprüft wird: ein fehlschlag darf die folgenden
+  // tests nicht verschmutzen.
+  function heal(before: SharedState[]): void {
+    shared.forEach(([, obj], index) => {
+      const saved = before[index];
+      if (saved === undefined) return;
+      Object.setPrototypeOf(obj, saved.proto);
+      const record = obj as Record<string, unknown>;
+      const savedNames = saved.names.split(",");
+      for (const key of Object.getOwnPropertyNames(obj)) {
+        if (!savedNames.includes(key)) delete record[key];
+      }
+      if (record.apply !== saved.apply && saved.apply !== undefined) {
+        record.apply = saved.apply;
+      }
+    });
+  }
+
+  it.each([
+    ["wert-token versteckt die klammer", 'root\n{\n"toString" X\n{\n"polluted" "yes"\n}\n}'],
+    [
+      "conditional versteckt die klammer",
+      'root\n{\n"toString" [$WIN32]\n{\n"polluted" "yes"\n}\n}',
+    ],
+    [
+      "kette bis Function",
+      'root\n{\n"toString" X\n{\n"constructor" Y\n{\n"polluted" "yes"\n}\n}\n}',
+    ],
+    [
+      "kette bis Function.prototype überschreibt natives apply",
+      'root\n{\n"toString" X\n{\n"constructor" Y\n{\n"prototype" Z\n{\n"apply" "yes"\n}\n}\n}\n}',
+    ],
+    [
+      "ungerade tokenfolge plus __proto__ null setzt den prototyp ab",
+      '"a" "b" "c"\n"toString"\n{\n"__proto__" "null"\n}',
+    ],
+  ])("lässt '%s' nicht aus dem containment", (_name, text) => {
+    const before = capture();
+    try {
+      parseVdf(text);
+    } catch {
+      // ein Syntaxfehler ist zulässig, solange nichts mutiert wird
+    }
+    const after = capture();
+    heal(before);
+
+    const diffs = shared
+      .map(([name], index) => {
+        const saved = before[index];
+        const current = after[index];
+        if (saved === undefined || current === undefined) return `${name}: snapshot fehlt`;
+        if (current.names !== saved.names) {
+          return `${name}: eigene props [${saved.names}] -> [${current.names}]`;
+        }
+        if (current.proto !== saved.proto) return `${name}: prototyp verändert`;
+        if (current.apply !== saved.apply) return `${name}: apply verändert`;
+        return undefined;
+      })
+      .filter((entry) => entry !== undefined);
+    expect(diffs).toEqual([]);
+  });
+
+  it("tiefe nestingketten sprengen keinen stack", () => {
+    const depth = 10_000;
+    const lines: string[] = [];
+    for (let i = 0; i < depth; i += 1) lines.push(`"n${i}"`, "{");
+    for (let i = 0; i < depth; i += 1) lines.push("}");
+    const parsed = parseVdf(lines.join("\n"));
+    let node: VdfValue | undefined = parsed;
+    for (let i = 0; i < depth - 1; i += 1) node = asNode(node)?.[`n${i}`];
+    expect(asNode(node)).toBeDefined();
+  });
+});

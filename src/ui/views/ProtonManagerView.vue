@@ -143,6 +143,11 @@ const statusLine = computed(() => {
       <ExplainInfo :label="t('proton.installed')" :topics="['explicit-mapping-count', 'ge-delete-scope']" />
     </div>
     <p class="rsub" data-testid="mapping-summary">{{ t("proton.mappingSummary", { n: mappedTools.length, size: mappedSize }) }}</p>
+    <!-- A-05: der löschfehler gehört zum installiert-abschnitt; vorher lag er in
+         `loadError` und erschien damit unter der release-überschrift. -->
+    <div v-if="proton.removeError" class="hint" role="alert" data-testid="remove-error">
+      {{ proton.removeError }}
+    </div>
     <ul class="list" :aria-busy="proton.loading">
       <li v-for="tt in proton.installedTools" :key="tt.name">
         <div class="row">
@@ -193,7 +198,7 @@ const statusLine = computed(() => {
 
     <!-- verfügbar -->
     <h3 class="section">{{ t("proton.geReleases") }}</h3>
-    <div v-if="proton.loadError" class="hint" role="alert">{{ proton.loadError }}</div>
+    <div v-if="proton.loadError" class="hint" role="alert" data-testid="releases-error">{{ proton.loadError }}</div>
     <div v-if="proton.warning" class="hint hint--warning" role="status">
       {{ proton.warning.msg }}
       <button type="button" class="hint-close" :aria-label="t('drawer.close')" @click="proton.clearWarning()">×</button>

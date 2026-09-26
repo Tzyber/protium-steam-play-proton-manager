@@ -6,8 +6,8 @@
 // typ-sicherheit: die keys werden aus `de` abgeleitet, ein tippfehler ist
 // damit ein TS-fehler.
 
-import { de } from "./de.js";
-import { en } from "./en.js";
+import { de } from "./de";
+import { en } from "./en";
 
 type Locale = "de" | "en";
 

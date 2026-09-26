@@ -886,6 +886,63 @@ fn environment_exists_statet_den_roheingabepfad_nicht_erneut() {
     );
 }
 
+/// Regression (adversatives review, befund 2): der identitäts-stat des dedups
+/// darf die discovery nicht mehr hart abbrechen. Eine zwischen
+/// `canonical_library` und dem dedup verschwundene library degradiert in die
+/// fehlerliste, die übrigen libraries bleiben erhalten (INV-2: skip + warning).
+#[test]
+fn identitaets_stat_degradiert_verschwundene_libraries_statt_abzubrechen() {
+    let root = wsg_fixture("lf-identity-degrade");
+    let steam = root.join("steam");
+    let verschwunden = root.join("verschwunden");
+    std::fs::create_dir_all(steam.join("steamapps")).unwrap();
+    let mut unavailable = Vec::new();
+
+    let unique = deduplicate_libraries_by_identity(
+        vec![steam.clone(), verschwunden.clone()],
+        &mut unavailable,
+    );
+
+    assert_eq!(unique, vec![steam]);
+    assert_eq!(
+        unavailable,
+        vec![LibraryUnavailable {
+            path: verschwunden.to_string_lossy().into_owned(),
+            reason: LibraryUnavailableReason::PathMissing,
+        }]
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn identitaets_stat_meldet_unlesbare_libraries_als_read_failed() {
+    // nur `NotFound` ist belegte abwesenheit; ein fehlschlagender stat ohne
+    // abwesenheit (hier ENOTDIR unter einer datei) ist ein zugriffsschaden und
+    // bleibt fail-closed sichtbar.
+    let root = wsg_fixture("lf-identity-read-failed");
+    let steam = root.join("steam");
+    std::fs::create_dir_all(steam.join("steamapps")).unwrap();
+    let datei = root.join("datei");
+    std::fs::write(&datei, b"").unwrap();
+    let unlesbar = datei.join("kind");
+    let mut unavailable = Vec::new();
+
+    let unique =
+        deduplicate_libraries_by_identity(vec![steam.clone(), unlesbar.clone()], &mut unavailable);
+
+    assert_eq!(unique, vec![steam]);
+    assert_eq!(
+        unavailable,
+        vec![LibraryUnavailable {
+            path: unlesbar.to_string_lossy().into_owned(),
+            reason: LibraryUnavailableReason::ReadFailed,
+        }]
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// r-06: die libraryfolders-Lesekette (Suchreihenfolge `config`/`steamapps`)
 /// existiert nur noch einmal. Belegt quelltext-statisch, dass `compat_auth`
 /// seine eigene Kette abgegeben hat und die geteilte Primitive in `scope`

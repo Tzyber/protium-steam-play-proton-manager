@@ -1,7 +1,7 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScanResult } from "../../src/core/types";
-import { setLocale } from "../../src/ui/i18n";
+import { setLocale, t } from "../../src/ui/i18n";
 
 // mocks: tauri-adapter system ports
 vi.mock("../../src/core/adapters/tauri", async () => {
@@ -14,9 +14,16 @@ vi.mock("../../src/core/adapters/tauri", async () => {
     },
     cache: {},
   };
-  return { tauriPorts, appCacheDir: async () => "/tmp/protium-cache" };
+  return {
+    tauriPorts,
+    appCacheDir: async () => "/tmp/protium-cache",
+    logDiagnostic: vi.fn(async () => {}),
+  };
 });
 
+import { logDiagnostic } from "../../src/core/adapters/tauri";
+import { parseError } from "../../src/core/errtext";
+import { formatError } from "../../src/ui/formatError";
 import { useConfigStore } from "../../src/ui/stores/configStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
 import { game, scanResult } from "../support/factories";
@@ -81,6 +88,22 @@ describe("configStore.saveCompatTool", () => {
     const config = useConfigStore();
 
     await expect(config.saveLaunchOptions(730, "x")).rejects.toThrow("kein steam-account");
+  });
+
+  it("codiert und protokolliert den absichtsfehler statt ihn zu verschlucken (N-3)", async () => {
+    setLocale("de");
+    const config = useConfigStore();
+
+    const error: unknown = await config.saveCompatTool(1, "x").then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    // code bleibt am fehler, die anzeige bekommt den gepflegten text
+    // (nicht "unbekannt") und der fall landet im protokoll.
+    expect(parseError(error).code).toBe("no-scan-result");
+    expect(formatError(error)).toBe(t("errors.noScanResult"));
+    expect(logDiagnostic).toHaveBeenCalled();
   });
 });
 

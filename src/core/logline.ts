@@ -2,7 +2,7 @@
 // Backend schreibt. Die Zerlegung ist UI-frei und liegt deshalb im Kern; die
 // Ansicht formatiert die Sekunden nur noch in die aktive Sprache.
 
-export interface LogRecord {
+interface LogRecord {
   /** Sekunden seit Prozessstart, `null` wenn die Zeile keine Zeitmarke trägt. */
   seconds: number | null;
   level: string;

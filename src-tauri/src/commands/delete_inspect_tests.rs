@@ -726,3 +726,66 @@ fn orphan_inspektion_bricht_bei_geschaedigter_gelisteter_library_ab() {
 
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// Producer 6 (A-04): die live-ablehnungen von `validate_trash_target` trugen
+/// rohtext und erschienen in der oberfläche als „unbekannt". Jeder zweig trägt
+/// jetzt seinen code; die symlink-ablehnung ist über den öffentlichen aufrufer
+/// nicht erreichbar (dort greift schon `canonicalize_no_symlink`) und wird
+/// deshalb direkt geprüft.
+#[test]
+fn trash_ziel_ablehnungen_tragen_ihren_code() {
+    let root = wsg_fixture("trash-target-codes");
+    let dir = root.join("ziel");
+    std::fs::create_dir_all(&dir).unwrap();
+    let meta = std::fs::symlink_metadata(&dir).unwrap();
+    let base = "/lib/steamapps/.protium-trash/";
+
+    // gültiger fall bleibt gültig
+    assert!(validate_trash_target(&format!("{base}compatdata_570_100"), &meta).is_ok());
+
+    let cases = [
+        (
+            "/lib/steamapps/compatdata/570".to_string(),
+            errcode::NOT_AN_ORPHAN,
+        ),
+        (format!("{base}a/b"), errcode::NOT_AN_ORPHAN),
+        (format!("{base}compatdata_570"), errcode::INVALID_ID),
+        (format!("{base}compatdata_570_100_x"), errcode::INVALID_ID),
+        (format!("{base}compatdata_570_abc"), errcode::INVALID_VALUE),
+        (
+            format!("{base}compatdata_570_99999999999999999999"),
+            errcode::INVALID_VALUE,
+        ),
+        (format!("{base}compatdata_570_0"), errcode::INVALID_VALUE),
+    ];
+    for (path, code) in &cases {
+        let error = validate_trash_target(path, &meta).unwrap_err();
+        assert!(
+            errcode::has_code(&error, code),
+            "{path}: unerwarteter fehler: {error}"
+        );
+    }
+
+    // ein verzeichnis, das als symlink vorliegt (die funktion prüft die
+    // metadaten des ziels, nicht den aufgelösten pfad)
+    let link = root.join("verweis");
+    std::os::unix::fs::symlink(&dir, &link).unwrap();
+    let link_meta = std::fs::symlink_metadata(&link).unwrap();
+    let error =
+        validate_trash_target(&format!("{base}compatdata_570_100"), &link_meta).unwrap_err();
+    assert!(
+        errcode::has_code(&error, errcode::SYMLINK_REJECTED),
+        "unerwarteter fehler: {error}"
+    );
+
+    // eine datei ist kein papierkorb-eintrag
+    let file = root.join("datei");
+    std::fs::write(&file, b"x").unwrap();
+    let file_meta = std::fs::symlink_metadata(&file).unwrap();
+    assert_eq!(
+        validate_trash_target(&format!("{base}compatdata_570_100"), &file_meta).unwrap_err(),
+        errcode::NOT_A_DIRECTORY
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}

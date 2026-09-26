@@ -1,7 +1,7 @@
-import type { SupportFacts } from "../core/support.js";
-import { formatKnownBytes } from "./format.js";
-import { t } from "./i18n/index.js";
-import { tierText } from "./tier.js";
+import type { SupportFacts } from "../core/support";
+import { formatKnownBytes } from "./format";
+import { t } from "./i18n";
+import { tierText } from "./tier";
 
 function configStatusLabel(
   status: Exclude<SupportFacts["launchConfigStatus"], "available">,

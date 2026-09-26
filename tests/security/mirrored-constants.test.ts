@@ -190,4 +190,20 @@ describe("TypeScript-/Rust-Spiegelwerte", () => {
     expect(security).toContain(`${ttl} Sekunden TTL`);
     expect(security).not.toMatch(/60 Sekunden TTL/);
   });
+
+  it("bindet die Mock-Token-Lebensdauer der Tests an DELETE_TOKEN_TTL_SECS", () => {
+    // MOCK_TOKEN_TTL_MS (tests/support/cleanupStoreMocks.ts) spiegelte den
+    // Rust-Wert bisher nur im Kommentar. Der Test liest beide Quellen wie die
+    // übrigen Spiegel mechanisch als Text: driftet der Mock ab, prüfen die
+    // Lösch-Abläufe gegen eine Lebensdauer, die das Backend nie ausgibt.
+    const deleteOps = readFileSync(join(repo, "src-tauri/src/commands/delete_ops.rs"), "utf8");
+    const mocks = readFileSync(join(repo, "tests/support/cleanupStoreMocks.ts"), "utf8");
+    const ttlMatch = deleteOps.match(/pub const DELETE_TOKEN_TTL_SECS: u64 = (\d+);/);
+    const mockMatch = mocks.match(/const MOCK_TOKEN_TTL_MS = ([\d_]+);/);
+    expect(ttlMatch).not.toBeNull();
+    expect(mockMatch).not.toBeNull();
+    const ttlSecs = Number(ttlMatch?.[1] ?? "");
+    const mockTtlMs = Number((mockMatch?.[1] ?? "").replace(/_/g, ""));
+    expect(mockTtlMs).toBe(ttlSecs * 1000);
+  });
 });

@@ -20,13 +20,35 @@ import {
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { findOrphans } from "../../src/core/cleanup";
-import type { findTrashEntries } from "../../src/core/trash";
+import type { findTrashEntries, TrashEntry, TrashLibraryStatus } from "../../src/core/trash";
 import { formatBytes } from "../../src/ui/format";
 import { setLocale, t } from "../../src/ui/i18n";
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
 import { deferred } from "../support/factories";
+
+const TRASH_DIR = "/lib/steamapps/.protium-trash";
+
+/** Papierkorb-stand für `findTrashEntries`. Der store liest den papierkorb seit
+ *  A-06 nach jeder mutation neu, deshalb beschreibt der mock in diesen tests den
+ *  zustand NACH dem löschen (die einträge, die noch liegen). */
+function trashScan(
+  entries: TrashEntry[],
+  count = entries.length,
+): {
+  entries: TrashEntry[];
+  unknown: string[];
+  unreadable: string[];
+  libraries: TrashLibraryStatus[];
+} {
+  return {
+    entries,
+    unknown: [],
+    unreadable: [],
+    libraries: [{ library: "/lib", dir: TRASH_DIR, present: true, count }],
+  };
+}
 
 describe("cleanupStore steamOwnedPrefixes", () => {
   beforeEach(() => {
@@ -437,6 +459,8 @@ describe("cleanupStore, trash", () => {
       "nicht vorbereitete Einträge (1) bleiben unverändert.",
     );
     expect(useConfirmStore().pending?.title).toContain("1");
+    // nach dem löschen liest der store neu: e2 blieb liegen (prepare-fehler).
+    mockFindTrashEntries.mockResolvedValue(trashScan([e2]));
     await useConfirmStore().confirm();
 
     expect(mockExecuteDelete).toHaveBeenCalledTimes(1);
@@ -460,6 +484,23 @@ describe("cleanupStore, trash", () => {
     expect(store.trash).toEqual([existing]);
     expect(store.error).toContain("33");
     expect(store.error).toContain("32");
+  });
+
+  it("bricht ohne scan-ergebnis fail-closed ab statt mit leerem steamRoot zu arbeiten (N-7)", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = null;
+    const store = useCleanupStore();
+    const existing = fakeTrashEntry({ path: "/existing/trash-entry" });
+    store.trash = [existing];
+
+    await store.deleteTrashEntries([fakeTrashEntry()]);
+
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
+    expect(mockExecuteDelete).not.toHaveBeenCalled();
+    expect(useConfirmStore().pending).toBeNull();
+    expect(useConfirmStore().reserved).toBe(false);
+    expect(store.trash).toEqual([existing]);
+    expect(store.error).toContain(t("errors.noScanResult"));
   });
 
   it("bereitet und führt exakt 32 trash-einträge in einem dialog aus", async () => {
@@ -621,6 +662,7 @@ describe("cleanupStore, trash", () => {
     expect(useConfirmStore().pending?.message).toContain(
       "je durchgang höchstens 32 einträge; rest im papierkorb: 1.",
     );
+    mockFindTrashEntries.mockResolvedValue(trashScan(entries.slice(32)));
     await useConfirmStore().confirm();
 
     expect(mockExecuteDelete).toHaveBeenCalledTimes(32);
@@ -640,6 +682,7 @@ describe("cleanupStore, trash", () => {
     expect(useConfirmStore().pending?.message).toContain(
       "je durchgang höchstens 32 einträge; rest im papierkorb: 38.",
     );
+    mockFindTrashEntries.mockResolvedValue(trashScan(entries.slice(32)));
     await useConfirmStore().confirm();
 
     expect(mockExecuteDelete).toHaveBeenCalledTimes(32);
@@ -707,6 +750,8 @@ describe("cleanupStore, trash", () => {
     store.trash = [e1, e2, e3];
 
     await store.emptyTrash();
+    // nach dem löschen liest der store neu: e2 blieb liegen (execute-fehler).
+    mockFindTrashEntries.mockResolvedValue(trashScan([e2]));
     await useConfirmStore().confirm();
 
     expect(store.trash).toHaveLength(1);
@@ -744,6 +789,67 @@ describe("cleanupStore, trash", () => {
     expect(store.error).toContain("nicht vorbereitete Einträge (1)");
     expect(store.error).toContain("nicht gelöschte Einträge (1)");
     expect(store.error).toContain("unlesbar");
+    expect(store.error).toContain("unlesbar");
+  });
+});
+
+describe("cleanupStore zähler nach dem löschen (A-06)", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    setLocale("de");
+    resetCleanupMocks();
+  });
+
+  const secondEntry = () =>
+    fakeTrashEntry({
+      path: `${TRASH_DIR}/compatdata_570_100`,
+      name: "compatdata_570_100",
+      appId: 570,
+    });
+
+  it("liest den stand je library nach einer löschung neu", async () => {
+    const e1 = fakeTrashEntry();
+    const e2 = secondEntry();
+    mockFindTrashEntries.mockResolvedValueOnce(trashScan([e1, e2]));
+    mockFindTrashEntries.mockResolvedValueOnce(trashScan([]));
+
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    await store.scanTrash();
+    expect(store.trashLibraries[0]?.count).toBe(2);
+
+    store.trash = [e1, e2];
+    await store.deleteTrashEntries([e1, e2]);
+    await useConfirmStore().confirm();
+
+    expect(store.trash).toEqual([]);
+    // A-06: ohne neuen stand bleibt der zähler auf dem wert von vor der
+    // löschung stehen, obwohl der papierkorb leer ist.
+    expect(store.trashLibraries[0]?.count).toBe(0);
+    expect(mockFindTrashEntries).toHaveBeenCalledTimes(2);
+  });
+
+  it("verschluckt löschfehler nicht durch den rescan", async () => {
+    // mockRejectedValueOnce trifft den ersten aufruf, also den ersten eintrag.
+    const e1 = fakeTrashEntry({
+      path: `${TRASH_DIR}/compatdata_1091500_100`,
+      name: "compatdata_1091500_100",
+    });
+    const e2 = secondEntry();
+    mockFindTrashEntries.mockResolvedValue(trashScan([e2]));
+    mockExecuteDelete.mockRejectedValueOnce(new Error("unreadable: EACCES"));
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    store.trash = [e1, e2];
+
+    await store.deleteTrashEntries([e1, e2]);
+    await useConfirmStore().confirm();
+
+    // der rescan räumt trashError; die fehlermeldung muss danach wieder gesetzt
+    // werden (reihenfolge wie in deleteOrphans: erst refreshen, dann melden).
+    expect(store.error).toContain("compatdata_1091500_100");
     expect(store.error).toContain("unlesbar");
   });
 });

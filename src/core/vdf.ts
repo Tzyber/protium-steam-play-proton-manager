@@ -30,29 +30,36 @@ export function parseVdf(text: string): VdfNode {
   }
 }
 
-type GuardedSnapshot = readonly (readonly [object, PropertyDescriptorMap])[];
+type GuardedSnapshot = readonly (readonly [object, PropertyDescriptorMap, object | null])[];
 
 function snapshotGuarded(): GuardedSnapshot {
   return guardedObjects().map(
-    (target) => [target, Object.getOwnPropertyDescriptors(target)] as const,
+    (target) =>
+      [target, Object.getOwnPropertyDescriptors(target), Object.getPrototypeOf(target)] as const,
   );
 }
 
 function restoreGuarded(snapshot: GuardedSnapshot): void {
-  for (const [target, descriptors] of snapshot) {
+  for (const [target, descriptors, proto] of snapshot) {
+    // zuerst die Prototypkette: ein `"__proto__" "null"`-Paar auf einem
+    // geteilten Objekt würde sonst über restoreProperties nicht rückgängig.
+    Object.setPrototypeOf(target, proto);
     restoreProperties(target, descriptors);
   }
 }
 
-/** Die geteilten Objekte, die ein Parse mutieren kann: `Object.prototype` und
- *  `Object` selbst sowie die darin hängenden Objekte und Funktionen (z. B.
- *  `Object.prototype.toString`). Ein Block-Key, der auf ein geerbtes Mitglied
- *  zeigt, füllt sonst nicht den geparsten Knoten, sondern das geteilte Objekt,
- *  und das Zurücksetzen der Referenz allein würde die Mutation dort nicht
- *  rückgängig machen. */
+/** Die geteilten Objekte, die ein Parse mutieren kann. Vier Wurzeln bilden den
+ *  Abschluss: `Object.prototype`, `Object`, `Function` und `Function.prototype`.
+ *  Die Bibliothek steigt bei einem Block-Key ohne Wert in geerbte Mitglieder
+ *  ein (z. B. `toString` -> die Funktion, deren `constructor` -> `Function`,
+ *  deren `prototype` -> `Function.prototype`). Deshalb liegen auch die eigenen
+ *  Objekte und Funktionen der Wurzeln im Snapshot (z. B.
+ *  `Object.prototype.toString`). Ohne `Function`/`Function.prototype` würde
+ *  genau diese Kette das Containment verlassen. */
 function guardedObjects(): object[] {
-  const targets = new Set<object>([Object.prototype, Object]);
-  for (const root of [Object.prototype, Object]) {
+  const roots: object[] = [Object.prototype, Object, Function, Function.prototype];
+  const targets = new Set<object>(roots);
+  for (const root of roots) {
     for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(root))) {
       const value: unknown = descriptor.value;
       if (typeof value === "object" || typeof value === "function") {
@@ -100,10 +107,15 @@ function neutralizeDangerousBlockKeys(text: string): string {
 
     if (token.kind === "string") {
       // unquotierte keys sind in VDF erlaubt und damit derselbe vektor wie
-      // quotierte (R1). der nächste signifikante token ist der nächste
-      // listen-eintrag, weil trivia nicht als token geführt wird.
+      // quotierte (R1). die bibliothek verwirft den rest einer zeile nach dem
+      // ersten paar und öffnet schon dann einen block, wenn der wert nicht
+      // parsebar ist; ein wert- oder conditional-token kann die klammer also
+      // verstecken. deshalb zählt ein block-key auch, wenn das `{` erst zwei
+      // tokens entfernt steht.
       const isBlockKey =
-        expectsKey && GUARDED_BLOCK_KEYS.has(token.raw) && tokens[index + 1]?.kind === "open";
+        expectsKey &&
+        GUARDED_BLOCK_KEYS.has(token.raw) &&
+        (tokens[index + 1]?.kind === "open" || tokens[index + 2]?.kind === "open");
       if (isBlockKey) {
         output.push(token.quoted ? `"__x_${token.raw}__"` : `__x_${token.raw}__`);
       } else {
@@ -128,14 +140,24 @@ function neutralizeDangerousBlockKeys(text: string): string {
 // die lib baut plain objects. `sanitize` macht jeden key zu einer eigenen
 // property, damit `getKeyInsensitive` (nutzt `in`) nicht in die kette greift.
 // Es ist KEIN pollutionsschutz: den leistet allein der pre-pass oben, weil die
-// mutation sonst schon während parse() passiert wäre.
+// mutation sonst schon während parse() passiert wäre. Iterativ statt rekursiv,
+// damit tiefe nestingketten keinen stack sprengen.
 function sanitize(v: unknown): VdfNode {
   if (typeof v !== "object" || v === null) return {};
-  const out: VdfNode = Object.create(null);
-  for (const [k, val] of Object.entries(v)) {
-    out[k] = typeof val === "object" && val !== null ? sanitize(val) : (val as VdfValue);
+  const root: VdfNode = Object.create(null);
+  const pending: [object, VdfNode][] = [[v, root]];
+  for (const [source, target] of pending) {
+    for (const [k, val] of Object.entries(source)) {
+      if (typeof val === "object" && val !== null) {
+        const child: VdfNode = Object.create(null);
+        target[k] = child;
+        pending.push([val, child]);
+      } else {
+        target[k] = val as VdfValue;
+      }
+    }
   }
-  return out;
+  return root;
 }
 
 function isNode(v: VdfValue | undefined): v is VdfNode {

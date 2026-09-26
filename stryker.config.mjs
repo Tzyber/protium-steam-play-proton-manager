@@ -7,10 +7,11 @@
 // daten) und verzerrten den score; die namens-präfixe und blockReason /
 // availableBuiltinProtons bleiben drin, weil ihre mutanten das verhalten
 // ändern. score-effekt der korrigierten range: sie schneidet die zuvor
-// mitgezählten tabellenzeilen ab und nimmt availableBuiltinProtons dazu, ein
-// neuer messwert wurde dafür nicht erhoben; die referenz aus dem letzten
-// vollauf (ist 74,45 %, break 69) bleibt deshalb die grundlage. siehe
-// docs/mutation-report.
+// mitgezählten tabellenzeilen ab und nimmt availableBuiltinProtons dazu; die
+// alte referenz (ist 74,45 % am 2026-08-27, noch vor der range-korrektur) ist
+// damit nur eingeschränkt vergleichbar. nachgemessen am 2026-09-26 mit der
+// korrigierten range: ist 81,17 %, break 69 bleibt die grundlage. siehe
+// docs/mutation-report-2026-08-08.md.
 // @ts-check
 // .stryker-tmp bleibt ein temporäres Stryker-Arbeitsverzeichnis und gehört
 // weder in Biome- noch in TypeScript-Prüfungen.
@@ -31,7 +32,8 @@ const config = {
   reporters: ["clear-text", "html", "json"],
   htmlReporter: { fileName: "reports/mutation/html/index.html" },
   jsonReporter: { fileName: "reports/mutation/mutation-report.json" },
-  // gemessener ist-score am 2026-08-27: 74,45 % (stryker-volltest, 2:53 min).
+  // gemessener ist-score am 2026-09-26: 81,17 % (stryker-volltest, 5:26 min,
+  // mit der korrigierten blocklist-range). davor 74,45 % am 2026-08-27.
   // break 69 bleibt unter dem ist mit puffer für schwankungen; high/low sind
   // ziel-marken, kein gate.
   thresholds: { high: 80, low: 60, break: 69 },

@@ -272,10 +272,10 @@ fn claim_delete_target(pending: &PendingDelete) -> Result<ClaimedDeleteTarget, S
                 };
                 let handle = open_delete_child_handle(parent, &claim_name)?;
                 if delete_handle_identity(&handle)? != expected_identity {
-                    return Err(
-                        "target changed before mutation; claim restored to its original name"
-                            .into(),
-                    );
+                    return Err(errcode::with_detail(
+                        errcode::TARGET_CHANGED,
+                        "target changed before mutation; claim restored to its original name",
+                    ));
                 }
                 restore.disarm();
                 drop(restore); // borrow auf claim_name endet vor dem move in das ergebnis
@@ -561,10 +561,10 @@ fn execute_delete_pipeline_inner(
         .ok_or_else(|| "pending delete has no bound target name".to_string())?;
 
     // Letzte Zustandsprüfung unmittelbar vor dem Claim: zwischen Token-Ausgabe
-    // und hier kann sich alles geändert haben. Steam-Lauf und Zielzustand
-    // werden nach der Inspection direkt vor dem Claim ein zweites Mal geprüft
-    // die Inspection (VDF-Parsing) kann dauern, in diesem Fenster darf sich
-    // weder Steam noch das Ziel ändern (steam_start_zwischen_den_checks_...,
+    // und hier kann sich alles geändert haben. Die Inspection (VDF-Parsing)
+    // kann dauern; in diesem Fenster darf sich weder Steam noch das Ziel
+    // ändern, deshalb liegt der Steam-Check zwischen zwei Inspektionen
+    // (steam_start_zwischen_den_checks_...,
     // live_aenderung_zwischen_checks_...).
     inspect_pending_target(&pending, scope_ok)?;
     let steam_running = is_steam_running_fn()?;
@@ -672,8 +672,12 @@ fn apply_delete_mutation(
             )?;
             match typ {
                 "shadercache" => {
-                    fs::remove_dir_all(&claimed.path)
-                        .map_err(|e| format!("cannot remove shadercache: {e}"))?;
+                    fs::remove_dir_all(&claimed.path).map_err(|error| {
+                        errcode::with_detail(
+                            errcode::code_for_io(&error),
+                            format!("cannot remove shadercache: {error}"),
+                        )
+                    })?;
                 }
                 "compatdata" => {
                     let lib_str = crate::commands::scope::library_of(&canon_str)?;
@@ -688,7 +692,12 @@ fn apply_delete_mutation(
                         &trash_parent,
                         OsStr::new(&trash_name),
                     )
-                    .map_err(|e| format!("cannot move to trash: {e}"))?;
+                    .map_err(|error| {
+                        errcode::with_detail(
+                            errcode::code_for_io(&error),
+                            format!("cannot move to trash: {error}"),
+                        )
+                    })?;
                     // r-08: ohne verzeichnis-fsync kann der papierkorb-eintrag
                     // nach absturz driftig sichtbar sein; erst das ziel, dann
                     // die quelle. ein sync-fehler meldet die möglich angewandte
@@ -717,12 +726,20 @@ fn apply_delete_mutation(
             }
         }
         "trash" => {
-            fs::remove_dir_all(&claimed.path)
-                .map_err(|e| format!("cannot remove trash item: {e}"))?;
+            fs::remove_dir_all(&claimed.path).map_err(|error| {
+                errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("cannot remove trash item: {error}"),
+                )
+            })?;
         }
         "compatTool" => {
-            fs::remove_dir_all(&claimed.path)
-                .map_err(|e| format!("cannot remove compat tool: {e}"))?;
+            fs::remove_dir_all(&claimed.path).map_err(|error| {
+                errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("cannot remove compat tool: {error}"),
+                )
+            })?;
         }
         _ => {
             return Err(errcode::with_detail(

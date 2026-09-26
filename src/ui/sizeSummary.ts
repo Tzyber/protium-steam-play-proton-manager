@@ -1,5 +1,5 @@
-import { formatBytes } from "./format.js";
-import { t } from "./i18n/index.js";
+import { formatBytes } from "./format";
+import { t } from "./i18n";
 
 interface SizeSummary {
   measuredBytes: number;

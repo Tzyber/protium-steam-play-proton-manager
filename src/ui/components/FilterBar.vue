@@ -121,16 +121,16 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
     <div v-if="librariesPresent.length > 1" class="group">
       <span class="label">{{ t("filter.disk") }}</span>
       <button
-        v-for="l in librariesPresent"
-        :key="l"
+        v-for="library in librariesPresent"
+        :key="library"
         class="seg small"
-        :class="{ on: lib.libraries.includes(l) }"
+        :class="{ on: lib.libraries.includes(library) }"
         type="button"
-        :aria-pressed="lib.libraries.includes(l)"
-        :title="l"
-        @click="lib.toggle('libraries', l)"
+        :aria-pressed="lib.libraries.includes(library)"
+        :title="library"
+        @click="lib.toggle('libraries', library)"
       >
-        {{ pathBasename(l) }}
+        {{ pathBasename(library) }}
       </button>
     </div>
 
@@ -228,8 +228,8 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
 }
 .tier-pill.on { background: color-mix(in srgb, var(--c) 20%, transparent); color: var(--c); border-color: var(--c); }
 
-/* filter-gruppen-labels (SORT / PROTON / DISK) werden gelesen, nicht gescannt 
-   vom globalen .label (mono) auf body umstellen. gleiche schrift wie die chips
+/* filter-gruppen-labels (SORT / PROTON / DISK) werden gelesen, nicht gescannt:
+   körperschrift statt der globalen mono-.label, gleiche schrift wie die chips
    daneben, damit das gruppen-label nicht aus dem raster fällt. */
 .label { font-family: var(--font-body); }
 

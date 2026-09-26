@@ -35,11 +35,15 @@ pub(super) fn is_safe_path(canonical: &str) -> bool {
 /// der symlink_metadata-guard läuft auf dem roh-input VOR canonicalize
 /// canonicalize folgt symlinks, ein guard auf dem gefolgten pfad wäre tot.
 pub(super) fn canonicalize_no_symlink(path: &str) -> Result<PathBuf, String> {
-    let raw_meta = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
+    // n-01/n-02: io-restfehler tragen die io-regel als code, die
+    // symlink-ablehnung den kanonischen code statt eines rohtextes.
+    let raw_meta = fs::symlink_metadata(path)
+        .map_err(|error| errcode::with_detail(errcode::code_for_io(&error), error))?;
     if raw_meta.file_type().is_symlink() {
-        return Err("symlink rejected, will not recurse".into());
+        return Err(errcode::SYMLINK_REJECTED.into());
     }
-    fs::canonicalize(path).map_err(|e| e.to_string())
+    fs::canonicalize(path)
+        .map_err(|error| errcode::with_detail(errcode::code_for_io(&error), error))
 }
 
 pub(super) fn is_descendant_of(child: &Path, ancestor: &Path) -> bool {
@@ -104,10 +108,35 @@ pub(super) fn link_target_stays_inside(base_dir: &Path, target: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_descendant_of, is_safe_path, sanitize_path};
+    use super::{canonicalize_no_symlink, is_descendant_of, is_safe_path, sanitize_path};
+    use crate::commands::errcode;
     use std::path::Path;
 
     // ---- sicherheits-validierung ----
+
+    /// Regression zu n-01/n-02: beide ablehnungen von `canonicalize_no_symlink`
+    /// tragen ihren code am leitfeld, kein rohtext mehr.
+    #[cfg(unix)]
+    #[test]
+    fn canonicalize_no_symlink_meldet_codiert() {
+        let root = std::env::temp_dir().join(format!("protium-path-codes-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("ziel")).unwrap();
+        std::os::unix::fs::symlink(root.join("ziel"), root.join("verweis")).unwrap();
+
+        let error = canonicalize_no_symlink(&root.join("verweis").to_string_lossy()).unwrap_err();
+        assert!(
+            errcode::has_code(&error, errcode::SYMLINK_REJECTED),
+            "unexpected error: {error}"
+        );
+
+        let error = canonicalize_no_symlink(&root.join("fehlt").to_string_lossy()).unwrap_err();
+        assert!(
+            errcode::has_code(&error, errcode::NOT_FOUND),
+            "unexpected error: {error}"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn sanitize_rejects_relative() {

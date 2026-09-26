@@ -3,9 +3,9 @@
 // Zustand, damit sie ohne gemountete View prüfbar bleibt (vorher lag der
 // vierfach verschachtelte Switch in `LibraryView.vue`).
 
-import type { ScanWarning, SkipReason } from "../core/types.js";
-import { formatDetail } from "./formatError.js";
-import { type Key, t } from "./i18n/index.js";
+import type { ScanWarning, SkipReason } from "../core/types";
+import { formatDetail } from "./formatError";
+import { type Key, t } from "./i18n";
 
 type LibraryWarning = Extract<ScanWarning, { type: "library" }>;
 type ManifestWarning = Extract<ScanWarning, { type: "manifest" }>;

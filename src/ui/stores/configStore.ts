@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
-import { SteamRunningError } from "../../core/errors";
+import { ProtiumError, SteamRunningError } from "../../core/errors";
 import { parseError } from "../../core/errtext";
 import type { WriteResult } from "../../core/ports";
 import { logError, logEvent } from "../diagnostics";
@@ -38,11 +38,17 @@ export const useConfigStore = defineStore("config", {
       const scan = useScanStore();
       const snapshot = scan.result;
       const generation = scan.scanGeneration;
-      if (!snapshot) throw new Error(t("errors.noScanResult"));
-      if (!snapshot.steamUserId) {
-        throw new Error(t("errors.noSteamAccount"));
-      }
       try {
+        // Absichtsfehler liegen bewusst im try: als ProtiumError tragen sie
+        // ihren code (B1, formatError zeigt den gepflegten text statt
+        // "unbekannt"), und mapWriteError protokolliert sie wie jeden anderen
+        // schreibfehler (N-3).
+        if (!snapshot) {
+          throw new ProtiumError("not-found", "no-scan-result", t("errors.noScanResult"));
+        }
+        if (!snapshot.steamUserId) {
+          throw new ProtiumError("not-found", "no-steam-account", t("errors.noSteamAccount"));
+        }
         const r = await tauriPorts.system.saveLaunchOptions(
           snapshot.steamRoot,
           snapshot.steamUserId,
@@ -68,8 +74,11 @@ export const useConfigStore = defineStore("config", {
       const scan = useScanStore();
       const snapshot = scan.result;
       const generation = scan.scanGeneration;
-      if (!snapshot) throw new Error(t("errors.noScanResult"));
       try {
+        // siehe saveLaunchOptions: code-tragender Absichtsfehler im try.
+        if (!snapshot) {
+          throw new ProtiumError("not-found", "no-scan-result", t("errors.noScanResult"));
+        }
         const r = await tauriPorts.system.saveCompatTool(snapshot.steamRoot, appId, internalName);
         if (isSameSnapshot(snapshot, generation)) {
           scan.applyGameConfig(appId, { compatTool: internalName ?? "default" });

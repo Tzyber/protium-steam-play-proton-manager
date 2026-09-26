@@ -1,6 +1,7 @@
 // T-08: die mock-preamble muss vor jedem src-/store-import geladen werden.
 // biome-ignore assist/source/organizeImports: mock-registrierung muss vor den modul-importen laufen (T-08)
 import { fakeScanResult, mockHttpGet, mockInstallGeProton, release } from "./protonStore.preamble";
+import { MOCK_TOKEN_TTL_MS } from "../support/cleanupStoreMocks";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { tauriPorts } from "../../src/core/adapters/tauri";
@@ -98,7 +99,7 @@ describe("protonStore.remove", () => {
     vi.mocked(tauriPorts.system.prepareDelete).mockReset();
     vi.mocked(tauriPorts.system.prepareDelete).mockResolvedValue({
       token: "tok-ge",
-      expiresAt: Date.now() + 60000,
+      expiresAt: Date.now() + MOCK_TOKEN_TTL_MS,
       targetType: "compatTool",
       targetPath: "/root/compatibilitytools.d/GE-Proton9-27",
       consequences: [],
@@ -156,7 +157,7 @@ describe("protonStore.remove", () => {
 
     resolvePrepare?.({
       token: "tok-ge-first",
-      expiresAt: Date.now() + 60000,
+      expiresAt: Date.now() + MOCK_TOKEN_TTL_MS,
       targetType: "compatTool",
       targetPath: "/root/compatibilitytools.d/GE-Proton9-27",
       consequences: [],
@@ -188,7 +189,10 @@ describe("protonStore.remove", () => {
 
     expect(useConfirmStore().reserved).toBe(false);
     expect(store.busyRemove).toBeNull();
-    expect(store.loadError).toContain("unlesbar");
+    expect(store.removeError).toContain("unlesbar");
+    // A-05: der löschfehler darf nicht im feld des release-ladens landen, sonst
+    // rendert die ansicht ihn unter der release-überschrift.
+    expect(store.loadError).toBeNull();
   });
 
   it("lokalisiert die steam-läuft-ablehnung beim vorbereiten", async () => {
@@ -206,9 +210,34 @@ describe("protonStore.remove", () => {
       usedBy: [],
     });
 
-    expect(store.loadError).toContain("steam läuft");
+    expect(store.removeError).toContain("steam läuft");
+    expect(store.loadError).toBeNull();
     expect(store.busyRemove).toBeNull();
     expect(useConfirmStore().reserved).toBe(false);
+  });
+
+  it("hält release-fehler und löschfehler getrennt", async () => {
+    // beide richtungen: ein bestehender release-fehler überlebt den
+    // löschversuch, und der löschfehler überschreibt ihn nicht.
+    const scan = useScanStore();
+    scan.result = fakeScanResult();
+    vi.mocked(tauriPorts.system.prepareDelete).mockRejectedValueOnce(
+      new Error("unreadable: prepare"),
+    );
+    const store = useProtonStore();
+    store.loadError = "release-meldung";
+
+    await store.remove({
+      name: "GE-Proton9-27",
+      internalName: "GE-Proton9-27",
+      displayName: "GE-Proton9-27",
+      sizeBytes: 1000,
+      source: "user",
+      usedBy: [],
+    });
+
+    expect(store.loadError).toBe("release-meldung");
+    expect(store.removeError).toContain("unlesbar");
   });
 
   it("ergänzt den prefix-satz im löschdialog", async () => {
@@ -297,6 +326,7 @@ describe("protonStore.remove", () => {
     await useConfirmStore().confirm();
 
     expect(store.busyRemove).toBeNull();
-    expect(store.loadError).toContain("Bestätigung ist abgelaufen");
+    expect(store.removeError).toContain("Bestätigung ist abgelaufen");
+    expect(store.loadError).toBeNull();
   });
 });

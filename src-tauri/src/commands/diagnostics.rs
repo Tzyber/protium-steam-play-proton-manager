@@ -102,16 +102,21 @@ fn redact_home(text: &str, home: Option<&str>) -> String {
 }
 
 fn write_log_line(log_dir: &Path, level: &str, message: &str, rotate: bool) -> Result<(), String> {
+    // r-14: die codes kommen als konstante aus errcode, nicht handgeformt
+    // als praefix im format-string.
     if !log_dir.exists() {
-        fs::create_dir_all(log_dir).map_err(|e| format!("unavailable: {e}"))?;
+        fs::create_dir_all(log_dir)
+            .map_err(|error| errcode::with_detail(errcode::UNAVAILABLE, error))?;
     }
     if rotate {
-        rotate_logs_if_needed(log_dir).map_err(|e| format!("unavailable: {e}"))?;
+        rotate_logs_if_needed(log_dir)
+            .map_err(|error| errcode::with_detail(errcode::UNAVAILABLE, error))?;
     }
     let main_log = log_dir.join("protium.log");
-    let mut file = open_log_file(&main_log).map_err(|e| format!("unreadable: {e}"))?;
+    let mut file = open_log_file(&main_log)
+        .map_err(|error| errcode::with_detail(errcode::UNREADABLE, error))?;
     if !file.metadata().map(|m| m.is_file()).unwrap_or(false) {
-        return Err("blocked".into());
+        return Err(errcode::BLOCKED.into());
     }
 
     let now = std::time::SystemTime::now()
@@ -130,8 +135,12 @@ fn write_log_line(log_dir: &Path, level: &str, message: &str, rotate: bool) -> R
         .collect::<String>()
         .replace('\n', " ");
     let clean_msg = redact_home(&clean_msg, std::env::var("HOME").ok().as_deref());
-    writeln!(file, "[{now}] [{clean_level}] {clean_msg}")
-        .map_err(|e| format!("cannot write to log file: {e}"))?;
+    writeln!(file, "[{now}] [{clean_level}] {clean_msg}").map_err(|error| {
+        errcode::with_detail(
+            errcode::UNAVAILABLE,
+            format!("cannot write to log file: {error}"),
+        )
+    })?;
     Ok(())
 }
 

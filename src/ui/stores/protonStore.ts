@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
+import { ProtiumError } from "../../core/errors";
 import { parseError } from "../../core/errtext";
 import {
   type FetchSource,
@@ -89,6 +90,11 @@ interface State {
   releases: GeRelease[];
   loading: boolean;
   loadError: string | null;
+  /** fehler beim entfernen eines installierten tools. bewusst ein eigenes feld:
+   *  er gehört in den installiert-abschnitt (die ansicht rendert `loadError`
+   *  unter der release-überschrift) und darf nicht von jedem release-refresh
+   *  oder einer erfolgreichen installation gelöscht werden (A-05). */
+  removeError: string | null;
   lastFetchedAt: number | null; // letzter echter github-kontakt
   lastSource: FetchSource | null;
   jobs: Record<string, Job>; // key = release.tag
@@ -106,6 +112,7 @@ export const useProtonStore = defineStore("proton", {
     releases: [],
     loading: false,
     loadError: null,
+    removeError: null,
     lastFetchedAt: null,
     lastSource: null,
     jobs: {},
@@ -347,7 +354,11 @@ export const useProtonStore = defineStore("proton", {
       // sonst „ohne verifikation installiert" neben der fehlermeldung zeigen.
       let warned = false;
       try {
-        if (!steamRoot) throw new Error(t("proton.noScanResult"));
+        // Absichtsfehler als code-tragender Fehler (B1/N-3): der install-fehler
+        // zeigt über formatError den gepflegten text statt "unbekannt".
+        if (!steamRoot) {
+          throw new ProtiumError("not-found", "no-scan-result", t("proton.noScanResult"));
+        }
         await installRelease(tauriPorts, {
           steamRoot,
           release,
@@ -393,6 +404,9 @@ export const useProtonStore = defineStore("proton", {
       const confirm = useConfirmStore();
       const reservation = confirm.reserve();
       if (reservation === null) return;
+      // ein neuer versuch ersetzt die meldung des vorigen; sie bleibt sonst
+      // stehen, bis der nutzer erneut löscht (A-05).
+      this.removeError = null;
       this.busyRemove = tool.name;
       try {
         // NUR für GE-tools aufrufen (distro-tools gehören dem paketmanager)
@@ -422,7 +436,7 @@ export const useProtonStore = defineStore("proton", {
               this.busyRemove = null;
             },
             onError: (e) => {
-              this.loadError = removeErrorText(e);
+              this.removeError = removeErrorText(e);
               this.busyRemove = null;
             },
           },
@@ -434,7 +448,7 @@ export const useProtonStore = defineStore("proton", {
         }
       } catch (e) {
         confirm.release(reservation);
-        this.loadError = removeErrorText(e);
+        this.removeError = removeErrorText(e);
         this.busyRemove = null;
       }
     },

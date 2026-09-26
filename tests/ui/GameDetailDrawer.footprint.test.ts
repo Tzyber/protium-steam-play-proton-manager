@@ -621,6 +621,34 @@ describe("GameDetailDrawer Speicherstatus", () => {
     expect(blocked.text()).not.toContain(t("drawer.saveUncertain"));
   });
 
+  it("zeigt beide speicherfehler und behält den garantiesatz nur ohne unsicheren ausgang (N-4)", async () => {
+    // alter fehler: nur der erste fehler war sichtbar, und der garantiesatz
+    // wurde aus ihm allein bestimmt. ein unsicherer startoptionen-write plus
+    // sicherer compat-fehler zeigte fälschlich „nichts wurde verändet".
+    configState.saveLaunchOptions.mockRejectedValueOnce(
+      "write-may-have-applied: atomic write (parent sync): injected failure",
+    );
+    configState.saveCompatTool.mockRejectedValueOnce("steam-running");
+    const wrapper = mountDrawer(compatScanResult());
+
+    const input = wrapper.get<HTMLInputElement>("#launch-options");
+    await input.setValue("gamemoderun %command%");
+    await launchSaveButton(wrapper).trigger("click");
+    await flushPromises();
+    await nextTick();
+
+    await selectCompatTool(wrapper, "Tool B");
+    await compatSaveButton(wrapper).trigger("click");
+    await flushPromises();
+    await nextTick();
+
+    const blocked = wrapper.get(".blocked-explanation");
+    expect(blocked.text()).toContain(t("errors.codes.writeMayHaveApplied"));
+    expect(blocked.text()).toContain(t("errors.codes.steamRunning"));
+    expect(blocked.text()).not.toContain(t("common.nothingChanged"));
+    expect(blocked.text()).toContain(t("drawer.saveUncertain"));
+  });
+
   it("verwirft ein Startoptionen-Ergebnis nach Änderung des sichtbaren Werts", async () => {
     const pending = deferred<WriteResult>();
     configState.saveLaunchOptions.mockReturnValueOnce(pending.promise);
@@ -644,6 +672,61 @@ describe("GameDetailDrawer Speicherstatus", () => {
     // der verworfene auftrag darf den knopf nicht dauerhaft sperren
     expect(launchSaveButton(wrapper).text()).toBe(t("drawer.save"));
     expect(launchSaveButton(wrapper).attributes("disabled")).toBeUndefined();
+  });
+
+  it("beendet den ladezustand auch bei fehler plus entwurfsänderung (N-2)", async () => {
+    // alter fehler: der catch-zweig kehrte bei abweichendem entwurf zurück,
+    // ohne den status zu beenden; der knopf hing dauerhaft auf "…"/gesperrt.
+    const pending = deferred<WriteResult>();
+    configState.saveLaunchOptions.mockReturnValueOnce(pending.promise);
+    const wrapper = mountDrawer(
+      result("available", "default", "default", null, { launchOptions: "" }),
+    );
+    const input = wrapper.get<HTMLInputElement>("#launch-options");
+
+    await input.setValue("gamemoderun %command%");
+    await launchSaveButton(wrapper).trigger("click");
+    await nextTick();
+    expect(configState.saveLaunchOptions).toHaveBeenCalledTimes(1);
+
+    // entwurf läuft weiter, während der write hängt
+    await input.setValue("gamemoderun %command% --später");
+    pending.reject(new Error("steam-running"));
+    await flushPromises();
+    await nextTick();
+
+    expect(launchSaveButton(wrapper).text()).toBe(t("drawer.save"));
+    expect(launchSaveButton(wrapper).attributes("disabled")).toBeUndefined();
+    // der gescheiterte vorgang bleibt sichtbar (U-02)
+    expect(wrapper.get(".blocked-explanation").text()).toContain(t("errors.codes.steamRunning"));
+  });
+
+  it("beendet den ladezustand auch bei fehler plus entwurfsänderung am compat-tool (N-2)", async () => {
+    const pending = deferred<WriteResult>();
+    configState.saveCompatTool.mockReturnValueOnce(pending.promise);
+    const wrapper = mountDrawer(compatScanResult());
+
+    await selectCompatTool(wrapper, "Tool B");
+    await compatSaveButton(wrapper).trigger("click");
+    await nextTick();
+    expect(configState.saveCompatTool).toHaveBeenCalledTimes(1);
+
+    await selectCompatTool(wrapper, "Tool A");
+    pending.reject(new Error("steam-running"));
+    await flushPromises();
+    await nextTick();
+
+    // zurück auf den ursprungswert: der entwurf ist sauber, der knopf darf nur
+    // deshalb (nicht wegen eines hängenden ladezustands) gesperrt sein.
+    expect(compatSaveButton(wrapper).text()).toBe(t("drawer.save"));
+    expect(compatSaveButton(wrapper).attributes("disabled")).toBeDefined();
+
+    // ein erneut geänderter entwurf muss den knopf wieder freigeben: beim
+    // alten fehlerpfad blieb `saving` stehen und der knopf dauerhaft tot (N-2).
+    await selectCompatTool(wrapper, "Tool B");
+    await nextTick();
+    expect(compatSaveButton(wrapper).attributes("disabled")).toBeUndefined();
+    expect(wrapper.get(".blocked-explanation").text()).toContain(t("errors.codes.steamRunning"));
   });
 
   it("verwirft die Startoptionen-Antwort nach einem Spielwechsel", async () => {

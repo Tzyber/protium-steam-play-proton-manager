@@ -1,4 +1,4 @@
-import type { Key } from "./i18n/index.js";
+import type { Key } from "./i18n";
 
 export type ExplainTopic =
   | "compat-tool"

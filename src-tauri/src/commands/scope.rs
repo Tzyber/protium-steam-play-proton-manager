@@ -792,11 +792,37 @@ where
         }
     }
 
+    let unique = deduplicate_libraries_by_identity(libraries, &mut unavailable);
+    Ok((unique, unavailable))
+}
+
+/// (dev,ino)-dedup der kanonisierten libraries. Ein fehlschlag des
+/// identitäts-stats degradiert die betroffene library in `unavailable`
+/// (INV-2: skip + warning) statt die gesamte discovery abzubrechen: zwischen
+/// `canonical_library` und diesem stat kann eine library abgehängt werden
+/// (adversatives review, befund 2). `NotFound` bleibt wie in `canonical_library`
+/// belegte abwesenheit, jeder andere fehler ist ein zugriffsschaden.
+fn deduplicate_libraries_by_identity(
+    libraries: Vec<PathBuf>,
+    unavailable: &mut Vec<LibraryUnavailable>,
+) -> Vec<PathBuf> {
     let mut unique = Vec::new();
     let mut identities = HashSet::new();
     for library in libraries {
-        let metadata =
-            fs::metadata(&library).map_err(|error| format!("library identity: {error}"))?;
+        let metadata = match fs::metadata(&library) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                unavailable.push(LibraryUnavailable {
+                    path: library.to_string_lossy().into_owned(),
+                    reason: if error.kind() == std::io::ErrorKind::NotFound {
+                        LibraryUnavailableReason::PathMissing
+                    } else {
+                        LibraryUnavailableReason::ReadFailed
+                    },
+                });
+                continue;
+            }
+        };
         #[cfg(unix)]
         use std::os::unix::fs::MetadataExt;
         #[cfg(unix)]
@@ -807,7 +833,7 @@ where
             unique.push(library);
         }
     }
-    Ok((unique, unavailable))
+    unique
 }
 
 /// Legt ein App-Verzeichnis an und gibt den kanonischen Pfad zurueck. Auch von

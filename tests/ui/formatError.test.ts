@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ProtiumError, SteamRunningError } from "../../src/core/errors.js";
 import { formatDetail, formatError } from "../../src/ui/formatError.js";
-import { setLocale } from "../../src/ui/i18n/index.js";
+import { setLocale, t } from "../../src/ui/i18n/index.js";
 
 describe("formatError (B1)", () => {
   it("formatiert bekannte Fehlercodes auf Deutsch", () => {
@@ -69,5 +69,26 @@ describe("formatError (B1)", () => {
 
     const incomplete = new ProtiumError("incomplete", "irgendwas", "teilweise");
     expect(formatError(incomplete)).toBe("unvollständig");
+  });
+
+  // N-3: die absichtsfehler der stores (configStore, protonStore) tragen eigene
+  // codes. ohne code-mapping fielen sie auf "unbekannt" zurück und die ursache
+  // war nirgends sichtbar.
+  it("zeigt die absichtsfehler der stores mit ihrem gepflegten text", () => {
+    setLocale("de");
+    expect(formatError(new ProtiumError("not-found", "no-scan-result", "rohtext"))).toBe(
+      t("errors.noScanResult"),
+    );
+    expect(formatError(new ProtiumError("not-found", "no-steam-account", "rohtext"))).toBe(
+      t("errors.noSteamAccount"),
+    );
+
+    setLocale("en");
+    expect(formatError(new ProtiumError("not-found", "no-scan-result", "raw"))).toBe(
+      t("errors.noScanResult"),
+    );
+    expect(formatError(new ProtiumError("not-found", "no-steam-account", "raw"))).toBe(
+      t("errors.noSteamAccount"),
+    );
   });
 });

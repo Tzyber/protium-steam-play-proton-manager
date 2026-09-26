@@ -308,8 +308,9 @@ fn persist_atomic_with_ops(
     let mut file = match fd::create_exclusive_at(dir_fd, tmp_name) {
         Ok(file) => file,
         Err(error) => {
-            return Err(PersistAtomicError::BeforeRename(format!(
-                "atomic write: {error}"
+            return Err(PersistAtomicError::BeforeRename(errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("atomic write: {error}"),
             )))
         }
     };
@@ -319,8 +320,9 @@ fn persist_atomic_with_ops(
     {
         drop(file);
         let _ = fd::unlink_at(dir_fd, tmp_name);
-        return Err(PersistAtomicError::BeforeRename(format!(
-            "atomic write: {error}"
+        return Err(PersistAtomicError::BeforeRename(errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("atomic write: {error}"),
         )));
     }
     drop(file);
@@ -330,8 +332,9 @@ fn persist_atomic_with_ops(
     }
     if let Err(error) = (ops.rename)(dir_fd, tmp_name, dir_fd, target_name) {
         let _ = fd::unlink_at(dir_fd, tmp_name);
-        return Err(PersistAtomicError::BeforeRename(format!(
-            "atomic write: {error}"
+        return Err(PersistAtomicError::BeforeRename(errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("atomic write: {error}"),
         )));
     }
     if let Err(error) = (ops.sync_parent)(dir_fd) {
@@ -601,8 +604,6 @@ where
     let root = fs::canonicalize(steam_root).map_err(|e| {
         errcode::with_detail(errcode::NOT_FOUND, format!("steam root canonicalize: {e}"))
     })?;
-    #[cfg(target_os = "linux")]
-    let steam_root_fd = open_bound_root_fd(&root, &mut || {})?;
     let target = root.join("config").join("config.vdf");
     let canon = fs::canonicalize(&target).map_err(|e| {
         errcode::with_detail(
@@ -610,6 +611,16 @@ where
             format!("write target canonicalize: {e}"),
         )
     })?;
+    // INV-7: die tool-autorität wird am schreibziel gebunden, nicht am
+    // übergebenen root. ein präpariertes root mit eigenem compatibilitytools.d
+    // und einem config-symlink aufs echte verzeichnis würde sonst beliebige
+    // tool-namen autorisieren, während die echte config.vdf geschrieben wird.
+    let auth_root = canon
+        .parent()
+        .and_then(Path::parent)
+        .ok_or_else(|| String::from(errcode::NOT_A_STEAM_CONFIG))?;
+    #[cfg(target_os = "linux")]
+    let steam_root_fd = open_bound_root_fd(auth_root, &mut || {})?;
     let app_id_str = app_id.to_string();
     apply_write_gate(
         &canon,
@@ -626,7 +637,8 @@ where
                 "CompatToolMapping",
                 &app_id_str,
             ];
-            let name_path = [base[0], base[1], base[2], base[3], base[4], base[5], "name"];
+            let mut name_path = base.to_vec();
+            name_path.push("name");
             let current_name = vdf_patch::get_vdf_value(original, &name_path)?;
 
             match tool_name {
@@ -638,7 +650,7 @@ where
                 }
                 Some(tool) => {
                     if !is_authorized_compat_tool(
-                        &root,
+                        auth_root,
                         #[cfg(target_os = "linux")]
                         Some(&steam_root_fd),
                         tool,
@@ -649,20 +661,12 @@ where
                         return Ok(None);
                     }
                     let mut p = vdf_patch::set_vdf_value(original, &name_path, tool)?;
-                    p = vdf_patch::set_vdf_value(
-                        &p,
-                        &[
-                            base[0], base[1], base[2], base[3], base[4], base[5], "config",
-                        ],
-                        "",
-                    )?;
-                    p = vdf_patch::set_vdf_value(
-                        &p,
-                        &[
-                            base[0], base[1], base[2], base[3], base[4], base[5], "priority",
-                        ],
-                        STEAM_COMPAT_PRIORITY,
-                    )?;
+                    let mut config_path = base.to_vec();
+                    config_path.push("config");
+                    p = vdf_patch::set_vdf_value(&p, &config_path, "")?;
+                    let mut priority_path = base.to_vec();
+                    priority_path.push("priority");
+                    p = vdf_patch::set_vdf_value(&p, &priority_path, STEAM_COMPAT_PRIORITY)?;
                     Ok(Some(p))
                 }
             }
@@ -670,9 +674,18 @@ where
     )
 }
 
-/// Prüft alle vorhandenen App-Manifeste und bricht bei unklaren Live-Daten ab.
-/// Some(name) = app installiert (name aus dem manifest, evtl. leer),
-/// None = app in keiner library gefunden.
+/// Meldung für eine fehlgeschlagene pfadbeschaffung der tauri-commands
+/// (home/app-cache). Der code `unavailable` ist der belegte präzedenzfall aus
+/// `open_backups_folder`; der rohe satz der runtime ist kein vertrag (A-04).
+fn path_resolution_error(label: &str, error: impl std::fmt::Display) -> String {
+    errcode::with_detail(
+        errcode::UNAVAILABLE,
+        format!("cannot resolve {label}: {error}"),
+    )
+}
+
+/// Schreibt die startoptionen der app über das write-gate in die
+/// `localconfig.vdf` des accounts.
 #[tauri::command]
 pub async fn save_launch_options(
     app: tauri::AppHandle,
@@ -684,11 +697,11 @@ pub async fn save_launch_options(
     let home = app
         .path()
         .home_dir()
-        .map_err(|e| format!("cannot resolve home dir: {e}"))?;
+        .map_err(|e| path_resolution_error("home dir", e))?;
     let backup_dir = app
         .path()
         .app_cache_dir()
-        .map_err(|e| format!("cannot resolve app cache dir: {e}"))?;
+        .map_err(|e| path_resolution_error("app cache dir", e))?;
     spawn_blocking_io(move || {
         let mut process_reader = || is_process_running_sync("steam");
         save_launch_options_inner(
@@ -714,11 +727,11 @@ pub async fn save_compat_tool(
     let home = app
         .path()
         .home_dir()
-        .map_err(|e| format!("cannot resolve home dir: {e}"))?;
+        .map_err(|e| path_resolution_error("home dir", e))?;
     let backup_dir = app
         .path()
         .app_cache_dir()
-        .map_err(|e| format!("cannot resolve app cache dir: {e}"))?;
+        .map_err(|e| path_resolution_error("app cache dir", e))?;
     spawn_blocking_io(move || {
         let mut process_reader = || is_process_running_sync("steam");
         save_compat_tool_inner(
@@ -806,7 +819,7 @@ pub async fn list_config_backups(app: tauri::AppHandle) -> Result<Vec<ConfigBack
     let backup_dir = app
         .path()
         .app_cache_dir()
-        .map_err(|e| format!("cannot resolve app cache dir: {e}"))?
+        .map_err(|e| path_resolution_error("app cache dir", e))?
         .join("backups");
     spawn_blocking_io(move || list_config_backups_in_dir(&backup_dir)).await
 }

@@ -14,6 +14,7 @@ const { protonState, scanState, uiState, confirmState } = vi.hoisted(() => ({
     releases: [] as GeRelease[],
     loading: false,
     loadError: null as string | null,
+    removeError: null as string | null,
     lastFetchedAt: null as number | null,
     lastSource: null,
     jobs: {},
@@ -273,6 +274,48 @@ describe("ProtonManagerView downloadfortschritt", () => {
     expect(fill.classes()).not.toContain("fill--indeterminate");
     expect(fill.attributes("style")).toContain("scaleX(0.3)");
     expect(bar.text()).toContain("30%");
+    wrapper.unmount();
+  });
+});
+
+describe("ProtonManagerView fehlerzuordnung (A-05)", () => {
+  // A-05: der löschfehler eines installierten tools landete im feld des
+  // release-ladens und wurde damit unter der release-überschrift gerendert —
+  // und von jedem refresh wieder gelöscht. Die beiden fälle prüfen, dass jeder
+  // fehler in seinem eigenen abschnitt steht und nicht doppelt erscheint.
+  it("zeigt den löschfehler im installiert-block, nicht bei den releases", () => {
+    setLocale("de");
+    protonState.installedTools = [makeInstalledTool("GE-Proton9-27")];
+    protonState.releases = [makeRelease("GE-Proton11-5", "GE-Proton11-5-x86_64")];
+    protonState.jobs = {};
+    protonState.warning = null;
+    protonState.loadError = null;
+    protonState.removeError = "GE-Proton9-27: unlesbar";
+
+    const wrapper = mount(ProtonManagerView);
+
+    expect(wrapper.get('[data-testid="remove-error"]').text()).toContain("GE-Proton9-27: unlesbar");
+    expect(wrapper.find('[data-testid="releases-error"]').exists()).toBe(false);
+    // genau ein alert; der löschfehler wird nicht zusätzlich oben gemeldet.
+    expect(wrapper.findAll('[role="alert"]')).toHaveLength(1);
+    wrapper.unmount();
+  });
+
+  it("zeigt den release-fehler nicht als löschfehler", () => {
+    setLocale("de");
+    protonState.installedTools = [makeInstalledTool("GE-Proton9-27")];
+    protonState.releases = [makeRelease("GE-Proton11-5", "GE-Proton11-5-x86_64")];
+    protonState.jobs = {};
+    protonState.warning = null;
+    protonState.removeError = null;
+    protonState.loadError = "keine releases erreichbar";
+
+    const wrapper = mount(ProtonManagerView);
+
+    expect(wrapper.get('[data-testid="releases-error"]').text()).toContain(
+      "keine releases erreichbar",
+    );
+    expect(wrapper.find('[data-testid="remove-error"]').exists()).toBe(false);
     wrapper.unmount();
   });
 });

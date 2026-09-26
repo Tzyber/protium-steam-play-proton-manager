@@ -18,7 +18,9 @@ const snapshotsLoading = ref(false);
 const snapshotsError = ref<string | null>(null);
 const logText = ref("");
 const logLoading = ref(false);
-const logError = ref<string | null>(null);
+// nicht `logError`: so heißt die protokollhilfe in diagnostics.ts; hier steht
+// der fehlertext des log-panels.
+const logErrorText = ref<string | null>(null);
 
 // Auftrags-Guard wie `useLatestRequest`: ein zweiter Ladevorgang (refresh-knopf,
 // neuer mount) macht die ältere antwort ungültig, damit sie weder inhalt noch
@@ -46,7 +48,7 @@ async function loadSnapshots() {
 async function loadLog() {
   const requestId = ++logRequest;
   logLoading.value = true;
-  logError.value = null;
+  logErrorText.value = null;
   try {
     const text = await readLogTail();
     if (requestId !== logRequest) return;
@@ -54,7 +56,7 @@ async function loadLog() {
   } catch (e) {
     if (requestId !== logRequest) return;
     logText.value = "";
-    logError.value = formatError(e);
+    logErrorText.value = formatError(e);
   } finally {
     if (requestId === logRequest) logLoading.value = false;
   }
@@ -65,7 +67,7 @@ async function openFolder(action: () => Promise<void>, target: "snapshots" | "lo
     await action();
   } catch (e) {
     if (target === "snapshots") snapshotsError.value = formatError(e);
-    else logError.value = formatError(e);
+    else logErrorText.value = formatError(e);
   }
 }
 
@@ -175,7 +177,7 @@ onMounted(() => {
             <span class="log-msg">{{ line.message }}</span>
           </li>
         </ol>
-        <p v-else-if="logError" class="empty" role="status">{{ logError }}</p>
+        <p v-else-if="logErrorText" class="empty" role="status">{{ logErrorText }}</p>
         <p v-else-if="!logLoading" class="empty">{{ t("history.logEmpty") }}</p>
       </section>
     </div>

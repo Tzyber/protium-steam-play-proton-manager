@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseManifest } from "../../src/core/manifest.js";
 import { getPath, parseVdf } from "../../src/core/vdf.js";
 import { getVdfValue, tokenizeVdf } from "../../src/core/vdfpatch.js";
@@ -63,6 +63,13 @@ describe("gemeinsamer Text-VDF-Tokenizer (K-02)", () => {
 
   it("bricht ein bare-token am kommentaranfang ab", () => {
     expect(spans("a//rest")).toEqual(["a"]);
+  });
+
+  it("trennt an jedem zeichen, das trim als leer erkennt", () => {
+    // valve-whitespace ist mehr als ` \t\r\n`: die geparste lib trennt mit
+    // `trim`, deshalb spaltet u+00a0 auch bare-tokens (isVdfWhitespace,
+    // vdfpatch.ts). die vorfassung von vdfpatch ließ `a\u00a0b` verkleben.
+    expect(spans("a\u00a0b")).toEqual(["a", "b"]);
   });
 
   it("liest einen bare-token mit `[` nicht als eigenständigen key in vdfpatch", () => {
@@ -133,6 +140,30 @@ describe("die drei leser teilen die token-grenzen (K-02)", () => {
     expect(getVdfValue(text, ["AppState", "name"])).toBe("Portal");
   });
 
+  it("bricht einen bare-wert am blockkommentar ab, ohne die datei zu verwerfen", () => {
+    // analog zu `http://x` → `http:` endet der wert am kommentaranfang, der
+    // tote rest reicht nur bis zeilenende, auch ohne `*/`. vorher warf vdfpatch
+    // "unterminierter block-kommentar" und erklärte eine lesbare datei für
+    // lexikalisch defekt (N-5).
+    const text = '"Root"\n{\n\tKey\t\ta/*b\n}\n';
+    expect(getVdfValue(text, ["Root", "Key"])).toBe("a");
+    expect(tokenizeVdf(text).unterminated).toBeUndefined();
+  });
+
+  it("lässt einen conditional-marker zwischen key und wert bei der paarung aus (N-01)", () => {
+    // degeneriert: steam schreibt marker nach dem wert. der marker zählt nie
+    // als wert, also paart `key [cond]` `value` jetzt key→value wie der
+    // manifest-leser (manifest.ts:29) statt den marker zu koppeln und über den
+    // rest mit "key ohne wert" zu werfen. ohne echten wert bleibt der
+    // strukturbruch bestehen wie bei `key` allein.
+    const text = '"Root"\n{\n\t"Key" [$WIN32]\t\t"value"\n\t"Other"\t\t"other"\n}\n';
+    expect(getVdfValue(text, ["Root", "Key"])).toBe("value");
+    expect(getVdfValue(text, ["Root", "Other"])).toBe("other");
+    expect(() => getVdfValue('"Root"\n{\n\t"Key" [$WIN32]\n}\n', ["Root", "Key"])).toThrow(
+      'key "Key" ohne wert',
+    );
+  });
+
   it("überspringt einen mehrteiligen conditional-marker durch den ganzen leser", () => {
     // `[$WIN32 || $OSX64]` ist ein token; die vorfassung zerlegte es in drei
     // bare-tokens und verschob damit die key/value-paare. der marker hängt am
@@ -144,10 +175,95 @@ describe("die drei leser teilen die token-grenzen (K-02)", () => {
   });
 
   it("behandelt einen quotierten schlüssel mit führendem [ als key", () => {
-    // alt übersprang scanEntries jedes string-token, dessen wert mit "[" begann
-    // — auch ein quotiertes. neu wird nur der marker-kind übersprungen, ein
+    // alt übersprang scanEntries jedes string-token, dessen wert mit "[" begann,
+    // auch ein quotiertes. neu wird nur der marker-kind übersprungen, ein
     // quotierter key bleibt damit ein key.
     const text = '"root"\n{\n\t"[x]"\t\t"v"\n}\n';
     expect(getVdfValue(text, ["root", "[x]"])).toBe("v");
+  });
+});
+
+describe("skalierung des tokenizers (A-01)", () => {
+  // Der bedingte zweig suchte das zeilenende per `indexOf` über den REST des
+  // textes, und zwar einmal pro mark. Ohne zeilenumbruch kostete damit jeder
+  // mark O(rest) ⇒ O(n²). Zwei belege, bewusst getrennt:
+  //  1. deterministisch: die zahl der `indexOf`-aufrufe war 2 pro mark.
+  //  2. verhältnis: die marken-eingabe wird gegen eine token-gleiche eingabe
+  //     OHNE marken gemessen. Damit fallen maschinengeschwindigkeit und
+  //     grundlast heraus; vor dem fix kostete die markenfolge ein vielfaches des
+  //     bezugs, danach liegt sie in derselben größenordnung. absolute zeiten
+  //     werden nicht geprüft.
+  const SIZES = [20_000, 40_000, 80_000] as const;
+  const RUNS_PER_SIZE = 3;
+  const NORMALIZED_LIMIT = 6;
+  /** Unter Stryker laufen die tests in instrumentiertem code (coverage) und in
+   *  worker-prozessen: die wanduhr-messung ist dort weder aussagekräftig noch
+   *  schnell genug (der dry run lief in den vitest-timeout von 5000 ms). Der
+   *  deterministische `indexOf`-pin unten bleibt aktiv und tötet die mutanten
+   *  des zweigs; nur die zeitmessung wird dort ausgesetzt. */
+  const underMutation = process.env.STRYKER_MUTATOR_WORKER !== undefined;
+
+  function bestOf(runs: number, run: () => void): number {
+    let best = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < runs; index += 1) {
+      const started = performance.now();
+      run();
+      best = Math.min(best, performance.now() - started);
+    }
+    return best;
+  }
+
+  const markers = (count: number): string => "[x]".repeat(count);
+  /** gleich viele tokens derselben art (bare), nur ohne marken. */
+  const reference = (count: number): string => "x ".repeat(count);
+  const ms = (value: number): string => `${value.toFixed(2)}ms`;
+
+  it("sucht das zeilenende nicht mehr einmal pro mark im resttext", () => {
+    const indexOf = vi.spyOn(String.prototype, "indexOf");
+    try {
+      const before = indexOf.mock.calls.length;
+      const { tokens } = tokenizeVdf(markers(SIZES[2]));
+      const calls = indexOf.mock.calls.length - before;
+      expect(tokens).toHaveLength(SIZES[2]);
+      // vor dem fix: 2 aufrufe je mark (160000). nach dem fix: keiner, die
+      // grenze kommt aus einem vorwärtsscan. Die schwelle lässt raum für
+      // fremde aufrufe (instrumentation), liegt aber weit unter dem fehlerbild.
+      expect(calls).toBeLessThan(SIZES[2] / 10);
+    } finally {
+      indexOf.mockRestore();
+    }
+  });
+
+  it.skipIf(underMutation)(
+    "kostet bei vielen marken höchstens das N-fache des markenfreien bezugs",
+    () => {
+      // die tokenzahl beider eingaben ist gleich; sonst verglichen wir ungleiche
+      // arbeit und der test behauptete etwas, das er nicht prüft.
+      for (const size of SIZES) {
+        expect(tokenizeVdf(markers(size)).tokens).toHaveLength(size);
+        expect(tokenizeVdf(reference(size)).tokens).toHaveLength(size);
+      }
+      const measured = SIZES.map((size) => bestOf(RUNS_PER_SIZE, () => tokenizeVdf(markers(size))));
+      const baseline = SIZES.map((size) =>
+        bestOf(RUNS_PER_SIZE, () => tokenizeVdf(reference(size))),
+      );
+      const factors = measured.map((value, index) => value / Math.max(baseline[index] ?? 0, 0.01));
+      expect(
+        Math.max(...factors),
+        `verhaeltnis je groesse ${factors.map((value) => value.toFixed(2)).join("/")}; ` +
+          `marken ${measured.map(ms).join("/")}; bezug ${baseline.map(ms).join("/")}`,
+      ).toBeLessThan(NORMALIZED_LIMIT);
+    },
+  );
+
+  it("trennt zwei marken ohne zeilenumbruch", () => {
+    expect(kinds("[a][b]\n")).toEqual(["conditional", "conditional"]);
+    expect(spans("[a][b]\n")).toEqual(["[a]", "[b]"]);
+  });
+
+  it("beendet ein conditional am zeilenende, auch wenn danach ] folgt", () => {
+    // Die grenze bleibt `]`-oder-zeilenende: ein `]` hinter dem umbruch gehört
+    // nicht mehr zum marker, der rest wird zum bare-token.
+    expect(spans("[a\nb]")).toEqual(["[a", "b]"]);
   });
 });

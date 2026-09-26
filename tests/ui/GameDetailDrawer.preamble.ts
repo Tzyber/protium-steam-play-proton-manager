@@ -75,26 +75,24 @@ vi.mock("../../src/ui/stores/configStore", () => ({
 vi.mock("../../src/ui/stores/cleanupStore", () => ({
   useCleanupStore: () => cleanupState,
 }));
-vi.mock("../../src/ui/useCover", () => ({
-  useCover: () => ({ src: null, onError: vi.fn() }),
+// async-fabriken mit dynamischem import: so liegen die stubs in einer datei,
+// ohne dass hoisting von vi.mock ihre initialisierung überholen kann (N-1).
+vi.mock("../../src/ui/useCover", async () => ({
+  useCover: (await import("./GameDetailDrawer.stubs")).useCoverStub,
 }));
-vi.mock("../../src/ui/components/PlayButton.vue", () => ({
-  default: { template: '<button data-testid="play-button" />' },
+vi.mock("../../src/ui/components/PlayButton.vue", async () => ({
+  default: (await import("./GameDetailDrawer.stubs")).playButtonStub,
 }));
-vi.mock("../../src/ui/components/SelectBox.vue", () => ({
-  default: {
-    props: ["options", "modelValue"],
-    emits: ["update:modelValue"],
-    template:
-      '<ul data-testid="select-box"><li v-for="option in options" :key="option.value" class="select-option" @click="$emit(\'update:modelValue\', option.value)">{{ option.label }}</li></ul>',
-  },
+vi.mock("../../src/ui/components/SelectBox.vue", async () => ({
+  default: (await import("./GameDetailDrawer.stubs")).selectBoxStub,
 }));
-vi.mock("../../src/ui/components/TierBadge.vue", () => ({
-  default: { template: '<span data-testid="tier-badge" />' },
+vi.mock("../../src/ui/components/TierBadge.vue", async () => ({
+  default: (await import("./GameDetailDrawer.stubs")).tierBadgeStub,
 }));
 
 import GameDetailDrawer from "../../src/ui/components/GameDetailDrawer.vue";
 import { game as makeGame, scanResult } from "../support/factories";
+import { routeQueriesToBody } from "./drawerDom";
 
 /** Pflicht-Element aus dem DOM: ein fehlendes Element lässt den Test mit
  *  klarer Meldung scheitern statt still zurückzuspringen. */
@@ -159,10 +157,9 @@ export function result(
 export function mountDrawer(scanResult: ScanResult, reasons: ProtonCheck["reasons"] = []) {
   scanState.result = scanResult;
   scanState.protonChecks = [{ appId: scanResult.games[0]?.appId ?? 42, reasons }];
-  return mount(GameDetailDrawer, {
-    attachTo: document.body,
-    global: { stubs: { Teleport: true } },
-  });
+  const wrapper = mount(GameDetailDrawer, { attachTo: document.body });
+  routeQueriesToBody(wrapper);
+  return wrapper;
 }
 
 export { cleanupState, configState, measureGameFootprintMock, scanState, uiState };
