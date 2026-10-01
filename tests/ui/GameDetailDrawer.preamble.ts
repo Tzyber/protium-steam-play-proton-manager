@@ -9,6 +9,7 @@ import type { FootprintPart, GameFootprint } from "../../src/core/footprint";
 import type { WriteResult } from "../../src/core/ports";
 import type { ProtonCheck } from "../../src/core/protoncheck";
 import type { ScanResult } from "../../src/core/types";
+import { setLocale } from "../../src/ui/i18n";
 
 const {
   scanState: rawScanState,
@@ -50,6 +51,27 @@ const {
 const scanState = reactive(rawScanState);
 const uiState = reactive(rawUiState);
 const cleanupState = reactive(rawCleanupState);
+
+/** Setzt die geteilten Zustände beider Drawer-Testdateien auf den
+ *  Ausgangsstand zurück (D-02); die identischen beforeEach-Blöcke liegen
+ *  hier an einer Stelle. */
+export function resetDrawerMocks(): void {
+  setLocale("de");
+  uiState.selectedAppId = 42;
+  uiState.inertMain = false;
+  scanState.result = null;
+  scanState.protonChecks = [];
+  scanState.status = "done";
+  scanState.scanGeneration = 1;
+  cleanupState.scanning = false;
+  cleanupState.trashScanning = false;
+  cleanupState.prefixUnavailable = false;
+  cleanupState.shaderUnavailable = false;
+  cleanupState.trashUnavailable = false;
+  cleanupState.incompleteDeletions = [];
+  cleanupState.incompleteDeletionsUnreadable = [];
+  measureGameFootprintMock.mockReset();
+}
 
 vi.mock("../../src/core/adapters/tauri", () => ({
   openExternal: vi.fn(async () => {}),
@@ -162,4 +184,4 @@ export function mountDrawer(scanResult: ScanResult, reasons: ProtonCheck["reason
   return wrapper;
 }
 
-export { cleanupState, configState, measureGameFootprintMock, scanState, uiState };
+export { configState, measureGameFootprintMock, scanState, uiState };

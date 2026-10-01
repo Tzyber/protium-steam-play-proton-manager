@@ -204,6 +204,7 @@
         "noSelfCompare": "warn",
         "noShadowRestrictedNames": "warn",
         "noShorthandPropertyOverrides": "warn",
+        "noSkippedTests": "error",
         "noSparseArray": "warn",
         "noSuspiciousSemicolonInJsx": "warn",
         "noTemplateCurlyInString": "warn",

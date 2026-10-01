@@ -249,7 +249,7 @@ const statusLine = computed(() => {
 
 <style scoped>
 .pm { padding: 20px 24px; }
-.update { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.update { position: relative; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .statusline {
   font-family: var(--font-body);
   font-size: 0.8125rem;
@@ -285,6 +285,7 @@ const statusLine = computed(() => {
 
 .list { display: grid; gap: 8px; list-style: none; padding: 0; margin: 0; }
 .row {
+  position: relative;
   display: flex; align-items: center; gap: 14px;
   background: var(--bg-2); border: 1px solid var(--line);
   border-radius: var(--r-md); padding: 12px 14px;
@@ -302,7 +303,7 @@ const statusLine = computed(() => {
 
 .rm { background: none; border: 1px solid color-mix(in srgb, var(--tier-borked) 45%, transparent); color: var(--tier-borked); border-radius: var(--r-sm); padding: 5px 10px; font-family: var(--font-body); font-size: 0.875rem; cursor: pointer; }
 .rm:hover:not(:disabled) { background: color-mix(in srgb, var(--tier-borked) 14%, transparent); }
-.rm-lock { color: var(--fg-2); font-size: 0.8125rem; }
+.rm-lock { position: relative; color: var(--fg-2); font-size: 0.8125rem; }
 
 .install { background: var(--signal); color: #0a0b11; border: none; border-radius: var(--r-sm); padding: 7px 14px; font-family: var(--font-body); font-weight: 600; font-size: 0.8125rem; cursor: pointer; }
 .install:hover:not(:disabled) { background: var(--signal-bright); }

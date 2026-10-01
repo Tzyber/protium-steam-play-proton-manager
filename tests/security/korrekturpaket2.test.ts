@@ -44,4 +44,65 @@ describe("statisch belegter bypass-vertrag der tauri-konfiguration", () => {
       expect(text, relative(repo, path)).not.toMatch(/allow_library_scope|allow_directory/);
     }
   });
+
+  it("pinnt die fs-Positivlisten und die string-permissions exakt", () => {
+    const capability = JSON.parse(
+      readFileSync(join(repo, "src-tauri/capabilities/default.json"), "utf8"),
+    ) as {
+      permissions: (string | { identifier: string; allow?: { path?: string }[] })[];
+    };
+
+    function allowPaths(identifier: string): string[] {
+      const entry = capability.permissions.find(
+        (permission) => typeof permission !== "string" && permission.identifier === identifier,
+      );
+      if (typeof entry === "string" || entry === undefined) {
+        throw new Error(`${identifier} fehlt in der capability`);
+      }
+      return (entry.allow ?? []).map((rule) => rule.path ?? "");
+    }
+
+    expect(allowPaths("fs:scope")).toEqual([
+      "$APPCACHE",
+      "$APPCACHE/**",
+      "$APPCONFIG",
+      "$APPCONFIG/**",
+    ]);
+    expect(allowPaths("fs:allow-write-text-file")).toEqual(["$APPCACHE/**"]);
+    expect(allowPaths("fs:allow-mkdir")).toEqual(["$APPCACHE/**"]);
+
+    // die vierte objekt-permission http:default wird in
+    // github-capability.test.ts exakt gepinnt; hier zählt die string-menge
+    // (objekt-permissions herausgefiltert).
+    const stringPermissions = capability.permissions
+      .filter((permission): permission is string => typeof permission === "string")
+      .sort();
+    expect(stringPermissions).toEqual([
+      "core:default",
+      "core:event:default",
+      "core:path:default",
+      "core:window:allow-show",
+      "fs:allow-exists",
+      "fs:allow-read-text-file",
+    ]);
+
+    // die vollständige menge: eine neu hinzugefügte objekt-permission (z. b.
+    // ein weiteres fs:allow-* mit fremdem pfad) fällt hier auf, nicht erst bei
+    // der nächsten sichtprüfung.
+    const identifiers = capability.permissions
+      .map((permission) => (typeof permission === "string" ? permission : permission.identifier))
+      .sort();
+    expect(identifiers).toEqual([
+      "core:default",
+      "core:event:default",
+      "core:path:default",
+      "core:window:allow-show",
+      "fs:allow-exists",
+      "fs:allow-mkdir",
+      "fs:allow-read-text-file",
+      "fs:allow-write-text-file",
+      "fs:scope",
+      "http:default",
+    ]);
+  });
 });

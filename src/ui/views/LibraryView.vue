@@ -287,7 +287,7 @@ const libraryWarnings = computed(() =>
 }
 .title .unit { color: var(--fg-2); font-size: 0.9375rem; font-weight: 400; }
 
-.right { display: flex; align-items: center; gap: 12px; }
+.right { position: relative; display: flex; align-items: center; gap: 12px; }
 .status { color: var(--fg-2); font-size: 0.875rem; }
 
 .rescan {
@@ -306,6 +306,7 @@ const libraryWarnings = computed(() =>
 .rescan:disabled { opacity: 0.5; cursor: default; }
 
 .coverage {
+  position: relative;
   margin: 0 0 18px;
   background: var(--bg-1);
   border: 1px solid var(--line);

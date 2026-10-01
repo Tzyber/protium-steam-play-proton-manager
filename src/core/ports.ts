@@ -49,8 +49,6 @@ export interface EnvironmentSnapshot {
   /** Discovery-Fehler des Backends; `libraries` enthält nur die erfolgreichen Pfade. */
   unavailableLibraries: SkippedLibrary[];
   systemCompatDirs: string[];
-  appCacheDir: string;
-  appConfigDir: string;
 }
 
 /** Phase eines GE-Installationslaufs, wie sie das Backend meldet. */

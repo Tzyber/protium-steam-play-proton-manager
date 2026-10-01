@@ -19,8 +19,6 @@ describe("readLibraryList", () => {
       libraries: [],
       unavailableLibraries: [],
       systemCompatDirs: [],
-      appCacheDir: "/tmp/cache",
-      appConfigDir: "/tmp/config",
     });
 
     expect(result.libraries).toEqual([]);
@@ -37,8 +35,6 @@ describe("readLibraryList", () => {
         { path: "/mnt/kaputt", reason: "read-failed" },
       ],
       systemCompatDirs: [],
-      appCacheDir: "/tmp/cache",
-      appConfigDir: "/tmp/config",
     });
 
     expect(result.libraries).toEqual(["/tmp/steam"]);
@@ -80,8 +76,6 @@ describe("readLibraryList", () => {
         { path: "/mnt/gelesen", reason: "path-missing" },
       ],
       systemCompatDirs: [],
-      appCacheDir: "/tmp/cache",
-      appConfigDir: "/tmp/config",
     });
 
     expect(result.skippedLibraries).toEqual([{ path: "/mnt/doppelt", reason: "read-failed" }]);
@@ -96,8 +90,6 @@ describe("readLibraryList", () => {
       steamRoot: "/tmp/steam",
       libraries: ["/tmp/steam"],
       systemCompatDirs: [],
-      appCacheDir: "/tmp/cache",
-      appConfigDir: "/tmp/config",
     };
     const result = readLibraryList(snapshot as unknown as Parameters<typeof readLibraryList>[0]);
 

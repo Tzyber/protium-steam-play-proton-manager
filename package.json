@@ -12,7 +12,7 @@
     "bench:gate": "node scripts/bench-scan-gate.mjs",
     "dedup": "node scripts/dedup-scan.mjs",
     "mutation": "node scripts/run-mutation.mjs",
-    "check": "biome check && vue-tsc --noEmit && node scripts/check-release-version.mjs --self-test",
+    "check": "biome check && vue-tsc --noEmit && node scripts/check-release-version.mjs --self-test && node scripts/check-release-version.mjs --files-only",
     "vite:dev": "vite",
     "vite:build": "vue-tsc --noEmit && vite build",
     "tauri": "tauri"

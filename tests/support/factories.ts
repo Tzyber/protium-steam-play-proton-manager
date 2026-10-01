@@ -60,8 +60,6 @@ export function environment(overrides: Partial<EnvironmentSnapshot> = {}): Envir
     libraries: ["/home/u/.steam"],
     unavailableLibraries: [],
     systemCompatDirs: [],
-    appCacheDir: "/home/u/.cache/protium",
-    appConfigDir: "/home/u/.config/protium",
     ...overrides,
   };
 }

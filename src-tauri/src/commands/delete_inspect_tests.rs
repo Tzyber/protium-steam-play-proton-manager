@@ -660,6 +660,40 @@ fn inspection_erlaubt_non_steam_shortcut_appid() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// F-04: eine fremde datei `appmanifest_<nichtnumerisch>.acf` ist ein
+/// dateisystem-formfehler und wird als `unreadable` gemeldet, nicht als
+/// gepatchter `invalid-value` (die oberflaeche zeigte sonst "unzulaessige
+/// zeichen" fuer eine fremde library-datei).
+#[test]
+fn orphan_inspektion_meldet_fremden_manifestnamen_als_unreadable() {
+    let root = wsg_fixture("inspect-invalid-manifest-name");
+    let steam = root.join("steam");
+    let steamapps = steam.join("steamapps");
+    let target = steamapps.join("compatdata/999999");
+    std::fs::create_dir_all(steam.join("config")).unwrap();
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::write(
+        steam.join("config/libraryfolders.vdf"),
+        format!(
+            "\"libraryfolders\" {{ \"0\" {{ \"path\" \"{}\" }} }}",
+            steam.display()
+        ),
+    )
+    .unwrap();
+    std::fs::write(steamapps.join("appmanifest_alt.acf"), "nonsense").unwrap();
+
+    let error = inspect_deletion_target(
+        steam.to_str().unwrap(),
+        "orphan",
+        target.to_str().unwrap(),
+        &|_| true,
+    )
+    .unwrap_err();
+
+    assert!(errcode::has_code(&error, errcode::UNREADABLE), "{error}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// F1: eine gelistete library, die nicht nur fehlt, sondern scope- oder
 /// lesegeschädigt ist, kann ein installiertes spiel verbergen. die
 /// orphan-inspektion bricht dann fail-closed ab (INV-2); belegte
@@ -751,10 +785,13 @@ fn trash_ziel_ablehnungen_tragen_ihren_code() {
         (format!("{base}a/b"), errcode::NOT_AN_ORPHAN),
         (format!("{base}compatdata_570"), errcode::INVALID_ID),
         (format!("{base}compatdata_570_100_x"), errcode::INVALID_ID),
-        (format!("{base}compatdata_570_abc"), errcode::INVALID_VALUE),
+        // F-02: das artefakt ist der dateiname; nicht-numerisch und überlauf
+        // tragen dieselbe klasse wie die appId-formfehler (`unreadable`), nur
+        // der wert 0 bleibt die bewusste wert-ablehnung.
+        (format!("{base}compatdata_570_abc"), errcode::UNREADABLE),
         (
             format!("{base}compatdata_570_99999999999999999999"),
-            errcode::INVALID_VALUE,
+            errcode::UNREADABLE,
         ),
         (format!("{base}compatdata_570_0"), errcode::INVALID_VALUE),
     ];

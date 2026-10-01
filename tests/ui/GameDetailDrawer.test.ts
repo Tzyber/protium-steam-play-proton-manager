@@ -3,12 +3,12 @@
 // T-08: die mock-preamble muss vor jedem src-/store-import geladen werden.
 // biome-ignore assist/source/organizeImports: mock-registrierung muss vor den modul-importen laufen (T-08)
 import {
-  cleanupState,
   configState,
   footprint,
   measureGameFootprintMock,
   mountDrawer,
   requireElement,
+  resetDrawerMocks,
   result,
   scanState,
   uiState,
@@ -21,21 +21,7 @@ import { game as makeGame, scanResult } from "../support/factories";
 
 describe("GameDetailDrawer Config-Provenienz", () => {
   beforeEach(() => {
-    setLocale("de");
-    uiState.selectedAppId = 42;
-    uiState.inertMain = false;
-    scanState.result = null;
-    scanState.protonChecks = [];
-    scanState.status = "done";
-    scanState.scanGeneration = 1;
-    cleanupState.scanning = false;
-    cleanupState.trashScanning = false;
-    cleanupState.prefixUnavailable = false;
-    cleanupState.shaderUnavailable = false;
-    cleanupState.trashUnavailable = false;
-    cleanupState.incompleteDeletions = [];
-    cleanupState.incompleteDeletionsUnreadable = [];
-    measureGameFootprintMock.mockReset();
+    resetDrawerMocks();
   });
 
   afterEach(() => {
@@ -154,20 +140,7 @@ describe("GameDetailDrawer Config-Provenienz", () => {
 
 describe("GameDetailDrawer Startoptionen-Hinweise", () => {
   beforeEach(() => {
-    setLocale("de");
-    uiState.selectedAppId = 42;
-    uiState.inertMain = false;
-    scanState.result = null;
-    scanState.protonChecks = [];
-    scanState.status = "done";
-    scanState.scanGeneration = 1;
-    cleanupState.scanning = false;
-    cleanupState.trashScanning = false;
-    cleanupState.prefixUnavailable = false;
-    cleanupState.shaderUnavailable = false;
-    cleanupState.trashUnavailable = false;
-    cleanupState.incompleteDeletions = [];
-    cleanupState.incompleteDeletionsUnreadable = [];
+    resetDrawerMocks();
     uiState.closeGame.mockClear();
     configState.saveLaunchOptions.mockReset();
     configState.saveCompatTool.mockReset();
@@ -290,22 +263,8 @@ describe("GameDetailDrawer Startoptionen-Hinweise", () => {
 
 describe("GameDetailDrawer Erklärungen", () => {
   beforeEach(() => {
-    setLocale("de");
-    uiState.selectedAppId = 42;
-    uiState.inertMain = false;
+    resetDrawerMocks();
     uiState.closeGame.mockReset();
-    scanState.result = null;
-    scanState.protonChecks = [];
-    scanState.status = "done";
-    scanState.scanGeneration = 1;
-    cleanupState.scanning = false;
-    cleanupState.trashScanning = false;
-    cleanupState.prefixUnavailable = false;
-    cleanupState.shaderUnavailable = false;
-    cleanupState.trashUnavailable = false;
-    cleanupState.incompleteDeletions = [];
-    cleanupState.incompleteDeletionsUnreadable = [];
-    measureGameFootprintMock.mockReset();
   });
 
   afterEach(() => {

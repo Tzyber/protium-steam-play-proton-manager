@@ -138,9 +138,56 @@ describe("TypeScript-/Rust-Spiegelwerte", () => {
     ].map((match) => match[1] ?? "");
     expect(codes.length).toBeGreaterThan(20);
 
+    // erwartungstabelle aller rust-codes: vier sind bewusst "unknown"
+    // (invalid-appid, invalid-url, invalid-id, invalid-account-id), alle
+    // uebrigen tragen ihre klasse. Eine klassen-aenderung in CODE_KINDS
+    // oder ein neuer code ohne eintrag faellt hier auf.
+    const expectedKinds: Record<string, string> = {
+      "invalid-appid": "unknown",
+      "invalid-value": "blocked",
+      "invalid-url": "unknown",
+      "unallowed-scheme": "blocked",
+      "credentials-disallowed": "blocked",
+      "host-disallowed": "blocked",
+      "handler-unavailable": "unavailable",
+      "unsupported-platform": "unavailable",
+      "steam-running": "blocked",
+      "steam-not-found": "not-found",
+      "invalid-account-id": "unknown",
+      "blocked-location": "blocked",
+      "not-a-steam-config": "blocked",
+      "unknown-tool": "blocked",
+      "tool-already-exists": "blocked",
+      "size-limit-exceeded": "incomplete",
+      "not-found": "not-found",
+      "token-expired": "blocked",
+      "target-changed": "blocked",
+      "unsupported-target": "blocked",
+      "not-a-directory": "unreadable",
+      "symlink-rejected": "blocked",
+      "invalid-id": "unknown",
+      "not-an-orphan": "blocked",
+      "library-not-listed": "blocked",
+      "not-a-managed-tool": "blocked",
+      "write-may-have-applied": "incomplete",
+      cancelled: "unavailable",
+      "checksum-failed": "incomplete",
+      "unverified-rejected": "blocked",
+      "download-active": "unavailable",
+      "unsupported-arch": "unavailable",
+      blocked: "blocked",
+      unavailable: "unavailable",
+      unreadable: "unreadable",
+      incomplete: "incomplete",
+    };
+    expect(new Set(Object.keys(expectedKinds))).toEqual(new Set(codes));
+
     setLocale("de");
     for (const code of codes) {
       expect(parseError(code).code, `Code ${code} fehlt in CODE_KINDS`).toBe(code);
+      expect(parseError(code).kind, `Code ${code} hat die falsche Klasse`).toBe(
+        expectedKinds[code] ?? "<fehlt>",
+      );
       expect(
         formatError(code),
         `Code ${code} hat keinen eigenen Text (Fallback auf unknown)`,
@@ -192,18 +239,25 @@ describe("TypeScript-/Rust-Spiegelwerte", () => {
   });
 
   it("bindet die Mock-Token-Lebensdauer der Tests an DELETE_TOKEN_TTL_SECS", () => {
-    // MOCK_TOKEN_TTL_MS (tests/support/cleanupStoreMocks.ts) spiegelte den
-    // Rust-Wert bisher nur im Kommentar. Der Test liest beide Quellen wie die
-    // übrigen Spiegel mechanisch als Text: driftet der Mock ab, prüfen die
-    // Lösch-Abläufe gegen eine Lebensdauer, die das Backend nie ausgibt.
+    // MOCK_TOKEN_TTL_MS liegt an zwei Stellen: im vi.hoisted der
+    // cleanupStoreMocks (dort ist kein Import möglich) und in der
+    // seitenwirkungsfreien tests/support/mockTokenTtl.ts. Der Test liest
+    // beide Quellen wie die übrigen Spiegel mechanisch als Text: driftet
+    // eine ab, prüfen die Lösch-Abläufe gegen eine Lebensdauer, die das
+    // Backend nie ausgibt.
     const deleteOps = readFileSync(join(repo, "src-tauri/src/commands/delete_ops.rs"), "utf8");
-    const mocks = readFileSync(join(repo, "tests/support/cleanupStoreMocks.ts"), "utf8");
+    const sources = [
+      readFileSync(join(repo, "tests/support/cleanupStoreMocks.ts"), "utf8"),
+      readFileSync(join(repo, "tests/support/mockTokenTtl.ts"), "utf8"),
+    ];
     const ttlMatch = deleteOps.match(/pub const DELETE_TOKEN_TTL_SECS: u64 = (\d+);/);
-    const mockMatch = mocks.match(/const MOCK_TOKEN_TTL_MS = ([\d_]+);/);
     expect(ttlMatch).not.toBeNull();
-    expect(mockMatch).not.toBeNull();
     const ttlSecs = Number(ttlMatch?.[1] ?? "");
-    const mockTtlMs = Number((mockMatch?.[1] ?? "").replace(/_/g, ""));
-    expect(mockTtlMs).toBe(ttlSecs * 1000);
+    for (const source of sources) {
+      const mockMatch = source.match(/const MOCK_TOKEN_TTL_MS = ([\d_]+);/);
+      expect(mockMatch, "MOCK_TOKEN_TTL_MS fehlt in einer Quelle").not.toBeNull();
+      const mockTtlMs = Number((mockMatch?.[1] ?? "").replace(/_/g, ""));
+      expect(mockTtlMs).toBe(ttlSecs * 1000);
+    }
   });
 });

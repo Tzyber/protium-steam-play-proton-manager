@@ -1,3 +1,4 @@
+import { ProtiumError } from "./errors.js";
 import type { Cache, Http, InstallPhase, System, TargetArch } from "./ports.js";
 import { isRecord } from "./types.js";
 
@@ -274,10 +275,11 @@ interface InstallOpts {
 export async function installRelease(ports: { system: System }, opts: InstallOpts): Promise<void> {
   const { system } = ports;
 
-  // "cancelled" im text ist teil des kontrakts: der aufrufer unterscheidet
-  // abbruch von fehler an /cancel/i und zeigt dann keine fehlermeldung.
+  // der abbruchcode "cancelled" ist teil des kontrakts: protonStore
+  // unterscheidet abbruch von fehler ueber parseError(...).code und zeigt
+  // dann keine fehlermeldung.
   const abortIfCancelled = () => {
-    if (opts.isCancelled?.()) throw new Error("cancelled");
+    if (opts.isCancelled?.()) throw new ProtiumError("unavailable", "cancelled", "cancelled");
   };
 
   abortIfCancelled();

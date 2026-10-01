@@ -16,7 +16,7 @@ const SCAN_FIXTURE_LAUNCH_OPTION_EVERY = 20;
 
 export type ScanPerformanceScenario = "cold" | "warm" | "offline";
 
-export interface ScanPerformanceFixture {
+interface ScanPerformanceFixture {
   root: string;
   environment: EnvironmentSnapshot;
   appIds: readonly number[];
@@ -26,12 +26,12 @@ export interface ScanPerformanceFixture {
   cleanup: () => Promise<void>;
 }
 
-export interface CountedHttp {
+interface CountedHttp {
   http: Http;
   urls: string[];
 }
 
-export interface MemoryCache {
+interface MemoryCache {
   cache: Cache;
   values: Map<string, string>;
 }
@@ -163,8 +163,6 @@ export async function buildScanPerformanceFixture(options?: {
       libraries: [root],
       unavailableLibraries: [],
       systemCompatDirs: [],
-      appCacheDir: join(tempRoot, "app-cache"),
-      appConfigDir: join(tempRoot, "app-config"),
     },
     appIds,
     headerAppIds,

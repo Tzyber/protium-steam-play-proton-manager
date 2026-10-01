@@ -154,6 +154,7 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
 }
 
 .search {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -194,6 +195,7 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
 .group { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 
 .seg {
+  position: relative;
   background: var(--bg-2);
   border: 1px solid var(--line);
   color: var(--fg-1);

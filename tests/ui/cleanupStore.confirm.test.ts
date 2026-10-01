@@ -22,7 +22,7 @@ import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useProtonStore } from "../../src/ui/stores/protonStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
-import { deferred } from "../support/factories";
+import { customTool, deferred } from "../support/factories";
 
 describe("cleanupStore, gemeinsame confirm-reservierung", () => {
   beforeEach(() => {
@@ -71,14 +71,7 @@ describe("cleanupStore, gemeinsame confirm-reservierung", () => {
     const prepared = deferred<PendingDeleteInfo>();
     mockPrepareDelete.mockImplementationOnce(() => prepared.promise);
 
-    const geRemove = proton.remove({
-      name: "GE-Proton9-27",
-      internalName: "GE-Proton9-27",
-      displayName: "GE-Proton9-27",
-      sizeBytes: 1000,
-      source: "user",
-      usedBy: [],
-    });
+    const geRemove = proton.remove(customTool("GE-Proton9-27", { sizeBytes: 1000 }));
     await vi.waitFor(() => expect(mockPrepareDelete).toHaveBeenCalledTimes(1));
 
     await cleanup.deleteOrphans([

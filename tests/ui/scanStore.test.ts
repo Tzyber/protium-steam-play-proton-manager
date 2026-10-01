@@ -147,8 +147,6 @@ describe("scanStore.runScan", () => {
         generation: 1,
         steamRoot: "/old",
         libraries: ["/old"],
-        appCacheDir: "/cache",
-        appConfigDir: "/config",
       }),
     );
     await oldRun;
@@ -159,8 +157,6 @@ describe("scanStore.runScan", () => {
         generation: 2,
         steamRoot: "/new",
         libraries: ["/new"],
-        appCacheDir: "/cache",
-        appConfigDir: "/config",
       }),
     );
     await newRun;
@@ -190,8 +186,6 @@ describe("scanStore.runScan", () => {
         generation: 2,
         steamRoot: "/new",
         libraries: ["/new"],
-        appCacheDir: "/cache",
-        appConfigDir: "/config",
       }),
     );
     await newRun;

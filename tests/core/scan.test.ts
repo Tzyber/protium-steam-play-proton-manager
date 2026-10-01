@@ -8,11 +8,14 @@ import { enrichProtondb } from "../../src/core/scan/protondb.js";
 import type { ScanResult } from "../../src/core/types.js";
 import { buildFakeSteam, fakeHttp, fakeSystem, memCache, nodeFs } from "../support/fakeSteam";
 
-// scan.ts/scanLibrary wurde in K-01 entfernt: die produktive Orchestrierung
-// lebt im scanStore, der lokalen Scan und ProtonDB-Nachlauf getrennt hält
-// (sofortiges Resultat + Reststatus/Generations-Guard). Der Integrationstest
-// komponiert beide Phasen hier genauso, mit Delay 0.
-async function scanLibrary(
+// Die produktive Orchestrierung lebt im scanStore, der lokalen Scan und
+// ProtonDB-Nachlauf getrennt hält (sofortiges Resultat +
+// Reststatus/Generations-Guard); er arbeitet mit tauriPorts und ist hier
+// deshalb nicht erreichbar (tests/ui/scanStore.test.ts mockt beide
+// Funktionen weg). scanPipelineForTest komponiert für diesen
+// Integrationstest dieselben lebenden Bausteine (scanLocal +
+// enrichProtondb) mit Delay 0.
+async function scanPipelineForTest(
   ports: Ports,
   opts: { environment: EnvironmentSnapshot; protonDbDelayMs?: number },
 ): Promise<ScanResult> {
@@ -24,7 +27,7 @@ async function scanLibrary(
 describe("voller Scan (integration, dominiks reales setup)", () => {
   it("bricht ohne aktuellen Environment-Root fail-closed ab", async () => {
     await expect(
-      scanLibrary(
+      scanPipelineForTest(
         { fs: nodeFs(), http: fakeHttp(), system: fakeSystem(), cache: memCache() },
         {
           environment: {
@@ -33,8 +36,6 @@ describe("voller Scan (integration, dominiks reales setup)", () => {
             libraries: [],
             unavailableLibraries: [],
             systemCompatDirs: [],
-            appCacheDir: "/tmp/cache",
-            appConfigDir: "/tmp/config",
           },
         },
       ),
@@ -47,7 +48,7 @@ describe("voller Scan (integration, dominiks reales setup)", () => {
     const fs = nodeFs();
 
     const system = fakeSystem();
-    const result = await scanLibrary(
+    const result = await scanPipelineForTest(
       { fs, http: fakeHttp(), system, cache: memCache() },
       { environment: { ...environment, systemCompatDirs: [systemCompat] }, protonDbDelayMs: 0 },
     );
@@ -134,7 +135,7 @@ describe("voller Scan (integration, dominiks reales setup)", () => {
       mkdir(join(claimed, "steamapps"), { recursive: true }),
     );
     const system = fakeSystem();
-    const result = await scanLibrary(
+    const result = await scanPipelineForTest(
       { fs, http: fakeHttp(), system, cache: memCache() },
       { environment: { ...environment, libraries: [root, lib2] }, protonDbDelayMs: 0 },
     );
@@ -148,7 +149,7 @@ describe("voller Scan (integration, dominiks reales setup)", () => {
     // snapshot; der scan darf sie nicht mehr stillschweigend als vollständig
     // ausgeben.
     const { root, lib2, staleLib, environment } = await buildFakeSteam();
-    const result = await scanLibrary(
+    const result = await scanPipelineForTest(
       { fs: nodeFs(), http: fakeHttp(), system: fakeSystem(), cache: memCache() },
       {
         environment: {
@@ -174,7 +175,7 @@ describe("voller Scan (integration, dominiks reales setup)", () => {
     const fs = nodeFs();
     await rm(join(root, "userdata"), { recursive: true, force: true });
 
-    const result = await scanLibrary(
+    const result = await scanPipelineForTest(
       { fs, http: fakeHttp(), system: fakeSystem(), cache: memCache() },
       { environment, protonDbDelayMs: 0 },
     );
@@ -194,7 +195,7 @@ describe("voller Scan (integration, dominiks reales setup)", () => {
     const fs = nodeFs();
     await rm(join(root, "config", "config.vdf"));
 
-    const result = await scanLibrary(
+    const result = await scanPipelineForTest(
       { fs, http: fakeHttp(), system: fakeSystem(), cache: memCache() },
       { environment: { ...environment, systemCompatDirs: [] }, protonDbDelayMs: 0 },
     );

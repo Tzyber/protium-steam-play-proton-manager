@@ -95,7 +95,9 @@ where
     F: FnMut(DeleteReadStage, Option<&mut std::fs::File>),
 {
     let bytes = read_fd_bytes_with_hook(file, label, max_bytes, hook, stage)?;
-    String::from_utf8(bytes).map_err(|error| format!("cannot read {label}: {error}"))
+    String::from_utf8(bytes).map_err(|error| {
+        errcode::with_detail(errcode::UNREADABLE, format!("cannot read {label}: {error}"))
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -145,7 +147,12 @@ where
         let canonical = match fs::canonicalize(lib) {
             Ok(path) => path,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(format!("cannot canonicalize Steam library: {error}")),
+            Err(error) => {
+                return Err(errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("cannot canonicalize Steam library: {error}"),
+                ))
+            }
         };
         let mut no_hook = |_| {};
         let library_fd = open_external_library_fd_with_hook(&canonical, &mut no_hook)?;
@@ -154,13 +161,27 @@ where
             // fehlende steamapps (z. b. nicht gemountete volume) kann keine
             // manifeste tragen: überspringen statt fail (INV-2), kein fehler.
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(format!("cannot open Steam library steamapps: {error}")),
+            Err(error) => {
+                return Err(errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("cannot open Steam library steamapps: {error}"),
+                ))
+            }
         };
         let proc_dir = Path::new("/proc/self/fd").join(steamapps_fd.as_raw_fd().to_string());
-        let entries = fs::read_dir(&proc_dir)
-            .map_err(|error| format!("cannot read manifest directory: {error}"))?;
+        let entries = fs::read_dir(&proc_dir).map_err(|error| {
+            errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot read manifest directory: {error}"),
+            )
+        })?;
         for entry in entries {
-            let entry = entry.map_err(|error| format!("cannot read manifest entry: {error}"))?;
+            let entry = entry.map_err(|error| {
+                errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("cannot read manifest entry: {error}"),
+                )
+            })?;
             let name = entry.file_name();
             let name_string = name.to_string_lossy();
             let Some(id_part) = name_string
@@ -169,8 +190,15 @@ where
             else {
                 continue;
             };
-            let file_id = crate::commands::scope::parse_app_id(id_part)
-                .map_err(|_| format!("invalid app manifest filename: {name_string}"))?;
+            let file_id = crate::commands::scope::parse_app_id(id_part).map_err(|_| {
+                // F-04: der "wert" kommt aus dem dateisystem, nicht aus einer
+                // gepatchten eingabe; `invalid-value` zeigte der oberflaeche
+                // "unzulaessige zeichen" fuer eine fremde library-datei.
+                errcode::with_detail(
+                    errcode::UNREADABLE,
+                    format!("invalid app manifest filename: {name_string}"),
+                )
+            })?;
 
             // Skip (manifest zwischen read_dir und openat verschwunden, INV-2)
             // und fail-closed (Mismatch, Lesefehler) bleiben Politik dieses
@@ -238,15 +266,20 @@ pub(super) fn validate_trash_target(canon_str: &str, meta: &fs::Metadata) -> Res
     }
 
     crate::commands::scope::parse_compat_id((typ, app_id_str))?;
+    // F-02: das artefakt ist hier der dateiname, nicht eine geprüfte eingabe.
+    // Nicht-numerisch und überlauf sind derselbe dateisystem-formfehler wie
+    // eine nicht-numerische appId (`parse_compat_id` → `unreadable`); nur der
+    // im bereich liegende, semantisch verbotene wert 0 bleibt eine bewusste
+    // wert-ablehnung (wie „appId 0 rejected").
     if !timestamp_str.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(errcode::with_detail(
-            errcode::INVALID_VALUE,
+            errcode::UNREADABLE,
             format!("trash target has non-numeric timestamp: {timestamp_str}"),
         ));
     }
     let timestamp = timestamp_str.parse::<u64>().map_err(|_| {
         errcode::with_detail(
-            errcode::INVALID_VALUE,
+            errcode::UNREADABLE,
             format!("trash target timestamp out of range: {timestamp_str}"),
         )
     })?;
@@ -264,8 +297,12 @@ pub(super) fn validate_trash_target(canon_str: &str, meta: &fs::Metadata) -> Res
 fn read_all_shortcut_app_ids(steam_root: &Path) -> Result<HashSet<u32>, String> {
     #[cfg(target_os = "linux")]
     {
-        let canonical_root = fs::canonicalize(steam_root)
-            .map_err(|error| format!("cannot canonicalize Steam root: {error}"))?;
+        let canonical_root = fs::canonicalize(steam_root).map_err(|error| {
+            errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot canonicalize Steam root: {error}"),
+            )
+        })?;
         let root_fd = open_bound_root_fd(&canonical_root, &mut || {})?;
         let mut no_hook = |_: DeleteReadStage, _: Option<&mut std::fs::File>| {};
         read_all_shortcut_app_ids_linux_with_hook(&root_fd, &mut no_hook)
@@ -290,22 +327,39 @@ where
         Ok(fd) => fd,
         // fehlendes userdata bedeutet, dass keine shortcuts bekannt sind.
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(HashSet::new()),
-        Err(error) => return Err(format!("cannot open userdata directory: {error}")),
+        Err(error) => {
+            return Err(errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot open userdata directory: {error}"),
+            ))
+        }
     };
 
     let proc_dir = Path::new("/proc/self/fd").join(userdata_fd.as_raw_fd().to_string());
-    let entries = fs::read_dir(&proc_dir)
-        .map_err(|error| format!("cannot read userdata directory: {error}"))?;
+    let entries = fs::read_dir(&proc_dir).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("cannot read userdata directory: {error}"),
+        )
+    })?;
     let mut all_ids = HashSet::new();
     for entry in entries {
-        let entry = entry.map_err(|error| format!("cannot read userdata entry: {error}"))?;
-        let entry_type = entry
-            .file_type()
-            .map_err(|error| format!("cannot inspect userdata entry: {error}"))?;
+        let entry = entry.map_err(|error| {
+            errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot read userdata entry: {error}"),
+            )
+        })?;
+        let entry_type = entry.file_type().map_err(|error| {
+            errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot inspect userdata entry: {error}"),
+            )
+        })?;
         if entry_type.is_symlink() {
-            return Err(format!(
-                "userdata entry {} is a symlink",
-                entry.path().display()
+            return Err(errcode::with_detail(
+                errcode::SYMLINK_REJECTED,
+                format!("userdata entry {} is a symlink", entry.path().display()),
             ));
         }
         if !entry_type.is_dir() {
@@ -320,14 +374,24 @@ where
         let account_fd = match open_dir_at(userdata_fd.as_raw_fd(), &name) {
             Ok(fd) => fd,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(format!("cannot open userdata account: {error}")),
+            Err(error) => {
+                return Err(errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("cannot open userdata account: {error}"),
+                ))
+            }
         };
         let config_fd = match open_dir_at(account_fd.as_raw_fd(), OsStr::new("config")) {
             Ok(fd) => fd,
             // fehlendes account/config bedeutet, dass dieser account keine
             // shortcuts beitragen kann.
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(format!("cannot open userdata config: {error}")),
+            Err(error) => {
+                return Err(errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("cannot open userdata config: {error}"),
+                ))
+            }
         };
 
         hook(DeleteReadStage::ShortcutsBeforeOpen, None);
@@ -335,7 +399,12 @@ where
             Ok(file) => file,
             // fehlende shortcuts.vdf bleibt ein skip wie im bisherigen Pfad.
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(format!("cannot open shortcuts.vdf: {error}")),
+            Err(error) => {
+                return Err(errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("cannot open shortcuts.vdf: {error}"),
+                ))
+            }
         };
         hook(DeleteReadStage::ShortcutsAfterOpen, Some(&mut shortcuts));
         let bytes = read_fd_bytes_with_hook(
@@ -352,8 +421,12 @@ where
                 errcode::with_detail(errcode::UNREADABLE, format!("shortcuts.vdf: {error}"))
             }
         })?;
-        let ids = parse_binary_shortcut_ids(&bytes)
-            .map_err(|error| format!("failed to parse shortcuts.vdf: {error}"))?;
+        let ids = parse_binary_shortcut_ids(&bytes).map_err(|error| {
+            errcode::with_detail(
+                errcode::UNREADABLE,
+                format!("failed to parse shortcuts.vdf: {error}"),
+            )
+        })?;
         all_ids.extend(ids);
     }
 
@@ -365,8 +438,12 @@ where
 fn find_apps_using_compat_tool(steam_root: &Path, tool_name: &str) -> Result<Vec<u32>, String> {
     #[cfg(target_os = "linux")]
     {
-        let canonical_root = fs::canonicalize(steam_root)
-            .map_err(|error| format!("cannot canonicalize Steam root: {error}"))?;
+        let canonical_root = fs::canonicalize(steam_root).map_err(|error| {
+            errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot canonicalize Steam root: {error}"),
+            )
+        })?;
         let root_fd = open_bound_root_fd(&canonical_root, &mut || {})?;
         let mut no_hook = |_: DeleteReadStage, _: Option<&mut std::fs::File>| {};
         find_apps_using_compat_tool_linux_with_hook(&root_fd, tool_name, &mut no_hook)
@@ -391,13 +468,23 @@ where
     let config_fd = match open_dir_at(steam_root_fd.as_raw_fd(), OsStr::new("config")) {
         Ok(fd) => fd,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(format!("cannot open config directory: {error}")),
+        Err(error) => {
+            return Err(errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot open config directory: {error}"),
+            ))
+        }
     };
     hook(DeleteReadStage::ConfigBeforeOpen, None);
     let mut config_vdf = match open_file_at(config_fd.as_raw_fd(), OsStr::new("config.vdf")) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(format!("cannot open config.vdf: {error}")),
+        Err(error) => {
+            return Err(errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot open config.vdf: {error}"),
+            ))
+        }
     };
     hook(DeleteReadStage::ConfigAfterOpen, Some(&mut config_vdf));
     let content = read_fd_text_with_hook(
@@ -568,11 +655,10 @@ where
         return Err(errcode::NOT_A_DIRECTORY.into());
     }
     let suffix = crate::commands::scope::suffix_after_steamapps(context.canon_str)?;
-    let (typ, app_id_str) = crate::commands::scope::parse_compat_id(
-        suffix
-            .split_once('/')
-            .ok_or_else(|| "invalid suffix structure".to_string())?,
-    )?;
+    let (typ, app_id_str) =
+        crate::commands::scope::parse_compat_id(suffix.split_once('/').ok_or_else(|| {
+            errcode::with_detail(errcode::INVALID_VALUE, "invalid suffix structure")
+        })?)?;
     let app_id = crate::commands::scope::parse_app_id(app_id_str)?;
 
     let (libraries, unavailable) = read_library_folders_with_failures(steam_root)?;
@@ -618,13 +704,10 @@ where
     }
 
     let (action, desc) = match typ {
-        "compatdata" => (
-            "trash",
-            format!("Prefix von app {app_id} in den Papierkorb verschieben"),
-        ),
+        "compatdata" => ("trash", format!("move app {app_id} prefix to trash")),
         "shadercache" => (
             "permanentDelete",
-            format!("Shader-Cache von app {app_id} dauerhaft löschen"),
+            format!("permanently delete app {app_id} shader cache"),
         ),
         _ => return Err(errcode::UNSUPPORTED_TARGET.into()),
     };
@@ -637,7 +720,7 @@ where
 fn inspect_trash_target(context: &DeleteTargetContext<'_>) -> Result<DeletionInspection, String> {
     validate_trash_target(context.canon_str, context.meta)?;
     let description = format!(
-        "Papierkorb-Eintrag {} dauerhaft löschen",
+        "permanently delete trash entry {}",
         context
             .canonical
             .file_name()
@@ -666,7 +749,7 @@ where
         .canonical
         .file_name()
         .and_then(|n| n.to_str())
-        .ok_or_else(|| "invalid tool folder name".to_string())?;
+        .ok_or_else(|| errcode::with_detail(errcode::INVALID_VALUE, "invalid tool folder name"))?;
 
     if !is_managed_ge_name(tool_name) {
         return Err(errcode::with_detail(
@@ -692,7 +775,7 @@ where
     };
     Ok(context.inspection(
         "permanentDelete",
-        format!("GE-Proton-Tool {tool_name} dauerhaft löschen"),
+        format!("permanently delete GE-Proton tool {tool_name}"),
         affected_app_ids,
     ))
 }
@@ -715,8 +798,12 @@ where
     if !scope_ok(steam_root_input) {
         return Err(errcode::BLOCKED_LOCATION.into());
     }
-    let steam_root = fs::canonicalize(steam_root_input)
-        .map_err(|error| format!("cannot canonicalize Steam root: {error}"))?;
+    let steam_root = fs::canonicalize(steam_root_input).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("cannot canonicalize Steam root: {error}"),
+        )
+    })?;
     if !scope_ok(&steam_root) {
         return Err(errcode::BLOCKED_LOCATION.into());
     }
@@ -736,7 +823,12 @@ where
         return Err(errcode::BLOCKED_LOCATION.into());
     }
 
-    let meta = fs::symlink_metadata(&canonical).map_err(|e| e.to_string())?;
+    let meta = fs::symlink_metadata(&canonical).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("cannot stat deletion target: {error}"),
+        )
+    })?;
     if meta.file_type().is_symlink() {
         return Err(errcode::SYMLINK_REJECTED.into());
     }

@@ -22,14 +22,16 @@ pub(super) fn validate_download_url(url: &str) -> Result<(), String> {
     if url.contains('%') {
         return Err(errcode::INVALID_URL.into());
     }
-    let parsed = reqwest::Url::parse(url).map_err(|e| format!("invalid download URL: {e}"))?;
+    let parsed = reqwest::Url::parse(url).map_err(|e| {
+        errcode::with_detail(errcode::INVALID_URL, format!("invalid download URL: {e}"))
+    })?;
     validate_secure_url(&parsed)?;
     if parsed.query().is_some() || parsed.fragment().is_some() {
         return Err(errcode::INVALID_URL.into());
     }
     let host = parsed
         .host_str()
-        .ok_or_else(|| "download URL has no host".to_string())?;
+        .ok_or_else(|| errcode::with_detail(errcode::INVALID_URL, "download URL has no host"))?;
     if !host.eq_ignore_ascii_case("github.com") {
         return Err(errcode::with_detail(errcode::HOST_DISALLOWED, host));
     }
@@ -54,10 +56,10 @@ pub(super) fn validate_download_url(url: &str) -> Result<(), String> {
         match comps.next() {
             Some(c) if c == expected => {}
             _ => {
-                return Err(
-                    "download URL outside GloriousEggroll/proton-ge-custom/releases/download"
-                        .into(),
-                )
+                return Err(errcode::with_detail(
+                    errcode::INVALID_URL,
+                    "download URL outside GloriousEggroll/proton-ge-custom/releases/download",
+                ))
             }
         }
     }
@@ -71,11 +73,13 @@ pub(super) fn validate_download_url(url: &str) -> Result<(), String> {
 /// nicht steuerbar). github.com als redirect-ziel ausgeschlossen, sonst wäre
 /// das pfad-pinning über einen redirect umgehbar.
 pub(super) fn validate_redirect_url(url: &str) -> Result<(), String> {
-    let parsed = reqwest::Url::parse(url).map_err(|e| format!("invalid redirect URL: {e}"))?;
+    let parsed = reqwest::Url::parse(url).map_err(|e| {
+        errcode::with_detail(errcode::INVALID_URL, format!("invalid redirect URL: {e}"))
+    })?;
     validate_secure_url(&parsed)?;
     let host = parsed
         .host_str()
-        .ok_or_else(|| "redirect URL has no host".to_string())?;
+        .ok_or_else(|| errcode::with_detail(errcode::INVALID_URL, "redirect URL has no host"))?;
     let host = host.to_ascii_lowercase();
     if host == "objects.githubusercontent.com" || host == "release-assets.githubusercontent.com" {
         Ok(())
@@ -175,7 +179,10 @@ pub(super) fn register_download(
     download_id: &str,
 ) -> Result<Arc<CancelSignal>, String> {
     validate_download_id(download_id)?;
-    let mut map = registry.0.lock().map_err(|e| e.to_string())?;
+    let mut map = registry
+        .0
+        .lock()
+        .map_err(|e| errcode::with_detail(errcode::UNAVAILABLE, e))?;
     if !map.is_empty() {
         return Err(errcode::DOWNLOAD_ACTIVE.into());
     }
@@ -211,7 +218,7 @@ fn build_client(
         // intermittierend, daher die send-fehler nach retries/cancels
         .user_agent(concat!("protium/", env!("CARGO_PKG_VERSION")))
         .build()
-        .map_err(|e| e.to_string())
+        .map_err(|e| errcode::with_detail(errcode::UNAVAILABLE, e))
 }
 
 /// download-kern ohne tauri-typen (cargo-testbar). crash-fest: jeder fehlerausgang
@@ -228,10 +235,12 @@ pub(super) async fn download_stream(
 ) -> Result<DownloadedFile, String> {
     let parent = Path::new(dest)
         .parent()
-        .ok_or_else(|| "download path has no parent".to_string())?;
-    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    let directory = fs::File::open(parent).map_err(|e| e.to_string())?;
-    let identity = file_identity(&directory).map_err(|e| e.to_string())?;
+        .ok_or_else(|| errcode::with_detail(errcode::UNAVAILABLE, "download path has no parent"))?;
+    fs::create_dir_all(parent).map_err(|e| errcode::with_detail(errcode::code_for_io(&e), e))?;
+    let directory =
+        fs::File::open(parent).map_err(|e| errcode::with_detail(errcode::code_for_io(&e), e))?;
+    let identity =
+        file_identity(&directory).map_err(|e| errcode::with_detail(errcode::code_for_io(&e), e))?;
     download_stream_in_directory(
         url,
         redirect_ok,
@@ -259,7 +268,11 @@ pub(super) async fn download_stream_in_directory(
 ) -> Result<DownloadedFile, String> {
     async {
         let client = build_client(redirect_ok)?;
-        let resp = client.get(url).send().await.map_err(|e| e.to_string())?;
+        let resp = client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| errcode::with_detail(errcode::UNAVAILABLE, e))?;
         if !resp.status().is_success() {
             return Err(errcode::with_detail(errcode::UNAVAILABLE, resp.status()));
         }
@@ -277,7 +290,7 @@ pub(super) async fn download_stream_in_directory(
             #[cfg(test)]
             storage.before_open,
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| errcode::with_detail(errcode::code_for_io(&e), e))?;
         let mut file = tokio::fs::File::from_std(std_file);
         let mut hasher = Sha512::new();
         let content_length = resp.content_length();
@@ -300,7 +313,7 @@ pub(super) async fn download_stream_in_directory(
             match chunk {
                 None => break,
                 Some(chunk) => {
-                    let chunk = chunk.map_err(|e| e.to_string())?;
+                    let chunk = chunk.map_err(|e| errcode::with_detail(errcode::UNAVAILABLE, e))?;
 
                     downloaded += chunk.len() as u64;
                     if downloaded > storage.max_bytes {
@@ -308,12 +321,16 @@ pub(super) async fn download_stream_in_directory(
                     }
 
                     hasher.update(&chunk);
-                    file.write_all(&chunk).await.map_err(|e| e.to_string())?;
+                    file.write_all(&chunk)
+                        .await
+                        .map_err(|e| errcode::with_detail(errcode::code_for_io(&e), e))?;
                     on_progress(downloaded, content_length);
                 }
             }
         }
-        file.flush().await.map_err(|e| e.to_string())?;
+        file.flush()
+            .await
+            .map_err(|e| errcode::with_detail(errcode::code_for_io(&e), e))?;
         let hash = crate::commands::fd::hex_lower(&hasher.finalize());
         Ok(DownloadedFile {
             hash,
@@ -477,10 +494,18 @@ pub(super) async fn fetch_sha512_text(
     let fut = async {
         let client =
             build_client(|u| validate_redirect_url(u).is_ok()).map_err(Sha512FetchError::Failed)?;
-        let mut resp = client.get(url).send().await.map_err(|e| e.to_string());
+        let mut resp = client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| errcode::with_detail(errcode::UNAVAILABLE, e));
         if resp.is_err() {
             tokio::time::sleep(SHA512_RETRY_DELAY).await;
-            resp = client.get(url).send().await.map_err(|e| e.to_string());
+            resp = client
+                .get(url)
+                .send()
+                .await
+                .map_err(|e| errcode::with_detail(errcode::UNAVAILABLE, e));
         }
         let resp = resp.map_err(Sha512FetchError::Failed)?;
         if !resp.status().is_success() {
@@ -526,7 +551,7 @@ where
     futures_util::pin_mut!(stream);
     let mut body = Vec::new();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| e.to_string())?;
+        let chunk = chunk.map_err(|e| errcode::with_detail(errcode::UNAVAILABLE, e))?;
         let chunk = chunk.as_ref();
         let next_len = body
             .len()

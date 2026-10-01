@@ -82,4 +82,21 @@ describe("github http capability", () => {
       expect(token).toBe(coverOrigin);
     }
   });
+
+  // P-02: die vollständige direktivenliste ist der vertrag. Einzelne
+  // bindungen (img-src) blieben bestehen, wenn eine andere direktive
+  // gelockert würde; dieser golden-test fällt dann auf.
+  it("pinnt die vollständige CSP-direktivenliste", () => {
+    expect(tauriConfig.app.security.csp).toEqual({
+      "default-src": "'self'",
+      "base-uri": "'none'",
+      "object-src": "'none'",
+      "frame-src": "'none'",
+      "form-action": "'self'",
+      "frame-ancestors": "'self'",
+      "img-src": "'self' data: blob: https://cdn.cloudflare.steamstatic.com",
+      "connect-src": "'self' ipc: http://ipc.localhost",
+      "style-src": "'self' 'unsafe-inline'",
+    });
+  });
 });

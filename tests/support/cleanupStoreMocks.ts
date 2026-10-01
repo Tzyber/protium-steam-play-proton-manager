@@ -26,6 +26,10 @@ const hoisted = vi.hoisted(() => {
   // DELETE_TOKEN_TTL_SECS = 300 in src-tauri/src/commands/delete_ops.rs (siehe
   // SECURITY.md). Der Mock-Token spiegelt die echte Produktions-Lebensdauer,
   // statt eine erfundene 60-s-Grenze zu prüfen, die das Backend nie ausgibt.
+  // Das Literal muss im vi.hoisted bleiben (kein Import möglich, TDZ); wer
+  // den Wert ohne die vier Mock-Seiteneffekte braucht, nimmt
+  // tests/support/mockTokenTtl.ts — mirrored-constants.test.ts hält beide
+  // Quellen am Rust-Wert.
   const MOCK_TOKEN_TTL_MS = 300_000;
   return {
     MOCK_TOKEN_TTL_MS,

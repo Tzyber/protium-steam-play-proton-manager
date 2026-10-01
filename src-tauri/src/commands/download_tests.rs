@@ -836,5 +836,19 @@ async fn sha512_stream_propagates_stream_errors() {
     let err = collect_limited_body(stream, MAX_HASH_BYTES)
         .await
         .unwrap_err();
-    assert_eq!(err, "controlled stream failure");
+    // der fehler traegt seinen code (unavailable: …), das detail bleibt der
+    // rohfehler der quelle.
+    assert!(errcode::has_code(&err, errcode::UNAVAILABLE), "{err}");
+    assert!(err.contains("controlled stream failure"), "{err}");
+}
+
+#[test]
+fn download_fehler_tragen_ihren_code() {
+    // regressionsschutz zur kodierungsrunde: rohtexte wie `e.to_string()`
+    // erschienen in der oberflaeche als "unbekannt".
+    let production = crate::commands::test_util::production_source(include_str!("download.rs"));
+    assert!(
+        !production.contains("e.to_string()"),
+        "download-fehler tragen ihren code, kein rohtext"
+    );
 }

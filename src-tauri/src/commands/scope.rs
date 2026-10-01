@@ -90,8 +90,6 @@ pub(crate) struct EnvironmentInfo {
     pub libraries: Vec<String>,
     pub unavailable_libraries: Vec<LibraryUnavailable>,
     pub system_compat_dirs: Vec<String>,
-    pub app_cache_dir: String,
-    pub app_config_dir: String,
 }
 
 impl EnvironmentSnapshot {
@@ -115,6 +113,9 @@ impl EnvironmentSnapshot {
     }
 
     fn to_info(&self) -> EnvironmentInfo {
+        // F-05: die beiden app-wurzeln bleiben autoritaet (`roots()`), liegen
+        // aber nicht mehr im drahtvertrag; kein TS-consumer liest sie, und ein
+        // zu kurzes TS-interface darf die autoritaetsmenge nicht verdecken.
         EnvironmentInfo {
             generation: self.generation,
             steam_root: self.steam_root.to_string_lossy().into_owned(),
@@ -129,8 +130,6 @@ impl EnvironmentSnapshot {
                 .iter()
                 .map(|path| path.to_string_lossy().into_owned())
                 .collect(),
-            app_cache_dir: self.app_cache_dir.to_string_lossy().into_owned(),
-            app_config_dir: self.app_config_dir.to_string_lossy().into_owned(),
         }
     }
 
@@ -177,17 +176,16 @@ impl EnvironmentState {
     }
 
     pub(crate) fn current(&self) -> Result<EnvironmentSnapshot, String> {
-        let current = self
-            .current
-            .lock()
-            .map_err(|_| "environment snapshot lock poisoned".to_string())?;
+        let current = self.current.lock().map_err(|_| {
+            errcode::with_detail(errcode::UNAVAILABLE, "environment snapshot lock poisoned")
+        })?;
         Ok(require_snapshot(&current)?.clone())
     }
 
     fn lock_current(&self) -> Result<MutexGuard<'_, Option<EnvironmentSnapshot>>, String> {
-        self.current
-            .lock()
-            .map_err(|_| "environment snapshot lock poisoned".to_string())
+        self.current.lock().map_err(|_| {
+            errcode::with_detail(errcode::UNAVAILABLE, "environment snapshot lock poisoned")
+        })
     }
 
     fn authorize_path_with_status(
@@ -483,11 +481,19 @@ fn reject_symlink_components(path: &Path, include_leaf: bool, label: &str) -> Re
         current.push(component.as_os_str());
         match fs::symlink_metadata(&current) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err(format!("{label}: symlink component rejected"));
+                return Err(errcode::with_detail(
+                    errcode::SYMLINK_REJECTED,
+                    format!("{label}: symlink component rejected"),
+                ));
             }
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
-            Err(error) => return Err(format!("{label}: {error}")),
+            Err(error) => {
+                return Err(errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("{label}: {error}"),
+                ))
+            }
         }
     }
     Ok(())
@@ -500,7 +506,12 @@ fn libraryfolders_path(steam_root: &Path) -> Result<Option<PathBuf>, String> {
         match fs::symlink_metadata(&path) {
             Ok(_) => return Ok(Some(path)),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(format!("libraryfolders.vdf: {error}")),
+            Err(error) => {
+                return Err(errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("libraryfolders.vdf: {error}"),
+                ))
+            }
         }
     }
     Ok(None)
@@ -508,20 +519,25 @@ fn libraryfolders_path(steam_root: &Path) -> Result<Option<PathBuf>, String> {
 
 pub(super) fn parse_library_folder_paths(text: &str) -> Result<Vec<PathBuf>, String> {
     let tokens = vdf_patch::tokenize(text)
-        .map_err(|error| format!("cannot parse libraryfolders.vdf: {error}"))?;
+        .map_err(|error| errcode::with_context("cannot parse libraryfolders.vdf", &error))?;
     let entries = vdf_patch::scan_entries(&tokens, 0, tokens.len())
-        .map_err(|error| format!("scan libraryfolders entries: {error}"))?;
+        .map_err(|error| errcode::with_context("scan libraryfolders entries", &error))?;
     let root_entry = entries
         .into_iter()
         .find(|entry| {
             matches!(&entry.key.kind, vdf_patch::TokenKind::String(key) if key.eq_ignore_ascii_case("libraryfolders"))
         })
-        .ok_or_else(|| "missing libraryfolders root block in libraryfolders.vdf".to_string())?;
-    let (from, to) = root_entry
-        .block
-        .ok_or_else(|| "libraryfolders is not a block".to_string())?;
+        .ok_or_else(|| {
+        errcode::with_detail(
+            errcode::UNREADABLE,
+            "missing libraryfolders root block in libraryfolders.vdf",
+        )
+    })?;
+    let (from, to) = root_entry.block.ok_or_else(|| {
+        errcode::with_detail(errcode::UNREADABLE, "libraryfolders is not a block")
+    })?;
     let children = vdf_patch::scan_entries(&tokens, from, to)
-        .map_err(|error| format!("scan libraryfolders children: {error}"))?;
+        .map_err(|error| errcode::with_context("scan libraryfolders children", &error))?;
     let mut paths = Vec::new();
     let mut seen = HashSet::new();
     for child in children {
@@ -535,7 +551,7 @@ pub(super) fn parse_library_folder_paths(text: &str) -> Result<Vec<PathBuf>, Str
             continue;
         };
         for entry in vdf_patch::scan_entries(&tokens, child_from, child_to)
-            .map_err(|error| format!("scan library entry: {error}"))?
+            .map_err(|error| errcode::with_context("scan library entry", &error))?
         {
             let vdf_patch::TokenKind::String(entry_key) = &entry.key.kind else {
                 continue;
@@ -587,7 +603,12 @@ pub(super) fn libraryfolders_contents_from_root_fd(
         let parent_fd = match open_dir_at(root_fd.as_raw_fd(), OsStr::new(directory)) {
             Ok(fd) => fd,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(format!("{LABEL}: {error}")),
+            Err(error) => {
+                return Err(errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("{LABEL}: {error}"),
+                ))
+            }
         };
         hook(LibraryFoldersStage::DirectoryOpened);
         let mut file = match open_file_at(parent_fd.as_raw_fd(), OsStr::new(NAME)) {
@@ -600,7 +621,10 @@ pub(super) fn libraryfolders_contents_from_root_fd(
         return Ok(Some(content));
     }
     if open_dir_at(root_fd.as_raw_fd(), OsStr::new("steamapps")).is_err() {
-        return Err(format!("{LABEL}: no config or steamapps directory"));
+        return Err(errcode::with_detail(
+            errcode::UNREADABLE,
+            format!("{LABEL}: no config or steamapps directory"),
+        ));
     }
     Ok(None)
 }
@@ -849,12 +873,22 @@ pub(crate) fn prepare_app_dir(path: &Path, label: &str) -> Result<PathBuf, Strin
         ));
     }
     reject_symlink_components(path, path.exists(), label)?;
-    fs::create_dir_all(path).map_err(|error| format!("{label}: {error}"))?;
-    let metadata = fs::symlink_metadata(path).map_err(|error| format!("{label}: {error}"))?;
+    // F-04: ein fehlgeschlagenes anlegen ist kein lesevorgang; `code_for_io`
+    // (not-found/unreadable) beschreibt hier die falsche ursache (rechte/ro).
+    fs::create_dir_all(path)
+        .map_err(|error| errcode::with_detail(errcode::UNAVAILABLE, format!("{label}: {error}")))?;
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        errcode::with_detail(errcode::code_for_io(&error), format!("{label}: {error}"))
+    })?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Err(format!("{label}: not a regular directory"));
+        return Err(errcode::with_detail(
+            errcode::NOT_A_DIRECTORY,
+            format!("{label}: not a regular directory"),
+        ));
     }
-    let canonical = fs::canonicalize(path).map_err(|error| format!("{label}: {error}"))?;
+    let canonical = fs::canonicalize(path).map_err(|error| {
+        errcode::with_detail(errcode::code_for_io(&error), format!("{label}: {error}"))
+    })?;
     if !is_safe_path(&canonical.to_string_lossy()) {
         return Err(errcode::with_detail(
             errcode::BLOCKED_LOCATION,
@@ -868,21 +902,37 @@ fn build_fixed_system_compat_root(path: &Path) -> Result<Option<PathBuf>, String
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(format!("system compat root: {error}")),
+        Err(error) => {
+            return Err(errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("system compat root: {error}"),
+            ))
+        }
     };
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Err(format!(
-            "system compat root is not a regular directory: {path:?}"
+        return Err(errcode::with_detail(
+            errcode::NOT_A_DIRECTORY,
+            format!("system compat root is not a regular directory: {path:?}"),
         ));
     }
     reject_symlink_components(path, true, "system compat root")?;
-    let canonical = fs::canonicalize(path)
-        .map_err(|error| format!("system compat root canonicalize: {error}"))?;
+    let canonical = fs::canonicalize(path).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("system compat root canonicalize: {error}"),
+        )
+    })?;
     if canonical != path {
-        return Err(format!("system compat root changed identity: {path:?}"));
+        return Err(errcode::with_detail(
+            errcode::BLOCKED_LOCATION,
+            format!("system compat root changed identity: {path:?}"),
+        ));
     }
     if !is_safe_path(&canonical.to_string_lossy()) {
-        return Err(format!("blocked system compat root: {path:?}"));
+        return Err(errcode::with_detail(
+            errcode::BLOCKED_LOCATION,
+            format!("blocked system compat root: {path:?}"),
+        ));
     }
     Ok(Some(canonical))
 }
@@ -892,7 +942,12 @@ pub(crate) fn build_environment_snapshot(
     app_cache_dir: &Path,
     app_config_dir: &Path,
 ) -> Result<EnvironmentSnapshot, String> {
-    let home = fs::canonicalize(home).map_err(|error| format!("home canonicalize: {error}"))?;
+    let home = fs::canonicalize(home).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("home canonicalize: {error}"),
+        )
+    })?;
     let fixed_candidates: Vec<PathBuf> = ROOT_CANDIDATES
         .iter()
         .map(|relative| home.join(relative))
@@ -903,13 +958,23 @@ pub(crate) fn build_environment_snapshot(
         if !candidate.exists() {
             continue;
         }
-        let canonical = fs::canonicalize(&candidate)
-            .map_err(|error| format!("steam candidate canonicalize: {error}"))?;
+        let canonical = fs::canonicalize(&candidate).map_err(|error| {
+            errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("steam candidate canonicalize: {error}"),
+            )
+        })?;
         if !fixed_candidates.iter().any(|fixed| fixed == &canonical) {
-            return Err("steam candidate resolves to a non-fixed path".into());
+            return Err(errcode::with_detail(
+                errcode::BLOCKED_LOCATION,
+                "steam candidate resolves to a non-fixed path",
+            ));
         }
         if !is_descendant_of(&canonical, &home) {
-            return Err("steam candidate resolves outside home".into());
+            return Err(errcode::with_detail(
+                errcode::BLOCKED_LOCATION,
+                "steam candidate resolves outside home",
+            ));
         }
         let steamapps = canonical.join("steamapps");
         let Ok(metadata) = fs::symlink_metadata(&steamapps) else {
@@ -953,18 +1018,24 @@ pub async fn discover_steam_environment(
     app: tauri::AppHandle,
     state: tauri::State<'_, EnvironmentState>,
 ) -> Result<EnvironmentInfo, String> {
-    let home = app
-        .path()
-        .home_dir()
-        .map_err(|error| format!("home directory unavailable: {error}"))?;
-    let app_cache_dir = app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("app cache directory unavailable: {error}"))?;
-    let app_config_dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|error| format!("app config directory unavailable: {error}"))?;
+    let home = app.path().home_dir().map_err(|error| {
+        errcode::with_detail(
+            errcode::UNAVAILABLE,
+            format!("home directory unavailable: {error}"),
+        )
+    })?;
+    let app_cache_dir = app.path().app_cache_dir().map_err(|error| {
+        errcode::with_detail(
+            errcode::UNAVAILABLE,
+            format!("app cache directory unavailable: {error}"),
+        )
+    })?;
+    let app_config_dir = app.path().app_config_dir().map_err(|error| {
+        errcode::with_detail(
+            errcode::UNAVAILABLE,
+            format!("app config directory unavailable: {error}"),
+        )
+    })?;
     // discovery macht blocking io (canonicalize, libraryfolders, app-dirs):
     // spawn_blocking, sonst friert der main-thread beim start ein (C1-muster).
     let snapshot = crate::commands::spawn_blocking_io(move || {
@@ -979,18 +1050,18 @@ pub async fn discover_steam_environment(
 /// `rfind` ist sicher, weil das folgende muster-check die echte anwendung garantiert.
 pub(super) fn library_of(canon_str: &str) -> Result<&str, String> {
     let marker = "/steamapps/";
-    let idx = canon_str
-        .rfind(marker)
-        .ok_or_else(|| "path does not contain /steamapps/".to_string())?;
+    let idx = canon_str.rfind(marker).ok_or_else(|| {
+        errcode::with_detail(errcode::INVALID_VALUE, "path does not contain /steamapps/")
+    })?;
     Ok(&canon_str[..idx])
 }
 
 /// alles nach dem letzten "/steamapps/". gibt None wenn der marker fehlt.
 pub(super) fn suffix_after_steamapps(canon_str: &str) -> Result<&str, String> {
     let marker = "/steamapps/";
-    let idx = canon_str
-        .rfind(marker)
-        .ok_or_else(|| "path does not contain /steamapps/".to_string())?;
+    let idx = canon_str.rfind(marker).ok_or_else(|| {
+        errcode::with_detail(errcode::INVALID_VALUE, "path does not contain /steamapps/")
+    })?;
     Ok(&canon_str[idx + marker.len()..])
 }
 
@@ -1001,10 +1072,13 @@ pub(super) fn suffix_after_steamapps(canon_str: &str) -> Result<&str, String> {
 pub(super) fn parse_compat_id<'a>(pair: (&'a str, &'a str)) -> Result<(&'a str, &'a str), String> {
     let (typ, app_id_str) = pair;
     if typ != "compatdata" && typ != "shadercache" {
-        return Err(format!("unexpected type: {typ}"));
+        return Err(errcode::with_detail(errcode::UNSUPPORTED_TARGET, typ));
     }
     if app_id_str.is_empty() || !app_id_str.chars().all(|c| c.is_ascii_digit()) {
-        return Err(format!("non-numeric appId: {app_id_str}"));
+        return Err(errcode::with_detail(
+            errcode::UNREADABLE,
+            format!("non-numeric appId: {app_id_str}"),
+        ));
     }
     // defense-in-depth: das JS-seitige findOrphans filtert appId 0 bereits,
     // aber ein direkter IPC-aufruf (oder zukünftiger code-pfad) darf nicht
@@ -1017,19 +1091,29 @@ pub(super) fn parse_compat_id<'a>(pair: (&'a str, &'a str)) -> Result<(&'a str, 
 
 pub(super) fn parse_app_id(app_id_str: &str) -> Result<u32, String> {
     if app_id_str.is_empty() || !app_id_str.chars().all(|c| c.is_ascii_digit()) {
-        return Err(format!("non-numeric appId: {app_id_str}"));
+        return Err(errcode::with_detail(
+            errcode::UNREADABLE,
+            format!("non-numeric appId: {app_id_str}"),
+        ));
     }
-    let app_id = app_id_str
-        .parse::<u64>()
-        .map_err(|_| format!("appId out of range: {app_id_str}"))?;
+    let app_id = app_id_str.parse::<u64>().map_err(|_| {
+        errcode::with_detail(
+            errcode::UNREADABLE,
+            format!("appId out of range: {app_id_str}"),
+        )
+    })?;
     // appIDs sind unsigned 32-bit. non-steam-shortcuts setzen bit 31 (2^31+n)
     // und bleiben unterhalb u32::MAX, nur 0 (reserviert) und 2^32+ sind
     // ungültig. ein i32-cap würde legitime shortcut-ids ausschließen.
     if !(1..=u32::MAX as u64).contains(&app_id) {
         return Err(if app_id == 0 {
-            "appId 0 rejected".into()
+            // bewusste ablehnung des geprueften werts 0 (reserviert)
+            errcode::with_detail(errcode::INVALID_VALUE, "appId 0 rejected")
         } else {
-            format!("appId out of range: {app_id_str}")
+            errcode::with_detail(
+                errcode::UNREADABLE,
+                format!("appId out of range: {app_id_str}"),
+            )
         });
     }
     Ok(app_id as u32)

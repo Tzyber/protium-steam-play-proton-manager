@@ -3,6 +3,7 @@
 // `compat.ts`, hier steht nur Parsing und Zuordnung, dort Dateisystem und
 // Größenmessung.
 
+import { parseSafeAppId } from "./types.js";
 import { asNode, asString, getPath, parseVdf } from "./vdf.js";
 
 /** appId → compat-tool-name (interner name, wie in config.vdf). */
@@ -18,8 +19,12 @@ export function parseCompatToolMapping(configVdfText: string): CompatToolMapping
   if (!mappingNode) return out;
 
   for (const key of Object.keys(mappingNode)) {
-    const appId = Number(key);
-    if (!Number.isInteger(appId)) continue;
+    // "0" ist die globale standard-zuordnung in Steam (scan/tools.ts liest
+    // mapping.get(0)). Alle übrigen keys müssen sichere steam-app-ids sein:
+    // eine reine ziffernprüfung hat keine obergrenze (400 ziffern ergeben in
+    // Number() Infinity), parseSafeAppId prüft 1 <= id <= u32::MAX.
+    const appId = key === "0" ? 0 : parseSafeAppId(key);
+    if (appId === null) continue;
     const name = asString(getPath(mappingNode, key, "name"));
     if (name && name.trim() !== "") out.set(appId, name);
   }

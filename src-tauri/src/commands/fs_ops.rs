@@ -74,16 +74,20 @@ fn read_environment_file_with_hook(
     after_open: &mut dyn FnMut(&mut std::fs::File),
 ) -> Result<Vec<u8>, String> {
     state.with_authorized_existing(path, label, |real| {
-        let parent = real
-            .parent()
-            .ok_or_else(|| format!("{label}: no parent directory"))?;
-        let file_name = real
-            .file_name()
-            .ok_or_else(|| format!("{label}: no file name"))?;
+        let parent = real.parent().ok_or_else(|| {
+            errcode::with_detail(
+                errcode::UNAVAILABLE,
+                format!("{label}: no parent directory"),
+            )
+        })?;
+        let file_name = real.file_name().ok_or_else(|| {
+            errcode::with_detail(errcode::UNAVAILABLE, format!("{label}: no file name"))
+        })?;
         let parent_fd = open_bound_root_fd(parent, before_open)
             .map_err(|error| errcode::with_context(label, &error))?;
-        let mut file = open_file_at(parent_fd.as_raw_fd(), file_name)
-            .map_err(|error| format!("{label}: {error}"))?;
+        let mut file = open_file_at(parent_fd.as_raw_fd(), file_name).map_err(|error| {
+            errcode::with_detail(errcode::code_for_io(&error), format!("{label}: {error}"))
+        })?;
         after_open(&mut file);
         read_fd_bytes(&mut file, label, MAX_ENVIRONMENT_READ_BYTES, &mut |_| {})
     })
@@ -117,7 +121,12 @@ pub async fn environment_read_text(
     let state = state.inner().clone();
     spawn_blocking_io(move || {
         let bytes = read_environment_file(&state, &path, "environment read text")?;
-        String::from_utf8(bytes).map_err(|error| format!("environment read text: {error}"))
+        String::from_utf8(bytes).map_err(|error| {
+            errcode::with_detail(
+                errcode::UNREADABLE,
+                format!("environment read text: {error}"),
+            )
+        })
     })
     .await
 }
@@ -165,16 +174,20 @@ fn read_environment_dir_with_hook(
         let proc_path = Path::new("/proc/self/fd").join(dir_fd.as_raw_fd().to_string());
         let mut entries = Vec::new();
         for (index, entry) in fs::read_dir(&proc_path)
-            .map_err(|error| format!("{label}: {error}"))?
+            .map_err(|error| {
+                errcode::with_detail(errcode::code_for_io(&error), format!("{label}: {error}"))
+            })?
             .enumerate()
         {
             if index >= MAX_ENVIRONMENT_DIR_ENTRIES {
                 return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
             }
-            let entry = entry.map_err(|error| format!("{label}: {error}"))?;
-            let file_type = entry
-                .file_type()
-                .map_err(|error| format!("{label}: {error}"))?;
+            let entry = entry.map_err(|error| {
+                errcode::with_detail(errcode::code_for_io(&error), format!("{label}: {error}"))
+            })?;
+            let file_type = entry.file_type().map_err(|error| {
+                errcode::with_detail(errcode::code_for_io(&error), format!("{label}: {error}"))
+            })?;
             entries.push(EnvironmentDirEntry {
                 name: entry.file_name().to_string_lossy().into_owned(),
                 is_directory: file_type.is_dir(),
@@ -399,7 +412,12 @@ pub async fn path_identity(
     let state = state.inner().clone();
     spawn_blocking_io(move || {
         state.with_authorized_existing(&path, "path_identity", |real| {
-            let md = fs::metadata(&real).map_err(|error| format!("path_identity: {error}"))?;
+            let md = fs::metadata(&real).map_err(|error| {
+                errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("path_identity: {error}"),
+                )
+            })?;
             #[cfg(unix)]
             use std::os::unix::fs::MetadataExt;
             #[cfg(unix)]

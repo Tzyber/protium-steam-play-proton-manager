@@ -4,7 +4,7 @@ import { parseCompatToolMapping } from "../../src/core/compatTools.js";
 import { errText, parseError } from "../../src/core/errtext.js";
 import { parseManifest } from "../../src/core/manifest.js";
 import { joinPath } from "../../src/core/paths.js";
-import { parseSafeAppId } from "../../src/core/types.js";
+import { MAX_APP_ID, parseSafeAppId } from "../../src/core/types.js";
 import { ensureSizeLimit, MAX_FILE_BYTES } from "../support/fakeSteam.js";
 
 const acf = () => `"AppState"
@@ -219,6 +219,163 @@ describe("parseCompatToolMapping (case-insensitive traversal)", () => {
   });
   it("fehlender teilbaum → leere map", () => {
     expect(parseCompatToolMapping('"InstallConfigStore"\n{\n}').size).toBe(0);
+  });
+
+  // C-01: Number() liest auch "0x10" (16), "1e3" (1000) und "" (0); ein
+  // solcher key darf nie als appId im mapping landen.
+  it("ignoriert nicht-numerische keys statt sie als zahl zu lesen", () => {
+    const cfg = `"InstallConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"CompatToolMapping"
+				{
+					"0x10"
+					{
+						"name"	"hex"
+					}
+					"1e3"
+					{
+						"name"	"exp"
+					}
+					"620"
+					{
+						"name"	"echt"
+					}
+				}
+			}
+		}
+	}
+}`;
+    const map = parseCompatToolMapping(cfg);
+    expect([...map.entries()]).toEqual([[620, "echt"]]);
+  });
+
+  // C-01-Nachbesserung: eine reine ziffernprüfung hat keine obergrenze.
+  // Number() macht aus einer 400-stelligen ziffernfolge Infinity, und
+  // MAX_APP_ID + 1 liegt darüber; beides darf nicht als appId in die map
+  // landen. Die gültigen ränder (u32::MAX und der shortcut-bereich ab 2^31)
+  // müssen halten.
+  it("weist ziffernstrings über MAX_APP_ID und Infinity ab", () => {
+    const cfg = `"InstallConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"CompatToolMapping"
+				{
+					"${"9".repeat(400)}"
+					{
+						"name"	"overflow"
+					}
+					"${MAX_APP_ID + 1}"
+					{
+						"name"	"ueber der grenze"
+					}
+					"${MAX_APP_ID}"
+					{
+						"name"	"obergrenze"
+					}
+					"2147483648"
+					{
+						"name"	"shortcut"
+					}
+				}
+			}
+		}
+	}
+}`;
+    const mapping = parseCompatToolMapping(cfg);
+    // Einzelprüfungen statt Array-Vergleich: die VDF-Bibliothek behält die
+    // Dateireihenfolge, aber Object.keys zieht ganzzahl-index-artige Keys
+    // ("2147483648" = 2^31) vor die übrigen, die Map-Reihenfolge ist also
+    // nicht die Dateireihenfolge (Sonde 2026-09-28).
+    expect(mapping.has(Infinity)).toBe(false);
+    expect(mapping.size).toBe(2);
+    expect(mapping.get(MAX_APP_ID)).toBe("obergrenze");
+    expect(mapping.get(2147483648)).toBe("shortcut");
+  });
+
+  // "00" las Number("00") als 0 und traf damit den globalen default-slot.
+  it("liest einen genullten key nicht als globalen default", () => {
+    const cfg = `"InstallConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"CompatToolMapping"
+				{
+					"00"
+					{
+						"name"	"kein-default"
+					}
+				}
+			}
+		}
+	}
+}`;
+    const mapping = parseCompatToolMapping(cfg);
+    expect(mapping.has(0)).toBe(false);
+    expect(mapping.size).toBe(0);
+  });
+
+  // der key "0" ist die globale standard-zuordnung (scan/tools.ts liest
+  // mapping.get(0)); er muss den filter überleben.
+  it("behält den globalen default-key 0", () => {
+    const cfg = `"InstallConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"CompatToolMapping"
+				{
+					"0"
+					{
+						"name"	"proton-cachyos-slr"
+					}
+				}
+			}
+		}
+	}
+}`;
+    expect(parseCompatToolMapping(cfg).get(0)).toBe("proton-cachyos-slr");
+  });
+
+  // führende nullen sind ziffern-rein und bleiben bewusst akzeptiert
+  it("akzeptiert führende nullen (ziffern-reine keys)", () => {
+    const cfg = `"InstallConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"CompatToolMapping"
+				{
+					"007"
+					{
+						"name"	"bond"
+					}
+				}
+			}
+		}
+	}
+}`;
+    expect(parseCompatToolMapping(cfg).get(7)).toBe("bond");
   });
 });
 

@@ -4,7 +4,7 @@
 
 import type { ExplainTopic } from "../../src/ui/explain.js";
 
-export interface ExplainGlossaryAnchor {
+interface ExplainGlossaryAnchor {
   readonly de: string;
   readonly en: string;
 }

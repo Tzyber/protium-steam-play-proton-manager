@@ -789,7 +789,6 @@ describe("cleanupStore, trash", () => {
     expect(store.error).toContain("nicht vorbereitete Einträge (1)");
     expect(store.error).toContain("nicht gelöschte Einträge (1)");
     expect(store.error).toContain("unlesbar");
-    expect(store.error).toContain("unlesbar");
   });
 });
 

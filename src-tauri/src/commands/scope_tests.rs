@@ -37,6 +37,40 @@ fn libraryfolders_parser_ignoriert_leeren_block_und_defekte_roots() {
     .is_err());
 }
 
+/// Kodierungsrunde: defekte libraryfolders-VDFs tragen `unreadable`, damit
+/// die oberflaeche sie kategorisiert statt als "unbekannt" zeigt.
+#[test]
+fn defekte_libraryfolders_tragen_unreadable() {
+    for text in [
+        include_str!("../../../tests/fixtures/libraryfolders-parser-missing-root.vdf"),
+        include_str!("../../../tests/fixtures/libraryfolders-parser-scalar-root.vdf"),
+        include_str!("../../../tests/fixtures/libraryfolders-parser-broken.vdf"),
+    ] {
+        let error = parse_library_folder_paths(text).unwrap_err();
+        assert!(errcode::has_code(&error, errcode::UNREADABLE), "{error}");
+    }
+}
+
+/// Kodierungsrunde: die symlinK-ablehnung der pfad-komponenten ist kodiert,
+/// kein rohtext mehr.
+#[cfg(unix)]
+#[test]
+fn symlink_komponente_ist_codiert() {
+    let root = wsg_fixture("symlink-component-coded");
+    let real = root.join("real");
+    std::fs::create_dir(&real).unwrap();
+    let link = root.join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+
+    let error = reject_symlink_components(&link.join("x"), true, "test").unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::SYMLINK_REJECTED),
+        "{error}"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
 #[test]
 fn parse_compat_id_begrenzt_appid_exakt_auf_uint32() {
     // appIDs sind unsigned 32-bit. non-steam-shortcuts setzen bit 31
@@ -966,4 +1000,18 @@ fn libraryfolders_lesekette_existiert_nur_einmal() {
         compat.contains("libraryfolders_contents_from_root_fd"),
         "compat_auth muss die geteilte Primitive nutzen"
     );
+}
+
+/// F-04: ein fehlgeschlagenes anlegen meldet `unavailable` (die app-wurzel
+/// steht nicht bereit), nicht `unreadable`/`not-found` aus der leseregel.
+#[test]
+fn prepare_app_dir_meldet_erzeugungsfehler_als_unavailable() {
+    let root = wsg_fixture("prepare-app-dir-create-failure");
+    let blocker = root.join("blocker");
+    std::fs::write(&blocker, b"x").unwrap();
+
+    let error = prepare_app_dir(&blocker.join("sub"), "app cache").unwrap_err();
+
+    assert!(errcode::has_code(&error, errcode::UNAVAILABLE), "{error}");
+    let _ = std::fs::remove_dir_all(root);
 }

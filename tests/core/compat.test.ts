@@ -9,6 +9,8 @@ import type {
   System,
 } from "../../src/core/ports.js";
 
+import { MOCK_TOKEN_TTL_MS } from "../support/mockTokenTtl";
+
 describe("recomputeToolUsedBy", () => {
   it("rechnet usedBy aus dem spielstand neu (wechsel + entfernen)", () => {
     const tools = [
@@ -128,8 +130,6 @@ describe("listCompatTools", () => {
         libraries: ["/fake/steam"],
         unavailableLibraries: [],
         systemCompatDirs: [],
-        appCacheDir: "/tmp/cache",
-        appConfigDir: "/tmp/config",
       })),
       listTrashEntries: vi.fn(async (library: string) => ({
         dir: `${library}/steamapps/.protium-trash`,
@@ -152,7 +152,7 @@ describe("listCompatTools", () => {
       saveCompatTool: vi.fn(async () => "written" as const),
       prepareDelete: vi.fn(async () => ({
         token: "tok",
-        expiresAt: Date.now() + 60000,
+        expiresAt: Date.now() + MOCK_TOKEN_TTL_MS,
         targetType: "compatTool" as const,
         targetPath: "/path",
         consequences: [],

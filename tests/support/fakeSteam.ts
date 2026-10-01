@@ -22,6 +22,7 @@ import type {
   PathIdentity,
   System,
 } from "../../src/core/ports.js";
+import { MOCK_TOKEN_TTL_MS } from "./mockTokenTtl";
 
 /** größenlimit, das der fake wie das rust-backend (16-MiB-caps) durchsetzt. */
 export const MAX_FILE_BYTES = 16 * 1024 * 1024;
@@ -267,8 +268,6 @@ export async function buildFakeSteam(): Promise<{
     libraries: [root, lib2],
     unavailableLibraries: [],
     systemCompatDirs: [systemCompat],
-    appCacheDir: join(home, "app-cache"),
-    appConfigDir: join(home, "app-config"),
   };
   return { home, root, lib2, lib2Dup, staleLib, systemCompat, userId, environment };
 }
@@ -320,8 +319,6 @@ export function fakeSystem(opts?: { environment?: EnvironmentSnapshot }): System
       libraries: ["/tmp/steam"],
       unavailableLibraries: [],
       systemCompatDirs: [],
-      appCacheDir: "/tmp/protium-cache",
-      appConfigDir: "/tmp/protium-config",
     } satisfies EnvironmentSnapshot);
   return {
     async geTargetArch() {
@@ -366,7 +363,7 @@ export function fakeSystem(opts?: { environment?: EnvironmentSnapshot }): System
       }
       return {
         token: `token-${request.path}`,
-        expiresAt: Date.now() + 60000,
+        expiresAt: Date.now() + MOCK_TOKEN_TTL_MS,
         targetType: request.targetType,
         targetPath: request.path,
         consequences: [

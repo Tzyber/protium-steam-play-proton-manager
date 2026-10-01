@@ -42,7 +42,7 @@ pub(crate) const NOT_AN_ORPHAN: &str = "not-an-orphan";
 pub(crate) const LIBRARY_NOT_LISTED: &str = "library-not-listed";
 /// Nur verwaltete GE-Proton-Tools dürfen gelöscht werden.
 pub(crate) const NOT_A_MANAGED_TOOL: &str = "not-a-managed-tool";
-/// Nach dem Rename ist der Abschluss offen (z. B. Parent-fsync-Fehler): die
+/// Nach der Mutation ist der Abschluss offen (z. B. Parent-fsync-Fehler): die
 /// Änderung kann angewendet sein, darf aber nicht als "nichts passiert"
 /// dargestellt werden.
 pub(crate) const WRITE_UNCERTAIN: &str = "write-may-have-applied";

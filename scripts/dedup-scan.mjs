@@ -2,7 +2,9 @@
 // read-only dedup scan: codeblock-duplikate + dateipaar-ähnlichkeit.
 // keine dependency, nur node builtins. ausgabe als plain text. lauf: npm run dedup
 // (manuell, kein CI-gate: die trefferzahl schwankt mit dem umbau und wäre als
-// gate nur rauschen). aus dem repo-root starten, die wurzeln sind relativ.
+// gate nur rauschen; --max-blocks N macht den lauf punktuell gate-fähig und
+// beendet ihn mit exit 1 bei ueberschreitung). aus dem repo-root starten,
+// die wurzeln sind relativ.
 //
 // Der block-vergleich normalisiert bewusst (whitespace, strukturklammern,
 // kommentare): exakte byte-gleiche blöcke gibt es in diesem repo praktisch
@@ -233,4 +235,23 @@ console.log(`\n=== dateipaar-ähnlichkeit (jaccard >= ${MIN_SIM}) ===`);
 if (similar.length === 0) console.log("keine gefunden");
 for (const s of similar) {
   console.log(`${s.sim}  ${s.a}  <->  ${s.b}  (inter ${s.inter}/${s.union})`);
+}
+
+// --max-blocks N | --max-blocks=N macht den lauf punktuell gate-faehig: exit 1
+// bei ueberschreitung. Beide schreibweisen sind gleichwertig; ein fehlender
+// oder nicht ziffern-reiner wert ist ein fehler statt einer stillen grenze.
+const maxBlocksInline = process.argv.find((arg) => arg.startsWith("--max-blocks="));
+const maxBlocksIndex = process.argv.indexOf("--max-blocks");
+if (maxBlocksInline !== undefined || maxBlocksIndex !== -1) {
+  const raw =
+    maxBlocksInline !== undefined
+      ? maxBlocksInline.slice("--max-blocks=".length)
+      : process.argv[maxBlocksIndex + 1];
+  if (raw === undefined || !/^\d+$/.test(raw)) {
+    console.error("--max-blocks erwartet eine ganze zahl >= 0");
+    process.exitCode = 1;
+  } else if (blocks.length > Number(raw)) {
+    console.error(`\ndedup-gate: ${blocks.length} block-duplikate > --max-blocks ${raw}`);
+    process.exitCode = 1;
+  }
 }

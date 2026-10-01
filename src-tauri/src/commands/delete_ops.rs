@@ -119,13 +119,24 @@ where
 
     let library_fd = crate::commands::fd::open_bound_root_fd(library, hook)?;
     let steamapps_fd =
-        crate::commands::fd::open_dir_at(library_fd.as_raw_fd(), OsStr::new("steamapps"))
-            .map_err(|error| format!("cannot open steamapps: {error}"))?;
+        crate::commands::fd::open_dir_at(library_fd.as_raw_fd(), OsStr::new("steamapps")).map_err(
+            |error| {
+                errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("cannot open steamapps: {error}"),
+                )
+            },
+        )?;
     let trash_fd = crate::commands::fd::open_or_create_dir_at(
         steamapps_fd.as_raw_fd(),
         OsStr::new(TRASH_DIR_NAME),
     )
-    .map_err(|error| format!("cannot create trash dir: {error}"))?;
+    .map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("cannot create trash dir: {error}"),
+        )
+    })?;
     Ok(fs::File::from(trash_fd))
 }
 
@@ -224,6 +235,20 @@ pub(super) fn renameat2_no_replace(
     ))
 }
 
+/// Der gebundene Parent-Deskriptor einer vorbereiteten Löschung; fehlt er,
+/// ist der `PendingDelete`-Zustand defekt. Eine Form für alle sechs
+/// Mutationsstellen statt vier kodierter und zwei roher Kopien desselben
+/// Textes (sonst erscheint derselbe Defekt in der Oberfläche einmal als
+/// „unbekannt" und einmal als „unlesbar").
+fn bound_parent(pending: &PendingDelete) -> Result<&fs::File, String> {
+    pending.parent_handle.as_ref().ok_or_else(|| {
+        errcode::with_detail(
+            errcode::UNREADABLE,
+            "pending delete has no bound parent directory",
+        )
+    })
+}
+
 /// Ergebnis eines erfolgreichen Claims: gebundener Handle, privater Name und
 /// der `/proc/self/fd`-Pfad für die Mutation. Existiert nur unter Linux, weil
 /// der Nicht-Linux-Stummel fail-closed ohne Claim zurückkehrt (r-18: die
@@ -239,10 +264,7 @@ struct ClaimedDeleteTarget {
 fn claim_delete_target(pending: &PendingDelete) -> Result<ClaimedDeleteTarget, String> {
     use std::os::fd::AsRawFd;
 
-    let parent = pending
-        .parent_handle
-        .as_ref()
-        .ok_or_else(|| "pending delete has no bound parent directory".to_string())?;
+    let parent = bound_parent(pending)?;
     let source_name = pending
         .target_name
         .as_ref()
@@ -551,10 +573,7 @@ fn execute_delete_pipeline_inner(
     // Die beiden Invarianten hängen nur am pending, nicht am Claim: sie VOR
     // dem Claim ziehen, damit zwischen claim_delete_target und der
     // Guard-Armierung kein fallibler Schritt den Claim stranden lassen kann.
-    let claim_parent = pending
-        .parent_handle
-        .as_ref()
-        .ok_or_else(|| "pending delete has no bound parent directory".to_string())?;
+    let claim_parent = bound_parent(&pending)?;
     let original_name = pending
         .target_name
         .as_deref()
@@ -651,6 +670,18 @@ fn inspect_pending_target(
     Ok(())
 }
 
+/// r-08: den gebundenen parent eines entfernten ziels durabel machen. ein
+/// sync-fehler nach der bereits ausgeführten mutation meldet
+/// `write-may-have-applied` statt "nichts passiert"; das label unterscheidet
+/// den aufrufenden lösch-zweig im log.
+#[cfg(target_os = "linux")]
+fn sync_deleted_parent(parent: &fs::File, label: &str) -> Result<(), String> {
+    use std::os::fd::AsRawFd;
+    crate::commands::fd::sync_dir_fd(parent.as_raw_fd()).map_err(|error| {
+        errcode::with_detail(errcode::WRITE_UNCERTAIN, format!("{label}: {error}"))
+    })
+}
+
 /// Führt die eigentliche Mutation des geclaimten Ziels aus (r-10). Genau die
 /// drei Zieltypen der Pipeline, derselbe Papierkorb-Move samt
 /// Verzeichnis-fsync und dieselben Fehler wie zuvor; nur zusammenhängend
@@ -665,11 +696,10 @@ fn apply_delete_mutation(
         "orphan" => {
             let canon_str = pending.canonical_path.to_string_lossy();
             let suffix = crate::commands::scope::suffix_after_steamapps(&canon_str)?;
-            let (typ, app_id_str) = crate::commands::scope::parse_compat_id(
-                suffix
-                    .split_once('/')
-                    .ok_or_else(|| "invalid suffix structure".to_string())?,
-            )?;
+            let suffix_pair = suffix.split_once('/').ok_or_else(|| {
+                errcode::with_detail(errcode::INVALID_VALUE, "invalid suffix structure")
+            })?;
+            let (typ, app_id_str) = crate::commands::scope::parse_compat_id(suffix_pair)?;
             match typ {
                 "shadercache" => {
                     fs::remove_dir_all(&claimed.path).map_err(|error| {
@@ -678,14 +708,17 @@ fn apply_delete_mutation(
                             format!("cannot remove shadercache: {error}"),
                         )
                     })?;
+                    // r-08: nach dem löschen den parent synchronisieren, sonst kann
+                    // das verzeichnis nach absturz driftig sichtbar bleiben; ein
+                    // sync-fehler meldet die möglich angewandte mutation statt "nichts
+                    // passiert".
+                    sync_deleted_parent(bound_parent(pending)?, "shadercache remove parent sync")?;
                 }
                 "compatdata" => {
                     let lib_str = crate::commands::scope::library_of(&canon_str)?;
                     let trash_parent = open_trash_dir(Path::new(lib_str), &mut || {})?;
                     let trash_name = format!("compatdata_{app_id_str}_{now_ms}");
-                    let source_parent = pending.parent_handle.as_ref().ok_or_else(|| {
-                        "pending delete has no bound parent directory".to_string()
-                    })?;
+                    let source_parent = bound_parent(pending)?;
                     renameat2_no_replace(
                         source_parent,
                         &claimed.name,
@@ -732,6 +765,11 @@ fn apply_delete_mutation(
                     format!("cannot remove trash item: {error}"),
                 )
             })?;
+            // r-08: nach dem löschen den parent synchronisieren, sonst kann
+            // das verzeichnis nach absturz driftig sichtbar bleiben; ein
+            // sync-fehler meldet die möglich angewandte mutation statt "nichts
+            // passiert".
+            sync_deleted_parent(bound_parent(pending)?, "trash remove parent sync")?;
         }
         "compatTool" => {
             fs::remove_dir_all(&claimed.path).map_err(|error| {
@@ -740,6 +778,11 @@ fn apply_delete_mutation(
                     format!("cannot remove compat tool: {error}"),
                 )
             })?;
+            // r-08: nach dem löschen den parent synchronisieren, sonst kann
+            // das verzeichnis nach absturz driftig sichtbar bleiben; ein
+            // sync-fehler meldet die möglich angewandte mutation statt "nichts
+            // passiert".
+            sync_deleted_parent(bound_parent(pending)?, "compat tool remove parent sync")?;
         }
         _ => {
             return Err(errcode::with_detail(

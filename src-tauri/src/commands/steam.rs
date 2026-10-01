@@ -357,12 +357,18 @@ fn persist_atomic<F>(
 where
     F: FnMut() -> Result<bool, String>,
 {
-    let parent = target
-        .parent()
-        .ok_or_else(|| PersistAtomicError::BeforeRename("atomic write: no parent dir".into()))?;
-    let target_name = target
-        .file_name()
-        .ok_or_else(|| PersistAtomicError::BeforeRename("atomic write: no file name".into()))?;
+    let parent = target.parent().ok_or_else(|| {
+        PersistAtomicError::BeforeRename(errcode::with_detail(
+            errcode::UNREADABLE,
+            "atomic write: no parent dir",
+        ))
+    })?;
+    let target_name = target.file_name().ok_or_else(|| {
+        PersistAtomicError::BeforeRename(errcode::with_detail(
+            errcode::UNREADABLE,
+            "atomic write: no file name",
+        ))
+    })?;
     let dir = open_bound_root_fd(parent, &mut || {
         #[cfg(test)]
         PERSIST_BIND_PROBE.with(|slot| {
@@ -829,7 +835,7 @@ pub async fn open_backups_folder(app: tauri::AppHandle) -> Result<(), String> {
     let cache_dir = app
         .path()
         .app_cache_dir()
-        .map_err(|e| format!("unavailable: {e}"))?;
+        .map_err(|e| errcode::with_detail(errcode::UNAVAILABLE, e))?;
     // WARUM prepare_app_dir und nicht der Environment-Snapshot: die Backups
     // gehoeren der App, die Anzeige muss auch ohne Steam-Installation
     // funktionieren. prepare_app_dir bringt dieselbe Haertung (keine

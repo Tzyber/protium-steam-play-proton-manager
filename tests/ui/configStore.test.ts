@@ -16,7 +16,6 @@ vi.mock("../../src/core/adapters/tauri", async () => {
   };
   return {
     tauriPorts,
-    appCacheDir: async () => "/tmp/protium-cache",
     logDiagnostic: vi.fn(async () => {}),
   };
 });

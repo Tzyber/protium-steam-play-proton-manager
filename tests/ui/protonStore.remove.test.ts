@@ -2,6 +2,7 @@
 // biome-ignore assist/source/organizeImports: mock-registrierung muss vor den modul-importen laufen (T-08)
 import { fakeScanResult, mockHttpGet, mockInstallGeProton, release } from "./protonStore.preamble";
 import { MOCK_TOKEN_TTL_MS } from "../support/cleanupStoreMocks";
+import { customTool } from "../support/factories";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { tauriPorts } from "../../src/core/adapters/tauri";
@@ -114,7 +115,6 @@ describe("protonStore.remove", () => {
     const scan = useScanStore();
     scan.result = fakeScanResult();
     const store = useProtonStore();
-    const { tauriPorts } = await import("../../src/core/adapters/tauri");
     const prepareSpy = vi.spyOn(tauriPorts.system, "prepareDelete");
     let resolvePrepare:
       | ((value: {
@@ -132,14 +132,7 @@ describe("protonStore.remove", () => {
         }),
     );
 
-    const firstRemove = store.remove({
-      name: "GE-Proton9-27",
-      internalName: "GE-Proton9-27",
-      displayName: "GE-Proton9-27",
-      sizeBytes: 1000,
-      source: "user",
-      usedBy: [],
-    });
+    const firstRemove = store.remove(customTool("GE-Proton9-27", { sizeBytes: 1000 }));
     await vi.waitFor(() => expect(prepareSpy).toHaveBeenCalledTimes(1));
 
     await store.remove({
@@ -178,14 +171,7 @@ describe("protonStore.remove", () => {
     );
     const store = useProtonStore();
 
-    await store.remove({
-      name: "GE-Proton9-27",
-      internalName: "GE-Proton9-27",
-      displayName: "GE-Proton9-27",
-      sizeBytes: 1000,
-      source: "user",
-      usedBy: [],
-    });
+    await store.remove(customTool("GE-Proton9-27", { sizeBytes: 1000 }));
 
     expect(useConfirmStore().reserved).toBe(false);
     expect(store.busyRemove).toBeNull();
@@ -201,14 +187,7 @@ describe("protonStore.remove", () => {
     vi.mocked(tauriPorts.system.prepareDelete).mockRejectedValueOnce(new Error("steam-running"));
     const store = useProtonStore();
 
-    await store.remove({
-      name: "GE-Proton9-27",
-      internalName: "GE-Proton9-27",
-      displayName: "GE-Proton9-27",
-      sizeBytes: 1000,
-      source: "user",
-      usedBy: [],
-    });
+    await store.remove(customTool("GE-Proton9-27", { sizeBytes: 1000 }));
 
     expect(store.removeError).toContain("steam läuft");
     expect(store.loadError).toBeNull();
@@ -227,14 +206,7 @@ describe("protonStore.remove", () => {
     const store = useProtonStore();
     store.loadError = "release-meldung";
 
-    await store.remove({
-      name: "GE-Proton9-27",
-      internalName: "GE-Proton9-27",
-      displayName: "GE-Proton9-27",
-      sizeBytes: 1000,
-      source: "user",
-      usedBy: [],
-    });
+    await store.remove(customTool("GE-Proton9-27", { sizeBytes: 1000 }));
 
     expect(store.loadError).toBe("release-meldung");
     expect(store.removeError).toContain("unlesbar");
@@ -245,14 +217,7 @@ describe("protonStore.remove", () => {
     scan.result = fakeScanResult();
     const store = useProtonStore();
 
-    await store.remove({
-      name: "GE-Proton9-27",
-      internalName: "GE-Proton9-27",
-      displayName: "GE-Proton9-27",
-      sizeBytes: 1000,
-      source: "user",
-      usedBy: [],
-    });
+    await store.remove(customTool("GE-Proton9-27", { sizeBytes: 1000 }));
 
     expect(useConfirmStore().pending?.message).toContain("Prefixes der Spiele bleiben erhalten");
     useConfirmStore().cancel();
@@ -262,18 +227,10 @@ describe("protonStore.remove", () => {
     const scan = useScanStore();
     scan.result = fakeScanResult();
     const store = useProtonStore();
-    const { tauriPorts } = await import("../../src/core/adapters/tauri");
     const prepareSpy = vi.spyOn(tauriPorts.system, "prepareDelete");
     const executeSpy = vi.spyOn(tauriPorts.system, "executeDelete");
 
-    await store.remove({
-      name: "GE-Proton9-27",
-      internalName: "GE-Proton9-27",
-      displayName: "GE-Proton9-27",
-      sizeBytes: 1000,
-      source: "user",
-      usedBy: [],
-    });
+    await store.remove(customTool("GE-Proton9-27", { sizeBytes: 1000 }));
     // der dialog wartet auf die bestätigung; erst der klick führt das löschen aus
     await useConfirmStore().confirm();
     expect(prepareSpy).toHaveBeenCalledWith({
@@ -296,14 +253,7 @@ describe("protonStore.remove", () => {
     expect(prepareSpy).not.toHaveBeenCalled();
     expect(executeSpy).not.toHaveBeenCalled();
 
-    await store.remove({
-      name: "GE-Proton9-27",
-      internalName: "GE-Proton9-27",
-      displayName: "GE-Proton9-27",
-      sizeBytes: 1000,
-      source: "system",
-      usedBy: [],
-    });
+    await store.remove(customTool("GE-Proton9-27", { sizeBytes: 1000, source: "system" }));
     expect(prepareSpy).not.toHaveBeenCalled();
     expect(executeSpy).not.toHaveBeenCalled();
   });
@@ -312,17 +262,9 @@ describe("protonStore.remove", () => {
     const scan = useScanStore();
     scan.result = fakeScanResult();
     const store = useProtonStore();
-    const { tauriPorts } = await import("../../src/core/adapters/tauri");
     vi.spyOn(tauriPorts.system, "executeDelete").mockRejectedValueOnce(new Error("token-expired"));
 
-    await store.remove({
-      name: "GE-Proton9-27",
-      internalName: "GE-Proton9-27",
-      displayName: "GE-Proton9-27",
-      sizeBytes: 1000,
-      source: "user",
-      usedBy: [],
-    });
+    await store.remove(customTool("GE-Proton9-27", { sizeBytes: 1000 }));
     await useConfirmStore().confirm();
 
     expect(store.busyRemove).toBeNull();

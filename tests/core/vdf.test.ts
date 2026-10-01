@@ -317,6 +317,26 @@ describe("parseVdf schließt geteilte objekte ab (Regression, versteckte klammer
     });
   }
 
+  it("neutralisiert einen block-key, dessen klammer zwei tokens entfernt steht (C-04)", () => {
+    // "toString" X { ... }: die klammer steht erst hinter einem wert-token
+    // und ist nur über die zweite pre-pass-klausel (index+2) erreichbar.
+    // Anders als die containment-fälle prüft dieser fall den neutralisierten
+    // output direkt: der rohe key darf im geparsten baum nicht auftauchen.
+    function allKeys(value: unknown, out: string[] = []): string[] {
+      if (value === null || typeof value !== "object") return out;
+      for (const key of Object.getOwnPropertyNames(value)) {
+        out.push(key);
+        allKeys((value as Record<string, unknown>)[key], out);
+      }
+      return out;
+    }
+
+    const parsed = parseVdf('root\n{\n"toString" X\n{\n"polluted" "yes"\n}\n}');
+    const names = allKeys(parsed);
+    expect(names).toContain("__x_toString__");
+    expect(names).not.toContain("toString");
+  });
+
   it.each([
     ["wert-token versteckt die klammer", 'root\n{\n"toString" X\n{\n"polluted" "yes"\n}\n}'],
     [

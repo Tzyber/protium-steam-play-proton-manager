@@ -184,17 +184,21 @@ const compatOptions = computed(() => {
   const current = game.value?.compatTool ?? "";
   const list: { value: string; label: string }[] = [];
 
+  const seen = new Set<string>(["__default__"]);
   list.push({ value: "__default__", label: t("drawer.compatDefault") });
 
   for (const tool of builtIns) {
+    if (seen.has(tool.internalName)) continue;
+    seen.add(tool.internalName);
     list.push({ value: tool.internalName, label: tool.displayName });
   }
 
   for (const tool of tools) {
+    if (seen.has(tool.internalName)) continue;
+    seen.add(tool.internalName);
     list.push({ value: tool.internalName, label: tool.displayName });
   }
 
-  const seen = new Set(list.map((o) => o.value));
   const customToolByDirectory = new Map(tools.map((tool) => [tool.name, tool]));
   if (
     current &&

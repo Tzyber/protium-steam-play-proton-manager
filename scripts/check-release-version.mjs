@@ -147,7 +147,7 @@ function extractTomlField(content, fieldName, source) {
 }
 
 /** @param {string} content @returns {string} */
-export function extractPackageJsonVersion(content) {
+function extractPackageJsonVersion(content) {
   return extractJsonVersion(content, "package.json");
 }
 
@@ -155,7 +155,7 @@ export function extractPackageJsonVersion(content) {
  * @param {string} content
  * @returns {{topLevelVersion: string, rootPackageVersion: string}}
  */
-export function extractPackageLockVersions(content) {
+function extractPackageLockVersions(content) {
   const source = "package-lock.json";
   const parsed = parseJsonObject(content, source);
   const topLevelName = requireName(parsed.name, `${source} top-level name`);
@@ -184,12 +184,12 @@ export function extractPackageLockVersions(content) {
 }
 
 /** @param {string} content @returns {string} */
-export function extractTauriVersion(content) {
+function extractTauriVersion(content) {
   return extractJsonVersion(content, "src-tauri/tauri.conf.json");
 }
 
 /** @param {string} content @returns {string} */
-export function extractCargoTomlVersion(content) {
+function extractCargoTomlVersion(content) {
   const packageSection = findSingleTomlSection(content, "package", "src-tauri/Cargo.toml");
   return extractTomlField(packageSection, "version", "src-tauri/Cargo.toml");
 }
@@ -218,7 +218,7 @@ function findCargoLockPackageBlocks(content, source) {
 }
 
 /** @param {string} content @returns {string} */
-export function extractCargoLockRootVersion(content) {
+function extractCargoLockRootVersion(content) {
   const source = "src-tauri/Cargo.lock";
   const packageBlocks = findCargoLockPackageBlocks(content, source);
   const rootBlocks = packageBlocks.filter((block) => {
@@ -238,7 +238,7 @@ export function extractCargoLockRootVersion(content) {
  * @param {Record<string, string | undefined>} environment
  * @returns {{refType: string, ref: string | undefined, tag: string}}
  */
-export function extractReleaseContext(environment) {
+function extractReleaseContext(environment) {
   const refType = environment.GITHUB_REF_TYPE ?? "";
   const refValue = environment.GITHUB_REF ?? "";
   const ref = refValue || undefined;
@@ -254,7 +254,7 @@ export function extractReleaseContext(environment) {
  * @param {string} [ref]
  * @returns {string}
  */
-export function normalizeReleaseTag(refType, tag, ref = undefined) {
+function normalizeReleaseTag(refType, tag, ref = undefined) {
   if (refType !== "tag") {
     throw new Error(`github.ref_type must be tag, received ${refType || "<missing>"}`);
   }
@@ -296,7 +296,7 @@ function firstMarkdownHeading(content, source) {
  * @param {string} [source]
  * @returns {string}
  */
-export function validateReleaseNotes(content, releaseTag, source = releaseNotesPath(releaseTag)) {
+function validateReleaseNotes(content, releaseTag, source = releaseNotesPath(releaseTag)) {
   if (typeof releaseTag !== "string" || !RELEASE_TAG_PATTERN.test(releaseTag)) {
     throw new Error(`release notes tag is invalid: ${releaseTag || "<missing>"}`);
   }
@@ -314,30 +314,12 @@ export function validateReleaseNotes(content, releaseTag, source = releaseNotesP
 }
 
 /** @param {ReleaseInputs} inputs @returns {{tagVersion: string, versions: Record<string, string>}} */
-export function compareReleaseVersions(inputs) {
-  const {
-    refType,
-    tag,
-    ref,
-    packageJson,
-    packageLock,
-    tauriConfig,
-    cargoToml,
-    cargoLock,
-    releaseNotes,
-  } = inputs;
+function compareReleaseVersions(inputs) {
+  const { refType, tag, ref, releaseNotes } = inputs;
   const tagVersion = normalizeReleaseTag(refType, tag, ref);
   const releaseTag = `v${tagVersion}`;
   validateReleaseNotes(releaseNotes, releaseTag);
-  const packageLockVersions = extractPackageLockVersions(packageLock);
-  const versions = {
-    "package.json": extractPackageJsonVersion(packageJson),
-    "package-lock.json": packageLockVersions.topLevelVersion,
-    'package-lock.json packages[""]': packageLockVersions.rootPackageVersion,
-    "src-tauri/tauri.conf.json": extractTauriVersion(tauriConfig),
-    "src-tauri/Cargo.toml": extractCargoTomlVersion(cargoToml),
-    "src-tauri/Cargo.lock": extractCargoLockRootVersion(cargoLock),
-  };
+  const versions = collectFileVersions(inputs);
   const mismatches = Object.entries(versions)
     .filter(([, version]) => version !== tagVersion)
     .map(([source, version]) => `${source}=${version}`);
@@ -386,7 +368,7 @@ function expectFailure(name, input) {
   throw new Error(`self-test expected failure: ${name}`);
 }
 
-export function runSelfTest() {
+function runSelfTest() {
   const valid = validFixture();
   const result = compareReleaseVersions(valid);
   if (
@@ -463,6 +445,18 @@ export function runSelfTest() {
     ...valid,
     releaseNotes: "# v0.3.10\n",
   });
+
+  // --files-only: die quellen muessen auch ohne tag und release-notes
+  // zusammenpassen; ein drift zwischen zwei dateien faellt hier auf.
+  assertFileVersionsConsistent(collectFileVersions(valid));
+  expectFilesOnlyFailure("files-only: tauri version", {
+    ...valid,
+    tauriConfig: valid.tauriConfig.replace("0.3.1", "0.3.2"),
+  });
+  expectFilesOnlyFailure("files-only: Cargo.lock version", {
+    ...valid,
+    cargoLock: valid.cargoLock.replace("0.3.1", "0.3.2"),
+  });
 }
 
 /**
@@ -487,6 +481,65 @@ function readRepositoryInputs(rootDirectory) {
   };
 }
 
+/**
+ * Versionen aller fuenf Versionsdateien (sechs Quellen) ueber die
+ * vorhandenen Extraktoren, ohne tag und release-notes.
+ * @param {Pick<ReleaseInputs, "packageJson" | "packageLock" | "tauriConfig" | "cargoToml" | "cargoLock">} inputs
+ * @returns {Record<string, string>}
+ */
+function collectFileVersions(inputs) {
+  const packageLockVersions = extractPackageLockVersions(inputs.packageLock);
+  return {
+    "package.json": extractPackageJsonVersion(inputs.packageJson),
+    "package-lock.json": packageLockVersions.topLevelVersion,
+    'package-lock.json packages[""]': packageLockVersions.rootPackageVersion,
+    "src-tauri/tauri.conf.json": extractTauriVersion(inputs.tauriConfig),
+    "src-tauri/Cargo.toml": extractCargoTomlVersion(inputs.cargoToml),
+    "src-tauri/Cargo.lock": extractCargoLockRootVersion(inputs.cargoLock),
+  };
+}
+
+/**
+ * @param {Record<string, string>} versions
+ * @returns {string}
+ */
+function assertFileVersionsConsistent(versions) {
+  const values = new Set(Object.values(versions));
+  if (values.size !== 1) {
+    const details = Object.entries(versions)
+      .map(([source, version]) => `${source}=${version}`)
+      .join(", ");
+    throw new Error(`release version mismatch across files: ${details}`);
+  }
+  return /** @type {string} */ (values.values().next().value);
+}
+
+/**
+ * Prueft nur die konsistenz der versionsdateien im arbeitsbaum; ohne tag
+ * und ohne release-notes, damit der check auch ausserhalb eines
+ * release-kontexts laufen kann.
+ * @param {string} rootDirectory
+ * @returns {void}
+ */
+function runFilesOnlyCheck(rootDirectory) {
+  const versions = collectFileVersions(readRepositoryInputs(rootDirectory));
+  console.log(`release version files: ${assertFileVersionsConsistent(versions)}`);
+}
+
+/** @param {string} name @param {ReleaseInputs} input */
+function expectFilesOnlyFailure(name, input) {
+  try {
+    assertFileVersionsConsistent(collectFileVersions(input));
+  } catch (error) {
+    // nur der drift-fehler zaehlt als erwarteter fehlschlag; ein extraktor-
+    // oder fixture-fehler waere ein kaputter self-test und muss auffallen.
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.startsWith("release version mismatch across files:")) return;
+    throw error;
+  }
+  throw new Error(`self-test expected files-only failure: ${name}`);
+}
+
 /** @param {string} rootDirectory @param {string} releaseTag @returns {string} */
 function readReleaseNotes(rootDirectory, releaseTag) {
   const relativePath = releaseNotesPath(releaseTag);
@@ -508,8 +561,13 @@ function runCli(argumentsList) {
     console.log("release version self-test: ok");
     return;
   }
+  if (argumentsList.length === 1 && argumentsList[0] === "--files-only") {
+    const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+    runFilesOnlyCheck(rootDirectory);
+    return;
+  }
   if (argumentsList.length !== 0) {
-    throw new Error("usage: node scripts/check-release-version.mjs [--self-test]");
+    throw new Error("usage: node scripts/check-release-version.mjs [--self-test | --files-only]");
   }
 
   const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

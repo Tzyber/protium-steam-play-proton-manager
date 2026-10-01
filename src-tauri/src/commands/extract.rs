@@ -240,8 +240,12 @@ pub(super) fn extract_blocking_with_tag_with_hook(
             format!("create extract destination: {error}"),
         )
     })?;
-    let dest_canon = fs::canonicalize(dest)
-        .map_err(|error| format!("canonicalize extract destination: {error}"))?;
+    let dest_canon = fs::canonicalize(dest).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("canonicalize extract destination: {error}"),
+        )
+    })?;
     if !dest_canon.is_dir() || !is_safe_path(&dest_canon.to_string_lossy()) {
         return Err(errcode::BLOCKED_LOCATION.into());
     }
@@ -323,8 +327,12 @@ fn extract_archive_into_bound_parent(
         )
     })?;
     let result = (|| -> Result<(), String> {
-        file.seek(SeekFrom::Start(0))
-            .map_err(|error| format!("rewind archive before extraction: {error}"))?;
+        file.seek(SeekFrom::Start(0)).map_err(|error| {
+            errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("rewind archive before extraction: {error}"),
+            )
+        })?;
         let decoder = GzDecoder::new(&mut *file);
         let mut archive = Archive::new(decoder);
         for entry_result in archive.entries().map_err(|error| {

@@ -3,11 +3,11 @@
 // T-08: die mock-preamble muss vor jedem src-/store-import geladen werden.
 // biome-ignore assist/source/organizeImports: mock-registrierung muss vor den modul-importen laufen (T-08)
 import {
-  cleanupState,
   configState,
   footprint,
   measureGameFootprintMock,
   mountDrawer,
+  resetDrawerMocks,
   result,
   scanState,
   uiState,
@@ -24,21 +24,7 @@ import { deferred } from "../support/factories";
 
 describe("GameDetailDrawer Speicherbedarf", () => {
   beforeEach(() => {
-    setLocale("de");
-    uiState.selectedAppId = 42;
-    uiState.inertMain = false;
-    scanState.result = null;
-    scanState.protonChecks = [];
-    scanState.status = "done";
-    scanState.scanGeneration = 1;
-    cleanupState.scanning = false;
-    cleanupState.trashScanning = false;
-    cleanupState.prefixUnavailable = false;
-    cleanupState.shaderUnavailable = false;
-    cleanupState.trashUnavailable = false;
-    cleanupState.incompleteDeletions = [];
-    cleanupState.incompleteDeletionsUnreadable = [];
-    measureGameFootprintMock.mockReset();
+    resetDrawerMocks();
   });
 
   afterEach(() => {
@@ -473,13 +459,7 @@ describe("GameDetailDrawer Speicherbedarf", () => {
 
 describe("GameDetailDrawer Speicherstatus", () => {
   beforeEach(() => {
-    setLocale("de");
-    uiState.selectedAppId = 42;
-    uiState.inertMain = false;
-    scanState.result = null;
-    scanState.protonChecks = [];
-    scanState.status = "done";
-    scanState.scanGeneration = 1;
+    resetDrawerMocks();
     configState.saveLaunchOptions.mockReset();
     configState.saveCompatTool.mockReset();
     configState.saveLaunchOptions.mockResolvedValue("written");
@@ -539,6 +519,16 @@ describe("GameDetailDrawer Speicherstatus", () => {
     if (!option) throw new Error(`compat option missing: ${label}`);
     await option.trigger("click");
   }
+
+  it("führt builtin- und custom-tool mit gleichem internalName nur einmal auf (U-03)", () => {
+    const scan = compatScanResult();
+    scan.builtinProtonsInstalled = [{ internalName: "tool-a", displayName: "Tool A" }];
+    const wrapper = mountDrawer(scan);
+
+    const labels = wrapper.findAll(".select-option").map((li) => li.text());
+    expect(labels.filter((label) => label === "Tool A")).toHaveLength(1);
+    expect(labels).toContain("Tool B");
+  });
 
   function switchToGame43(): void {
     scanState.result = result("available", "default", "default", null, {

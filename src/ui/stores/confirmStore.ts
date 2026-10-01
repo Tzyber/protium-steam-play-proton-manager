@@ -20,8 +20,6 @@ interface ConfirmCallbacks {
   onError?: (error: unknown) => Promise<void> | void;
 }
 
-let nextReservationId = 0;
-
 /**
  * der bestätigungsdialog lebt wieder im hauptfenster: die aufrufenden stores
  * bereiten die löschung vor (prepareDelete, backend-autorisiert), der dialog
@@ -35,6 +33,9 @@ export const useConfirmStore = defineStore("confirm", () => {
   const reservation = ref<number | null>(null);
   const reserved = computed(() => reservation.value !== null);
   let callbacks: ConfirmCallbacks = {};
+  // pro store-instanz: ein modulweiter zähler würde sich über tests und
+  // instanzen hinweg fortsetzen.
+  let nextReservationId = 0;
 
   function reserve(): number | null {
     if (busy.value || pending.value || reservation.value !== null) return null;

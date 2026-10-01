@@ -24,6 +24,7 @@ const confidenceText = computed(() =>
 
 <style scoped>
 .tier {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 5px;

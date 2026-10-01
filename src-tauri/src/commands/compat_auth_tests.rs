@@ -207,7 +207,8 @@ fn valve_libraryfolders_descriptor_reader_nutzt_gemeinsamen_parser() {
     .unwrap();
     let error = read_library_folders_from_root_fd(&steam, &root_fd, &mut |_| {}).unwrap_err();
     assert!(
-        error.starts_with("scan libraryfolders entries:"),
+        errcode::has_code(&error, errcode::UNREADABLE)
+            && error.contains("scan libraryfolders entries:"),
         "error: {error}"
     );
 
@@ -617,6 +618,36 @@ fn legacy_ge_schwelle_ist_fuer_namensregel_und_release_regel_dieselbe() {
     assert!(is_managed_ge_name("GE-Proton11-3"));
     assert!(!is_managed_ge_name("GE-Proton11-4"));
     assert!(is_managed_ge_name("GE-Proton11-4-x86_64"));
+}
+
+/// F-03: das slice-pattern bindet genau einen eintrag und lehnt 0 und mehrere
+/// mit demselben fehler ab (die grenze selbst ist unveraendert); der frühere
+/// unerreichbare zweig haette bei kuenftigen aenderungen still `Ok(None)`
+/// geliefert.
+#[test]
+fn parse_compat_tool_vdf_verlangt_genau_einen_eintrag() {
+    let vdf = |inner: &str| format!("\"compatibilitytools\" {{ \"compat_tools\" {{ {inner} }} }}");
+
+    assert_eq!(
+        parse_compat_tool_vdf(&vdf("\"GE-Proton9-27\" { }"))
+            .unwrap()
+            .as_deref(),
+        Some("GE-Proton9-27")
+    );
+
+    for (label, inner) in [
+        ("kein eintrag", ""),
+        (
+            "zwei eintraege",
+            "\"GE-Proton9-27\" { } \"GE-Proton10-1\" { }",
+        ),
+    ] {
+        let error = parse_compat_tool_vdf(&vdf(inner)).unwrap_err();
+        assert!(
+            errcode::has_code(&error, errcode::UNREADABLE) && error.contains("exactly one tool"),
+            "{label}: {error}"
+        );
+    }
 }
 
 #[cfg(all(test, target_os = "linux"))]

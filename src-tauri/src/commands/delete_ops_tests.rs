@@ -206,6 +206,22 @@ fn destruktive_mutation_laueft_nur_ueber_claim() {
     assert!(!production.contains("fs::remove_dir_all(&pending.canonical_path"));
 }
 
+/// Der strukturfehler des suffix-parse ist über die pipeline unerreichbar
+/// (inspect_orphan_target prüft dasselbe suffix vorher und kodiert bereits),
+/// deshalb hält nur ein quelltext-pin den code der defensivzeile fest.
+#[test]
+fn orphan_suffix_parse_fehler_traegt_invalid_value() {
+    let production = production_source(include_str!("delete_ops.rs"));
+    assert!(
+        production.contains("errcode::INVALID_VALUE, \"invalid suffix structure\""),
+        "der suffix-parse der orphan-mutation muss den fehlercode tragen"
+    );
+    assert!(
+        !production.contains("\"invalid suffix structure\".to_string()"),
+        "roher fehlerstring ohne code"
+    );
+}
+
 fn collect_source_files(root: &std::path::Path, files: &mut Vec<(std::path::PathBuf, String)>) {
     for entry in std::fs::read_dir(root).unwrap() {
         let path = entry.unwrap().path();
@@ -1147,6 +1163,31 @@ fn trash_anlage_bleibt_an_die_gebundene_library_gebunden() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// F-01: die beiden verzeichnis-oeffnungen des papierkorbs tragen ihren
+/// kanonischen code; als rohtext erschienen sie in der oberflaeche als
+/// "unbekannt". Belegt zugleich, dass der pfad fail-closed bleibt: es
+/// entsteht kein papierkorb, wenn die bindekette nicht durchgeht.
+#[cfg(target_os = "linux")]
+#[test]
+fn open_trash_dir_fehler_tragen_ihren_code() {
+    let root = wsg_fixture("open-trash-dir-codes");
+    let library = root.join("library");
+    std::fs::create_dir_all(&library).unwrap();
+
+    // fehlendes steamapps: belegte abwesenheit -> not-found
+    let error = open_trash_dir(&library, &mut || {}).unwrap_err();
+    assert!(errcode::has_code(&error, errcode::NOT_FOUND), "{error}");
+    assert!(!library.join("steamapps").exists());
+
+    // steamapps liegt als regulaere datei im weg: ENOTDIR -> unreadable
+    std::fs::write(library.join("steamapps"), b"x").unwrap();
+    let error = open_trash_dir(&library, &mut || {}).unwrap_err();
+    assert!(errcode::has_code(&error, errcode::UNREADABLE), "{error}");
+    assert!(!library.join("steamapps").join(TRASH_DIR_NAME).exists());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// Regression: Wird zwischen letzter Inspektion und Claim ein Replacement
 /// untergeschoben, claimt Protium es und erkennt den Identity-Mismatch.
 /// Der Claim-Restore benennt das Replacement best-effort per NOREPLACE auf
@@ -1279,4 +1320,60 @@ fn rename_mutationen_synchronisieren_quell_und_zielverzeichnis() {
         drop_body[..drop_end].contains("sync_dir_fd(self.parent.as_raw_fd())"),
         "claim-restore braucht ein verzeichnis-fsync im rückweg"
     );
+
+    // r-08: die drei remove_dir_all-zweige (shadercache, trash, compat
+    // tool) synchronisieren nach dem löschen ebenfalls ihren gebundenen
+    // parent; der sync-fehlerpfad jedes zweigs ist eindeutig markiert.
+    let remove_zweige = [
+        (
+            "cannot remove shadercache",
+            "shadercache remove parent sync",
+        ),
+        ("cannot remove trash item", "trash remove parent sync"),
+        (
+            "cannot remove compat tool",
+            "compat tool remove parent sync",
+        ),
+    ];
+    for (index, &(marker, sync_label)) in remove_zweige.iter().enumerate() {
+        let at = production
+            .find(marker)
+            .unwrap_or_else(|| panic!("remove-zweig {marker} muss vorhanden sein"));
+        let next_marker = remove_zweige.get(index + 1).map(|(next, _)| *next);
+        let end = next_marker
+            .and_then(|next| production.find(next))
+            .unwrap_or(production.len());
+        let block = &production[at..end];
+        let label_at = block
+            .find(sync_label)
+            .unwrap_or_else(|| panic!("{marker} braucht den sync-fehlerpfad {sync_label}"));
+        assert!(
+            block[..label_at].contains("sync_deleted_parent("),
+            "{marker} braucht einen verzeichnis-fsync nach dem löschen"
+        );
+    }
+}
+
+/// Verhaltenstest für den r-08-Helfer: fsync auf einem Socket (kein
+/// dateisystem-objekt) schlägt fehl und muss als `write-may-have-applied`
+/// gemeldet werden, nicht unkodiert oder still.
+#[cfg(target_os = "linux")]
+#[test]
+fn sync_deleted_parent_meldet_write_uncertain() {
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let (stream, _other) = std::os::unix::net::UnixStream::pair().unwrap();
+    let raw = stream.as_raw_fd();
+    std::mem::forget(stream);
+    // SAFETY: genau ein owner übernimmt den gelösten fd und schließt ihn,
+    // wenn `file` fällt.
+    let file = unsafe { std::fs::File::from_raw_fd(raw) };
+
+    let error = sync_deleted_parent(&file, "test parent sync").unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::WRITE_UNCERTAIN),
+        "{error}"
+    );
+    assert!(error.contains("test parent sync"), "{error}");
 }

@@ -219,13 +219,10 @@ export const useCleanupStore = defineStore("cleanup", {
         if (!isCurrent()) return;
         this.incompleteDeletions = incompleteDeletions.entries;
         this.incompleteDeletionsUnreadable = incompleteDeletions.unreadable;
-        if (incompleteDeletions.unreadable.length) {
-          this.setOrphanError(
-            t("errors.incompleteDeletionsUnreadable", {
-              paths: incompleteDeletions.unreadable.join(", "),
-            }),
-          );
-        }
+        // keine zweite meldung für unlesbare claims: die ansicht zeigt sie
+        // dediziert (incompleteDeletionsError → CleanupView), und die sperre
+        // trägt `hasOrphanUnavailableBase` zusätzlich über
+        // `hasUnreadableIncompleteDeletions` (cleanupHelpers.ts).
 
         const skipped = result.skippedLibraries;
         const blocking = skipped.filter((s) => s.reason !== "path-missing");

@@ -77,33 +77,43 @@ const VALVE_COMPAT_TOOLS: &[(&str, &[u32])] = &[
 fn parse_compat_tool_vdf(text: &str) -> Result<Option<String>, String> {
     let tokens = vdf_patch::tokenize(text)?;
     let root = match vdf_patch::find_entry(&tokens, 0, tokens.len(), "compatibilitytools")? {
-        Some(entry) => entry
-            .block
-            .ok_or_else(|| "compatibilitytools is not a block".to_string())?,
+        Some(entry) => entry.block.ok_or_else(|| {
+            errcode::with_detail(errcode::UNREADABLE, "compatibilitytools is not a block")
+        })?,
         None => return Ok(None),
     };
     let compat_tools = match vdf_patch::find_entry(&tokens, root.0, root.1, "compat_tools")? {
-        Some(entry) => entry
-            .block
-            .ok_or_else(|| "compat_tools is not a block".to_string())?,
+        Some(entry) => entry.block.ok_or_else(|| {
+            errcode::with_detail(errcode::UNREADABLE, "compat_tools is not a block")
+        })?,
         None => return Ok(None),
     };
     let entries = vdf_patch::scan_entries(&tokens, compat_tools.0, compat_tools.1)?;
-    if entries.len() != 1 {
-        return Err("compat_tools must contain exactly one tool".into());
-    }
-    let Some(entry) = entries.first() else {
-        return Ok(None);
+    // F-03: das slice-pattern bindet genau einen eintrag und lehnt 0 oder
+    // mehrere im selben zug ab; der fruehere zweite zweig war nach der
+    // laengenpruefung unerreichbar und haette bei kuenftigen aenderungen
+    // still `Ok(None)` (kein tool) statt eines fehlers geliefert.
+    let [entry] = entries.as_slice() else {
+        return Err(errcode::with_detail(
+            errcode::UNREADABLE,
+            "compat_tools must contain exactly one tool",
+        ));
     };
     let vdf_patch::TokenKind::String(name) = &entry.key.kind else {
-        return Err("compat tool name is not a string".into());
+        return Err(errcode::with_detail(
+            errcode::UNREADABLE,
+            "compat tool name is not a string",
+        ));
     };
     if name.is_empty()
         || name.contains('\0')
         || name.chars().any(char::is_control)
         || entry.block.is_none()
     {
-        return Err("invalid compat tool identity".into());
+        return Err(errcode::with_detail(
+            errcode::UNREADABLE,
+            "invalid compat tool identity",
+        ));
     }
     Ok(Some(name.clone()))
 }
@@ -120,7 +130,12 @@ where
     let root_fd = match open_absolute_dir(root) {
         Ok(fd) => fd,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => return Err(format!("cannot open compat root: {error}")),
+        Err(error) => {
+            return Err(errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot open compat root: {error}"),
+            ))
+        }
     };
     hook(CompatAuthStage::RootOpened);
     compat_root_contains_name_at_fd(&root_fd, requested, hook)
@@ -138,22 +153,41 @@ where
     const MAX_COMPAT_VDF_BYTES: u64 = 1024 * 1024; // kleiner als MAX_VDF_READ_BYTES: tool-vdfs sind winzig
     const ENOTDIR: i32 = 20;
     let proc_dir = Path::new("/proc/self/fd").join(root_fd.as_raw_fd().to_string());
-    let entries =
-        fs::read_dir(proc_dir).map_err(|error| format!("cannot read compat root: {error}"))?;
+    let entries = fs::read_dir(proc_dir).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("cannot read compat root: {error}"),
+        )
+    })?;
     for entry in entries {
-        let entry = entry.map_err(|error| format!("cannot read compat entry: {error}"))?;
+        let entry = entry.map_err(|error| {
+            errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot read compat entry: {error}"),
+            )
+        })?;
         let tool_name = entry.file_name();
         let tool_fd = match open_dir_at(root_fd.as_raw_fd(), &tool_name) {
             Ok(fd) => fd,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
             Err(error) if error.raw_os_error() == Some(ENOTDIR) => continue,
-            Err(error) => return Err(format!("cannot open compat tool: {error}")),
+            Err(error) => {
+                return Err(errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("cannot open compat tool: {error}"),
+                ))
+            }
         };
         hook(CompatAuthStage::ToolOpened);
         let mut vdf = match open_file_at(tool_fd.as_raw_fd(), OsStr::new("compatibilitytool.vdf")) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(format!("cannot open compatibilitytool.vdf: {error}")),
+            Err(error) => {
+                return Err(errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("cannot open compatibilitytool.vdf: {error}"),
+                ))
+            }
         };
         hook(CompatAuthStage::VdfOpened);
         // Ein einzelner kaputter Tool-Ordner darf die Autorität für alle anderen
@@ -243,8 +277,12 @@ pub(super) fn open_external_library_fd_with_hook<F>(
 where
     F: FnMut(CompatAuthStage),
 {
-    let canonical = fs::canonicalize(path)
-        .map_err(|error| format!("cannot canonicalize Steam library: {error}"))?;
+    let canonical = fs::canonicalize(path).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("cannot canonicalize Steam library: {error}"),
+        )
+    })?;
     // r-07: dieselbe stat-open-fstat-kette wie `fd::open_bound_root_fd`; der
     // Hook läuft dort genau zwischen Stat und Open, wie zuvor die dritte Stufe.
     open_bound_root_fd(&canonical, &mut || {
@@ -264,7 +302,12 @@ where
     let steamapps_fd = match open_dir_at(library_fd, OsStr::new("steamapps")) {
         Ok(fd) => fd,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => return Err(format!("cannot open Steam library steamapps: {error}")),
+        Err(error) => {
+            return Err(errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot open Steam library steamapps: {error}"),
+            ))
+        }
     };
     is_app_installed_in_steamapps_fd(steamapps_fd.as_raw_fd(), app_id, hook)
         .map_err(ManifestReadError::into_message)
@@ -438,11 +481,18 @@ where
     F: FnMut(CompatAuthStage),
 {
     let libraries = read_library_folders_from_root_fd(steam_root, steam_root_fd, hook)?;
-    let root_identity = fd_identity(steam_root_fd.as_raw_fd())
-        .map_err(|error| format!("cannot stat Steam root descriptor: {error}"))?;
+    let root_identity = fd_identity(steam_root_fd.as_raw_fd()).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("cannot stat Steam root descriptor: {error}"),
+        )
+    })?;
     for library in libraries {
         if !library.is_absolute() {
-            return Err("Steam library path is not absolute".into());
+            return Err(errcode::with_detail(
+                errcode::BLOCKED_LOCATION,
+                "Steam library path is not absolute",
+            ));
         }
         if library == steam_root {
             if is_app_installed_in_library_fd(steam_root_fd.as_raw_fd(), app_id, hook)? {
@@ -457,12 +507,22 @@ where
         let library_canonical = match fs::canonicalize(&library) {
             Ok(path) => path,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(format!("cannot canonicalize Steam library: {error}")),
+            Err(error) => {
+                return Err(errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("cannot canonicalize Steam library: {error}"),
+                ))
+            }
         };
         let library_metadata = match fs::metadata(&library_canonical) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(format!("cannot stat Steam library: {error}")),
+            Err(error) => {
+                return Err(errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("cannot stat Steam library: {error}"),
+                ))
+            }
         };
         let library_identity = FdIdentity::of(&library_metadata);
         if library_identity == root_identity {
@@ -519,7 +579,10 @@ where
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => {
-                return Err(format!("cannot open Steam compatibility root: {error}"));
+                return Err(errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("cannot open Steam compatibility root: {error}"),
+                ));
             }
         }
     }
