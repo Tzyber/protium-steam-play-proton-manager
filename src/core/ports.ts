@@ -76,7 +76,7 @@ export type DirectorySize =
 export interface System {
   /** Liefert ausschließlich die vom Rust-Backend kompilierte GE-Zielarchitektur. */
   geTargetArch(): Promise<TargetArch>;
-  isProcessRunning(name: string): Promise<boolean>;
+  isSteamRunning(): Promise<boolean>;
   dirSize(path: string): Promise<DirectorySize>;
   /** Liefert für jeden angeforderten Pfad einen expliziten Status. */
   batchDirSizes(paths: string[]): Promise<Record<string, DirectorySize>>;
@@ -144,6 +144,8 @@ export interface GeInstallParams {
   releaseTag: string;
   downloadUrl: string;
   downloadId: string;
+  /** Nur `de` oder `en`. Der Dialogtext steht im Backend. */
+  locale: "de" | "en";
 }
 
 export type InstallGeResult = "verified" | "unverified";

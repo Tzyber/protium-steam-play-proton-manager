@@ -16,9 +16,9 @@
 // .stryker-tmp bleibt ein temporäres Stryker-Arbeitsverzeichnis und gehört
 // weder in Biome- noch in TypeScript-Prüfungen.
 /** Der mutierbare logikbereich in blocklist.ts: ab BLOCKED_IDS bis zum Ende
- *  von availableBuiltinProtons. Die datentabelle (Zeilen davor) bleibt
+ *  von isManifestToolName. Die datentabelle (Zeilen davor) bleibt
  *  ausgenommen, sonst mutiert stryker nur nachschlage-daten. */
-const BLOCKLIST_LOGIC_RANGE = "57-85";
+const BLOCKLIST_LOGIC_RANGE = "91-139";
 /** @type {import('@stryker-mutator/api/core').PartialStrykerOptions} */
 const config = {
   testRunner: "vitest",
@@ -27,15 +27,19 @@ const config = {
     "src/core/**/*.ts",
     "!src/core/blocklist.ts",
     `src/core/blocklist.ts:${BLOCKLIST_LOGIC_RANGE}`,
+    "src/ui/consequences.ts",
+    "src/ui/formatError.ts",
+    "src/ui/sizeSummary.ts",
+    "src/ui/stores/confirmStore.ts",
+    "src/ui/stores/cleanupHelpers.ts",
   ],
   concurrency: 8,
   reporters: ["clear-text", "html", "json"],
   htmlReporter: { fileName: "reports/mutation/html/index.html" },
   jsonReporter: { fileName: "reports/mutation/mutation-report.json" },
-  // gemessener ist-score am 2026-09-26: 81,17 % (stryker-volltest, 5:26 min,
-  // mit der korrigierten blocklist-range). davor 74,45 % am 2026-08-27.
-  // break 69 bleibt unter dem ist mit puffer für schwankungen; high/low sind
-  // ziel-marken, kein gate.
+  // gemessen 2026-10-06 mit den fünf UI-Dateien dazu: 81,75 % bei 3738
+  // mutanten. davor 81,17 % am 2026-09-26 und 74,45 % am 2026-08-27.
+  // break 69 bleibt unter dem ist mit puffer; high/low sind ziel-marken.
   thresholds: { high: 80, low: 60, break: 69 },
 };
 

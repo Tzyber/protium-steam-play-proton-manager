@@ -136,6 +136,32 @@ describe("GameDetailDrawer Config-Provenienz", () => {
     expect(wrapper.text()).not.toContain(t("drawer.notRecognized", { name: "directory-tool" }));
     expect(wrapper.find("[data-testid='compat-unrecognized']").exists()).toBe(false);
   });
+
+  it.each(["steamlinuxruntime_sniper", "sniper"])(
+    "beschriftet die vorhandene runtime %s mit ihrem label, ohne runtimes anzubieten",
+    (tool) => {
+      const scan = result("available", "explicit", tool, null);
+      scan.blockedAppIds = [1628350, 1391110];
+
+      const wrapper = mountDrawer(scan);
+      const labels = wrapper.findAll(".select-option").map((option) => option.text());
+
+      expect(labels).toContain("Steam Linux Runtime 3.0 (sniper)");
+      expect(labels).not.toContain("Steam Linux Runtime 2.0 (soldier)");
+      expect(wrapper.text()).not.toContain(t("drawer.notRecognized", { name: tool }));
+    },
+  );
+
+  it("markiert eine runtime ohne manifest weiter als nicht erkannt", () => {
+    const scan = result("available", "explicit", "steamlinuxruntime_sniper", null);
+    scan.blockedAppIds = [1391110];
+
+    const wrapper = mountDrawer(scan, ["tool-not-recognized"]);
+
+    expect(wrapper.findAll(".select-option").map((option) => option.text())).toContain(
+      t("drawer.notRecognized", { name: "steamlinuxruntime_sniper" }),
+    );
+  });
 });
 
 describe("GameDetailDrawer Startoptionen-Hinweise", () => {

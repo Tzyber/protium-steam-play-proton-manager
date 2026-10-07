@@ -9,11 +9,12 @@ on:
   # Bauumgebung und Smoke-Schritten, ohne einen Draft zu erzeugen.
   workflow_dispatch:
 
-# Rechte pro Job, nicht global: der reine Hook-Job braucht keine Schreibrechte.
-# Die Integritäts-Assets (Entscheidung 2026-09-16) brauchen `id-token` (OIDC für
-# das Sigstore-Zertifikat) und `attestations` (Build-Provenance) nur dort, wo
-# attestiert wird. `artifact-metadata` fehlt bewusst: den Storage-Record legt
-# die Action nur beim Registry-Push und nur für Org-Repos an.
+# Rechte pro Job, nicht global. Der Build-Job führt npm und Cargo inklusive
+# build.rs aus und hat nur `contents: read`: kein Schreibrecht, kein
+# `id-token`. Attest und Release liegen im Publish-Job. `id-token` (OIDC für
+# das Sigstore-Zertifikat) und `attestations` (Build-Provenance) gelten nur
+# dort. `artifact-metadata` fehlt bewusst: den Storage-Record legt die Action
+# nur beim Registry-Push und nur für Org-Repos an.
 permissions: {}
 
 jobs:
@@ -27,10 +28,13 @@ jobs:
       contents: read
     runs-on: ubuntu-24.04
     steps:
+      # Im Dry-Run läuft keine Prüfung, also auch keine volle Historie.
       - name: Checkout
+        if: github.event_name != 'workflow_dispatch'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Tag commit must be an ancestor of main
         if: github.event_name != 'workflow_dispatch'
         run: |
@@ -61,6 +65,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # Der Hook wird gesourct und darf die Shell nicht beenden. Deshalb
       # laeuft er in einer Subshell, die am Ende einen Sentinel ausgibt:
@@ -125,14 +131,15 @@ jobs:
           [ -z "$ld" ] || { echo "FEHLER: LD_PRELOAD ohne Bibliothek gesetzt: $ld"; exit 1; }
           echo "OK: Hook bleibt still"
 
-  appimage:
+  build:
+    # npm, Cargo und build.rs laufen hier. Schreibrecht und id-token bleiben
+    # im Publish-Job, damit ein Build-Skript keinen Release und keine
+    # Attestation ausstellen kann.
     permissions:
-      contents: write
-      id-token: write
-      attestations: write
+      contents: read
     name: Build AppImage
-    # Kein Draft, wenn die Hook-Pruefung rot ist.
-    needs: hook
+    # Kein Draft, wenn die Hook-Pruefung oder der Guard rot ist.
+    needs: [guard, hook]
     # Der Host liefert nur noch Docker. Gebaut wird im gepinnten
     # 22.04-Container, damit die glibc-Untergrenze der Artefakte (2.34)
     # nicht mit dem Host-Image wandert. GitHub traegt das Label
@@ -153,6 +160,8 @@ jobs:
       # tags sind supply-chain-risiko, SHAs sind immutabel.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -372,6 +381,60 @@ jobs:
           cp "$STAGE/SHA256SUMS" src-tauri/target/release/bundle/SHA256SUMS
           cat src-tauri/target/release/bundle/SHA256SUMS
 
+      # Das Artefakt bildet die Bundle-Pfade unter dem Workspace nach, damit
+      # Attest und Release im Publish-Job dieselben Pfade lesen. Die Notizen
+      # liegen bei, weil body_path sie braucht. Attest liest nur die Dateien
+      # und den Workflow-Kontext, keinen Git-Stand, deshalb kein Checkout
+      # im Publish-Job.
+      - name: Stage release artifacts
+        run: |
+          STAGE="release-upload"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE/src-tauri/target/release/bundle/appimage"
+          mkdir -p "$STAGE/src-tauri/target/release/bundle/deb"
+          cp src-tauri/target/release/bundle/appimage/protium_*_amd64.AppImage \
+            "$STAGE/src-tauri/target/release/bundle/appimage/"
+          cp src-tauri/target/release/bundle/deb/protium_*_amd64.deb \
+            "$STAGE/src-tauri/target/release/bundle/deb/"
+          cp src-tauri/target/release/bundle/SHA256SUMS \
+            "$STAGE/src-tauri/target/release/bundle/SHA256SUMS"
+          if [ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ]; then
+            notes="docs/releases/${GITHUB_REF_NAME}.md"
+            [ -f "$notes" ] || { echo "FEHLER: Release-Notizen fehlen: $notes"; exit 1; }
+            mkdir -p "$STAGE/docs/releases"
+            cp "$notes" "$STAGE/$notes"
+          fi
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: protium-release
+          path: release-upload
+          if-no-files-found: error
+          # AppImage und deb sind bereits komprimiert.
+          compression-level: 0
+          # Nur Übergabe an den Publish-Job; ein Dry-Run soll keine
+          # unattestierten Binaries im Run liegen lassen.
+          retention-days: 1
+
+  # Download, Attest, Release. Ein Dry-Run startet den Job gar nicht, damit
+  # Schreibrecht und id-token dort nie ausgegeben werden.
+  publish:
+    name: Attest and release
+    needs: [build]
+    if: github.event_name != 'workflow_dispatch'
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: protium-release
+          path: ${{ github.workspace }}
+
       # Build-Provenance bindet die Digests an Repo, Workflow und Commit
       # (SLSA Level 2). Prüfung: gh attestation verify <datei> --repo …
       - name: Attest build provenance
@@ -383,7 +446,6 @@ jobs:
             src-tauri/target/release/bundle/SHA256SUMS
 
       - name: Create release and upload assets
-        if: github.event_name != 'workflow_dispatch'
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ github.ref_name }}

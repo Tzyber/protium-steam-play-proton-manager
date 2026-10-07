@@ -9,7 +9,6 @@ import {
   combineErrors,
   formatTrashErrors,
   hasOrphanUnavailableBase,
-  hasUnreadableIncompleteDeletions,
   isCurrentForScan,
   toggleInSet,
 } from "../../src/ui/stores/cleanupHelpers";
@@ -147,10 +146,7 @@ describe("formatTrashErrors / combineErrors", () => {
 
 describe("hasOrphanUnavailableBase", () => {
   const base = {
-    error: null,
     orphanError: null,
-    trashError: null,
-    shortcutUnreadable: false,
     blockedBySkipped: false,
     pathMissingLibs: [] as string[],
     incompleteDeletionsUnreadable: [] as string[],
@@ -158,24 +154,13 @@ describe("hasOrphanUnavailableBase", () => {
 
   it("sperrt bei keinem grund nicht", () => {
     expect(hasOrphanUnavailableBase(base)).toBe(false);
-    expect(hasUnreadableIncompleteDeletions(base)).toBe(false);
   });
 
   it("sperrt bei jedem einzelnen grund der orphan-basis", () => {
-    expect(hasOrphanUnavailableBase({ ...base, error: "e" })).toBe(true);
     expect(hasOrphanUnavailableBase({ ...base, orphanError: "o" })).toBe(true);
     expect(hasOrphanUnavailableBase({ ...base, blockedBySkipped: true })).toBe(true);
     expect(hasOrphanUnavailableBase({ ...base, pathMissingLibs: ["/gone"] })).toBe(true);
-    const withUnreadable = { ...base, incompleteDeletionsUnreadable: ["/x"] };
-    expect(hasUnreadableIncompleteDeletions(withUnreadable)).toBe(true);
-    expect(hasOrphanUnavailableBase(withUnreadable)).toBe(true);
-  });
-
-  it("trash- und shortcut-fehler sperren die orphan-basis NICHT (eigene zonen)", () => {
-    // trashError fliesst nur in die legacy-erkennung ein; der papierkorb hat
-    // seinen eigenen trashUnavailable-getter. gleiches gilt für shortcutUnreadable.
-    expect(hasOrphanUnavailableBase({ ...base, trashError: "t" })).toBe(false);
-    expect(hasOrphanUnavailableBase({ ...base, shortcutUnreadable: true })).toBe(false);
+    expect(hasOrphanUnavailableBase({ ...base, incompleteDeletionsUnreadable: ["/x"] })).toBe(true);
   });
 });
 

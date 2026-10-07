@@ -10,19 +10,21 @@ import {
   MOCK_TOKEN_TTL_MS,
   mockExecuteDelete,
   mockFindOrphans,
-  mockIsProcessRunning,
+  mockIsSteamRunning,
   mockPrepareDelete,
   mockReadAllShortcutAppIds,
   resetCleanupMocks,
 } from "../support/cleanupStoreMocks";
 import { createPinia, setActivePinia } from "pinia";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScanResult } from "../../src/core/types";
+import * as diagnostics from "../../src/ui/diagnostics";
+import { formatError } from "../../src/ui/formatError";
 import { setLocale, t } from "../../src/ui/i18n";
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
-import { game as makeGame } from "../support/factories";
+import { deferred, game as makeGame } from "../support/factories";
 
 function fakeScanWithGames(gameIds: number[]): ScanResult {
   return { ...fakeScan(), games: gameIds.map((appId) => makeGame({ appId })) };
@@ -103,6 +105,17 @@ describe("cleanupStore, S-05 + shortcuts", () => {
     expect(store.orphans[0]).toMatchObject({ appId: 888888, type: "shadercache" });
   });
 
+  it("shortcutUnreadable allein sperrt den papierkorb nicht", () => {
+    const store = useCleanupStore();
+    store.shortcutUnreadable = true;
+
+    expect(store.orphanError).toBeNull();
+    expect(store.trashError).toBeNull();
+    expect(store.trashUnavailable).toBe(false);
+    expect(store.prefixUnavailable).toBe(true);
+    expect(store.error).toContain(t("errors.shortcutsUnreadable"));
+  });
+
   it("Policy: unlesbares shortcuts.vdf → compatdata fail-closed, shadercache regenerierbar", async () => {
     mockReadAllShortcutAppIds.mockResolvedValue({
       status: "unreadable",
@@ -150,7 +163,7 @@ describe("cleanupStore, S-05 + shortcuts", () => {
     expect(mockPrepareDelete).not.toHaveBeenCalled();
     expect(mockExecuteDelete).not.toHaveBeenCalled();
     expect(mockReadAllShortcutAppIds).not.toHaveBeenCalled();
-    expect(mockIsProcessRunning).not.toHaveBeenCalled();
+    expect(mockIsSteamRunning).not.toHaveBeenCalled();
     expect(useConfirmStore().pending).toBeNull();
     expect(useConfirmStore().reserved).toBe(false);
     expect(store.deleting.size).toBe(0);
@@ -360,4 +373,77 @@ describe("cleanupStore, S-05 + shortcuts", () => {
       "at most 32 entries per pass; remaining afterwards: 1.",
     );
   });
+
+  it("deleteOrphans setzt orphanError wenn der prolog wirft, ohne die promise abzulehnen", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    const failure = new Error("handler-unavailable");
+    mockReadAllShortcutAppIds.mockRejectedValueOnce(failure);
+
+    await expect(
+      store.deleteOrphans([
+        { appId: 1, type: "shadercache", path: "/fake/shader", library: "/lib" },
+      ]),
+    ).resolves.toBeUndefined();
+
+    expect(store.orphanError).toBe(formatError(failure));
+    expect(store.deleting.size).toBe(0);
+    expect(useConfirmStore().reserved).toBe(false);
+    expect(useConfirmStore().pending).toBeNull();
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
+    expect(mockIsSteamRunning).toHaveBeenCalledTimes(1);
+  });
+
+  it("deleteOrphans setzt orphanError wenn isSteamRunning im prolog wirft", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    const failure = new Error("process-check-unavailable");
+    mockIsSteamRunning.mockRejectedValueOnce(failure);
+    const logError = vi.spyOn(diagnostics, "logError");
+
+    await expect(
+      store.deleteOrphans([
+        { appId: 1, type: "shadercache", path: "/fake/shader", library: "/lib" },
+      ]),
+    ).resolves.toBeUndefined();
+
+    expect(store.orphanError).toBe(formatError(failure));
+    expect(logError).toHaveBeenCalledWith(expect.any(String), failure);
+    logError.mockRestore();
+    expect(store.deleting.size).toBe(0);
+    expect(useConfirmStore().reserved).toBe(false);
+    expect(useConfirmStore().pending).toBeNull();
+    expect(mockReadAllShortcutAppIds).not.toHaveBeenCalled();
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["steam läuft", false],
+    ["prolog wirft", true],
+  ])(
+    "deleteOrphans verwirft die prolog-antwort (%s) nach einem neuen orphan-scan",
+    async (_label, fails) => {
+      const scanStore = useScanStore();
+      scanStore.result = fakeScan([]);
+      const store = useCleanupStore();
+      const steamCheck = deferred<boolean>();
+      mockIsSteamRunning.mockImplementationOnce(() => steamCheck.promise);
+
+      const deletion = store.deleteOrphans([
+        { appId: 1, type: "shadercache", path: "/fake/shader", library: "/lib" },
+      ]);
+      await vi.waitFor(() => expect(mockIsSteamRunning).toHaveBeenCalledTimes(1));
+      await store.scanOrphans();
+      expect(store.orphanError).toBeNull();
+
+      if (fails) steamCheck.reject(new Error("process-check-unavailable"));
+      else steamCheck.resolve(true);
+      await deletion;
+
+      expect(store.orphanError).toBeNull();
+      expect(mockPrepareDelete).not.toHaveBeenCalled();
+    },
+  );
 });

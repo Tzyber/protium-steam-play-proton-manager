@@ -4,7 +4,7 @@
 // Größenmessung.
 
 import { parseSafeAppId } from "./types.js";
-import { asNode, asString, getPath, parseVdf } from "./vdf.js";
+import { asNode, asString, getPath, parseVdf, rawVdfField, unescapeVdfRaw } from "./vdf.js";
 
 /** appId → compat-tool-name (interner name, wie in config.vdf). */
 export type CompatToolMapping = Map<number, string>;
@@ -43,8 +43,15 @@ export function readToolVdf(
     const internal = Object.keys(compatTools)[0];
     if (internal) {
       internalName = internal;
-      const dn = asString(getPath(compatTools, internal, "display_name"));
-      if (dn) displayName = dn;
+      // derselbe Rohwert wie beim Manifest-Namen: die Bibliothek macht aus
+      // `"007"` eine Zahl und aus `"true"` einen Boolean (A-15).
+      const dnRaw = rawVdfField(text, [
+        "compatibilitytools",
+        "compat_tools",
+        internal,
+        "display_name",
+      ]);
+      if (dnRaw) displayName = unescapeVdfRaw(dnRaw);
     }
   }
   return { internalName, displayName };

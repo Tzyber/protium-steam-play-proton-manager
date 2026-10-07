@@ -34,6 +34,7 @@ export const paths = {
   compatToolVdfIn: (baseDir: string, toolDir: string) =>
     join(baseDir, toolDir, "compatibilitytool.vdf"),
   userdataDir: (root: string) => join(root, "userdata"),
+  userdataAccountDir: (root: string, userId: string) => join(root, "userdata", userId),
   localConfigVdf: (root: string, userId: string) =>
     join(root, "userdata", userId, "config", "localconfig.vdf"),
   shortcutsVdf: (root: string, userId: string) =>

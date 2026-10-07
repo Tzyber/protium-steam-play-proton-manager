@@ -1,5 +1,15 @@
 mod commands;
 
+// whitelist statt blacklist: nur die eigene app (bzw. der vite-dev-server)
+// darf in die webview navigieren. alles andere, auch file:/data:/mailto:,
+// gehört in den system-browser (openExternal). die alte blacklist liess
+// alle unbekannten Schemes durch. auch beim `tauri:`-schema zählt der host:
+// auf linux liefert tauri die app unter `tauri://localhost` aus.
+fn navigation_allowed(url: &tauri::Url, dev: bool) -> bool {
+    let localhost = url.host_str() == Some("localhost");
+    localhost && (url.scheme() == "tauri" || (dev && url.scheme() == "http"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Die Reihenfolge folgt der Empfehlung des Plugins: der Einzelinstanz-
@@ -46,17 +56,7 @@ pub fn run() {
                     .inner_size(1280.0, 800.0)
                     .min_inner_size(960.0, 600.0)
                     .background_color(Color(10, 11, 17, 255))
-                    .on_navigation(|url| {
-                        // whitelist statt blacklist: nur die eigene app (bzw. der
-                        // vite-dev-server) darf in die webview navigieren. alles
-                        // andere, auch file:/data:/mailto:, gehört in den
-                        // system-browser (openExternal). die alte blacklist liess
-                        // alle unbekannten Schemes durch.
-                        url.scheme() == "tauri"
-                            || (cfg!(dev)
-                                && url.scheme() == "http"
-                                && url.host_str() == Some("localhost"))
-                    })
+                    .on_navigation(|url| navigation_allowed(url, cfg!(dev)))
                     .build()?;
             }
             Ok(())
@@ -68,7 +68,7 @@ pub fn run() {
         .manage(commands::delete_ops::PendingDeleteRegistry::default())
         .manage(commands::scope::EnvironmentState::default())
         .invoke_handler(tauri::generate_handler![
-            commands::fs_ops::is_process_running,
+            commands::fs_ops::is_steam_running,
             commands::external::open_external,
             commands::prefix::open_prefix_folder,
             commands::fs_ops::dir_size,
@@ -95,4 +95,51 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running protium");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::navigation_allowed;
+    use tauri::Url;
+
+    fn parse(raw: &str) -> Url {
+        Url::parse(raw).unwrap_or_else(|error| panic!("{raw}: {error}"))
+    }
+
+    #[test]
+    fn tauri_localhost_ist_erlaubt() {
+        let url = parse("tauri://localhost");
+        assert!(navigation_allowed(&url, false));
+        assert!(navigation_allowed(&url, true));
+    }
+
+    #[test]
+    fn tauri_mit_fremdem_host_wird_abgelehnt() {
+        for raw in ["tauri://evil.com", "tauri://localhost.evil"] {
+            let url = parse(raw);
+            assert!(!navigation_allowed(&url, true), "{raw}");
+            assert!(!navigation_allowed(&url, false), "{raw}");
+        }
+    }
+
+    #[test]
+    fn http_localhost_nur_bei_dev() {
+        let url = parse("http://localhost");
+        assert!(navigation_allowed(&url, true));
+        assert!(!navigation_allowed(&url, false));
+    }
+
+    #[test]
+    fn https_file_data_javascript_werden_abgelehnt() {
+        for raw in [
+            "https://www.protondb.com/",
+            "file:///etc/passwd",
+            "data:text/html,hi",
+            "javascript:alert(1)",
+        ] {
+            let url = parse(raw);
+            assert!(!navigation_allowed(&url, true), "{raw}");
+            assert!(!navigation_allowed(&url, false), "{raw}");
+        }
+    }
 }

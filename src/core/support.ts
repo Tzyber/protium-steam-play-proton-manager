@@ -51,6 +51,7 @@ interface SupportFootprintFacts {
   sizeBytes?: number;
 }
 
+// export nur für den test (tests/ui/supportText.test.ts; K-13).
 export interface SupportInput {
   game: Game;
   result: ScanResult;

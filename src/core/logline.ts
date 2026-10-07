@@ -3,7 +3,9 @@
 // Ansicht formatiert die Sekunden nur noch in die aktive Sprache.
 
 interface LogRecord {
-  /** Sekunden seit Prozessstart, `null` wenn die Zeile keine Zeitmarke trägt. */
+  /** Unix-Sekunden seit der Epoche, nicht seit Prozessstart: das Backend
+   *  schreibt sie so, die Ansicht macht mit `* 1000` eine Uhrzeit daraus.
+   *  `null`, wenn die Zeile keine Zeitmarke trägt. */
   seconds: number | null;
   level: string;
   message: string;

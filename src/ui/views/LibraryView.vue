@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { filterAndSortGames } from "../../core/filter";
-import type { ScanWarning, SkipReason } from "../../core/types";
+import type { SkipReason } from "../../core/types";
 import ExplainInfo from "../components/ExplainInfo.vue";
 import FilterBar from "../components/FilterBar.vue";
 import GameCard from "../components/GameCard.vue";
 import GameDetailDrawer from "../components/GameDetailDrawer.vue";
+import { filterWarningsByType } from "../coverageFilter";
 import { formatConfigStatus, formatLibraryReason, formatWarning } from "../coverageText";
 import type { Key } from "../i18n";
 import { t } from "../i18n";
@@ -97,27 +98,11 @@ const libraryRows = computed(() => {
 });
 
 const configWarnings = computed(() =>
-  scan.warnings.filter(
-    (warning): warning is Extract<ScanWarning, { type: "compat-config" | "launch-config" }> =>
-      warning.type === "compat-config" || warning.type === "launch-config",
-  ),
+  filterWarningsByType(scan.warnings, ["compat-config", "launch-config"]),
 );
-const manifestWarnings = computed(() =>
-  scan.warnings.filter(
-    (warning): warning is Extract<ScanWarning, { type: "manifest" }> => warning.type === "manifest",
-  ),
-);
-const toolWarnings = computed(() =>
-  scan.warnings.filter(
-    (warning): warning is Extract<ScanWarning, { type: "compat-tool" }> =>
-      warning.type === "compat-tool",
-  ),
-);
-const libraryWarnings = computed(() =>
-  scan.warnings.filter(
-    (warning): warning is Extract<ScanWarning, { type: "library" }> => warning.type === "library",
-  ),
-);
+const manifestWarnings = computed(() => filterWarningsByType(scan.warnings, "manifest"));
+const toolWarnings = computed(() => filterWarningsByType(scan.warnings, "compat-tool"));
+const libraryWarnings = computed(() => filterWarningsByType(scan.warnings, "library"));
 </script>
 
 <template>

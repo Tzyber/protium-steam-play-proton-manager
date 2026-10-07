@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { version as appVersion } from "../../package.json";
 import { openExternal, tauriPorts } from "../core/adapters/tauri";
 import { checkForUpdate, UPDATE_RELEASE_URL } from "../core/update";
+import ConfirmDialogHost from "./components/ConfirmDialogHost.vue";
 import ProtiumLogo from "./components/ProtiumLogo.vue";
 import { logError } from "./diagnostics";
 import { t } from "./i18n";
@@ -38,12 +39,13 @@ function openUpdateRelease() {
 }
 
 // dialoge (bestätigung, detail-drawer, erklär-panel) sperren den hintergrund
-// für screenreader + tab (inert). zentral hier, weil die dialoge in mehreren
-// views leben und per teleport ausserhalb von .app-background liegen und
-// fokussierbar bleiben. die sperre wird aus dem zustand abgeleitet, statt von
-// jedem dialog gesetzt und geräumt zu werden: sonst hebt das schliessen eines
-// verschachtelten dialogs (erklärung im offenen drawer) die sperre des anderen
-// auf.
+// für screenreader + tab (inert). zentral hier, weil sie per teleport
+// ausserhalb von .app-background liegen und fokussierbar bleiben. der
+// bestätigungs-host hängt einmal hier, ausserhalb der view-weiche, weil
+// pending den wechsel überlebt. die sperre wird aus dem zustand abgeleitet,
+// statt von jedem dialog gesetzt und geräumt zu werden: sonst hebt das
+// schliessen eines verschachtelten dialogs (erklärung im offenen drawer) die
+// sperre des anderen auf.
 // Der Drawer zählt nur als offen, solange seine Auswahl im aktuellen Scan
 // auflösbar ist: fällt das Spiel durch einen Rescan aus dem Snapshot (oder
 // wurde die Ansicht gewechselt), bliebe die Sperre sonst stehen und der
@@ -203,6 +205,7 @@ watch(
       </main>
     </div>
   </div>
+  <ConfirmDialogHost />
 </template>
 
 <style scoped>

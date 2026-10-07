@@ -1,6 +1,7 @@
-import { rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { paths } from "../../src/core/paths.js";
 import {
   BinVdfError,
   parseBinaryShortcutIds,
@@ -568,5 +569,66 @@ describe("readAllShortcutAppIds", () => {
     const result = await readAllShortcutAppIds(fs, root);
     if (result.status !== "unreadable") throw new Error("status unreadable erwartet");
     expect(result.detail).toBe("unreadable");
+  });
+
+  it("exists-wurf am shortcut-pfad → status unreadable, kein reject", async () => {
+    const { root, userId } = await buildFakeSteam();
+    const base = nodeFs();
+    const scPath = paths.shortcutsVdf(root, userId);
+    const fs = {
+      ...base,
+      exists: async (path: string) => {
+        if (path === scPath) throw new Error("EACCES: permission denied");
+        return base.exists(path);
+      },
+    };
+
+    await expect(readAllShortcutAppIds(fs, root)).resolves.toEqual({
+      status: "unreadable",
+      paths: [scPath],
+    });
+  });
+
+  // parität zu delete_inspect.rs mit echten symlinks: rust lehnt jeden
+  // symlink unter userdata und einen symlinkten config-ordner ab.
+  it.each(["424242", "anonymous"])(
+    "symlink-eintrag %s unter userdata → status unreadable, auch mit shortcuts dahinter",
+    async (name) => {
+      const { home, root, userId } = await buildFakeSteam();
+      const target = join(home, "elsewhere");
+      await mkdir(join(target, "config"), { recursive: true });
+      await copyFile(paths.shortcutsVdf(root, userId), join(target, "config", "shortcuts.vdf"));
+      await symlink(target, join(paths.userdataDir(root), name), "dir");
+
+      await expect(readAllShortcutAppIds(nodeFs(), root)).resolves.toEqual({
+        status: "unreadable",
+        paths: [paths.shortcutsVdf(root, name)],
+      });
+    },
+  );
+
+  it("symlinkter config-ordner → status unreadable, nicht ok", async () => {
+    const { home, root, userId } = await buildFakeSteam();
+    const config = join(paths.userdataAccountDir(root, userId), "config");
+    const target = join(home, "elsewhere-config");
+    await rename(config, target);
+    await symlink(target, config, "dir");
+
+    await expect(readAllShortcutAppIds(nodeFs(), root)).resolves.toEqual({
+      status: "unreadable",
+      paths: [paths.shortcutsVdf(root, userId)],
+    });
+  });
+
+  it("config als datei statt ordner → status unreadable wie rust (O_DIRECTORY)", async () => {
+    const { root, userId } = await buildFakeSteam();
+    const config = join(paths.userdataAccountDir(root, userId), "config");
+    await rm(config, { recursive: true, force: true });
+    await writeFile(config, "kein ordner");
+
+    await expect(readAllShortcutAppIds(nodeFs(), root)).resolves.toEqual({
+      status: "unreadable",
+      paths: [paths.shortcutsVdf(root, userId)],
+    });
   });
 });

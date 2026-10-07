@@ -1,3 +1,4 @@
+import { availableRuntimes, isManifestToolName } from "./blocklist.js";
 import type { ScanResult, ScanWarning } from "./types.js";
 
 type ProtonCheckReason = "tier-bronze" | "tier-borked" | "tool-not-recognized";
@@ -9,30 +10,28 @@ export interface ProtonCheck {
 
 type ProtonCheckInput = Pick<
   ScanResult,
-  "games" | "compatToolsInstalled" | "builtinProtonsInstalled" | "warnings"
+  "games" | "compatToolsInstalled" | "builtinProtonsInstalled" | "warnings" | "blockedAppIds"
 >;
 
-type ToolInventory = Pick<ScanResult, "compatToolsInstalled" | "builtinProtonsInstalled">;
+type ToolInventory = Pick<
+  ScanResult,
+  "compatToolsInstalled" | "builtinProtonsInstalled" | "blockedAppIds"
+>;
 
-function toolPresenceSets(result: ToolInventory): {
-  customNames: Set<string>;
-  builtinNames: Set<string>;
-} {
-  const customNames = new Set<string>();
+/** Positive Präsenz: Custom-Tools, Builtin-Protons und Runtime-Namen, deren
+ *  App-Manifest im Scan liegt. */
+function presentToolNames(result: ToolInventory): Set<string> {
+  const names = new Set(availableRuntimes(new Set(result.blockedAppIds)).keys());
   for (const tool of result.compatToolsInstalled) {
-    customNames.add(tool.internalName);
-    customNames.add(tool.name);
+    names.add(tool.internalName);
+    names.add(tool.name);
   }
-  return {
-    customNames,
-    builtinNames: new Set(result.builtinProtonsInstalled.map((tool) => tool.internalName)),
-  };
+  for (const tool of result.builtinProtonsInstalled) names.add(tool.internalName);
+  return names;
 }
 
-/** Prüft nur positive Präsenz im vorhandenen Custom-/Builtin-Inventar. */
 export function isCompatToolPresent(result: ToolInventory, compatTool: string): boolean {
-  const { customNames, builtinNames } = toolPresenceSets(result);
-  return customNames.has(compatTool) || builtinNames.has(compatTool);
+  return presentToolNames(result).has(compatTool);
 }
 
 /** true, wenn der Tool-Scan die Abwesenheit von `compatTool` nicht sicher
@@ -41,6 +40,15 @@ export function isCompatToolPresent(result: ToolInventory, compatTool: string): 
  *  vollständig, nur die Größe fehlt). */
 function toolAbsenceUncertain(warnings: ScanWarning[], compatTool: string): boolean {
   return warnings.some((warning) => {
+    if (
+      warning.type === "library" ||
+      (warning.type === "manifest" && warning.reason !== "name-heuristic")
+    ) {
+      // eine übersprungene library oder ein gescheitertes manifest kann das
+      // app-manifest des gemappten builtins oder der runtime verbergen. ein
+      // name-heuristic-treffer ist gelesen und hat keine blocklistete appid.
+      return isManifestToolName(compatTool);
+    }
     if (warning.type !== "compat-tool") return false;
     if (warning.reason === "directory-unreadable" || warning.reason === "path-identity") {
       // das verzeichnis ist unbekannt: das gemappte tool könnte darin liegen
@@ -58,7 +66,7 @@ function toolAbsenceUncertain(warnings: ScanWarning[], compatTool: string): bool
 }
 
 export function deriveProtonCheck(result: ProtonCheckInput): ProtonCheck[] {
-  const { customNames, builtinNames } = toolPresenceSets(result);
+  const presentNames = presentToolNames(result);
 
   return result.games.flatMap((game) => {
     const reasons: ProtonCheckReason[] = [];
@@ -71,8 +79,7 @@ export function deriveProtonCheck(result: ProtonCheckInput): ProtonCheck[] {
     if (
       game.compatToolSource === "explicit" &&
       !toolAbsenceUncertain(result.warnings, game.compatTool) &&
-      !customNames.has(game.compatTool) &&
-      !builtinNames.has(game.compatTool)
+      !presentNames.has(game.compatTool)
     ) {
       reasons.push("tool-not-recognized");
     }

@@ -539,8 +539,5 @@ export const en = {
   },
   time: {
     justNow: "just now",
-    minutesAgo: "{n} min ago",
-    hoursAgo: "{n} h ago",
-    daysAgo: "{n} day(s) ago",
   },
 } as const;

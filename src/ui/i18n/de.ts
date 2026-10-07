@@ -540,8 +540,5 @@ export const de = {
   },
   time: {
     justNow: "gerade eben",
-    minutesAgo: "vor {n} min",
-    hoursAgo: "vor {n} h",
-    daysAgo: "vor {n} tag(en)",
   },
 } as const;

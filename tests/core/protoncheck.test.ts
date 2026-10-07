@@ -33,11 +33,16 @@ const result = (
   compatToolsInstalled: CompatTool[] = [],
   builtinProtonsInstalled: ScanResult["builtinProtonsInstalled"] = [],
   warnings: ScanResult["warnings"] = [],
-): Pick<ScanResult, "games" | "compatToolsInstalled" | "builtinProtonsInstalled" | "warnings"> => ({
+  blockedAppIds: number[] = [],
+): Pick<
+  ScanResult,
+  "games" | "compatToolsInstalled" | "builtinProtonsInstalled" | "warnings" | "blockedAppIds"
+> => ({
   games,
   compatToolsInstalled,
   builtinProtonsInstalled,
   warnings,
+  blockedAppIds,
 });
 
 describe("deriveProtonCheck", () => {
@@ -246,6 +251,61 @@ describe("deriveProtonCheck", () => {
     expect(checks).toEqual([]);
   });
 
+  it.each<ScanResult["warnings"][number]>([
+    { type: "library", path: "/mnt/sd", reason: "path-missing" },
+    { type: "library", path: "/mnt/sd", reason: "read-failed" },
+    { type: "library", path: "/mnt/sd", reason: "scope-failed" },
+    { type: "library", path: "/steam", reason: "unverified" },
+    ...(["unreadable", "invalid-content", "appid-mismatch", "invalid-filename"] as const).map(
+      (reason) => ({
+        type: "manifest" as const,
+        library: "/steam",
+        manifestName: "appmanifest_2805730.acf",
+        reason,
+      }),
+    ),
+  ])(
+    "behauptet bei unvollständigem manifest-scan ($type/$reason) keine abwesenheit von builtin oder runtime",
+    (warning) => {
+      const checks = deriveProtonCheck(
+        result(
+          [
+            game(1, null, "proton_9", "explicit"),
+            game(2, null, "steamlinuxruntime_sniper", "explicit"),
+            game(3, null, "sniper", "explicit"),
+            game(4, null, "GE-Proton9-27", "explicit"),
+          ],
+          [],
+          [],
+          [warning],
+        ),
+      );
+
+      expect(checks).toEqual([{ appId: 4, reasons: ["tool-not-recognized"] }]);
+    },
+  );
+
+  it("wertet einen namens-heuristik-treffer nicht als unvollständigen manifest-scan", () => {
+    const checks = deriveProtonCheck(
+      result(
+        [game(1, null, "proton_9", "explicit")],
+        [],
+        [],
+        [
+          {
+            type: "manifest",
+            library: "/steam",
+            manifestName: "appmanifest_4242.acf",
+            appId: 4242,
+            reason: "name-heuristic",
+          },
+        ],
+      ),
+    );
+
+    expect(checks).toEqual([{ appId: 1, reasons: ["tool-not-recognized"] }]);
+  });
+
   it("lässt bronze/borked auch bei unvollständigem tool-scan bestehen", () => {
     const checks = deriveProtonCheck(
       result(
@@ -263,5 +323,98 @@ describe("deriveProtonCheck", () => {
     );
 
     expect(checks).toEqual([{ appId: 1, reasons: ["tier-bronze"] }]);
+  });
+
+  it.each([
+    ["steamlinuxruntime", 1070560],
+    ["steamlinuxruntime_soldier", 1391110],
+    ["steamlinuxruntime_sniper", 1628350],
+    ["steamlinuxruntime_4", 4183110],
+    ["legacysteamruntime", 4690330],
+  ])("erkennt %s, wenn manifest %i vorliegt", (tool, appId) => {
+    const checks = deriveProtonCheck(
+      result([game(1, null, tool, "explicit")], [], [], [], [appId]),
+    );
+
+    expect(checks).toEqual([]);
+  });
+
+  it.each([
+    ["native", 1070560],
+    ["scout", 1070560],
+    ["SteamLinuxRuntime_scout", 1070560],
+    ["soldier", 1391110],
+    ["sniper", 1628350],
+    ["steamrt4", 4183110],
+    ["steamrt4-any", 4183110],
+    ["scout_legacy", 4690330],
+    ["legacy_steam_runtime", 4690330],
+  ])("erkennt den alias %s, wenn manifest %i vorliegt", (alias, appId) => {
+    const checks = deriveProtonCheck(
+      result([game(1, null, alias, "explicit")], [], [], [], [appId]),
+    );
+
+    expect(checks).toEqual([]);
+  });
+
+  it("meldet einen alias ohne sein manifest als tool-not-recognized", () => {
+    const checks = deriveProtonCheck(
+      result(
+        [game(1, null, "sniper", "explicit"), game(2, null, "native", "explicit")],
+        [],
+        [],
+        [],
+        [1391110],
+      ),
+    );
+
+    expect(checks).toEqual([
+      { appId: 1, reasons: ["tool-not-recognized"] },
+      { appId: 2, reasons: ["tool-not-recognized"] },
+    ]);
+  });
+
+  it("erkennt steamlinuxruntime nicht, wenn nur soldier 1391110 vorliegt", () => {
+    const checks = deriveProtonCheck(
+      result([game(1, null, "steamlinuxruntime", "explicit")], [], [], [], [1391110]),
+    );
+
+    expect(checks).toEqual([{ appId: 1, reasons: ["tool-not-recognized"] }]);
+  });
+
+  it("meldet runtime-mappings ohne manifest als tool-not-recognized", () => {
+    const checks = deriveProtonCheck(
+      result([
+        game(1, null, "steamlinuxruntime_sniper", "explicit"),
+        game(2, null, "steamlinuxruntime", "explicit"),
+      ]),
+    );
+
+    expect(checks).toEqual([
+      { appId: 1, reasons: ["tool-not-recognized"] },
+      { appId: 2, reasons: ["tool-not-recognized"] },
+    ]);
+  });
+
+  it("lässt ein unbekanntes tool unrecognized, auch neben installierten runtimes", () => {
+    const checks = deriveProtonCheck(
+      result(
+        [
+          game(1, null, "not-a-runtime", "explicit"),
+          game(2, null, "steamlinuxruntime_custom", "explicit"),
+          game(3, null, "steamrt4-fixture", "explicit"),
+        ],
+        [],
+        [],
+        [],
+        [1070560, 1628350, 4183110],
+      ),
+    );
+
+    expect(checks).toEqual([
+      { appId: 1, reasons: ["tool-not-recognized"] },
+      { appId: 2, reasons: ["tool-not-recognized"] },
+      { appId: 3, reasons: ["tool-not-recognized"] },
+    ]);
   });
 });

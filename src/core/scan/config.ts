@@ -93,7 +93,9 @@ export async function readLaunchConfig(
         type: "launch-config",
         reason: "selection-ambiguous",
         steamUserId: activeUser.userId,
-        detail: `multiple steam accounts found, loginusers.vdf ambiguous, using ${activeUser.userId}`,
+        // Das Detail geht ins Diagnoseprotokoll. Die Account-ID bleibt nur im
+        // strukturierten Feld, sonst steht sie im lokalen Log.
+        detail: "multiple steam accounts found, loginusers.vdf ambiguous",
       });
     }
     try {

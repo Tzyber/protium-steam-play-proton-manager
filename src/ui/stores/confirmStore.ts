@@ -50,23 +50,9 @@ export const useConfirmStore = defineStore("confirm", () => {
     return true;
   }
 
-  function ask(request: ConfirmRequest, cb: ConfirmCallbacks = {}, token?: number): boolean {
+  function ask(request: ConfirmRequest, cb: ConfirmCallbacks, token: number): boolean {
     if (busy.value) return false;
-    if (pending.value) {
-      cb.onCancel?.();
-      return false;
-    }
-    if (token === undefined) {
-      if (reservation.value !== null) {
-        cb.onCancel?.();
-        return false;
-      }
-      token = reserve() ?? undefined;
-    } else if (reservation.value !== token) {
-      cb.onCancel?.();
-      return false;
-    }
-    if (token === undefined) {
+    if (pending.value || reservation.value !== token) {
       cb.onCancel?.();
       return false;
     }

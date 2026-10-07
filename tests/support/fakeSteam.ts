@@ -331,7 +331,7 @@ export function fakeSystem(opts?: { environment?: EnvironmentSnapshot }): System
       // fixture-fakes kennen keinen papierkorb; findTrashEntries wird separat getestet
       return { dir: `${library}/steamapps/.protium-trash`, present: false, entries: [] };
     },
-    async isProcessRunning() {
+    async isSteamRunning() {
       return false;
     },
     async dirSize() {
@@ -358,7 +358,7 @@ export function fakeSystem(opts?: { environment?: EnvironmentSnapshot }): System
     onDownloadProgress: async () => () => {},
     onInstallPhase: async () => () => {},
     async prepareDelete(request) {
-      if (request.targetType !== "trash" && (await this.isProcessRunning("steam"))) {
+      if (request.targetType !== "trash" && (await this.isSteamRunning())) {
         throw new Error("steam-running");
       }
       return {

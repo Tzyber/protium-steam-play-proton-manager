@@ -18,6 +18,13 @@ interface CacheEntry {
   fetchedAt: number;
 }
 
+interface ProtonDbSummary {
+  tier: Tier;
+  confidence: string;
+  /** true nur bei einem gültigen Cache-Treffer, nie nach einem HTTP-Abruf. */
+  fromCache: boolean;
+}
+
 export class ProtonDbClient {
   constructor(
     private http: Http,
@@ -26,7 +33,7 @@ export class ProtonDbClient {
   ) {}
 
   // 404, Offline oder defekte Daten ergeben `null`; der Aufrufer setzt `unknown`.
-  async getSummary(appId: number): Promise<{ tier: Tier; confidence: string } | null> {
+  async getSummary(appId: number): Promise<ProtonDbSummary | null> {
     const key = `protondb:${appId}`;
     try {
       const cached = await this.cache.get(key);
@@ -42,6 +49,7 @@ export class ProtonDbClient {
           return {
             tier: asTier(entry.tier),
             confidence: typeof entry.confidence === "string" ? entry.confidence : "unknown",
+            fromCache: true,
           };
         }
       }
@@ -63,7 +71,7 @@ export class ProtonDbClient {
       } catch {
         // cache-schreibfehler darf frische daten nicht verwerfen
       }
-      return result;
+      return { ...result, fromCache: false };
     } catch {
       return null; // netzwerkfehler → degradieren
     }

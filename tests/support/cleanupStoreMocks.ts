@@ -65,7 +65,7 @@ const hoisted = vi.hoisted(() => {
         Object.fromEntries(paths.map((path) => [path, { status: "missing" as const }])),
     ),
     mockReadLocalConfig: vi.fn(async () => ""),
-    mockIsProcessRunning: vi.fn(async () => false),
+    mockIsSteamRunning: vi.fn(async () => false),
   };
 });
 
@@ -80,7 +80,7 @@ const {
   mockExecuteDelete,
   mockBatchDirSizes,
   mockReadLocalConfig,
-  mockIsProcessRunning,
+  mockIsSteamRunning,
 } = hoisted;
 
 export {
@@ -91,7 +91,7 @@ export {
   mockFindOrphans,
   mockFindSteamOwnedPrefixes,
   mockFindTrashEntries,
-  mockIsProcessRunning,
+  mockIsSteamRunning,
   mockPrepareDelete,
   mockReadAllShortcutAppIds,
   mockReadLocalConfig,
@@ -123,7 +123,7 @@ vi.mock("../../src/core/adapters/tauri", async () => {
     },
     http: {},
     system: {
-      isProcessRunning: mockIsProcessRunning,
+      isSteamRunning: mockIsSteamRunning,
       batchDirSizes: mockBatchDirSizes,
       prepareDelete: mockPrepareDelete,
       executeDelete: mockExecuteDelete,
@@ -174,8 +174,8 @@ export function resetCleanupMocks(): void {
   );
   mockReadLocalConfig.mockReset();
   mockReadLocalConfig.mockResolvedValue("");
-  mockIsProcessRunning.mockReset();
-  mockIsProcessRunning.mockResolvedValue(false);
+  mockIsSteamRunning.mockReset();
+  mockIsSteamRunning.mockResolvedValue(false);
 }
 
 /** Scan-Snapshot mit leerem Inventar; nur skipped/unsafe-Libraries variieren in

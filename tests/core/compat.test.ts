@@ -136,7 +136,7 @@ describe("listCompatTools", () => {
         present: false,
         entries: [],
       })),
-      isProcessRunning: vi.fn(async () => false),
+      isSteamRunning: vi.fn(async () => false),
       dirSize: vi.fn(async () => ({ status: "measured" as const, sizeBytes: 0 })),
       batchDirSizes: vi.fn(async (paths: string[]) =>
         Object.fromEntries(

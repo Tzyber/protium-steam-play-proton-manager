@@ -1,3 +1,5 @@
+import { validNonNegativeInteger } from "../core/supportRedaction";
+
 // Belegte Null ist eine Messung; formatBytes(0) steht für „leer oder ungültig".
 export function formatKnownBytes(bytes: number): string {
   return bytes === 0 ? "0 B" : formatBytes(bytes);
@@ -25,8 +27,9 @@ export function sizeText(
   options: { missing?: string; measured?: boolean } = {},
 ): string {
   const { missing = "…", measured = false } = options;
-  if (sizeBytes === undefined || !Number.isSafeInteger(sizeBytes) || sizeBytes < 0) return missing;
-  return measured ? formatKnownBytes(sizeBytes) : formatBytes(sizeBytes);
+  const known = validNonNegativeInteger(sizeBytes);
+  if (known === null) return missing;
+  return measured ? formatKnownBytes(known) : formatBytes(known);
 }
 
 /** letztes pfadsegment; ein pfad ohne "/" bleibt unverändert. Für knappe

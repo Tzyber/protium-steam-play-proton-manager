@@ -8,6 +8,8 @@ import { formatDetail } from "./formatError";
 import { type Key, t } from "./i18n";
 
 type LibraryWarning = Extract<ScanWarning, { type: "library" }>;
+type CompatConfigWarning = Extract<ScanWarning, { type: "compat-config" }>;
+type LaunchConfigWarning = Extract<ScanWarning, { type: "launch-config" }>;
 type ManifestWarning = Extract<ScanWarning, { type: "manifest" }>;
 type ToolWarning = Extract<ScanWarning, { type: "compat-tool" }>;
 
@@ -82,18 +84,17 @@ function formatLibraryWarning(warning: LibraryWarning): string {
   );
 }
 
-function formatConfigWarning(
-  warning: Extract<ScanWarning, { type: "compat-config" | "launch-config" }>,
-): string {
-  if (warning.type === "compat-config") {
-    return withDetail(
-      t("library.coverageWarningConfig", {
-        source: t("library.coverageCompatConfig"),
-        reason: t(CONFIG_REASON[warning.reason]),
-      }),
-      formatDetail(warning.detail),
-    );
-  }
+function formatCompatConfigWarning(warning: CompatConfigWarning): string {
+  return withDetail(
+    t("library.coverageWarningConfig", {
+      source: t("library.coverageCompatConfig"),
+      reason: t(CONFIG_REASON[warning.reason]),
+    }),
+    formatDetail(warning.detail),
+  );
+}
+
+function formatLaunchConfigWarning(warning: LaunchConfigWarning): string {
   const account = warning.steamUserId
     ? t("library.coverageLaunchAccount", { id: warning.steamUserId })
     : undefined;
@@ -133,8 +134,9 @@ export function formatWarning(warning: ScanWarning): string {
     case "library":
       return formatLibraryWarning(warning);
     case "compat-config":
+      return formatCompatConfigWarning(warning);
     case "launch-config":
-      return formatConfigWarning(warning);
+      return formatLaunchConfigWarning(warning);
     case "manifest":
       return formatManifestWarning(warning);
     case "compat-tool":

@@ -37,3 +37,12 @@ tokio = { version = "1", features = ["fs", "io-util", "macros", "rt", "sync"] }
 [dev-dependencies]
 # für die R-4 cargo-tests (#[tokio::test] + lokaler http-stub)
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "io-util", "sync"] }
+
+# panic bleibt unwind: ClaimRestoreGuard braucht Drop bei Unwind.
+# nicht auf abort stellen.
+# lto und codegen-units = 1: kleineres, schnelleres Binary; längere
+# Release-Builds sind akzeptiert.
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

@@ -11,13 +11,15 @@ import {
   mockExecuteDelete,
   mockFindOrphans,
   mockFindTrashEntries,
+  mockIsSteamRunning,
   mockPrepareDelete,
   resetCleanupMocks,
 } from "../support/cleanupStoreMocks";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScanResult } from "../../src/core/types";
-import { setLocale } from "../../src/ui/i18n";
+import { formatError } from "../../src/ui/formatError";
+import { setLocale, t } from "../../src/ui/i18n";
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
@@ -137,6 +139,23 @@ describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
     expect(store.error).toContain("unlesbar");
   });
 
+  it("hängt den löschfehler an den fehler des internen orphan-rescans an", async () => {
+    const failure = new Error("unreadable");
+    mockExecuteDelete.mockRejectedValue(failure);
+    mockIsSteamRunning.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    const path = "/lib/steamapps/shadercache/888888";
+
+    await store.deleteOrphans([{ appId: 888888, type: "shadercache", path, library: "/lib" }]);
+    await useConfirmStore().confirm();
+
+    expect(store.orphanError).toBe(
+      `${t("errors.steamRunningCleanup")}; shadercache/${path}: ${formatError(failure)}`,
+    );
+  });
+
   it("orphan-onError räumt deleting nach unerwartetem execute-folgefehler auf", async () => {
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
@@ -252,34 +271,6 @@ describe("cleanupStore, S-02: Pfadbasierte Keys (A-04)", () => {
     expect(store.deleting.size).toBe(0);
   });
 
-  it("orphanKey(entry) liefert den vollständigen Pfad", () => {
-    const store = useCleanupStore();
-    const entry = {
-      appId: 570,
-      type: "compatdata" as const,
-      path: "/lib1/steamapps/compatdata/570",
-      library: "/lib1",
-    };
-    expect(store.orphanKey(entry)).toBe("/lib1/steamapps/compatdata/570");
-  });
-
-  it("gleiche AppID in unterschiedlichen Libraries erzeugt unterschiedliche Keys", () => {
-    const store = useCleanupStore();
-    const entry1 = {
-      appId: 570,
-      type: "compatdata" as const,
-      path: "/lib1/steamapps/compatdata/570",
-      library: "/lib1",
-    };
-    const entry2 = {
-      appId: 570,
-      type: "compatdata" as const,
-      path: "/lib2/steamapps/compatdata/570",
-      library: "/lib2",
-    };
-    expect(store.orphanKey(entry1)).not.toBe(store.orphanKey(entry2));
-  });
-
   it("Unavailable-Getter teilen nur die Claim-Lesefehler-Basis", () => {
     const store = useCleanupStore();
 
@@ -334,5 +325,76 @@ describe("cleanupStore, S-02: Pfadbasierte Keys (A-04)", () => {
     });
     expect(mockExecuteDelete).toHaveBeenCalledTimes(1);
     expect(store.orphans).toEqual([entry2]);
+  });
+});
+
+describe("cleanupStore, orphan-scanfehler beim löschen", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    setLocale("de");
+    resetCleanupMocks();
+  });
+
+  const kept = { appId: 1, type: "shadercache" as const, path: "/lib/sc/1", library: "/lib" };
+  const failing = { appId: 2, type: "shadercache" as const, path: "/lib/sc/2", library: "/lib" };
+  const sizeFailure = new Error("unreadable");
+  const prepareFailure = new Error("path-missing");
+
+  async function scanWithSizeFailure() {
+    mockFindOrphans.mockResolvedValue([kept, failing]);
+    mockBatchDirSizes.mockRejectedValueOnce(sizeFailure);
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    await store.scanOrphans();
+    const scanError = formatError(sizeFailure);
+    expect(store.orphanError).toBe(scanError);
+    return { store, scanError };
+  }
+
+  function failPrepareFor(path: string): void {
+    mockPrepareDelete.mockImplementation(async (req) => {
+      if (req.path === path) throw prepareFailure;
+      return {
+        token: `token-${req.path}`,
+        expiresAt: Date.now() + MOCK_TOKEN_TTL_MS,
+        targetType: req.targetType,
+        targetPath: req.path,
+        consequences: [],
+      };
+    });
+  }
+
+  it("sperrt das löschen nach einem scan-fehler, der fehler bleibt stehen", async () => {
+    const { store, scanError } = await scanWithSizeFailure();
+
+    expect(store.orphanDeleteBlocked("shadercache")).toBe(true);
+    await store.deleteOrphans([kept]);
+
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
+    expect(useConfirmStore().reserved).toBe(false);
+    expect(store.orphanError).toBe(scanError);
+  });
+
+  it("ein löschfehler sperrt den nächsten versuch nicht und staut nicht auf", async () => {
+    mockFindOrphans.mockResolvedValue([kept, failing]);
+    useScanStore().result = fakeScan([]);
+    const store = useCleanupStore();
+    await store.scanOrphans();
+    failPrepareFor(failing.path);
+    const prepareError = `shadercache/2: ${formatError(prepareFailure)}`;
+
+    await store.deleteOrphans([kept, failing]);
+    useConfirmStore().cancel();
+    expect(store.orphanError).toBe(prepareError);
+    expect(store.orphanDeleteBlocked("shadercache")).toBe(false);
+
+    await store.deleteOrphans([kept, failing]);
+    useConfirmStore().cancel();
+    expect(store.orphanError).toBe(prepareError);
+
+    await store.deleteOrphans([kept]);
+    useConfirmStore().cancel();
+    expect(store.orphanError).toBeNull();
   });
 });

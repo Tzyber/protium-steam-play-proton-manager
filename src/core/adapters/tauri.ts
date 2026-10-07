@@ -55,17 +55,26 @@ const fs: FileSystem = {
 
 // plugin-http kennt nur connectTimeout, keinen read-timeout: ein server, der
 // die verbindung annimmt und nichts sendet, würde den aufrufer sonst endlos
-// hängen lassen (INV-3). der timer umfasst fetch UND body-read.
+// hängen lassen (INV-3). der timer umfasst fetch UND body-read. abort() darin
+// beendet den Rust-Lauf; Promise.race allein lässt ihn weiterlaufen (A-06).
+// im finally nicht aborten: Erfolg ist kein Timeout, der Body ist dann schon gelesen.
 const HTTP_TIMEOUT_MS = 30_000;
 // plugin-http: connectTimeout deckt nur den verbindungsaufbau, den rest des
 // laufs umfasst der timer oben. eigener name statt magic number (K-14).
 const CONNECT_TIMEOUT_MS = 10_000;
+// plugin-http 2.6 prüft nur die erste URL gegen den Scope und folgt Redirects
+// sonst ungeprüft (A-06). ProtonDB und die GitHub-API antworten ohne Redirect.
+const MAX_REDIRECTIONS = 0;
 
 const http: Http = {
   async get(url, opts) {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
     const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error("HTTP request timed out")), HTTP_TIMEOUT_MS);
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error("HTTP request timed out"));
+      }, HTTP_TIMEOUT_MS);
     });
     try {
       return await Promise.race([
@@ -74,6 +83,8 @@ const http: Http = {
             method: "GET",
             headers: opts?.headers,
             connectTimeout: CONNECT_TIMEOUT_MS,
+            maxRedirections: MAX_REDIRECTIONS,
+            signal: controller.signal,
           });
           const text = await res.text();
           const headers: Record<string, string> = {};
@@ -93,7 +104,7 @@ const http: Http = {
 const system: System = {
   geTargetArch: () => invoke<TargetArch>("ge_target_arch"),
   discoverSteamEnvironment: () => invoke<EnvironmentSnapshot>("discover_steam_environment"),
-  isProcessRunning: (name) => invoke<boolean>("is_process_running", { name }),
+  isSteamRunning: () => invoke<boolean>("is_steam_running"),
   dirSize: (path) => invoke<DirectorySize>("dir_size", { path }),
   batchDirSizes: (paths) => invoke<Record<string, DirectorySize>>("batch_dir_sizes", { paths }),
   listTrashEntries: async (library) => {
@@ -123,6 +134,7 @@ const system: System = {
       releaseTag: params.releaseTag,
       downloadUrl: params.downloadUrl,
       downloadId: params.downloadId,
+      locale: params.locale,
     }),
   cancelDownload: (downloadId) => invoke<void>("cancel_download", { downloadId }),
   // Die Event-API von Tauri bleibt hier: die UI-Schicht kennt nur diese zwei

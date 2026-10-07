@@ -406,7 +406,6 @@ fn open_anonymous_at(directory: &fs::File) -> io::Result<fs::File> {
             "anonymous download is not a regular file",
         ));
     }
-    let _ = file_identity(&file)?;
     Ok(file)
 }
 
@@ -435,14 +434,14 @@ pub(super) fn file_identity(file: &fs::File) -> io::Result<(u64, u64)> {
 }
 
 #[cfg(unix)]
-pub(super) fn metadata_identity(metadata: &fs::Metadata) -> Option<(u64, u64)> {
+pub(super) fn metadata_identity(metadata: &fs::Metadata) -> (u64, u64) {
     use std::os::unix::fs::MetadataExt;
-    Some((metadata.dev(), metadata.ino()))
+    (metadata.dev(), metadata.ino())
 }
 
 #[cfg(not(unix))]
-pub(super) fn metadata_identity(metadata: &fs::Metadata) -> Option<(u64, u64)> {
-    Some((metadata.len(), 0))
+pub(super) fn metadata_identity(metadata: &fs::Metadata) -> (u64, u64) {
+    (metadata.len(), 0)
 }
 
 /// markiert einen download zum abbruch; setzt das flag im aktuell registrierten Arc.

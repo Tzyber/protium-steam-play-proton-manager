@@ -47,12 +47,12 @@ describe("enrichProtondb", () => {
     ]);
   });
 
-  it("wartet 150 ms nur zwischen spiel-abwicklungen, auch bei cache-hits", async () => {
-    vi.useFakeTimers();
+  it("schläft bei einem reinen Cache-Treffer nicht", async () => {
     const { root } = await buildFakeSteam();
     const games = [game(620, root), game(570, root), game(730, root)];
     const calls: number[] = [];
     const settled: number[] = [];
+    const sleep = vi.fn(async (_ms: number) => {});
     const cache = memCache();
     for (const appId of [620, 570, 730]) {
       await cache.set(
@@ -72,24 +72,56 @@ describe("enrichProtondb", () => {
       },
     };
 
-    const run = enrichProtondb(ports, games, 150, {
+    await enrichProtondb(ports, games, 150, {
+      sleep,
       onSettled: (candidate) => settled.push(candidate.appId),
     });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(calls).toEqual([]);
-    expect(settled).toEqual([620]);
 
-    await vi.advanceTimersByTimeAsync(149);
     expect(calls).toEqual([]);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(settled).toEqual([620, 570]);
-    await vi.advanceTimersByTimeAsync(150);
+    expect(sleep).not.toHaveBeenCalled();
     expect(settled).toEqual([620, 570, 730]);
-    await run;
+    expect(games.map((candidate) => candidate.protonDb)).toEqual([
+      { tier: "gold", confidence: "strong" },
+      { tier: "gold", confidence: "strong" },
+      { tier: "gold", confidence: "strong" },
+    ]);
+  });
 
-    expect(calls).toEqual([]);
-    expect(games.every((candidate) => candidate.protonDb?.tier === "gold")).toBe(true);
-    expect(vi.getTimerCount()).toBe(0);
+  it("schläft nach einem echten HTTP-Abruf weiter", async () => {
+    const { root } = await buildFakeSteam();
+    const games = [game(620, root), game(570, root), game(730, root)];
+    const calls: number[] = [];
+    const sleep = vi.fn(async (_ms: number) => {});
+    const ports = {
+      fs: nodeFs(),
+      system: fakeSystem(),
+      cache: memCache(),
+      http: {
+        async get(url: string) {
+          const appId = Number(url.split("/").at(-1)?.replace(".json", ""));
+          calls.push(appId);
+          if (appId === 570) {
+            return { status: 404, ok: false, text: "", headers: {} };
+          }
+          return {
+            status: 200,
+            ok: true,
+            text: JSON.stringify({ tier: "silver", confidence: "strong" }),
+            headers: {},
+          };
+        },
+      },
+    };
+
+    await enrichProtondb(ports, games, 150, { sleep });
+
+    expect(calls).toEqual([620, 570, 730]);
+    expect(sleep.mock.calls).toEqual([[150], [150]]);
+    expect(games.map((candidate) => candidate.protonDb)).toEqual([
+      { tier: "silver", confidence: "strong" },
+      { tier: "unknown", confidence: "unknown" },
+      { tier: "silver", confidence: "strong" },
+    ]);
   });
 
   it("stoppt vor dem ersten request, wenn der lauf stale ist", async () => {

@@ -2,9 +2,16 @@ use super::*;
 use crate::commands::test_util::{production_source, write_appmanifest, wsg_fixture};
 
 fn wsg_env(tag: &str) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+    wsg_env_at(tag, ".local/share/Steam")
+}
+
+fn wsg_env_at(
+    tag: &str,
+    steam_relative: &str,
+) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
     let root = wsg_fixture(tag);
     let home = root.join("fakehome");
-    let steam = home.join(".local/share/Steam");
+    let steam = home.join(steam_relative);
     std::fs::create_dir_all(steam.join("config")).unwrap();
     std::fs::create_dir_all(steam.join("userdata/123/config")).unwrap();
     let config_vdf = r#""InstallConfigStore"
@@ -72,7 +79,7 @@ fn save_launch_options_steam_laeuft_abgelehnt() {
         620,
         "-novid",
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     assert!(res.is_err());
@@ -94,7 +101,7 @@ fn save_launch_options_prueft_prozess_zweimal_und_schreibt_nicht_bei_start_race(
         620,
         "-novid",
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
 
@@ -116,7 +123,7 @@ fn save_launch_options_happy_write_and_backup() {
         620,
         "-novid",
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     assert_eq!(res.unwrap(), WriteResult::Written);
@@ -145,7 +152,7 @@ fn save_launch_options_empty_removes_entry() {
         620,
         "",
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     assert_eq!(res.unwrap(), WriteResult::Written);
@@ -165,7 +172,7 @@ fn save_launch_options_no_op_unchanged() {
         620,
         "gamemoderun %command%",
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     assert_eq!(res.unwrap(), WriteResult::Unchanged);
@@ -184,7 +191,7 @@ fn save_launch_options_invalid_account_or_app_id() {
         620,
         "-novid",
         &cache,
-        &home,
+        &steam,
         &mut reader
     )
     .is_err());
@@ -194,7 +201,7 @@ fn save_launch_options_invalid_account_or_app_id() {
         620,
         "-novid",
         &cache,
-        &home,
+        &steam,
         &mut reader
     )
     .is_err());
@@ -204,7 +211,7 @@ fn save_launch_options_invalid_account_or_app_id() {
         0,
         "-novid",
         &cache,
-        &home,
+        &steam,
         &mut reader
     )
     .is_err());
@@ -225,7 +232,7 @@ fn save_launch_options_steuerzeichen_werden_abgelehnt_ohne_seiteneffekt() {
             620,
             evil,
             &cache,
-            &home,
+            &steam,
             &mut reader,
         );
         assert!(res.is_err(), "wert {evil:?} muss abgelehnt werden");
@@ -258,7 +265,7 @@ fn save_compat_tool_tool_name_mit_steuerzeichen_abgelehnt() {
         620,
         Some("GE-Proton9-27\0x"),
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     assert!(res.is_err());
@@ -283,7 +290,7 @@ fn save_launch_options_uebergroesse_lehnt_ab_ohne_seiteneffekt() {
         620,
         "-novid",
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     let err = res.unwrap_err();
@@ -323,7 +330,7 @@ fn save_launch_options_zu_grosser_eingabewert_lehnt_ab_ohne_seiteneffekt() {
         620,
         &oversized,
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     let err = res.unwrap_err();
@@ -349,7 +356,7 @@ fn save_launch_options_exakt_an_der_eingabegrenze_wird_geschrieben() {
         620,
         &boundary,
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
 
@@ -403,7 +410,7 @@ fn save_launch_options_lehnt_gepatchten_text_ueber_der_lesegrenze_ab() {
         620,
         &growing,
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     let err = res.unwrap_err();
@@ -429,7 +436,7 @@ fn save_compat_tool_zu_langer_name_lehnt_ab_ohne_seiteneffekt() {
         620,
         Some(&oversized),
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     let err = res.unwrap_err();
@@ -458,7 +465,7 @@ fn save_launch_options_exakt_an_der_lesegrenze_kein_read_limit_fehler() {
         620,
         "-novid",
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     // die 16-MiB-grenze selbst ist kein read-limit-fehler (der strukturbruch
@@ -486,7 +493,7 @@ fn save_compat_tool_uebergroesse_lehnt_ab_ohne_seiteneffekt() {
         620,
         Some("GE-Proton9-28"),
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     let err = res.unwrap_err();
@@ -847,10 +854,12 @@ fn pfadbeschaffung_der_commands_ist_codiert() {
     // der rohtext darf nicht zurückkehren: der code fehlt dann im leitfeld.
     assert!(!production.contains("cannot resolve home dir: {e}"));
     assert!(!production.contains("cannot resolve app cache dir: {e}"));
-    // definition plus die fünf beschaffungsstellen (save_launch_options,
-    // save_compat_tool, list_config_backups).
-    assert!(
-        production.matches("path_resolution_error(").count() >= 6,
+    // definition plus die drei verbleibenden beschaffungsstellen
+    // (save_launch_options, save_compat_tool, list_config_backups). Der
+    // Steam-Root kommt aus dem Snapshot, nicht mehr aus home_dir.
+    assert_eq!(
+        production.matches("path_resolution_error(").count(),
+        4,
         "jede pfadbeschaffung muss den helper benutzen"
     );
 }
@@ -1013,7 +1022,7 @@ fn save_launch_options_prueft_vor_dem_rename_und_laesst_ziel_unveraendert() {
         620,
         "neu %command%",
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
 
@@ -1096,7 +1105,7 @@ fn save_compat_tool_steam_laeuft_abgelehnt() {
         620,
         Some("GE-Proton9-28"),
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     assert!(res.is_err());
@@ -1117,7 +1126,7 @@ fn save_compat_tool_prueft_prozess_zweimal_und_schreibt_nicht_bei_start_race() {
         620,
         Some("GE-Proton9-28"),
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
 
@@ -1138,7 +1147,7 @@ fn save_compat_tool_unbekannter_name_und_leerer_wert_abgelehnt() {
             620,
             tool_name,
             &cache,
-            &home,
+            &steam,
             &mut reader,
         );
         assert!(result.is_err(), "{tool_name:?} muss abgelehnt werden");
@@ -1156,7 +1165,7 @@ fn save_compat_tool_erlaubt_valve_builtin_nur_mit_installiertem_manifest() {
         620,
         Some("proton_experimental"),
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     assert_eq!(result.unwrap(), WriteResult::Written);
@@ -1167,7 +1176,7 @@ fn save_compat_tool_erlaubt_valve_builtin_nur_mit_installiertem_manifest() {
         620,
         Some("proton_11"),
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     assert!(missing.is_err());
@@ -1192,7 +1201,7 @@ fn save_compat_tool_verwirft_symlinkendes_custom_tool() {
         620,
         Some("evil-tool"),
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     assert!(result.is_err());
@@ -1219,7 +1228,7 @@ fn save_compat_tool_verwirft_symlinkendes_custom_root() {
         620,
         Some("CustomTool"),
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     assert!(result.is_err());
@@ -1241,7 +1250,7 @@ fn save_compat_tool_verwirft_defekte_custom_vdf() {
         620,
         Some("GE-Proton9-27"),
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     assert!(result.is_err());
@@ -1258,7 +1267,7 @@ fn save_compat_tool_happy_write_and_backup() {
         620,
         Some("GE-Proton9-28"),
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     assert_eq!(res.unwrap(), WriteResult::Written);
@@ -1288,7 +1297,7 @@ fn save_compat_tool_none_or_default_removes_entry() {
         620,
         None,
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     assert_eq!(res.unwrap(), WriteResult::Written);
@@ -1307,7 +1316,7 @@ fn save_compat_tool_no_op_unchanged() {
         620,
         Some("GE-Proton9-27"),
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     assert_eq!(res.unwrap(), WriteResult::Unchanged);
@@ -1327,7 +1336,7 @@ fn save_compat_tool_fehlende_zieldatei_abgelehnt() {
         620,
         Some("GE-Proton9-28"),
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
     assert!(res.is_err());
@@ -1336,29 +1345,41 @@ fn save_compat_tool_fehlende_zieldatei_abgelehnt() {
 
 #[test]
 fn save_compat_tool_fremder_root_abgelehnt() {
-    let (home, cache, _steam) = wsg_env("compat-fremdroot");
+    let (home, cache, steam) = wsg_env("compat-fremdroot");
     let fremd = home.join(".local/share/Other");
     std::fs::create_dir_all(fremd.join("config")).unwrap();
     std::fs::write(fremd.join("config/config.vdf"), "x").unwrap();
+    let before = std::fs::read_to_string(steam.join("config/config.vdf")).unwrap();
     let mut reader = || Ok(false);
     let res = save_compat_tool_inner(
         fremd.to_str().unwrap(),
         620,
         Some("GE-Proton9-28"),
         &cache,
-        &home,
+        &steam,
         &mut reader,
     );
-    assert!(res.is_err());
-    assert!(res.unwrap_err().contains("not-a-steam-config"));
+    assert!(res.unwrap_err().contains("blocked-location"));
+    assert_eq!(
+        std::fs::read_to_string(steam.join("config/config.vdf")).unwrap(),
+        before
+    );
+    assert_eq!(
+        std::fs::read_to_string(fremd.join("config/config.vdf")).unwrap(),
+        "x"
+    );
     let _ = std::fs::remove_dir_all(home.parent().unwrap());
 }
 
 #[test]
 fn save_compat_tool_autoritaet_kommt_aus_dem_zielroot_nicht_aus_dem_parameter() {
     let (home, cache, steam) = wsg_env("compat-authority-root");
-    // präpariertes root: eigenes compatibilitytools.d, aber config zeigt per
-    // symlink auf das echte steam-config-verzeichnis (INV-7).
+    let target = steam.join("config/config.vdf");
+    let before = std::fs::read_to_string(&target).unwrap();
+
+    // Fremdes Verzeichnis mit Config-Symlink auf das echte Steam: der angeforderte
+    // Root ist nicht der Snapshot-Root und wird abgelehnt, bevor ein Toolname
+    // aus dem präparierten compatibilitytools.d Autorität bekommt (INV-1, INV-7).
     let fake = home.join(".local/share/fake");
     let evil_tool = fake.join("compatibilitytools.d/Evil-Tool");
     std::fs::create_dir_all(&evil_tool).unwrap();
@@ -1368,35 +1389,47 @@ fn save_compat_tool_autoritaet_kommt_aus_dem_zielroot_nicht_aus_dem_parameter() 
     )
     .unwrap();
     std::os::unix::fs::symlink(steam.join("config"), fake.join("config")).unwrap();
-    let target = steam.join("config/config.vdf");
-
     let mut reader = || Ok(false);
-    let res = save_compat_tool_inner(
-        fake.to_str().unwrap(),
-        620,
-        Some("Evil-Tool"),
-        &cache,
-        &home,
-        &mut reader,
-    );
-    let error = res.unwrap_err();
-    assert!(error.contains("unknown-tool"), "{error}");
-    let content = std::fs::read_to_string(&target).unwrap();
-    assert!(!content.contains("Evil-Tool"));
-
-    // dieselbe ableitung erlaubt weiterhin tools, die im zielroot installiert sind
-    let mut reader = || Ok(false);
-    let res = save_compat_tool_inner(
+    let rejected = save_compat_tool_inner(
         fake.to_str().unwrap(),
         620,
         Some("GE-Proton9-28"),
         &cache,
-        &home,
+        &steam,
+        &mut reader,
+    );
+    assert!(rejected.unwrap_err().contains("blocked-location"));
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), before);
+
+    // Alias auf den echten Root: die Tool-Autorität kommt aus dem kanonischen
+    // Ziel, nicht aus einem Nachbarverzeichnis des Symlink-Pfads.
+    let link = home.join("steam-link");
+    std::os::unix::fs::symlink(&steam, &link).unwrap();
+    let mut reader = || Ok(false);
+    let evil = save_compat_tool_inner(
+        link.to_str().unwrap(),
+        620,
+        Some("Evil-Tool"),
+        &cache,
+        &steam,
+        &mut reader,
+    );
+    assert!(evil.unwrap_err().contains("unknown-tool"));
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), before);
+
+    let mut reader = || Ok(false);
+    let res = save_compat_tool_inner(
+        link.to_str().unwrap(),
+        620,
+        Some("GE-Proton9-28"),
+        &cache,
+        &steam,
         &mut reader,
     );
     assert_eq!(res.unwrap(), WriteResult::Written);
-    let content = std::fs::read_to_string(&target).unwrap();
-    assert!(content.contains("\"GE-Proton9-28\""));
+    assert!(std::fs::read_to_string(&target)
+        .unwrap()
+        .contains("\"GE-Proton9-28\""));
     let _ = std::fs::remove_dir_all(home.parent().unwrap());
 }
 
@@ -1466,18 +1499,30 @@ fn write_gate_backup_root_swap_auf_symlink_abgelehnt_ohne_zielveraenderung() {
 }
 
 #[test]
-fn write_gate_muster_erkennung_flatpak_und_snap() {
+fn write_gate_erkennt_nur_config_dateien_unter_dem_root() {
     let root = wsg_fixture("muster");
-    let home = root.join("fakehome");
-    let flatpak =
-        home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam/config/config.vdf");
-    let snap = home.join("snap/steam/common/.local/share/Steam/config/config.vdf");
-    assert!(is_steam_config_path(&flatpak, &home));
-    assert!(is_steam_config_path(&snap, &home));
-    assert!(!is_steam_config_path(&home.join("etc/evil"), &home));
+    let steam = root.join("Steam");
+    let flatpak = root.join("flatpak-steam");
+    assert!(is_steam_config_path(
+        &steam.join("config/config.vdf"),
+        &steam
+    ));
+    assert!(is_steam_config_path(
+        &steam.join("userdata/123/config/localconfig.vdf"),
+        &steam
+    ));
+    assert!(is_steam_config_path(
+        &flatpak.join("config/config.vdf"),
+        &flatpak
+    ));
     assert!(!is_steam_config_path(
-        &home.join(".local/share/Steam/userdata/abc/config/localconfig.vdf"),
-        &home
+        &flatpak.join("config/config.vdf"),
+        &steam
+    ));
+    assert!(!is_steam_config_path(&steam.join("etc/evil"), &steam));
+    assert!(!is_steam_config_path(
+        &steam.join("userdata/abc/config/localconfig.vdf"),
+        &steam
     ));
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -1498,7 +1543,8 @@ fn write_gate_akzeptiert_kanonisierten_steam_symlink_alias() {
     symlink(&native_root, &alias).unwrap();
 
     let canonical = std::fs::canonicalize(alias.join("config/config.vdf")).unwrap();
-    assert!(is_steam_config_path(&canonical, &home));
+    let allowed = std::fs::canonicalize(&native_root).unwrap();
+    assert!(is_steam_config_path(&canonical, &allowed));
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -1515,7 +1561,6 @@ fn save_launch_options_serially_concurrent_writes() {
 
     let a_steam = steam.clone();
     let a_cache = cache.clone();
-    let a_home = home.clone();
     let a = std::thread::spawn(move || {
         let mut calls = 0;
         let mut reader = || {
@@ -1534,7 +1579,7 @@ fn save_launch_options_serially_concurrent_writes() {
             620,
             "-novid",
             &a_cache,
-            &a_home,
+            &a_steam,
             &mut reader,
         )
     });
@@ -1544,7 +1589,6 @@ fn save_launch_options_serially_concurrent_writes() {
 
     let b_steam = steam.clone();
     let b_cache = cache.clone();
-    let b_home = home.clone();
     let b_entered = entered.clone();
     let b = std::thread::spawn(move || {
         let _probe = set_write_lock_entry_probe(probe_tx);
@@ -1562,7 +1606,7 @@ fn save_launch_options_serially_concurrent_writes() {
             730,
             "-threads 4",
             &b_cache,
-            &b_home,
+            &b_steam,
             &mut reader,
         )
     });
@@ -1647,7 +1691,6 @@ fn save_compat_tool_serially_concurrent_removals() {
 
     let a_steam = steam.clone();
     let a_cache = cache.clone();
-    let a_home = home.clone();
     let a = std::thread::spawn(move || {
         let mut calls = 0;
         let mut reader = || {
@@ -1663,7 +1706,7 @@ fn save_compat_tool_serially_concurrent_removals() {
             620,
             None,
             &a_cache,
-            &a_home,
+            &a_steam,
             &mut reader,
         )
     });
@@ -1673,7 +1716,6 @@ fn save_compat_tool_serially_concurrent_removals() {
 
     let b_steam = steam.clone();
     let b_cache = cache.clone();
-    let b_home = home.clone();
     let b_entered = entered.clone();
     let b = std::thread::spawn(move || {
         let _probe = set_write_lock_entry_probe(probe_tx);
@@ -1690,7 +1732,7 @@ fn save_compat_tool_serially_concurrent_removals() {
             730,
             None,
             &b_cache,
-            &b_home,
+            &b_steam,
             &mut reader,
         )
     });
@@ -1788,64 +1830,149 @@ fn write_lock_blockiert_bis_der_guard_faellt() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// Die Discovery kennt fünf Wurzel-Kandidaten, das Write-Gate drei kanonische.
-/// Dieser Test belegt, dass die zwei zusätzlichen Kandidaten (`.steam/steam`,
-/// `.steam/root`) per canonicalize auf einen der drei kollabieren. Ein neuer
-/// Kandidat in `scope::ROOT_CANDIDATES`, der das nicht tut, lässt das
-/// Write-Gate stillschweigend für diese Installation aussperren.
+/// `.steam/steam` und `.steam/root` als Symlink-Aliase der nativen Wurzel: die
+/// Discovery kanonisiert sie auf `.local/share/Steam`, und ein Write über einen
+/// Alias landet in der nativen `config.vdf`, nicht unter einem zweiten Pfad.
 #[cfg(target_os = "linux")]
 #[test]
-fn root_kandidaten_kollabieren_auf_die_write_gate_wurzeln() {
-    use crate::commands::scope::ROOT_CANDIDATES;
+fn alias_root_kandidaten_schreiben_in_die_native_config() {
+    use crate::commands::scope::build_environment_snapshot;
     use std::os::unix::fs::symlink;
 
-    let root = wsg_fixture("root-candidates");
-    let home = root.join("fakehome");
-    let native = home.join(".local/share/Steam");
-    let flatpak = home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam");
-    let snap = home.join("snap/steam/common/.local/share/Steam");
+    for (tag, alias) in [
+        ("alias-steam", ".steam/steam"),
+        ("alias-root", ".steam/root"),
+    ] {
+        let (home, cache, native) = wsg_env(tag);
+        std::fs::create_dir_all(native.join("steamapps")).unwrap();
+        std::fs::create_dir_all(home.join(".steam")).unwrap();
+        symlink(&native, home.join(".steam/steam")).unwrap();
+        symlink(&native, home.join(".steam/root")).unwrap();
+        let root = home.parent().unwrap();
+        let allowed = build_environment_snapshot(&home, &cache, &root.join("app-config"))
+            .unwrap()
+            .steam_root;
+        assert_eq!(allowed, std::fs::canonicalize(&native).unwrap());
 
-    // vollständiges kandidaten-verzeichnis wie in einer echten installation:
-    // native wurzel existiert, die beiden alias-pfade zeigen per symlink darauf.
-    std::fs::create_dir_all(native.join("config")).unwrap();
-    std::fs::write(
-        native.join("config/config.vdf"),
-        "\"InstallConfigStore\" {}\n",
-    )
-    .unwrap();
-    std::fs::create_dir_all(flatpak.join("config")).unwrap();
-    std::fs::create_dir_all(snap.join("config")).unwrap();
-    let dot_steam = home.join(".steam");
-    std::fs::create_dir_all(&dot_steam).unwrap();
-    symlink(&native, dot_steam.join("steam")).unwrap();
-    symlink(&native, dot_steam.join("root")).unwrap();
-
-    let canonical_roots = [&native, &flatpak, &snap];
-    for relative in ROOT_CANDIDATES {
-        let candidate = home.join(relative);
-        if !candidate.exists() {
-            // fehlende kandidaten sind normal (nicht jede installation hat alle)
-            continue;
-        }
-        let canonical = std::fs::canonicalize(&candidate).unwrap();
-        assert!(
-            canonical_roots.iter().any(|known| canonical == **known),
-            "kandidat {relative} kollabiert auf {canonical:?}, keine write-gate-wurzel"
+        let mut reader = || Ok(false);
+        let written = save_compat_tool_inner(
+            home.join(alias).to_str().unwrap(),
+            620,
+            Some("GE-Proton9-28"),
+            &cache,
+            &allowed,
+            &mut reader,
         );
-        assert!(is_steam_config_path(
-            &canonical.join("config/config.vdf"),
-            &home
-        ));
+        assert_eq!(written.unwrap(), WriteResult::Written, "{alias}");
+        let config = std::fs::read_to_string(native.join("config/config.vdf")).unwrap();
+        assert!(config.contains("\"GE-Proton9-28\""), "{alias}: {config}");
+        assert!(!config.contains("GE-Proton9-27"), "{alias}: {config}");
+
+        let _ = std::fs::remove_dir_all(root);
     }
+}
 
-    // negativfall: eine unbekannte wurzel erkennt das write-gate nicht.
-    let unknown = home.join("custom/Steam");
-    std::fs::create_dir_all(unknown.join("config")).unwrap();
-    assert!(!is_steam_config_path(
-        &unknown.join("config/config.vdf"),
-        &home
-    ));
+/// Echtes `~/.steam/steam` (kein Symlink auf `.local/share/Steam`) und ein Home,
+/// dessen Pfad eine Symlink-Komponente enthält, lassen sich schreiben. Der
+/// erlaubte Root ist der von der Discovery kanonisierte Snapshot-Root. Ein
+/// fremder Root wird abgelehnt.
+#[cfg(target_os = "linux")]
+#[test]
+fn write_gate_schreibt_entdeckten_root_mit_symlink_home() {
+    use crate::commands::scope::build_environment_snapshot;
+    use std::os::unix::fs::symlink;
 
+    let discover_and_write = |tag: &str, relative: &str| {
+        let (home, cache, steam) = wsg_env_at(tag, relative);
+        std::fs::create_dir_all(steam.join("steamapps")).unwrap();
+        let root = home.parent().unwrap();
+        let link_home = root.join("link-home");
+        symlink(&home, &link_home).unwrap();
+        let allowed = build_environment_snapshot(&link_home, &cache, &root.join("app-config"))
+            .unwrap()
+            .steam_root;
+        assert_eq!(allowed, std::fs::canonicalize(&steam).unwrap());
+        let mut reader = || Ok(false);
+        let written = save_compat_tool_inner(
+            link_home.join(relative).to_str().unwrap(),
+            620,
+            Some("GE-Proton9-28"),
+            &cache,
+            &allowed,
+            &mut reader,
+        );
+        assert_eq!(written.unwrap(), WriteResult::Written);
+        assert!(std::fs::read_to_string(steam.join("config/config.vdf"))
+            .unwrap()
+            .contains("\"GE-Proton9-28\""));
+        (home, cache, steam, allowed)
+    };
+    let (home, cache, dot_steam, allowed) = discover_and_write("discovered-root", ".steam/steam");
+    let (native_home, ..) = discover_and_write("discovered-native", ".local/share/Steam");
+
+    let root = home.parent().unwrap();
+    let fremd = root.join("fremd/Steam");
+    std::fs::create_dir_all(fremd.join("config")).unwrap();
+    std::fs::write(fremd.join("config/config.vdf"), "fremd").unwrap();
+    let before = std::fs::read_to_string(dot_steam.join("config/config.vdf")).unwrap();
+    let mut reader = || Ok(false);
+    let rejected = save_compat_tool_inner(
+        fremd.to_str().unwrap(),
+        620,
+        Some("GE-Proton9-28"),
+        &cache,
+        &allowed,
+        &mut reader,
+    );
+    assert!(rejected.unwrap_err().contains("blocked-location"));
+    assert_eq!(
+        std::fs::read_to_string(dot_steam.join("config/config.vdf")).unwrap(),
+        before
+    );
+    assert_eq!(
+        std::fs::read_to_string(fremd.join("config/config.vdf")).unwrap(),
+        "fremd"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(native_home.parent().unwrap());
+}
+
+/// Ein Symlink, der den Snapshot-Ordner nach der Discovery ersetzt, darf nicht
+/// zum neuen Schreibziel werden. Der gespeicherte Root bleibt der alte Pfad.
+#[cfg(target_os = "linux")]
+#[test]
+fn write_gate_folgt_keinem_root_tausch_nach_dem_snapshot() {
+    use std::os::unix::fs::symlink;
+
+    let root = wsg_fixture("root-swap");
+    let real = root.join("real");
+    std::fs::create_dir_all(real.join("config")).unwrap();
+    std::fs::write(real.join("config/config.vdf"), "original").unwrap();
+    let allowed = std::fs::canonicalize(&real).unwrap();
+
+    let parked = root.join("parked");
+    std::fs::rename(&real, &parked).unwrap();
+    let evil = root.join("evil");
+    std::fs::create_dir_all(evil.join("config")).unwrap();
+    std::fs::write(evil.join("config/config.vdf"), "evil").unwrap();
+    symlink(&evil, &real).unwrap();
+
+    let mut reader = || Ok(false);
+    let error = save_compat_tool_inner(
+        real.to_str().unwrap(),
+        620,
+        Some("GE-Proton9-28"),
+        &root.join("cache"),
+        &allowed,
+        &mut reader,
+    )
+    .unwrap_err();
+    assert!(error.contains("blocked-location"), "{error}");
+    assert_eq!(
+        std::fs::read_to_string(evil.join("config/config.vdf")).unwrap(),
+        "evil"
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 

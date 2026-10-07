@@ -14,7 +14,11 @@ const url = (id: number) => `https://www.protondb.com/api/v1/reports/summaries/$
 describe("ProtonDbClient", () => {
   it("mappt gültigen tier + confidence", async () => {
     const c = new ProtonDbClient(fakeHttp({ [url(620)]: summary("gold") }), memCache());
-    expect(await c.getSummary(620)).toEqual({ tier: "gold", confidence: "strong" });
+    expect(await c.getSummary(620)).toEqual({
+      tier: "gold",
+      confidence: "strong",
+      fromCache: false,
+    });
   });
 
   it("cache-schreibfehler verwirft frischen report nicht", async () => {
@@ -23,7 +27,11 @@ describe("ProtonDbClient", () => {
       throw new Error("disk voll");
     };
     const c = new ProtonDbClient(fakeHttp({ [url(620)]: summary("gold") }), cache);
-    expect(await c.getSummary(620)).toEqual({ tier: "gold", confidence: "strong" });
+    expect(await c.getSummary(620)).toEqual({
+      tier: "gold",
+      confidence: "strong",
+      fromCache: false,
+    });
   });
 
   it("kaputter cache → refetch statt fehler", async () => {
@@ -38,7 +46,11 @@ describe("ProtonDbClient", () => {
     };
     const c = new ProtonDbClient(http, cache);
 
-    expect(await c.getSummary(620)).toEqual({ tier: "gold", confidence: "strong" });
+    expect(await c.getSummary(620)).toEqual({
+      tier: "gold",
+      confidence: "strong",
+      fromCache: false,
+    });
     expect(calls).toBe(1);
   });
 
@@ -79,7 +91,11 @@ describe("ProtonDbClient", () => {
       }),
       memCache(),
     );
-    expect(await c.getSummary(620)).toEqual({ tier: "gold", confidence: "unknown" });
+    expect(await c.getSummary(620)).toEqual({
+      tier: "gold",
+      confidence: "unknown",
+      fromCache: false,
+    });
   });
 
   it("unbekannter tier-string → 'unknown'", async () => {
@@ -96,8 +112,10 @@ describe("ProtonDbClient", () => {
       },
     };
     const c = new ProtonDbClient(http, memCache());
-    await c.getSummary(570);
-    await c.getSummary(570);
+    const first = await c.getSummary(570);
+    const second = await c.getSummary(570);
+    expect(first).toEqual({ tier: "platinum", confidence: "strong", fromCache: false });
+    expect(second).toEqual({ tier: "platinum", confidence: "strong", fromCache: true });
     expect(calls).toBe(1);
   });
 
@@ -118,7 +136,7 @@ describe("ProtonDbClient", () => {
 
     const res = await c.getSummary(620);
 
-    expect(res?.tier).toBe("unknown");
+    expect(res).toEqual({ tier: "unknown", confidence: "x", fromCache: true });
     expect(calls).toBe(0); // cache-hit, aber validiert
   });
 
@@ -132,9 +150,11 @@ describe("ProtonDbClient", () => {
     };
     let t = 0;
     const c = new ProtonDbClient(http, memCache(), () => t);
-    await c.getSummary(730);
+    const fresh = await c.getSummary(730);
     t = 8 * 24 * 60 * 60 * 1000; // > 7 tage
-    await c.getSummary(730);
+    const expired = await c.getSummary(730);
+    expect(fresh).toEqual({ tier: "silver", confidence: "strong", fromCache: false });
+    expect(expired).toEqual({ tier: "silver", confidence: "strong", fromCache: false });
     expect(calls).toBe(2);
   });
 });

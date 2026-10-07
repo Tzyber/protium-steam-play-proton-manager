@@ -191,13 +191,27 @@ export async function readAllShortcutAppIds(
     return { status: "unreadable", paths: [], detail: parseError(e).code };
   }
 
+  // parität zu delete_inspect.rs: rust lehnt jeden symlink unter userdata ab,
+  // auch nicht-numerische, und öffnet config mit O_DIRECTORY|O_NOFOLLOW.
+  // still überspringen hieße none/ok, obwohl shortcuts hinter dem link liegen.
   for (const entry of entries) {
+    if (entry.isSymlink) {
+      unreadable.push(paths.shortcutsVdf(steamRoot, entry.name));
+      continue;
+    }
     if (!entry.isDirectory || !NUMERIC_RE.test(entry.name)) continue;
     const scPath = paths.shortcutsVdf(steamRoot, entry.name);
-    if (!(await fs.exists(scPath))) continue;
 
-    anyExists = true;
     try {
+      const account = await fs.readDir(paths.userdataAccountDir(steamRoot, entry.name));
+      const config = account.find((child) => child.name === "config");
+      if (config === undefined) continue;
+      if (config.isSymlink || !config.isDirectory) {
+        unreadable.push(scPath);
+        continue;
+      }
+      if (!(await fs.exists(scPath))) continue;
+      anyExists = true;
       const buf = await fs.readFile(scPath);
       const shortcutIds = parseBinaryShortcutIds(buf);
       for (const id of shortcutIds) ids.add(id);

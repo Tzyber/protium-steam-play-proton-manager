@@ -6,6 +6,7 @@ interface SizeSummary {
   unknownCount: number;
 }
 
+// export nur für den test (tests/ui/sizeSummary.test.ts; K-13).
 export function summarizeSizes(entries: readonly { sizeBytes?: number }[]): SizeSummary {
   let measuredBytes = 0;
   let unknownCount = 0;

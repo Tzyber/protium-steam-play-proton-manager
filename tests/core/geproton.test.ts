@@ -374,6 +374,7 @@ describe("installRelease", () => {
       steamRoot: "/root",
       release,
       downloadId: "1",
+      locale: "de",
       onWarning: () => warnings.push("w"),
     });
     expect(warnings).toHaveLength(0);
@@ -384,13 +385,14 @@ describe("installRelease", () => {
       downloadUrl:
         "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton9-27/GE-Proton9-27.tar.gz",
       downloadId: "1",
+      locale: "de",
     });
   });
 
   it("checksum-mismatch → backend wirft fehler", async () => {
     const m = installMocks(new Error("SHA512 hash mismatch"));
     await expect(
-      installRelease(m, { steamRoot: "/root", release, downloadId: "1" }),
+      installRelease(m, { steamRoot: "/root", release, downloadId: "1", locale: "en" }),
     ).rejects.toThrow(/mismatch/i);
     expect(m.installCalls).toHaveLength(1);
   });
@@ -402,6 +404,7 @@ describe("installRelease", () => {
         steamRoot: "/root",
         release,
         downloadId: "1",
+        locale: "de",
         isCancelled: () => true,
       }),
     ).rejects.toThrow(/cancel/i);
@@ -415,6 +418,7 @@ describe("installRelease", () => {
       steamRoot: "/root",
       release,
       downloadId: "1",
+      locale: "en",
       onWarning: () => warnings.push("w"),
     });
     expect(warnings).toHaveLength(1);
@@ -428,6 +432,7 @@ describe("installRelease", () => {
       steamRoot: "/root",
       release: { ...release, sha512Url: null },
       downloadId: "1",
+      locale: "de",
       onWarning: () => warnings.push("w"),
     });
     expect(warnings).toHaveLength(1);

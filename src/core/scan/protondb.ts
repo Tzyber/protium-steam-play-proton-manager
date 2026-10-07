@@ -9,6 +9,8 @@ function sleep(ms: number): Promise<void> {
 interface EnrichProtondbOptions {
   shouldApply?: () => boolean;
   onSettled?: (game: Game) => void;
+  // option nur für den test (tests/core/scan/protondb.test.ts; K-13).
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export async function enrichProtondb(
@@ -19,20 +21,23 @@ export async function enrichProtondb(
 ): Promise<void> {
   const client = new ProtonDbClient(ports.http, ports.cache);
   const shouldApply = options.shouldApply ?? (() => true);
+  const pause = options.sleep ?? sleep;
   for (let index = 0; index < games.length; index += 1) {
     if (!shouldApply()) return;
     const game = games[index];
     // sparse-arrays: eine lücke überspringen statt die ganze anreicherung zu beenden.
     if (!game) continue;
-    const summary = (await client.getSummary(game.appId)) ?? {
-      tier: "unknown",
-      confidence: "unknown",
-    };
+    const result = await client.getSummary(game.appId);
     if (!shouldApply()) return;
-    game.protonDb = summary;
+    game.protonDb = {
+      tier: result?.tier ?? "unknown",
+      confidence: result?.confidence ?? "unknown",
+    };
     options.onSettled?.(game);
-    if (index + 1 < games.length && delayMs > 0) {
-      await sleep(delayMs);
+    // null ist ein fehlgeschlagener Abruf, kein Cache-Treffer. Die Pause gilt
+    // nur nach HTTP, damit ein 7-Tage-Treffer die Anreicherung nicht drosselt.
+    if (result?.fromCache !== true && index + 1 < games.length && delayMs > 0) {
+      await pause(delayMs);
       if (!shouldApply()) return;
     }
   }

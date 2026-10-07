@@ -4,8 +4,11 @@ import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
+import { tauriPorts } from "../../src/core/adapters/tauri";
+import * as shortcuts from "../../src/core/shortcuts";
 import type { TrashEntry } from "../../src/core/trash";
 import type { OrphanEntry } from "../../src/core/types";
+import ConfirmDialogHost from "../../src/ui/components/ConfirmDialogHost.vue";
 import { formatBytes } from "../../src/ui/format";
 import { setLocale, t } from "../../src/ui/i18n";
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
@@ -17,6 +20,7 @@ import {
   trashEntry as makeTrashEntry,
   scanResult,
 } from "../support/factories";
+import { MOCK_TOKEN_TTL_MS } from "../support/mockTokenTtl";
 
 /** T-05: der view-flow hängt nur an Vue-Ticks und microtasks, es gibt keinen
  *  timer im pfad. Zwei Ticks plus ein microtask-drain sind deterministisch,
@@ -25,6 +29,42 @@ async function settleView(): Promise<void> {
   await nextTick();
   await nextTick();
   await Promise.resolve();
+}
+
+function stubDeletePorts(rejectPath?: string): () => void {
+  const isSteamRunning = vi.spyOn(tauriPorts.system, "isSteamRunning").mockResolvedValue(false);
+  const prepareDelete = vi
+    .spyOn(tauriPorts.system, "prepareDelete")
+    .mockImplementation(async (req) => {
+      if (req.path === rejectPath) throw new Error("prepare abgelehnt");
+      return {
+        token: `token-${req.path}`,
+        expiresAt: Date.now() + MOCK_TOKEN_TTL_MS,
+        targetType: req.targetType,
+        targetPath: req.path,
+        consequences: [],
+      };
+    });
+  const executeDelete = vi
+    .spyOn(tauriPorts.system, "executeDelete")
+    .mockResolvedValue({ deletedPath: "" });
+  const readShortcuts = vi
+    .spyOn(shortcuts, "readAllShortcutAppIds")
+    .mockResolvedValue({ status: "none" });
+  return () => {
+    isSteamRunning.mockRestore();
+    prepareDelete.mockRestore();
+    executeDelete.mockRestore();
+    readShortcuts.mockRestore();
+  };
+}
+
+function pressedRows(wrapper: ReturnType<typeof mount>, panel: string): boolean[] {
+  return wrapper.findAll(`${panel} .row`).map((row) => row.attributes("aria-pressed") === "true");
+}
+
+function buttonWithText(wrapper: ReturnType<typeof mount>, text: string) {
+  return wrapper.findAll("button").find((button) => button.text() === text);
 }
 
 describe("CleanupView incomplete deletions", () => {
@@ -112,18 +152,53 @@ describe("CleanupView incomplete deletions", () => {
     expect(deleteAll.mock.calls[0]?.[0]).toEqual(orphans);
   });
 
+  it("sperrt die orphan-löschknöpfe nach einem scan-fehler, die liste bleibt sichtbar", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    store.orphans = [
+      { appId: 1, type: "shadercache", path: "/lib/shadercache/1", library: "/lib" },
+      { appId: 2, type: "compatdata", path: "/lib/compatdata/2", library: "/lib" },
+    ];
+    store.setOrphanScanError("größenmessung fehlgeschlagen");
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+    await wrapper.get("#cv-panel-shaders .row").trigger("click");
+
+    expect(
+      buttonWithText(wrapper, t("cleanup.cleanAllShaders"))?.attributes("disabled"),
+    ).toBeDefined();
+    expect(
+      buttonWithText(wrapper, t("cleanup.deleteSelected", { n: 1 }))?.attributes("disabled"),
+    ).toBeDefined();
+
+    await wrapper.get("#cv-tab-prefixes").trigger("click");
+    await wrapper.get("#cv-panel-prefixes .row").trigger("click");
+    expect(
+      buttonWithText(wrapper, t("cleanup.deleteSelected", { n: 1 }))?.attributes("disabled"),
+    ).toBeDefined();
+  });
+
   it("rendert das confirmLabel des offenen dialogs am bestätigen-knopf", async () => {
     const store = useCleanupStore();
     vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
     vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
     const confirm = useConfirmStore();
-    confirm.ask({
-      title: "verschieben?",
-      message: "folge",
-      confirmLabel: t("cleanup.moveToTrash"),
-    });
+    const moveToken = confirm.reserve();
+    if (moveToken === null) throw new Error("reserve lieferte kein token");
+    confirm.ask(
+      {
+        title: "verschieben?",
+        message: "folge",
+        confirmLabel: t("cleanup.moveToTrash"),
+      },
+      {},
+      moveToken,
+    );
 
     const wrapper = mount(CleanupView, { attachTo: document.body });
+    const host = mount(ConfirmDialogHost, { attachTo: document.body });
     await wrapper.vm.$nextTick();
     const confirmButton = () =>
       document.body.querySelectorAll("[role='dialog'] .actions button")[1]?.textContent?.trim();
@@ -131,11 +206,14 @@ describe("CleanupView incomplete deletions", () => {
     expect(confirmButton()).toBe(t("cleanup.moveToTrash"));
 
     confirm.cancel();
-    confirm.ask({ title: "löschen?", message: "folge" });
+    const deleteToken = confirm.reserve();
+    if (deleteToken === null) throw new Error("reserve lieferte kein token");
+    confirm.ask({ title: "löschen?", message: "folge" }, {}, deleteToken);
     await wrapper.vm.$nextTick();
     expect(confirmButton()).toBe(t("common.delete"));
 
     wrapper.unmount();
+    host.unmount();
     document.body.innerHTML = "";
   });
 
@@ -287,7 +365,7 @@ describe("CleanupView incomplete deletions", () => {
     vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
     const unreadablePath = "/steam/steamapps/shadercache";
     store.incompleteDeletionsUnreadable = [unreadablePath];
-    store.error = t("errors.steamRunningCleanup");
+    store.orphanError = t("errors.steamRunningCleanup");
     store.blockedBySkipped = true;
 
     const wrapper = mount(CleanupView);
@@ -388,7 +466,7 @@ describe("CleanupView incomplete deletions", () => {
     const store = useCleanupStore();
     vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
     vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
-    store.error = t("cleanup.trashUnreadable", { paths: "/lib" });
+    store.trashError = t("cleanup.trashUnreadable", { paths: "/lib" });
 
     const wrapper = mount(CleanupView);
     await wrapper.vm.$nextTick();
@@ -403,7 +481,7 @@ describe("CleanupView incomplete deletions", () => {
     vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
     vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
     store.blockedBySkipped = true;
-    store.error = t("errors.scanIncomplete", { paths: "/lib" });
+    store.orphanError = t("errors.scanIncomplete", { paths: "/lib" });
 
     const wrapper = mount(CleanupView);
     await wrapper.vm.$nextTick();
@@ -472,7 +550,6 @@ describe("CleanupView incomplete deletions", () => {
     const store = useCleanupStore();
     vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
     vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
-    store.error = null;
     store.blockedBySkipped = false;
 
     const wrapper = mount(CleanupView);
@@ -504,6 +581,307 @@ describe("CleanupView incomplete deletions", () => {
     expect(sizes).toContain("-");
     expect(sizes).toContain(formatBytes(8192));
     expect(sizes).not.toContain("0 B");
+  });
+
+  it("behält die orphan-auswahl beim abbruch und leert sie erst nach der bestätigung", async () => {
+    const restorePorts = stubDeletePorts();
+    try {
+      const store = useCleanupStore();
+      const entry = makeOrphan(1, "shadercache", 1024);
+      // der rescan legt die zeile wieder hin. ohne clear bliebe sie ausgewählt,
+      // ein verschwundener eintrag würde die leere auswahl verdecken.
+      vi.spyOn(store, "scanOrphans").mockImplementation(async () => {
+        store.orphans = [entry];
+      });
+      vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+      store.orphans = [entry];
+      useScanStore().result = scanResult();
+
+      const wrapper = mount(CleanupView);
+      await wrapper.vm.$nextTick();
+      await wrapper.get("#cv-panel-shaders .row").trigger("click");
+
+      const deleteSelected = () => buttonWithText(wrapper, t("cleanup.deleteSelected", { n: 1 }));
+
+      const firstDelete = deleteSelected();
+      expect(firstDelete).toBeDefined();
+      await firstDelete?.trigger("click");
+      await settleView();
+      expect(useConfirmStore().pending).not.toBeNull();
+      expect(pressedRows(wrapper, "#cv-panel-shaders")).toEqual([true]);
+
+      useConfirmStore().cancel();
+      await settleView();
+      expect(useConfirmStore().pending).toBeNull();
+      expect(pressedRows(wrapper, "#cv-panel-shaders")).toEqual([true]);
+      expect(wrapper.get("[data-testid='orphan-selected-info']").text()).toBe(
+        t("cleanup.selectedInfo", { n: 1, size: formatBytes(1024) }),
+      );
+
+      const secondDelete = deleteSelected();
+      expect(secondDelete).toBeDefined();
+      expect(secondDelete?.attributes("disabled")).toBeUndefined();
+      await secondDelete?.trigger("click");
+      await settleView();
+      expect(useConfirmStore().pending).not.toBeNull();
+      expect(pressedRows(wrapper, "#cv-panel-shaders")).toEqual([true]);
+
+      await useConfirmStore().confirm();
+      await settleView();
+      expect(pressedRows(wrapper, "#cv-panel-shaders")).toEqual([false]);
+      expect(wrapper.get("[data-testid='orphan-selected-info']").text()).toBe(
+        t("cleanup.selectedInfo", { n: 0, size: "0 B" }),
+      );
+    } finally {
+      restorePorts();
+    }
+  });
+
+  it("behält die papierkorb-auswahl beim abbruch und leert sie erst nach der bestätigung", async () => {
+    const restorePorts = stubDeletePorts();
+    try {
+      const store = useCleanupStore();
+      const entry = makeTrashEntry({ appId: 7, sizeBytes: 2048 });
+      vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+      vi.spyOn(store, "scanTrash").mockImplementation(async () => {
+        store.trash = [entry];
+      });
+      store.trash = [entry];
+      useScanStore().result = scanResult();
+
+      const wrapper = mount(CleanupView);
+      await wrapper.vm.$nextTick();
+      await wrapper.get("#cv-tab-trash").trigger("click");
+      await wrapper.get("#cv-panel-trash .row").trigger("click");
+
+      const deleteEntry = () => buttonWithText(wrapper, t("cleanup.trashDeleteEntry"));
+
+      const firstDelete = deleteEntry();
+      expect(firstDelete).toBeDefined();
+      await firstDelete?.trigger("click");
+      await settleView();
+      expect(useConfirmStore().pending).not.toBeNull();
+      expect(pressedRows(wrapper, "#cv-panel-trash")).toEqual([true]);
+
+      useConfirmStore().cancel();
+      await settleView();
+      expect(useConfirmStore().pending).toBeNull();
+      expect(pressedRows(wrapper, "#cv-panel-trash")).toEqual([true]);
+      expect(wrapper.get("[data-testid='trash-selected-info']").text()).toBe(
+        t("cleanup.selectedInfo", { n: 1, size: formatBytes(2048) }),
+      );
+
+      const secondDelete = deleteEntry();
+      expect(secondDelete).toBeDefined();
+      expect(secondDelete?.attributes("disabled")).toBeUndefined();
+      await secondDelete?.trigger("click");
+      await settleView();
+      expect(useConfirmStore().pending).not.toBeNull();
+      expect(pressedRows(wrapper, "#cv-panel-trash")).toEqual([true]);
+
+      await useConfirmStore().confirm();
+      await settleView();
+      expect(pressedRows(wrapper, "#cv-panel-trash")).toEqual([false]);
+      expect(wrapper.get("[data-testid='trash-selected-info']").text()).toBe(
+        t("cleanup.selectedInfo", { n: 0, size: "0 B" }),
+      );
+    } finally {
+      restorePorts();
+    }
+  });
+
+  it("papierkorb leeren behält die auswahl beim abbruch und leert sie nach der bestätigung", async () => {
+    const restorePorts = stubDeletePorts();
+    try {
+      const store = useCleanupStore();
+      const entry = makeTrashEntry({ appId: 7, sizeBytes: 2048 });
+      vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+      vi.spyOn(store, "scanTrash").mockImplementation(async () => {
+        store.trash = [entry];
+      });
+      store.trash = [entry];
+      useScanStore().result = scanResult();
+
+      const wrapper = mount(CleanupView);
+      await wrapper.vm.$nextTick();
+      await wrapper.get("#cv-tab-trash").trigger("click");
+      await wrapper.get("#cv-panel-trash .row").trigger("click");
+
+      const emptyTrash = () => buttonWithText(wrapper, t("cleanup.trashEmpty"));
+
+      await emptyTrash()?.trigger("click");
+      await settleView();
+      expect(useConfirmStore().pending).not.toBeNull();
+      useConfirmStore().cancel();
+      await settleView();
+      expect(pressedRows(wrapper, "#cv-panel-trash")).toEqual([true]);
+
+      await emptyTrash()?.trigger("click");
+      await settleView();
+      expect(useConfirmStore().pending).not.toBeNull();
+      await useConfirmStore().confirm();
+      await settleView();
+      expect(pressedRows(wrapper, "#cv-panel-trash")).toEqual([false]);
+    } finally {
+      restorePorts();
+    }
+  });
+
+  it("bestätigen wählt nur die im dialog gelisteten papierkorb-einträge ab", async () => {
+    const confirmed = makeTrashEntry({ appId: 7, sizeBytes: 2048 });
+    const failed = makeTrashEntry({ appId: 8, sizeBytes: 1024 });
+    const restorePorts = stubDeletePorts(failed.path);
+    try {
+      const store = useCleanupStore();
+      vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+      vi.spyOn(store, "scanTrash").mockImplementation(async () => {
+        store.trash = [confirmed, failed];
+      });
+      store.trash = [confirmed, failed];
+      useScanStore().result = scanResult();
+
+      const wrapper = mount(CleanupView);
+      await wrapper.vm.$nextTick();
+      await wrapper.get("#cv-tab-trash").trigger("click");
+      for (const row of wrapper.findAll("#cv-panel-trash .row")) await row.trigger("click");
+
+      await buttonWithText(wrapper, t("cleanup.trashDeleteEntry"))?.trigger("click");
+      await settleView();
+      expect(useConfirmStore().pending).not.toBeNull();
+      await useConfirmStore().confirm();
+      await settleView();
+
+      expect(pressedRows(wrapper, "#cv-panel-trash")).toEqual([false, true]);
+      expect(wrapper.get("[data-testid='trash-selected-info']").text()).toBe(
+        t("cleanup.selectedInfo", { n: 1, size: formatBytes(1024) }),
+      );
+    } finally {
+      restorePorts();
+    }
+  });
+
+  it("bestätigen wählt nur die im dialog gelisteten prefixe ab", async () => {
+    const confirmed = makeOrphan(3, "compatdata", 4096);
+    const failed = makeOrphan(4, "compatdata", 2048);
+    const restorePorts = stubDeletePorts(failed.path);
+    try {
+      const store = useCleanupStore();
+      vi.spyOn(store, "scanOrphans").mockImplementation(async () => {
+        store.orphans = [confirmed, failed];
+      });
+      vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+      store.orphans = [confirmed, failed];
+      useScanStore().result = scanResult();
+
+      const wrapper = mount(CleanupView);
+      await wrapper.vm.$nextTick();
+      await wrapper.get("#cv-tab-prefixes").trigger("click");
+      for (const row of wrapper.findAll("#cv-panel-prefixes .row")) await row.trigger("click");
+
+      await buttonWithText(wrapper, t("cleanup.deleteSelected", { n: 2 }))?.trigger("click");
+      await settleView();
+      expect(useConfirmStore().pending).not.toBeNull();
+      await useConfirmStore().confirm();
+      await settleView();
+
+      expect(pressedRows(wrapper, "#cv-panel-prefixes")).toEqual([false, true]);
+      expect(wrapper.get("[data-testid='orphan-selected-info']").text()).toBe(
+        t("cleanup.selectedInfo", { n: 1, size: formatBytes(2048) }),
+      );
+    } finally {
+      restorePorts();
+    }
+  });
+
+  it("bestätigen im prefix-tab behält die auswahl im shader-tab", async () => {
+    const restorePorts = stubDeletePorts();
+    try {
+      const store = useCleanupStore();
+      const shader = makeOrphan(1, "shadercache", 1024);
+      const prefix = makeOrphan(2, "compatdata", 2048);
+      vi.spyOn(store, "scanOrphans").mockImplementation(async () => {
+        store.orphans = [shader, prefix];
+      });
+      vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+      store.orphans = [shader, prefix];
+      useScanStore().result = scanResult();
+
+      const wrapper = mount(CleanupView);
+      await wrapper.vm.$nextTick();
+      await wrapper.get("#cv-panel-shaders .row").trigger("click");
+      await wrapper.get("#cv-tab-prefixes").trigger("click");
+      await wrapper.get("#cv-panel-prefixes .row").trigger("click");
+
+      await buttonWithText(wrapper, t("cleanup.deleteSelected", { n: 1 }))?.trigger("click");
+      await settleView();
+      expect(useConfirmStore().pending).not.toBeNull();
+      await useConfirmStore().confirm();
+      await settleView();
+
+      expect(pressedRows(wrapper, "#cv-panel-prefixes")).toEqual([false]);
+      expect(pressedRows(wrapper, "#cv-panel-shaders")).toEqual([true]);
+    } finally {
+      restorePorts();
+    }
+  });
+
+  it("alle auswählen bei prefixen lässt mögliche shortcuts aus und schaltet beim zweiten klick ab", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    store.orphans = [
+      makeOrphan(1, "compatdata", 4096),
+      { ...makeOrphan(2, "compatdata", 2048), potentialShortcut: true },
+    ];
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+    await wrapper.get("#cv-tab-prefixes").trigger("click");
+    const selectAll = wrapper.get("#cv-panel-prefixes button.sel-all");
+
+    await selectAll.trigger("click");
+    expect(pressedRows(wrapper, "#cv-panel-prefixes")).toEqual([true, false]);
+    expect(selectAll.attributes("aria-pressed")).toBe("true");
+
+    await selectAll.trigger("click");
+    expect(pressedRows(wrapper, "#cv-panel-prefixes")).toEqual([false, false]);
+    expect(selectAll.attributes("aria-pressed")).toBe("false");
+  });
+
+  it("wählt orphans mit gleicher app-id in verschiedenen libraries unabhängig aus", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    store.orphans = [
+      {
+        appId: 570,
+        type: "compatdata",
+        path: "/lib1/steamapps/compatdata/570",
+        library: "/lib1",
+        sizeBytes: 2048,
+      },
+      {
+        appId: 570,
+        type: "compatdata",
+        path: "/lib2/steamapps/compatdata/570",
+        library: "/lib2",
+        sizeBytes: 1024,
+      },
+    ];
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+    await wrapper.get("#cv-tab-prefixes").trigger("click");
+    const rows = wrapper.findAll("#cv-panel-prefixes .row");
+
+    await rows[1]?.trigger("click");
+    expect(pressedRows(wrapper, "#cv-panel-prefixes")).toEqual([false, true]);
+    await rows[0]?.trigger("click");
+    await rows[1]?.trigger("click");
+    expect(pressedRows(wrapper, "#cv-panel-prefixes")).toEqual([true, false]);
+    expect(wrapper.get("[data-testid='orphan-selected-info']").text()).toBe(
+      t("cleanup.selectedInfo", { n: 1, size: formatBytes(2048) }),
+    );
   });
 });
 
@@ -591,7 +969,7 @@ describe("CleanupView Erklärungen", () => {
       setLocale(locale);
       const wrapper = mountView((store) => {
         store.blockedBySkipped = true;
-        store.error = t("errors.scanIncomplete", { paths: "/lib" });
+        store.orphanError = t("errors.scanIncomplete", { paths: "/lib" });
       });
 
       const topic = t("explain.open", { topic: t("explain.topics.cleanupBlocked.title") });
@@ -602,8 +980,8 @@ describe("CleanupView Erklärungen", () => {
       expect(topicTriggers(wrapper).get(topic)).toBeDefined();
       await wrapper.get("#cv-tab-trash").trigger("click");
       await wrapper.vm.$nextTick();
-      expect(topicTriggers(wrapper).get(topic)).toBeDefined();
-      expect(wrapper.get("#cv-panel-trash").text()).toContain(t("cleanup.unavailable"));
+      expect(wrapper.get("#cv-panel-trash").text()).toContain(t("cleanup.trashEmptyState"));
+      expect(wrapper.get("#cv-panel-trash").text()).not.toContain(t("cleanup.unavailable"));
     },
   );
 
@@ -620,7 +998,7 @@ describe("CleanupView Erklärungen", () => {
   it("öffnet die Erklärung zum blockierten Bereich über den nativen Button", async () => {
     const wrapper = mountView((store) => {
       store.blockedBySkipped = true;
-      store.error = t("errors.scanIncomplete", { paths: "/lib" });
+      store.orphanError = t("errors.scanIncomplete", { paths: "/lib" });
     });
     const topic = t("explain.open", { topic: t("explain.topics.cleanupBlocked.title") });
     const trigger = topicTriggers(wrapper).get(topic);

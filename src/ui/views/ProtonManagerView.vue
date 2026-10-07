@@ -2,7 +2,6 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { isManagedGeName } from "../../core/geproton";
 import type { CompatTool } from "../../core/types";
-import ConfirmDialogHost from "../components/ConfirmDialogHost.vue";
 import ExplainInfo from "../components/ExplainInfo.vue";
 import { relativeTime } from "../dateTime";
 import { formatBytes, formatKnownBytes, sizeText } from "../format";
@@ -243,8 +242,6 @@ const statusLine = computed(() => {
     </ul>
 
   </section>
-
-  <ConfirmDialogHost />
 </template>
 
 <style scoped>

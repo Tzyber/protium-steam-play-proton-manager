@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { openExternal, tauriPorts } from "../../core/adapters/tauri";
+import { availableRuntimes } from "../../core/blocklist";
 import { analyzeLaunchOptions, type LaunchHint } from "../../core/launchHints";
 import { protonDbAppUrl } from "../../core/protondb";
 import type { LaunchConfigStatus, Tier } from "../../core/types";
@@ -207,9 +208,11 @@ const compatOptions = computed(() => {
     !seen.has(current)
   ) {
     const customTool = customToolByDirectory.get(current);
+    const runtimeLabel = availableRuntimes(new Set(scan.result?.blockedAppIds)).get(current);
     list.push({
       value: current,
-      label: customTool?.displayName ?? t("drawer.notRecognized", { name: current }),
+      label:
+        customTool?.displayName ?? runtimeLabel ?? t("drawer.notRecognized", { name: current }),
     });
   }
 

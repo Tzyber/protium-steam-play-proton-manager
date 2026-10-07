@@ -1,6 +1,6 @@
 // doppelfunktion der datei: bytegenauer VDF-leser für den string-patch-pfad
 // (getVdfValue; das patchen selbst lebt in rust, vdf_patch.rs) und gemeinsamer
-// text-vdf-tokenizer (K-02) für den vdf.ts-pre-pass und manifest.ts.
+// text-vdf-tokenizer (K-02) für den vdf.ts-pre-pass und `rawVdfField`.
 
 import { errText } from "./errtext.js";
 
@@ -44,9 +44,9 @@ interface VdfTokenizeResult {
 /** Gemeinsamer Text-VDF-Tokenizer (K-02): ersetzt die drei zuvor unabhängigen
  *  lexer in `vdfpatch.ts`, `manifest.ts` und `vdf.ts`. bewusst nicht-werfend,
  *  weil die aufrufer sich beim abbruch unterscheiden: `vdfpatch.ts` wirft bei
- *  einem unterminierten token, `manifest.ts`/`vdf.ts` brechen ab und übernehmen
- *  den rest roh. die entscheidungen bei den zuvor abweichenden fällen stehen
- *  jeweils an der stelle. */
+ *  einem unterminierten token, `vdf.ts` bricht ab und übernimmt den rest roh.
+ *  die entscheidungen bei den zuvor abweichenden fällen stehen jeweils an der
+ *  stelle. */
 export function tokenizeVdf(text: string): VdfTokenizeResult {
   const tokens: VdfToken[] = [];
   let unterminated: VdfTokenizeResult["unterminated"];
@@ -155,7 +155,7 @@ export function tokenizeVdf(text: string): VdfTokenizeResult {
       tokens.push({
         kind: "string",
         raw,
-        value: unescapeRaw(raw),
+        value: unescapeVdfRaw(raw),
         start,
         end: cursor + 1,
         quoted: true,
@@ -208,7 +208,7 @@ function isVdfWhitespace(character: string | undefined): boolean {
 }
 
 // valve escaped nur `"` und `\`; andere `\x`-folgen bleiben literal.
-function unescapeRaw(raw: string): string {
+export function unescapeVdfRaw(raw: string): string {
   let out = "";
   for (let i = 0; i < raw.length; i++) {
     const next = raw.charAt(i + 1);
@@ -258,7 +258,7 @@ function scanEntries(tokens: VdfToken[], from: number, to: number): Entry[] {
     if (t.kind !== "string") {
       throw new VdfPatchError(`unerwartetes "${t.value}" (offset ${t.start})`);
     }
-    // marker zwischen key und wert werden wie in `manifest.ts` ausgelassen
+    // marker zwischen key und wert werden wie in `rawVdfField` (vdf.ts) ausgelassen
     // (dort `token.kind === "conditional" continue`): der marker zählt nie als
     // wert. `key [cond] value` paart damit key→value, `key [cond]` ohne echten
     // wert bleibt strukturbruch wie `key` allein (N-01). steam schreibt marker

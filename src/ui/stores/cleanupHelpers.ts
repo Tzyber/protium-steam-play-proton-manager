@@ -5,6 +5,7 @@
 import { ProtiumError } from "../../core/errors";
 import type { DirectorySize } from "../../core/ports";
 import type { ShortcutResult } from "../../core/shortcuts";
+import { validNonNegativeInteger } from "../../core/supportRedaction";
 import type { ScanResult } from "../../core/types";
 import { t } from "../i18n";
 
@@ -56,14 +57,15 @@ export function attachSizes(
         `batchDirSizes: ungültiger status für pfad: ${entry.path}`,
       );
     }
-    if (!Number.isSafeInteger(size.sizeBytes) || size.sizeBytes < 0) {
+    const sizeBytes = validNonNegativeInteger(size.sizeBytes);
+    if (sizeBytes === null) {
       throw new ProtiumError(
         "incomplete",
         "size-invalid",
         `batchDirSizes: ungültige größe für pfad: ${entry.path}`,
       );
     }
-    updates.push({ entry, sizeBytes: size.sizeBytes });
+    updates.push({ entry, sizeBytes });
   }
   for (const update of updates) {
     update.entry.sizeBytes = update.sizeBytes;
@@ -96,35 +98,19 @@ export function combineErrors(messages: (string | null)[]): string | null {
   return present.length > 0 ? present.join("; ") : null;
 }
 
-export function hasUnreadableIncompleteDeletions(state: {
-  incompleteDeletionsUnreadable: string[];
-}): boolean {
-  return state.incompleteDeletionsUnreadable.length > 0;
-}
-
 /** Sperrt das Cleanup aus einem der belegten Gründe? `blockedBySkipped` und
  *  `pathMissingLibs` sind die fail-closed-Fälle aus der Discovery (INV-2). */
 export function hasOrphanUnavailableBase(state: {
-  error: string | null;
   orphanError: string | null;
-  trashError: string | null;
-  shortcutUnreadable: boolean;
   blockedBySkipped: boolean;
   pathMissingLibs: string[];
   incompleteDeletionsUnreadable: string[];
 }): boolean {
-  // ein alter gesamt-fehler ohne die neueren teilfehler zählt weiter als sperre
-  const legacyError =
-    state.error !== null &&
-    state.orphanError === null &&
-    state.trashError === null &&
-    !state.shortcutUnreadable;
   return (
-    legacyError ||
     state.orphanError !== null ||
     state.blockedBySkipped ||
     state.pathMissingLibs.length > 0 ||
-    hasUnreadableIncompleteDeletions(state)
+    state.incompleteDeletionsUnreadable.length > 0
   );
 }
 
@@ -150,4 +136,24 @@ export function isCurrentForScan(guard: {
     guard.scan.scanGeneration === guard.sourceScanGeneration &&
     (guard.scan.status === "done" || guard.scan.status === "idle")
   );
+}
+
+/** Quell-Generation sofort festhalten, eigene Generation erst in `isCurrent`
+ *  lesen. Ein Library-Rescan oder ein neuer eigener Lauf dazwischen macht die
+ *  Antwort ungültig (INV-2). Ein laufender Scan liefert kein Ergebnis. */
+export function cleanupTurn<T>(
+  scan: { status: string; result: T | null; scanGeneration: number },
+  generation: number,
+  currentGeneration: () => number,
+): { result: T | null; isCurrent: () => boolean } {
+  const sourceScanGeneration = scan.scanGeneration;
+  const result = scan.status === "done" || scan.status === "idle" ? scan.result : null;
+  const isCurrent = () =>
+    isCurrentForScan({
+      generation,
+      currentGeneration: currentGeneration(),
+      sourceScanGeneration,
+      scan,
+    });
+  return { result, isCurrent };
 }

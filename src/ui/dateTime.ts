@@ -1,15 +1,10 @@
 // Datum- und zeitdarstellung an einer stelle: die ansichten formatierten
-// jeweils direkt über Intl bzw. mit einem eigenen de-DE/en-GB-mapping. Die
-// angezeigten formate bleiben unverändert.
+// jeweils direkt über Intl bzw. mit einem eigenen de-DE/en-GB-mapping.
+// Außer shortDate bekommt Intl bewusst das reine sprach-tag („de"/„en"):
+// „en-GB" würde die protokoll- und stand-ausgaben von 12-h auf 24-h und von
+// monat/tag/jahr auf tag/monat/jahr umstellen.
 
 import { getLocale, t } from "./i18n";
-
-/** BCP-47-Tag der aktiven sprache für Intl. Bewusst das reine sprach-tag
- *  („de"/„en"): „en-GB" würde die protokoll- und stand-ausgaben von 12-h auf
- *  24-h und von monat/tag/jahr auf tag/monat/jahr umstellen. */
-export function localeTag(): string {
-  return getLocale();
-}
 
 /** Kurzdatum mit zweistelligem jahr (papierkorb-spalte). Tag zuerst, auch im
  *  englischen: die spalte hat flexible breite und darf die reihenfolge nicht
@@ -24,21 +19,25 @@ export function shortDate(ms: number): string {
 
 /** Datum und uhrzeit der aktiven sprache (stände der history-ansicht). */
 export function dateTimeText(ms: number): string {
-  return new Date(ms).toLocaleString(localeTag());
+  return new Date(ms).toLocaleString(getLocale());
 }
 
 /** Uhrzeit der aktiven sprache (zeitspalte des protokolls). */
 export function timeText(ms: number): string {
-  return new Date(ms).toLocaleTimeString(localeTag());
+  return new Date(ms).toLocaleTimeString(getLocale());
 }
 
-/** Relative angabe für frische zeitstempel (proton-manager). */
+/** Relative angabe für frische zeitstempel (proton-manager). Unter 60 sekunden
+ *  bleibt der feste sonderfall: Intl würde dort sekunden zählen. `always`
+ *  statt `auto`: die tage sind gerundete 24-h-blöcke, „gestern" wäre nach
+ *  ~30 h kalendarisch oft falsch. */
 export function relativeTime(ts: number): string {
-  const s = Math.round((Date.now() - ts) / 1000);
-  if (s < 60) return t("time.justNow");
-  const m = Math.round(s / 60);
-  if (m < 60) return t("time.minutesAgo", { n: m });
-  const h = Math.round(m / 60);
-  if (h < 24) return t("time.hoursAgo", { n: h });
-  return t("time.daysAgo", { n: Math.round(h / 24) });
+  const seconds = Math.round((Date.now() - ts) / 1000);
+  if (seconds < 60) return t("time.justNow");
+  const minutes = Math.round(seconds / 60);
+  const format = new Intl.RelativeTimeFormat(getLocale(), { numeric: "always" });
+  if (minutes < 60) return format.format(-minutes, "minute");
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return format.format(-hours, "hour");
+  return format.format(-Math.round(hours / 24), "day");
 }

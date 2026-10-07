@@ -18,6 +18,13 @@ use crate::commands::scope::{EnvironmentSnapshot, EnvironmentState};
 
 pub const DELETE_TOKEN_TTL_SECS: u64 = 300;
 
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
 /// renameat2-flag: kein überschreiben des ziels (RENAME_NOREPLACE).
 const RENAME_NOREPLACE_FLAG: u32 = 1;
 /// Ein Claim-Versuch endet mit EEXIST, wenn der Zufallsname kollidiert; vier
@@ -453,10 +460,7 @@ fn prepare_delete_with_inspection(
 
     let token = generate_os_random_128()?;
 
-    let now_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
+    let now_ms = now_ms();
     let expires_at = now_ms + DELETE_TOKEN_TTL_SECS * 1000;
 
     let pending = PendingDelete {
@@ -557,10 +561,7 @@ fn execute_delete_pipeline_inner(
             .ok_or_else(|| errcode::INVALID_ID.to_string())?
     };
 
-    let now_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
+    let now_ms = now_ms();
     if now_ms > pending.expires_at {
         return Err(errcode::TOKEN_EXPIRED.into());
     }
@@ -802,12 +803,15 @@ pub async fn prepare_delete(
 ) -> Result<PendingDeleteInfo, String> {
     // autorisierung über den backend-snapshot (steam-root + libraries +
     // system-compat-dirs), nicht über den plugin-fs-scope: der autorisiert
-    // nur $APPCACHE/$APPCONFIG und würde den steam-root nie erreichen.
-    let snapshot = env.current()?;
+    // nur $APPCACHE und würde den steam-root nie erreichen.
+    // current() nimmt den Environment-Mutex im blocking-pool, nicht auf dem
+    // Tokio-Worker.
     let registry = (*state).clone();
+    let env = env.inner().clone();
     crate::commands::spawn_blocking_io(move || {
+        let snapshot = env.current()?;
         prepare_delete_inner(&registry, &request, &snapshot, || {
-            crate::commands::fs_ops::is_process_running_sync("steam")
+            Ok(crate::commands::fs_ops::is_steam_running_sync())
         })
     })
     .await
@@ -819,11 +823,12 @@ pub async fn execute_delete(
     env: tauri::State<'_, EnvironmentState>,
     token: String,
 ) -> Result<DeleteResult, String> {
-    let snapshot = env.current()?;
     let registry = (*state).clone();
+    let env = env.inner().clone();
     crate::commands::spawn_blocking_io(move || {
+        let snapshot = env.current()?;
         execute_delete_pipeline(&registry, &token, &|p| snapshot.authorizes(p), || {
-            crate::commands::fs_ops::is_process_running_sync("steam")
+            Ok(crate::commands::fs_ops::is_steam_running_sync())
         })
     })
     .await

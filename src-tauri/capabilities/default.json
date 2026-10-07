@@ -14,9 +14,7 @@
       "identifier": "fs:scope",
       "allow": [
         { "path": "$APPCACHE" },
-        { "path": "$APPCACHE/**" },
-        { "path": "$APPCONFIG" },
-        { "path": "$APPCONFIG/**" }
+        { "path": "$APPCACHE/**" }
       ]
     },
     {

@@ -19,7 +19,7 @@ import type { CompatTool } from "../../core/types";
 import { localizeConsequences } from "../consequences";
 import { logError, logEvent } from "../diagnostics";
 import { formatError } from "../formatError";
-import { t } from "../i18n";
+import { getLocale, t } from "../i18n";
 import { useConfirmStore } from "./confirmStore";
 import { useScanStore } from "./scanStore";
 import { useUiStore } from "./uiStore";
@@ -34,7 +34,7 @@ interface Job {
   total: number | null;
   /** gleitende durchschnitts-rate (bytes/s) aus den progress-events, nur anzeige. */
   speed?: number;
-  speedLastTs?: number;
+  speedBase?: { ts: number; bytes: number };
   /** sha512-vergleich bestanden (nur gesetzt, wenn es ein hash-asset gab). */
   verified?: boolean;
   /** vom nutzer angefordert, solange der job noch existiert. lebt bewusst hier
@@ -159,20 +159,25 @@ export const useProtonStore = defineStore("proton", {
           const progressUnlisten = await tauriPorts.system.onDownloadProgress(
             (payload: DownloadProgressEvent) => {
               if (listenerOwnership.get(this)?.token !== token) return;
-              const job = Object.values(this.jobs).find(
-                (candidate) =>
-                  candidate.downloadId === payload.id && this.activeTag === candidate.tag,
-              );
-              if (job) {
-                const now = Date.now();
-                if (job.speedLastTs) {
-                  const inst =
-                    ((payload.downloaded - job.downloaded) * 1000) / (now - job.speedLastTs);
-                  job.speed = job.speed
-                    ? SPEED_SMOOTHING_KEEP * job.speed + SPEED_SMOOTHING_NEW * inst
-                    : inst;
+              const activeTag = this.activeTag;
+              const job = activeTag !== null ? this.jobs[activeTag] : undefined;
+              if (job?.downloadId === payload.id) {
+                const now = performance.now();
+                const base = job.speedBase;
+                // ohne zeitfortschritt bleibt die messbasis stehen: inst liefe auf
+                // Infinity, und weitergeschoben fehlten die bytes dieser probe in
+                // der nächsten rate.
+                if (!base || now > base.ts) {
+                  if (base) {
+                    const inst = ((payload.downloaded - base.bytes) * 1000) / (now - base.ts);
+                    if (Number.isFinite(inst)) {
+                      job.speed = job.speed
+                        ? SPEED_SMOOTHING_KEEP * job.speed + SPEED_SMOOTHING_NEW * inst
+                        : inst;
+                    }
+                  }
+                  job.speedBase = { ts: now, bytes: payload.downloaded };
                 }
-                job.speedLastTs = now;
                 job.downloaded = payload.downloaded;
                 job.total = payload.total;
               }
@@ -187,11 +192,9 @@ export const useProtonStore = defineStore("proton", {
           const phaseUnlisten = await tauriPorts.system.onInstallPhase(
             (payload: InstallPhaseEvent) => {
               if (listenerOwnership.get(this)?.token !== token) return;
-              const job = Object.values(this.jobs).find(
-                (candidate) =>
-                  candidate.downloadId === payload.id && this.activeTag === candidate.tag,
-              );
-              if (job) {
+              const activeTag = this.activeTag;
+              const job = activeTag !== null ? this.jobs[activeTag] : undefined;
+              if (job?.downloadId === payload.id) {
                 job.phase = payload.phase;
                 if (payload.verified) {
                   job.verified = true;
@@ -363,6 +366,7 @@ export const useProtonStore = defineStore("proton", {
           steamRoot,
           release,
           downloadId,
+          locale: getLocale(),
           onPhase: (p) => {
             if (this.jobs[tag] === job && job.downloadId === downloadId) job.phase = p;
           },

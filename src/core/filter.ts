@@ -3,6 +3,7 @@ import type { CompatToolSource, Game, Tier } from "./types.js";
 export type SortKey = "name" | "size" | "tier" | "lastPlayed";
 export type SortDir = "asc" | "desc";
 
+// export nur für den test (tests/core/filter.test.ts; K-13).
 export interface LibraryQuery {
   search: string;
   sortKey: SortKey;
@@ -21,7 +22,8 @@ const TIER_RANK = Object.fromEntries(
   TIER_ORDER.map((tier, i) => [tier, TIER_ORDER.length - 1 - i]),
 ) as Record<Tier, number>;
 
-/** case-insensitiv: substring ODER subsequence (leichtgewichtiges fuzzy). */
+/** case-insensitiv: substring ODER subsequence (leichtgewichtiges fuzzy).
+ *  export nur für den test (tests/core/filter.test.ts; K-13). */
 export function fuzzyMatch(name: string, query: string): boolean {
   const q = query.toLowerCase().trim();
   if (!q) return true;

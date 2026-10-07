@@ -3,7 +3,7 @@
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[cfg(target_os = "linux")]
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
@@ -18,8 +18,9 @@ use crate::commands::fd::{
     open_absolute_dir, open_bound_root_fd, open_file_at, open_or_create_dir_at, read_fd_text,
     sync_dir_fd,
 };
-use crate::commands::fs_ops::is_process_running_sync;
+use crate::commands::fs_ops::is_steam_running_sync;
 use crate::commands::path::{is_safe_path, random_suffix, sanitize_path};
+use crate::commands::scope::EnvironmentState;
 use crate::commands::spawn_blocking_io;
 use crate::commands::vdf_patch;
 
@@ -95,38 +96,49 @@ pub enum WriteResult {
     Unchanged,
 }
 
-/// Prüft, ob ein kanonischer Pfad eine
-/// der legitimen steam-config-dateien ist: drei canonicalisierte root-
-/// varianten (nativ/flatpak/snap). Die fünf Discovery-Kandidaten liegen in
-/// `scope.rs`; `.steam/steam` und `.steam/root` sind Symlinks und kollabieren
-/// per canonicalize auf die native variante. Erlaubt sind `config/config.vdf`
-/// und `userdata/<digits>/config/localconfig.vdf`.
-fn is_steam_config_path(file: &Path, home: &Path) -> bool {
-    let roots = [
-        home.join(".local/share/Steam"),
-        home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam"),
-        home.join("snap/steam/common/.local/share/Steam"),
-    ];
-    for root in &roots {
-        if file == root.join("config").join("config.vdf") {
-            return true;
-        }
-        if let Ok(rel) = file.strip_prefix(root.join("userdata")) {
-            let comps: Vec<_> = rel.components().collect();
-            if comps.len() == 3
-                && comps[0]
-                    .as_os_str()
-                    .to_string_lossy()
-                    .chars()
-                    .all(|c| c.is_ascii_digit())
-                && comps[1].as_os_str() == "config"
-                && comps[2].as_os_str() == "localconfig.vdf"
-            {
-                return true;
-            }
-        }
+/// Erlaubt nur `config/config.vdf` und `userdata/<digits>/config/localconfig.vdf`
+/// unter genau diesem kanonischen Steam-Root (INV-1). Der Root kommt aus dem
+/// Snapshot, nicht aus einer zweiten fest kodierten Wurzelliste: Discovery
+/// kennt fünf Kandidaten und kanonisiert `$HOME`, das Write-Gate folgt dem.
+fn is_steam_config_path(file: &Path, steam_root: &Path) -> bool {
+    if file == steam_root.join("config").join("config.vdf") {
+        return true;
     }
-    false
+    let Ok(rel) = file.strip_prefix(steam_root.join("userdata")) else {
+        return false;
+    };
+    let comps: Vec<_> = rel.components().collect();
+    comps.len() == 3
+        && comps[0]
+            .as_os_str()
+            .to_string_lossy()
+            .chars()
+            .all(|c| c.is_ascii_digit())
+        && comps[1].as_os_str() == "config"
+        && comps[2].as_os_str() == "localconfig.vdf"
+}
+
+/// Bindet den angeforderten Steam-Root an den schon kanonischen Snapshot-Root,
+/// wie `delete_ops::ensure_current_steam_root`. Der gespeicherte Root wird
+/// nicht noch einmal aufgelöst: sonst folgt das Gate einem Symlink, der den
+/// Snapshot-Ordner nach der Discovery ersetzt hat.
+fn canonical_allowed_steam_root(
+    steam_root: &str,
+    allowed_steam_root: &Path,
+) -> Result<PathBuf, String> {
+    let root = fs::canonicalize(steam_root).map_err(|error| {
+        errcode::with_detail(
+            errcode::NOT_FOUND,
+            format!("steam root canonicalize: {error}"),
+        )
+    })?;
+    if root != allowed_steam_root {
+        return Err(errcode::with_detail(
+            errcode::BLOCKED_LOCATION,
+            "steam root is not the current environment root",
+        ));
+    }
+    Ok(root)
 }
 
 /// Öffnet das Backup-Ziel exklusiv und symlinkfrei entlang gebundener
@@ -460,7 +472,7 @@ fn lock_write_target(canon: &Path) -> std::sync::MutexGuard<'static, ()> {
 /// prüfen als die sechs ausgeschriebenen Zeilen (R-04, bewusster Schnitt).
 fn apply_write_gate<F, P>(
     canon: &Path,
-    home: &Path,
+    steam_root: &Path,
     backup_dir: &Path,
     backup_name: impl Fn(u128) -> String,
     process_reader: &mut F,
@@ -473,7 +485,7 @@ where
     if !is_safe_path(&canon.to_string_lossy()) {
         return Err(errcode::BLOCKED_LOCATION.into());
     }
-    if !is_steam_config_path(canon, home) {
+    if !is_steam_config_path(canon, steam_root) {
         return Err(errcode::NOT_A_STEAM_CONFIG.into());
     }
     // der guard deckt read, patch, backup und target-write ab (INV-1)
@@ -518,7 +530,7 @@ pub(super) fn save_launch_options_inner<F>(
     app_id: u32,
     launch_options: &str,
     backup_dir: &Path,
-    home: &Path,
+    allowed_steam_root: &Path,
     process_reader: &mut F,
 ) -> Result<WriteResult, String>
 where
@@ -534,9 +546,7 @@ where
     if process_reader()? {
         return Err(errcode::STEAM_RUNNING.into());
     }
-    let root = fs::canonicalize(steam_root).map_err(|e| {
-        errcode::with_detail(errcode::NOT_FOUND, format!("steam root canonicalize: {e}"))
-    })?;
+    let root = canonical_allowed_steam_root(steam_root, allowed_steam_root)?;
     let target = root
         .join("userdata")
         .join(account_id)
@@ -551,7 +561,7 @@ where
     let app_id_str = app_id.to_string();
     apply_write_gate(
         &canon,
-        home,
+        &root,
         backup_dir,
         |timestamp| format!("localconfig-{account_id}-{timestamp}.vdf"),
         process_reader,
@@ -590,7 +600,7 @@ pub(super) fn save_compat_tool_inner<F>(
     app_id: u32,
     tool_name: Option<&str>,
     backup_dir: &Path,
-    home: &Path,
+    allowed_steam_root: &Path,
     process_reader: &mut F,
 ) -> Result<WriteResult, String>
 where
@@ -607,9 +617,7 @@ where
     if process_reader()? {
         return Err(errcode::STEAM_RUNNING.into());
     }
-    let root = fs::canonicalize(steam_root).map_err(|e| {
-        errcode::with_detail(errcode::NOT_FOUND, format!("steam root canonicalize: {e}"))
-    })?;
+    let root = canonical_allowed_steam_root(steam_root, allowed_steam_root)?;
     let target = root.join("config").join("config.vdf");
     let canon = fs::canonicalize(&target).map_err(|e| {
         errcode::with_detail(
@@ -630,7 +638,7 @@ where
     let app_id_str = app_id.to_string();
     apply_write_gate(
         &canon,
-        home,
+        &root,
         backup_dir,
         |timestamp| format!("config-{app_id}-{timestamp}.vdf"),
         process_reader,
@@ -695,28 +703,27 @@ fn path_resolution_error(label: &str, error: impl std::fmt::Display) -> String {
 #[tauri::command]
 pub async fn save_launch_options(
     app: tauri::AppHandle,
+    env: tauri::State<'_, EnvironmentState>,
     steam_root: String,
     account_id: String,
     app_id: u32,
     launch_options: String,
 ) -> Result<WriteResult, String> {
-    let home = app
-        .path()
-        .home_dir()
-        .map_err(|e| path_resolution_error("home dir", e))?;
     let backup_dir = app
         .path()
         .app_cache_dir()
         .map_err(|e| path_resolution_error("app cache dir", e))?;
+    let env = env.inner().clone();
     spawn_blocking_io(move || {
-        let mut process_reader = || is_process_running_sync("steam");
+        let allowed_root = env.current()?.steam_root;
+        let mut process_reader = || Ok(is_steam_running_sync());
         save_launch_options_inner(
             &steam_root,
             &account_id,
             app_id,
             &launch_options,
             &backup_dir,
-            &home,
+            &allowed_root,
             &mut process_reader,
         )
     })
@@ -726,26 +733,25 @@ pub async fn save_launch_options(
 #[tauri::command]
 pub async fn save_compat_tool(
     app: tauri::AppHandle,
+    env: tauri::State<'_, EnvironmentState>,
     steam_root: String,
     app_id: u32,
     tool_name: Option<String>,
 ) -> Result<WriteResult, String> {
-    let home = app
-        .path()
-        .home_dir()
-        .map_err(|e| path_resolution_error("home dir", e))?;
     let backup_dir = app
         .path()
         .app_cache_dir()
         .map_err(|e| path_resolution_error("app cache dir", e))?;
+    let env = env.inner().clone();
     spawn_blocking_io(move || {
-        let mut process_reader = || is_process_running_sync("steam");
+        let allowed_root = env.current()?.steam_root;
+        let mut process_reader = || Ok(is_steam_running_sync());
         save_compat_tool_inner(
             &steam_root,
             app_id,
             tool_name.as_deref(),
             &backup_dir,
-            &home,
+            &allowed_root,
             &mut process_reader,
         )
     })

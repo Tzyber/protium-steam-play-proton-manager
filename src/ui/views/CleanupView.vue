@@ -5,9 +5,9 @@ import type { TrashEntry } from "../../core/trash";
 import type { OrphanEntry } from "../../core/types";
 import BlockedExplanation from "../components/BlockedExplanation.vue";
 import CleanupRow from "../components/CleanupRow.vue";
-import ConfirmDialogHost from "../components/ConfirmDialogHost.vue";
 import ExplainInfo from "../components/ExplainInfo.vue";
 import { shortDate } from "../dateTime";
+import { logError } from "../diagnostics";
 import { formatKnownBytes, sizeText } from "../format";
 import { formatError, formatErrorKind } from "../formatError";
 import { t } from "../i18n";
@@ -60,7 +60,7 @@ async function refreshCleanupForScan(generation: number) {
 
 function resetCleanupForLibraryScan() {
   selected.clear();
-  trashSelected.clear();
+  trashSelection.selected.clear();
   cleanup.resetForLibraryScan();
 }
 
@@ -118,11 +118,41 @@ function orphanLabel(o: OrphanEntry): string {
   return cleanup.orphanNames[o.path] ?? String(o.appId);
 }
 
-const selected = reactive(new Set<string>());
-
-function toggle(key: string) {
-  toggleInSet(selected, key);
+function useSelection<T extends { path: string }>(
+  entries: () => readonly T[],
+  options?: {
+    selected?: Set<string>;
+    candidates?: (entries: readonly T[]) => readonly T[];
+  },
+) {
+  const picked = options?.selected ?? reactive(new Set<string>());
+  const selectable = () => options?.candidates?.(entries()) ?? entries();
+  const allSelected = computed(() => {
+    const list = selectable();
+    return list.length > 0 && list.every((entry) => picked.has(entry.path));
+  });
+  const selectedEntries = computed(() => entries().filter((entry) => picked.has(entry.path)));
+  function toggle(path: string) {
+    toggleInSet(picked, path);
+  }
+  function selectAll() {
+    const list = selectable();
+    const clear = allSelected.value;
+    for (const entry of list) {
+      if (clear) picked.delete(entry.path);
+      else picked.add(entry.path);
+    }
+  }
+  return reactive({ selected: picked, allSelected, selectedEntries, toggle, selectAll });
 }
+
+const selected = reactive(new Set<string>());
+const shaders = useSelection(() => shadercacheOrphans.value, { selected });
+const prefixes = useSelection(() => compatdataOrphans.value, {
+  selected,
+  candidates: (entries) => entries.filter((entry) => !entry.potentialShortcut),
+});
+const trashSelection = useSelection(() => cleanup.trash);
 
 function displaySize(entries: readonly { sizeBytes?: number }[]): string {
   return formatSizeSummary(entries, formatKnownBytes);
@@ -132,65 +162,30 @@ const shadercacheTotal = computed(() => displaySize(shadercacheOrphans.value));
 const compatdataTotal = computed(() => displaySize(compatdataOrphans.value));
 const steamOwnedTotal = computed(() => displaySize(cleanup.steamOwnedPrefixes));
 
-const shaderAllSelected = computed(
-  () =>
-    shadercacheOrphans.value.length > 0 &&
-    shadercacheOrphans.value.every((o) => selected.has(cleanup.orphanKey(o))),
-);
-const compatAllSelected = computed(() => {
-  const candidates = compatdataOrphans.value.filter((o) => !o.potentialShortcut);
-  return candidates.length > 0 && candidates.every((o) => selected.has(cleanup.orphanKey(o)));
-});
-
-/** auswahl-umschalter: alle an- oder alle abwählen, je nach ist-zustand. */
-function toggleAll<T>(
-  entries: readonly T[],
-  set: Set<string>,
-  allSelected: boolean,
-  keyOf: (e: T) => string,
-) {
-  for (const e of entries) {
-    if (allSelected) set.delete(keyOf(e));
-    else set.add(keyOf(e));
-  }
-}
-
-function selectAllShader() {
-  toggleAll(shadercacheOrphans.value, selected, shaderAllSelected.value, (o) =>
-    cleanup.orphanKey(o),
-  );
-}
-
-function selectAllCompat() {
-  const candidates = compatdataOrphans.value.filter((o) => !o.potentialShortcut);
-  toggleAll(candidates, selected, compatAllSelected.value, (o) => cleanup.orphanKey(o));
-}
-
-const selectedShader = computed(() =>
-  shadercacheOrphans.value.filter((o) => selected.has(cleanup.orphanKey(o))),
-);
-const selectedCompat = computed(() =>
-  compatdataOrphans.value.filter((o) => selected.has(cleanup.orphanKey(o))),
-);
-
 /** auswahl des SICHTBAREN tabs, sonst stünde "0 ausgewählt", während in einer
  *  anderen liste 19 einträge markiert sind. */
 const selectedHere = computed(() =>
-  tab.value === "shaders" ? selectedShader.value : selectedCompat.value,
+  tab.value === "shaders" ? shaders.selectedEntries : prefixes.selectedEntries,
 );
 const selectedHereSize = computed(() => displaySize(selectedHere.value));
+const deleteBlockedHere = computed(() =>
+  cleanup.orphanDeleteBlocked(tab.value === "shaders" ? "shadercache" : "compatdata"),
+);
 
 async function confirmDeleteOrphans() {
   // der rescan läuft IM store (deleteOrphans), ein zweiter hier würde die
   // dort gesammelten löschfehler wieder zurücksetzen.
-  await cleanup.deleteOrphans(selectedHere.value);
-  selected.clear();
+  await cleanup.deleteOrphans(selectedHere.value, 0, (paths) => {
+    for (const path of paths) selected.delete(path);
+  });
 }
 
 function deleteShadersAll() {
   // alle shader-caches leeren, selections-umweg unnötig: das backend-gate
   // bestätigt über den native-dialog.
-  void cleanup.deleteOrphansAll(shadercacheOrphans.value);
+  cleanup.deleteOrphansAll(shadercacheOrphans.value).catch((error: unknown) => {
+    logError("Shader-Bereinigung fehlgeschlagen", error);
+  });
 }
 
 const busy = computed(() => cleanup.scanning || cleanup.deleting.size > 0);
@@ -200,16 +195,9 @@ const destructiveBusy = computed(() => busy.value || confirm.reserved || confirm
 
 const trashBySize = computed(() => [...cleanup.trash].sort(bySizeDesc));
 
-const trashSelected = reactive(new Set<string>());
-
-function toggleTrash(path: string) {
-  toggleInSet(trashSelected, path);
-}
-
 const trashTotal = computed(() => displaySize(cleanup.trash));
 
-const trashSelectedAll = computed(() => cleanup.trash.filter((e) => trashSelected.has(e.path)));
-const trashSelectedSize = computed(() => displaySize(trashSelectedAll.value));
+const trashSelectedSize = computed(() => displaySize(trashSelection.selectedEntries));
 
 const trashDeleting = ref(false);
 
@@ -217,24 +205,18 @@ const trashDeleting = ref(false);
  *  auswahl); sonst nur die ausgewählten einträge. */
 async function deleteTrashEntries(all: boolean) {
   trashDeleting.value = true;
+  const onConfirmed = (paths: string[]) => {
+    for (const path of paths) trashSelection.selected.delete(path);
+  };
   try {
     if (all) {
-      await cleanup.emptyTrash();
+      await cleanup.emptyTrash(onConfirmed);
     } else {
-      await cleanup.deleteTrashEntries([...trashSelectedAll.value]);
+      await cleanup.deleteTrashEntries([...trashSelection.selectedEntries], 0, onConfirmed);
     }
-    trashSelected.clear();
   } finally {
     trashDeleting.value = false;
   }
-}
-
-const trashAllSelected = computed(
-  () => trashBySize.value.length > 0 && trashBySize.value.every((e) => trashSelected.has(e.path)),
-);
-
-function selectAllTrash() {
-  toggleAll(trashBySize.value, trashSelected, trashAllSelected.value, (e) => e.path);
 }
 
 const tabCount = (id: Tab) =>
@@ -379,22 +361,22 @@ const shortcutBlockedItems = computed(() =>
             v-if="shadercacheOrphans.length"
             class="sel-all"
             type="button"
-            :aria-pressed="shaderAllSelected"
-            @click="selectAllShader()"
+            :aria-pressed="shaders.allSelected"
+            @click="shaders.selectAll()"
           >
             {{ t("cleanup.selectAll") }}
           </button>
         </div>
 
         <ul v-if="shadercacheOrphans.length" class="list">
-          <li v-for="o in shadercacheOrphans" :key="cleanup.orphanKey(o)">
+          <li v-for="o in shadercacheOrphans" :key="o.path">
             <CleanupRow
               :label="orphanLabel(o)"
               :path="o.path"
               :short-path="shortPath(o.path)"
               :size-text="sizeText(o.sizeBytes)"
-              :selected="selected.has(cleanup.orphanKey(o))"
-              @toggle="toggle(cleanup.orphanKey(o))"
+              :selected="shaders.selected.has(o.path)"
+              @toggle="shaders.toggle(o.path)"
             />
           </li>
         </ul>
@@ -428,8 +410,8 @@ const shortcutBlockedItems = computed(() =>
             v-if="compatdataOrphans.length"
             class="sel-all warn"
             type="button"
-            :aria-pressed="compatAllSelected"
-            @click="selectAllCompat()"
+            :aria-pressed="prefixes.allSelected"
+            @click="prefixes.selectAll()"
           >
             {{ t("cleanup.selectAll") }}
           </button>
@@ -452,15 +434,15 @@ const shortcutBlockedItems = computed(() =>
         </div>
 
         <ul v-if="compatdataOrphans.length" class="list">
-          <li v-for="o in compatdataOrphans" :key="cleanup.orphanKey(o)">
+          <li v-for="o in compatdataOrphans" :key="o.path">
             <CleanupRow
               :label="orphanLabel(o)"
               :path="o.path"
               :short-path="shortPath(o.path)"
               :size-text="sizeText(o.sizeBytes)"
-              :selected="selected.has(cleanup.orphanKey(o))"
+              :selected="prefixes.selected.has(o.path)"
               :warning="o.potentialShortcut ? t('cleanup.potentialShortcutTooltip') : undefined"
-              @toggle="toggle(cleanup.orphanKey(o))"
+              @toggle="prefixes.toggle(o.path)"
             />
           </li>
         </ul>
@@ -494,8 +476,8 @@ const shortcutBlockedItems = computed(() =>
               v-if="trashBySize.length"
               class="sel-all"
               type="button"
-              :aria-pressed="trashAllSelected"
-              @click="selectAllTrash()"
+              :aria-pressed="trashSelection.allSelected"
+              @click="trashSelection.selectAll()"
             >
               {{ t("cleanup.selectAll") }}
             </button>
@@ -539,8 +521,8 @@ const shortcutBlockedItems = computed(() =>
               :extra="shortDate(entry.trashedAt)"
               :extra-title="t('cleanup.trashTrashedAt', { date: shortDate(entry.trashedAt) })"
               with-date
-              :selected="trashSelected.has(entry.path)"
-              @toggle="toggleTrash(entry.path)"
+              :selected="trashSelection.selected.has(entry.path)"
+              @toggle="trashSelection.toggle(entry.path)"
             />
           </li>
         </ul>
@@ -569,7 +551,7 @@ const shortcutBlockedItems = computed(() =>
           v-if="tab === 'shaders' && shadercacheOrphans.length"
           class="action"
           type="button"
-          :disabled="destructiveBusy"
+          :disabled="destructiveBusy || deleteBlockedHere"
           @click="deleteShadersAll"
         >
           {{ t("cleanup.cleanAllShaders") }}
@@ -577,7 +559,7 @@ const shortcutBlockedItems = computed(() =>
         <button
           class="action danger"
           type="button"
-          :disabled="destructiveBusy || !selectedHere.length"
+          :disabled="destructiveBusy || deleteBlockedHere || !selectedHere.length"
           @click="confirmDeleteOrphans"
         >
           {{ t("cleanup.deleteSelected", { n: selectedHere.length }) }}
@@ -587,13 +569,13 @@ const shortcutBlockedItems = computed(() =>
 
     <div v-if="tab === 'trash' && cleanup.trash.length" class="actionbar">
       <span class="sel-info" aria-live="polite" data-testid="trash-selected-info">
-        {{ t("cleanup.selectedInfo", { n: trashSelectedAll.length, size: trashSelectedSize }) }}
+        {{ t("cleanup.selectedInfo", { n: trashSelection.selectedEntries.length, size: trashSelectedSize }) }}
       </span>
       <div class="actionbar-btns">
         <button
           class="action"
           type="button"
-          :disabled="!trashSelectedAll.length || trashDeleting || confirm.reserved || confirm.busy"
+          :disabled="!trashSelection.selectedEntries.length || trashDeleting || confirm.reserved || confirm.busy"
           @click="deleteTrashEntries(false)"
         >
           {{ t("cleanup.trashDeleteEntry") }}
@@ -610,8 +592,6 @@ const shortcutBlockedItems = computed(() =>
     </div>
 
   </section>
-
-  <ConfirmDialogHost />
 </template>
 
 <style scoped>

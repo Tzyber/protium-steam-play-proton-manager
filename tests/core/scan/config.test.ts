@@ -141,8 +141,9 @@ describe("scan config", () => {
         type: "launch-config",
         reason: "selection-ambiguous",
         steamUserId: userId,
-        detail: expect.stringContaining("multiple steam accounts"),
+        detail: "multiple steam accounts found, loginusers.vdf ambiguous",
       },
     ]);
+    expect(result.warnings[0]?.detail).not.toContain(userId);
   });
 });

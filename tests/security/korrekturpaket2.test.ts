@@ -62,12 +62,7 @@ describe("statisch belegter bypass-vertrag der tauri-konfiguration", () => {
       return (entry.allow ?? []).map((rule) => rule.path ?? "");
     }
 
-    expect(allowPaths("fs:scope")).toEqual([
-      "$APPCACHE",
-      "$APPCACHE/**",
-      "$APPCONFIG",
-      "$APPCONFIG/**",
-    ]);
+    expect(allowPaths("fs:scope")).toEqual(["$APPCACHE", "$APPCACHE/**"]);
     expect(allowPaths("fs:allow-write-text-file")).toEqual(["$APPCACHE/**"]);
     expect(allowPaths("fs:allow-mkdir")).toEqual(["$APPCACHE/**"]);
 

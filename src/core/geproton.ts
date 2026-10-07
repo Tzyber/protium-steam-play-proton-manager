@@ -120,6 +120,7 @@ function isAllowedTarballName(tag: string, assetName: string, targetArch: Target
   return targetArch === "x86_64" && isLegacyInstallName(tag) && assetName === `${tag}.tar.gz`;
 }
 
+// export nur für den test (tests/core/geproton.test.ts; K-13).
 export function parseReleases(json: string, targetArch: TargetArch): GeRelease[] {
   const raw = JSON.parse(json);
   if (!Array.isArray(raw)) return [];
@@ -269,6 +270,8 @@ interface InstallOpts {
   onWarning?: () => void;
   /** abbruch-abfrage für das fenster vor dem Rust-Download. */
   isCancelled?: () => boolean;
+  /** `de` oder `en`. Wählt nur den Backend-Text des Prüfsummen-Dialogs. */
+  locale: "de" | "en";
 }
 
 // delegiert an das backend (download → sha512-prüfung → swap-schutz → entpacken).
@@ -290,6 +293,7 @@ export async function installRelease(ports: { system: System }, opts: InstallOpt
     releaseTag: opts.release.tag,
     downloadUrl: opts.release.tarball.url,
     downloadId: opts.downloadId,
+    locale: opts.locale,
   });
 
   if (result === "unverified") {

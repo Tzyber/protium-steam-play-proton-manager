@@ -1,4 +1,5 @@
 use std::fs;
+use std::future::Future;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -13,7 +14,9 @@ use crate::commands::download::{
     MAX_DOWNLOAD_BYTES,
 };
 use crate::commands::errcode;
+#[cfg(test)]
 use crate::commands::extract::extract_blocking_with_tag;
+use crate::commands::extract::{extract_blocking_with_tag_with_hook, MAX_ARCHIVE_ENTRIES};
 use crate::commands::path::{is_descendant_of, sanitize_path};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -296,6 +299,22 @@ pub(super) fn verify_file_hash_on_disk(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum DialogLocale {
+    De,
+    En,
+}
+
+/// Der Webview wählt nur die Sprache. Ein anderer Wert darf keinen eigenen
+/// Dialogtext einschleusen und wird nicht in die Fehlermeldung übernommen.
+fn parse_dialog_locale(raw: &str) -> Result<DialogLocale, String> {
+    match raw {
+        "de" => Ok(DialogLocale::De),
+        "en" => Ok(DialogLocale::En),
+        _ => Err(errcode::with_detail(errcode::INVALID_VALUE, "locale")),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ConfirmationKind {
     Warning,
 }
@@ -317,51 +336,81 @@ fn unverified_confirmation_request(
     release_tag: &str,
     install_name: &str,
     checksum_url: &str,
+    locale: DialogLocale,
 ) -> UnverifiedConfirmationRequest {
-    UnverifiedConfirmationRequest {
-        title: "Protium: Installation ohne Prüfsumme bestätigen".to_string(),
-        message: format!(
-            "Für {release_tag} ({install_name}) wurde das exakt abgeleitete SHA512-Asset mit HTTP 404 nicht gefunden.\n\nURL: {checksum_url}\n\nMöchten Sie die unüberprüfte Installation fortsetzen?"
+    let (title, message) = match locale {
+        DialogLocale::De => (
+            "Protium: Installation ohne Prüfsumme bestätigen",
+            format!(
+                "Für {release_tag} ({install_name}) wurde das exakt abgeleitete SHA512-Asset mit HTTP 404 nicht gefunden.\n\nURL: {checksum_url}\n\nMöchten Sie die unüberprüfte Installation fortsetzen?"
+            ),
         ),
+        DialogLocale::En => (
+            "Protium: Confirm installation without a checksum",
+            format!(
+                "The exact derived SHA512 asset for {release_tag} ({install_name}) was not found (HTTP 404).\n\nURL: {checksum_url}\n\nDo you want to continue the unverified installation?"
+            ),
+        ),
+    };
+    UnverifiedConfirmationRequest {
+        title: title.to_string(),
+        message,
         kind: ConfirmationKind::Warning,
         buttons: ConfirmationButtons::OkCancel,
     }
 }
 
-fn confirm_unverified_installation(
+async fn confirm_unverified_installation<Fut>(
     release_tag: &str,
     install_name: &str,
     checksum_url: &str,
-    show: impl FnOnce(UnverifiedConfirmationRequest) -> Result<bool, String>,
-) -> Result<bool, String> {
+    locale: DialogLocale,
+    show: impl FnOnce(UnverifiedConfirmationRequest) -> Fut,
+) -> Result<bool, String>
+where
+    Fut: Future<Output = Result<bool, String>>,
+{
     show(unverified_confirmation_request(
         release_tag,
         install_name,
         checksum_url,
+        locale,
     ))
+    .await
 }
 
-fn show_native_unverified_confirmation(
-    app: &AppHandle,
+/// Dialog über den Callback von `MessageDialogBuilder::show` und ein oneshot.
+/// `blocking_show` würde den Tokio-Worker blockieren; der Mutex der Umgebung
+/// wird hier nicht gehalten.
+async fn show_native_unverified_confirmation(
+    app: AppHandle,
     request: UnverifiedConfirmationRequest,
 ) -> Result<bool, String> {
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
-    Ok(app
-        .dialog()
-        .message(&request.message)
-        .title(&request.title)
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .message(request.message)
+        .title(request.title)
         .kind(match request.kind {
             ConfirmationKind::Warning => MessageDialogKind::Warning,
         })
         .buttons(match request.buttons {
             ConfirmationButtons::OkCancel => MessageDialogButtons::OkCancel,
         })
-        .blocking_show())
+        .show(move |confirmed| {
+            let _ = tx.send(confirmed);
+        });
+    rx.await.map_err(|_| {
+        errcode::with_detail(
+            errcode::UNAVAILABLE,
+            "unverified installation confirmation dropped",
+        )
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn install_ge_proton_inner(
+pub(super) async fn install_ge_proton_inner<ConfirmFut>(
     steam_root: &str,
     target_arch: TargetArch,
     release_tag: &str,
@@ -371,22 +420,36 @@ pub(super) async fn install_ge_proton_inner(
     cancel_flag: Arc<CancelSignal>,
     mut on_progress: impl FnMut(u64, Option<u64>),
     mut on_phase: impl FnMut(&str, bool),
-    confirm_unverified: impl FnMut(UnverifiedConfirmationRequest) -> Result<bool, String>,
-    scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
+    dialog_locale: DialogLocale,
+    confirm_unverified: impl FnMut(UnverifiedConfirmationRequest) -> ConfirmFut,
+    scope_ok: Arc<dyn Fn(&Path) -> bool + Send + Sync>,
     environment: ExtractEnvironment,
-) -> Result<InstallGeResult, String> {
+) -> Result<InstallGeResult, String>
+where
+    ConfirmFut: Future<Output = Result<bool, String>>,
+{
+    // scope_ok kann den Environment-Mutex nehmen. Das gehört in den
+    // blocking-pool, nicht auf den Tokio-Worker.
+    let steam_root_owned = steam_root.to_string();
+    let release_tag_owned = release_tag.to_string();
+    let download_url_owned = download_url.to_string();
+    let download_id_owned = download_id.to_string();
+    let scope_for_resolve = Arc::clone(&scope_ok);
     let GeInstallTargets {
         root_canon,
         tools_dir,
         identity,
-    } = resolve_ge_install_targets(
-        steam_root,
-        target_arch,
-        release_tag,
-        download_url,
-        download_id,
-        scope_ok,
-    )?;
+    } = crate::commands::spawn_blocking_io(move || {
+        resolve_ge_install_targets(
+            &steam_root_owned,
+            target_arch,
+            &release_tag_owned,
+            &download_url_owned,
+            &download_id_owned,
+            scope_for_resolve.as_ref(),
+        )
+    })
+    .await?;
     let (downloads_directory, expected_downloads_identity) = open_downloads_directory(cache_dir)?;
     let cancel_flag_clone = Arc::clone(&cancel_flag);
 
@@ -420,6 +483,7 @@ pub(super) async fn install_ge_proton_inner(
         release_tag,
         &identity,
         &cancel_flag,
+        dialog_locale,
         confirm_unverified,
     )
     .await?;
@@ -428,33 +492,22 @@ pub(super) async fn install_ge_proton_inner(
 
     on_phase("extracting", result_status == InstallGeResult::Verified);
 
-    // extraktions-phase (r-18 clone-stand): tools_dir geht in zwei formen in
-    // die closure (string als dest_dir, pfad fuer den scope-closure-vergleich),
-    // root_canon und install_name je in einer; die originale bleiben fuer die
-    // autorisierte umgebung.
-    let tools_dir_str = tools_dir.to_string_lossy().to_string();
     let install_name = identity.install_name.clone();
-    let extract_dest = tools_dir.clone();
-    let extract_root = root_canon.clone();
-
     let cancel_for_extract = Arc::clone(&cancel_flag);
-    let extract = move || {
-        extract_after_cancel_check(&cancel_for_extract, || {
-            let result = extract_blocking_with_tag(
-                &mut downloaded_file,
-                &tools_dir_str,
-                Some(&install_name),
-                MAX_DOWNLOAD_BYTES,
-                &|p| p == extract_dest || p == extract_root,
-                &cancel_for_extract,
-            );
-            Ok((result, downloaded_file))
-        })
-    };
     let extract_res = match environment {
         ExtractEnvironment::Authorized(environment) => {
             crate::commands::spawn_blocking_io(move || {
-                environment.with_authorized_ge_install(&root_canon, &tools_dir, extract)
+                let result = extract_in_authorized_environment(
+                    &environment,
+                    scope_ok.as_ref(),
+                    &root_canon,
+                    &tools_dir,
+                    &install_name,
+                    &mut downloaded_file,
+                    &cancel_for_extract,
+                    &mut || {},
+                )?;
+                Ok((result, downloaded_file))
             })
             .await
         }
@@ -465,7 +518,20 @@ pub(super) async fn install_ge_proton_inner(
             if !scope_ok(&tools_dir) || !scope_ok(&root_canon) {
                 return Err(errcode::BLOCKED_LOCATION.into());
             }
-            crate::commands::spawn_blocking_io(extract).await
+            crate::commands::spawn_blocking_io(move || {
+                extract_after_cancel_check(&cancel_for_extract, || {
+                    let result = extract_blocking_with_tag(
+                        &mut downloaded_file,
+                        &tools_dir.to_string_lossy(),
+                        Some(&install_name),
+                        MAX_DOWNLOAD_BYTES,
+                        &|p| p == tools_dir || p == root_canon,
+                        &cancel_for_extract,
+                    );
+                    Ok((result, downloaded_file))
+                })
+            })
+            .await
         }
     };
 
@@ -476,6 +542,42 @@ pub(super) async fn install_ge_proton_inner(
         },
         Err(error) => Err(error),
     }
+}
+
+/// Autorisierter Extraktionsarm (r-18). Root und Tool-Ordner werden vor der
+/// Extraktion und erneut beim finalen Rename gegen den aktuellen Snapshot
+/// geprüft. Der Environment-Mutex gilt nur für Prüfung und Rename, nicht für
+/// die Extraktion dazwischen. Der äußere Fehler stammt aus Scope,
+/// Autorisierung oder Cancel, der innere aus der Extraktion. `before_bind`
+/// läuft zwischen den beiden Prüfungen.
+#[allow(clippy::too_many_arguments)]
+fn extract_in_authorized_environment(
+    environment: &crate::commands::scope::EnvironmentState,
+    scope_ok: &dyn Fn(&Path) -> bool,
+    root_canon: &Path,
+    tools_dir: &Path,
+    install_name: &str,
+    downloaded_file: &mut fs::File,
+    cancel: &CancelSignal,
+    before_bind: &mut dyn FnMut(),
+) -> Result<Result<(), String>, String> {
+    if !scope_ok(root_canon) || !scope_ok(tools_dir) {
+        return Err(errcode::BLOCKED_LOCATION.into());
+    }
+    environment.with_authorized_ge_install(root_canon, tools_dir, || Ok(()))?;
+    extract_after_cancel_check(cancel, || {
+        Ok(extract_blocking_with_tag_with_hook(
+            downloaded_file,
+            &tools_dir.to_string_lossy(),
+            Some(install_name),
+            MAX_DOWNLOAD_BYTES,
+            MAX_ARCHIVE_ENTRIES,
+            &|p| p == tools_dir || p == root_canon,
+            cancel,
+            before_bind,
+            &mut |rename| environment.with_authorized_ge_install(root_canon, tools_dir, rename),
+        ))
+    })
 }
 
 // Die Phasen von `install_ge_proton_inner`: je ein zusammenhängender Block aus
@@ -584,13 +686,7 @@ fn open_downloads_directory(cache_dir: &Path) -> Result<(fs::File, (u64, u64)), 
     if downloads_metadata.file_type().is_symlink() || !downloads_metadata.is_dir() {
         return Err(errcode::NOT_A_DIRECTORY.into());
     }
-    let expected_identity = crate::commands::download::metadata_identity(&downloads_metadata)
-        .ok_or_else(|| {
-            errcode::with_detail(
-                errcode::UNAVAILABLE,
-                "canonical downloads directory has no identity",
-            )
-        })?;
+    let expected_identity = crate::commands::download::metadata_identity(&downloads_metadata);
     #[cfg(target_os = "linux")]
     let directory = {
         // r-13: dieselbe no-follow-open-kette wie fd::open_absolute_dir statt
@@ -616,14 +712,18 @@ fn open_downloads_directory(cache_dir: &Path) -> Result<(fs::File, (u64, u64)), 
 /// Phase „Verify": holt die Prüfsumme, vergleicht sie mit dem Stream-Hash und
 /// liest die Datei zur Kontrolle vollständig von Disk (Hash-Swap/TOCTOU). Gibt
 /// den Status und den an den Anfang zurückgesetzten Handle zurück.
-async fn verify_downloaded_artifact(
+async fn verify_downloaded_artifact<ConfirmFut>(
     mut downloaded_file: fs::File,
     stream_hash: String,
     release_tag: &str,
     identity: &GeReleaseIdentity,
     cancel_flag: &Arc<CancelSignal>,
-    confirm_unverified: impl FnMut(UnverifiedConfirmationRequest) -> Result<bool, String>,
-) -> Result<(InstallGeResult, fs::File), String> {
+    dialog_locale: DialogLocale,
+    confirm_unverified: impl FnMut(UnverifiedConfirmationRequest) -> ConfirmFut,
+) -> Result<(InstallGeResult, fs::File), String>
+where
+    ConfirmFut: Future<Output = Result<bool, String>>,
+{
     // Die Checksum-URL wird aus der backendvalidierten Release-Identität abgeleitet.
     let checksum_url = checksum_url(release_tag, identity);
     let result_status = match fetch_sha512_text(&checksum_url, Arc::clone(cancel_flag)).await {
@@ -666,8 +766,10 @@ async fn verify_downloaded_artifact(
                 release_tag,
                 &identity.install_name,
                 &checksum_url,
+                dialog_locale,
                 confirm_unverified,
             )
+            .await
             .map_err(|error| {
                 errcode::with_detail(
                     errcode::UNAVAILABLE,
@@ -715,14 +817,20 @@ pub async fn install_ge_proton(
     release_tag: String,
     download_url: String,
     download_id: String,
+    locale: String,
 ) -> Result<InstallGeResult, String> {
+    let dialog_locale = parse_dialog_locale(&locale)?;
     let target_arch = compile_target_arch()?;
-    let (authorized_root, authorized_tools) =
-        environment.authorize_ge_install_paths(&steam_root)?;
+    let environment_for_auth = environment.inner().clone();
+    let steam_root_for_auth = steam_root.clone();
+    let (authorized_root, authorized_tools) = crate::commands::spawn_blocking_io(move || {
+        environment_for_auth.authorize_ge_install_paths(&steam_root_for_auth)
+    })
+    .await?;
     let environment_for_scope = environment.inner().clone();
-    let scope_ok = move |path: &Path| {
+    let scope_ok: Arc<dyn Fn(&Path) -> bool + Send + Sync> = Arc::new(move |path| {
         environment_for_scope.is_current_ge_install_path(path, &authorized_root, &authorized_tools)
-    };
+    });
     let cache_dir = app.path().app_cache_dir().map_err(|error| {
         errcode::with_detail(
             errcode::UNAVAILABLE,
@@ -771,8 +879,11 @@ pub async fn install_ge_proton(
                 },
             );
         },
-        move |request| show_native_unverified_confirmation(&app_handle_confirmation, request),
-        &scope_ok,
+        dialog_locale,
+        move |request| {
+            show_native_unverified_confirmation(app_handle_confirmation.clone(), request)
+        },
+        scope_ok,
         ExtractEnvironment::Authorized(environment.inner().clone()),
     )
     .await;

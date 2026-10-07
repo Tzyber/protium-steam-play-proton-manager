@@ -126,6 +126,43 @@ describe("App modal background", () => {
     expect(mockUiState.inertMain).toBe(false);
   });
 
+  it("rendert den bestätigungsdialog nach ansichtswechsel zwischen reserve und ask", async () => {
+    mockUiState.inertMain = false;
+    const wrapper = mount(App, { attachTo: document.body });
+    const confirm = useConfirmStore();
+    try {
+      await nextTick();
+      expect(wrapper.find(".app-background").attributes("inert")).toBeUndefined();
+
+      const token = confirm.reserve();
+      if (token === null) throw new Error("reserve lieferte kein token");
+
+      const ui = useUiStore();
+      ui.go("proton");
+      await nextTick();
+      ui.go("library");
+      await nextTick();
+
+      expect(confirm.ask({ title: "entfernen?", message: "folge" }, {}, token)).toBe(true);
+      await nextTick();
+      const dialog = document.querySelector('[role="dialog"]');
+      const main = document.getElementById("main-content");
+      expect(dialog).not.toBeNull();
+      expect(dialog?.closest("[inert]")).toBeNull();
+      expect(main?.closest("[inert]")).not.toBeNull();
+
+      dialog?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await nextTick();
+      await nextTick();
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(main?.closest("[inert]")).toBeNull();
+    } finally {
+      wrapper.unmount();
+      document.body.innerHTML = "";
+      confirm.cancel();
+    }
+  });
+
   it("verschachtelte dialoge halten die sperre, bis der letzte schliesst (V2)", async () => {
     // V2: drawer offen + erklär-panel offen. Schliesst das panel, bleibt der
     // hintergrund inert, solange der drawer offen ist.

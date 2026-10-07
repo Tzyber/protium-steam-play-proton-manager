@@ -1,5 +1,6 @@
 import { paths } from "./paths.js";
 import type { System } from "./ports.js";
+import { validNonNegativeInteger } from "./supportRedaction.js";
 import { type Game, isRecord, type LaunchConfigStatus } from "./types.js";
 
 type FootprintPartStatus = "measured" | "missing" | "failed" | "not-requested";
@@ -48,15 +49,9 @@ function notRequestedPart(): FootprintPart {
 function parseWirePart(value: unknown): FootprintPart {
   if (!isRecord(value)) return failedPart();
   if (value.status === "missing") return { status: "missing", sizeBytes: 0 };
-  if (
-    value.status !== "measured" ||
-    typeof value.sizeBytes !== "number" ||
-    !Number.isSafeInteger(value.sizeBytes) ||
-    value.sizeBytes < 0
-  ) {
-    return failedPart();
-  }
-  return { status: "measured", sizeBytes: value.sizeBytes };
+  const sizeBytes = validNonNegativeInteger(value.sizeBytes);
+  if (value.status !== "measured" || sizeBytes === null) return failedPart();
+  return { status: "measured", sizeBytes };
 }
 
 function summarize(parts: readonly FootprintPart[]): FootprintSummary {

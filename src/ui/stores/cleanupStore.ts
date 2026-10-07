@@ -10,7 +10,7 @@ import {
 } from "../../core/cleanup";
 import { readAppName } from "../../core/localconfig";
 import { paths } from "../../core/paths";
-import { readAllShortcutAppIds } from "../../core/shortcuts";
+import { readAllShortcutAppIds, type ShortcutResult } from "../../core/shortcuts";
 import { findTrashEntries, type TrashEntry, type TrashLibraryStatus } from "../../core/trash";
 import type { OrphanEntry, ScanResult } from "../../core/types";
 import { localizeConsequences } from "../consequences";
@@ -21,12 +21,11 @@ import { t } from "../i18n";
 import { formatSizeSummary } from "../sizeSummary";
 import {
   attachSizes,
+  cleanupTurn,
   collectInstalledAppIds,
   combineErrors,
   formatTrashErrors,
   hasOrphanUnavailableBase,
-  hasUnreadableIncompleteDeletions,
-  isCurrentForScan,
 } from "./cleanupHelpers";
 import { useConfirmStore } from "./confirmStore";
 import { useScanStore } from "./scanStore";
@@ -53,7 +52,6 @@ export const useCleanupStore = defineStore("cleanup", {
     incompleteDeletionsUnreadable: [] as string[],
     scanning: false,
     deleting: new Set<string>(),
-    error: null as string | null,
     orphanError: null as string | null,
     trashError: null as string | null,
     blockedBySkipped: false,
@@ -71,6 +69,13 @@ export const useCleanupStore = defineStore("cleanup", {
     trashUnknown: [] as string[],
     trashLibraries: [] as TrashLibraryStatus[],
     trashScanning: false,
+    /** fehler des letzten orphan-scans; trägt die löschsperre
+     *  (`orphanDeleteBlocked`), anders als löschfehler in `orphanError`. */
+    _orphanScanError: null as string | null,
+    /** fehler des letzten papierkorb-scans. ein löschversuch fällt darauf
+     *  zurück statt auf null, sonst verschwände „nicht lesbar“ nach einem
+     *  abgebrochenen dialog (INV-2). */
+    _trashScanError: null as string | null,
     _orphanScanGeneration: 0,
     _trashScanGeneration: 0,
   }),
@@ -83,73 +88,85 @@ export const useCleanupStore = defineStore("cleanup", {
             paths: s.incompleteDeletionsUnreadable.join(", "),
           })
         : null,
-    shaderUnavailable: (s) =>
-      hasOrphanUnavailableBase(s) || s.incompleteDeletions.some((d) => d.type === "shadercache"),
-    prefixUnavailable: (s) =>
-      hasOrphanUnavailableBase(s) ||
-      s.shortcutUnreadable ||
-      s.incompleteDeletions.some((d) => d.type === "compatdata"),
-    trashUnavailable: (s) => {
-      const legacyError = s.error !== null && s.orphanError === null && s.trashError === null;
-      return (
-        legacyError ||
-        s.trashError !== null ||
-        s.trashUnknown.length > 0 ||
-        s.trashLibraries.some((library) => library.error !== undefined) ||
-        hasUnreadableIncompleteDeletions(s) ||
-        s.incompleteDeletions.some((d) => d.type === "trash")
-      );
-    },
-  },
-  actions: {
-    /** stabiler Auswahl-schlüssel eines Orphans: sein Pfad. */
-    orphanKey(entry: OrphanEntry): string {
-      return entry.path;
-    },
-
-    syncError() {
-      // Der Detailwert kommt als kanonischer Code aus dem Core; ein unbekannter
-      // Rohtext faellt weg (V1), die Klassifikation bleibt sichtbar.
-      const shortcutDetail = formatDetail(this.shortcutUnreadableDetail ?? undefined);
-      const shortcutError = this.shortcutUnreadable
+    // Der Detailwert kommt als kanonischer Code aus dem Core; ein unbekannter
+    // Rohtext faellt weg (V1), die Klassifikation bleibt sichtbar.
+    error: (s) => {
+      const shortcutDetail = formatDetail(s.shortcutUnreadableDetail ?? undefined);
+      const shortcutError = s.shortcutUnreadable
         ? shortcutDetail
           ? t("errors.userdataUnreadableWithDetail", { detail: shortcutDetail })
           : t("errors.shortcutsUnreadable")
         : null;
-      this.error = combineErrors([this.orphanError, shortcutError, this.trashError]);
+      return combineErrors([s.orphanError, shortcutError, s.trashError]);
     },
-
+    shaderUnavailable: (s) =>
+      hasOrphanUnavailableBase(s) || s.incompleteDeletions.some((d) => d.type === "shadercache"),
+    /** Löschsperre je Orphan-Bereich: nur Scan-Gründe und Löschreste. Ein
+     *  Löschfehler des letzten Versuchs steht auch in `orphanError`, sperrt
+     *  aber nicht, sonst ginge bis zum nächsten Scan nichts mehr (INV-2). */
+    orphanDeleteBlocked: (s) => (type: OrphanEntry["type"]) =>
+      hasOrphanUnavailableBase({ ...s, orphanError: s._orphanScanError }) ||
+      s.incompleteDeletions.some((d) => d.type === type),
+    prefixUnavailable: (s) =>
+      hasOrphanUnavailableBase(s) ||
+      s.shortcutUnreadable ||
+      s.incompleteDeletions.some((d) => d.type === "compatdata"),
+    trashUnavailable: (s) =>
+      s.trashError !== null ||
+      s.trashUnknown.length > 0 ||
+      s.trashLibraries.some((library) => library.error !== undefined) ||
+      s.incompleteDeletionsUnreadable.length > 0 ||
+      s.incompleteDeletions.some((d) => d.type === "trash"),
+  },
+  actions: {
     setOrphanError(message: string | null) {
       this.orphanError = message;
-      this.syncError();
     },
 
     setTrashError(message: string | null) {
       this.trashError = message;
-      this.syncError();
     },
 
-    resetForLibraryScan() {
-      this._orphanScanGeneration += 1;
-      this._trashScanGeneration += 1;
+    setOrphanScanError(message: string) {
+      this._orphanScanError = message;
+      this.setOrphanError(message);
+    },
+
+    setTrashScanError(message: string) {
+      this._trashScanError = message;
+      this.setTrashError(message);
+    },
+
+    clearOrphanState() {
       this.orphans = [];
       this.orphanNames = {};
       this.steamOwnedPrefixes = [];
       this.incompleteDeletions = [];
       this.incompleteDeletionsUnreadable = [];
-      this.scanning = false;
-      this.orphanError = null;
       this.blockedBySkipped = false;
       this.pathMissingLibs = [];
       this.shortcutUnreadable = false;
       this.shortcutUnreadablePaths = [];
       this.shortcutUnreadableDetail = null;
+      this.scanning = false;
+      this.orphanError = null;
+      this._orphanScanError = null;
+    },
+
+    clearTrashState() {
       this.trash = [];
       this.trashUnknown = [];
       this.trashLibraries = [];
       this.trashScanning = false;
       this.trashError = null;
-      this.syncError();
+      this._trashScanError = null;
+    },
+
+    resetForLibraryScan() {
+      this._orphanScanGeneration += 1;
+      this._trashScanGeneration += 1;
+      this.clearOrphanState();
+      this.clearTrashState();
     },
 
     /** spielnamen für die orphan-liste aus steams localconfig; fehler oder
@@ -174,34 +191,17 @@ export const useCleanupStore = defineStore("cleanup", {
     async scanOrphans() {
       const generation = this._orphanScanGeneration + 1;
       this._orphanScanGeneration = generation;
-      this.orphans = [];
-      this.orphanNames = {};
-      this.steamOwnedPrefixes = [];
-      this.incompleteDeletions = [];
-      this.incompleteDeletionsUnreadable = [];
-      this.blockedBySkipped = false;
-      this.pathMissingLibs = [];
-      this.shortcutUnreadable = false;
-      this.shortcutUnreadablePaths = [];
-      this.shortcutUnreadableDetail = null;
-      this.scanning = false;
-      this.orphanError = null;
-      this.syncError();
+      this.clearOrphanState();
 
-      const scan = useScanStore();
-      const sourceScanGeneration = scan.scanGeneration;
-      const isCurrent = () =>
-        isCurrentForScan({
-          generation,
-          currentGeneration: this._orphanScanGeneration,
-          sourceScanGeneration,
-          scan,
-        });
-      const result = scan.status === "done" || scan.status === "idle" ? scan.result : null;
+      const { result, isCurrent } = cleanupTurn(
+        useScanStore(),
+        generation,
+        () => this._orphanScanGeneration,
+      );
       if (!result) {
         // gleiches verhalten wie scanTrash: klick vor scan-ende darf nicht
         // lautlos ins leere laufen.
-        this.setOrphanError(t("errors.noScanResult"));
+        this.setOrphanScanError(t("errors.noScanResult"));
         return;
       }
 
@@ -220,22 +220,22 @@ export const useCleanupStore = defineStore("cleanup", {
         this.incompleteDeletions = incompleteDeletions.entries;
         this.incompleteDeletionsUnreadable = incompleteDeletions.unreadable;
         // keine zweite meldung für unlesbare claims: die ansicht zeigt sie
-        // dediziert (incompleteDeletionsError → CleanupView), und die sperre
-        // trägt `hasOrphanUnavailableBase` zusätzlich über
-        // `hasUnreadableIncompleteDeletions` (cleanupHelpers.ts).
+        // dediziert (incompleteDeletionsError → CleanupView), die sperre
+        // tragen `hasOrphanUnavailableBase` (cleanupHelpers.ts) und
+        // `trashUnavailable`.
 
         const skipped = result.skippedLibraries;
         const blocking = skipped.filter((s) => s.reason !== "path-missing");
         const unsafe = result.cleanupUnsafeLibraries;
         if (!Array.isArray(unsafe)) {
           this.blockedBySkipped = true;
-          this.setOrphanError(t("errors.scanContractMissing"));
+          this.setOrphanScanError(t("errors.scanContractMissing"));
           return;
         }
         if (blocking.length > 0 || unsafe.length > 0) {
           this.blockedBySkipped = true;
           const blockedPaths = [...new Set([...blocking.map((s) => s.path), ...unsafe])];
-          this.setOrphanError(t("errors.scanIncomplete", { paths: blockedPaths.join(", ") }));
+          this.setOrphanScanError(t("errors.scanIncomplete", { paths: blockedPaths.join(", ") }));
           return;
         }
         this.blockedBySkipped = false;
@@ -250,11 +250,11 @@ export const useCleanupStore = defineStore("cleanup", {
         }
         this.pathMissingLibs = [];
 
-        const steamRunning = await tauriPorts.system.isProcessRunning("steam");
+        const steamRunning = await tauriPorts.system.isSteamRunning();
         if (!isCurrent()) return;
         if (steamRunning) {
           const steamError = t("errors.steamRunningCleanup");
-          this.setOrphanError(steamError);
+          this.setOrphanScanError(steamError);
           return;
         }
 
@@ -289,7 +289,6 @@ export const useCleanupStore = defineStore("cleanup", {
         if (!isCurrent()) return;
         this.steamOwnedPrefixes = steamOwnedPrefixes;
 
-        if (this.shortcutUnreadable) this.syncError();
         // Klassifikation (fail-closed bei unlesbarer shortcuts.vdf, Shortcut-
         // bereich) liegt fachlich bei findOrphans in core/cleanup.
         this.orphans = classifyOrphans(this.orphans, this.shortcutUnreadable);
@@ -312,32 +311,33 @@ export const useCleanupStore = defineStore("cleanup", {
         attachSizes(this.steamOwnedPrefixes, sizes);
       } catch (e) {
         logError("Orphan-Scan fehlgeschlagen", e);
-        if (isCurrent()) this.setOrphanError(formatError(e));
+        if (isCurrent()) this.setOrphanScanError(formatError(e));
       } finally {
         if (isCurrent()) this.scanning = false;
       }
     },
 
-    async deleteOrphans(entries: OrphanEntry[], remainder = 0) {
+    async deleteOrphans(
+      entries: OrphanEntry[],
+      remainder = 0,
+      onConfirmed?: (paths: string[]) => void,
+    ) {
       if (entries.length > MAX_PENDING_DELETES) {
         this.setOrphanError(
-          t("errors.deleteBatchTooLarge", { n: entries.length, max: MAX_PENDING_DELETES }),
+          combineErrors([
+            this._orphanScanError,
+            t("errors.deleteBatchTooLarge", { n: entries.length, max: MAX_PENDING_DELETES }),
+          ]),
         );
         return;
       }
-      if (this.blockedBySkipped) return;
+      if (this.blockedBySkipped || entries.some((e) => this.orphanDeleteBlocked(e.type))) return;
 
-      const scan = useScanStore();
-      const generation = this._orphanScanGeneration;
-      const sourceScanGeneration = scan.scanGeneration;
-      const isCurrent = () =>
-        isCurrentForScan({
-          generation,
-          currentGeneration: this._orphanScanGeneration,
-          sourceScanGeneration,
-          scan,
-        });
-      const result = scan.status === "done" || scan.status === "idle" ? scan.result : null;
+      const { result, isCurrent } = cleanupTurn(
+        useScanStore(),
+        this._orphanScanGeneration,
+        () => this._orphanScanGeneration,
+      );
       if (!result) {
         this.setOrphanError(t("errors.noScanResult"));
         return;
@@ -355,12 +355,18 @@ export const useCleanupStore = defineStore("cleanup", {
         return;
       }
 
-      if (await tauriPorts.system.isProcessRunning("steam")) {
-        this.setOrphanError(t("errors.steamRunningCleanup"));
+      let shortcutResult: ShortcutResult;
+      try {
+        if (await tauriPorts.system.isSteamRunning()) {
+          if (isCurrent()) this.setOrphanError(t("errors.steamRunningCleanup"));
+          return;
+        }
+        shortcutResult = await readAllShortcutAppIds(tauriPorts.fs, result.steamRoot);
+      } catch (e) {
+        logError("Loeschen vorbereiten fehlgeschlagen", e);
+        if (isCurrent()) this.setOrphanError(formatError(e));
         return;
       }
-
-      const shortcutResult = await readAllShortcutAppIds(tauriPorts.fs, result.steamRoot);
       const installedAppIds = collectInstalledAppIds(result, shortcutResult);
       const confirm = useConfirmStore();
       const reservation = confirm.reserve();
@@ -371,7 +377,7 @@ export const useCleanupStore = defineStore("cleanup", {
       // erst der bestätigungs-klick führt executeDelete aus.
       const prepared: {
         token: string;
-        key: string;
+        path: string;
         type: string;
         descriptions: string[];
         permanentDelete: boolean;
@@ -389,8 +395,7 @@ export const useCleanupStore = defineStore("cleanup", {
           continue;
         }
 
-        const k = this.orphanKey(entry);
-        this.deleting.add(k);
+        this.deleting.add(entry.path);
         try {
           const pending = await tauriPorts.system.prepareDelete({
             targetType: "orphan",
@@ -399,7 +404,7 @@ export const useCleanupStore = defineStore("cleanup", {
           });
           prepared.push({
             token: pending.token,
-            key: k,
+            path: entry.path,
             type: entry.type,
             descriptions: localizeConsequences(pending, this.orphanNames[entry.path] ?? null),
             permanentDelete: pending.consequences.some((c) => c.action === "permanentDelete"),
@@ -407,18 +412,20 @@ export const useCleanupStore = defineStore("cleanup", {
         } catch (e) {
           // deleting hier räumen: sonst bleibt die view nach einem
           // prepare-fehler dauerhaft busy (kein cleanup in onSuccess/onError,
-          // die nur keys aus prepared kennen).
-          this.deleting.delete(k);
+          // die nur pfade aus prepared kennen).
+          this.deleting.delete(entry.path);
           logEvent("error", `Loeschen vorbereiten fehlgeschlagen (${entry.type}/${entry.appId})`);
           errors.push(`${entry.type}/${entry.appId}: ${formatError(e)}`);
         }
       }
       if (!isCurrent()) {
-        for (const p of prepared) this.deleting.delete(p.key);
+        for (const p of prepared) this.deleting.delete(p.path);
         confirm.release(reservation);
         return;
       }
-      if (errors.length) this.setOrphanError(errors.join("; "));
+      // immer setzen: ein neuer versuch ersetzt die fehler des letzten, statt
+      // sie aufzustauen. ein scan-fehler kann hier nicht stehen, er sperrt oben.
+      this.setOrphanError(errors.join("; ") || null);
       if (!prepared.length) {
         confirm.release(reservation);
         return;
@@ -448,6 +455,10 @@ export const useCleanupStore = defineStore("cleanup", {
         },
         {
           onSuccess: async () => {
+            // die aufrufende view räumt ihre auswahl erst hier: ask resolved
+            // schon beim öffnen, abbrechen muss die auswahl behalten. nur die
+            // bestätigten pfade gehen zurück; übersprungene standen nicht im dialog.
+            onConfirmed?.(prepared.map((p) => p.path));
             // compatdata wird nicht gelöscht, sondern in den papierkorb
             // VERSCHOBEN; ohne refresh danach bliebe die papierkorb-sektion
             // auf dem stand vom öffnen der ansicht.
@@ -456,19 +467,19 @@ export const useCleanupStore = defineStore("cleanup", {
               try {
                 await tauriPorts.system.executeDelete(p.token);
                 if (isCurrent()) {
-                  this.orphans = this.orphans.filter((o) => this.orphanKey(o) !== p.key);
+                  this.orphans = this.orphans.filter((o) => o.path !== p.path);
                   // shadercache wird hart gelöscht, landet nie im papierkorb
                   if (p.type === "compatdata") trashedCompatdata = true;
                 }
               } catch (e) {
-                if (isCurrent()) errors.push(`${p.type}/${p.key}: ${formatError(e)}`);
+                if (isCurrent()) errors.push(`${p.type}/${p.path}: ${formatError(e)}`);
               } finally {
-                this.deleting.delete(p.key);
+                this.deleting.delete(p.path);
               }
             }
             // reihenfolge: erst refreshes, dann fehler setzen. scanTrash() und
-            // scanOrphans() setzen this.error zurück und würden die löschfehler
-            // sonst verschlucken. der rescan gehört hierher, nicht in die view.
+            // scanOrphans() leeren trashError bzw. orphanError und würden die
+            // löschfehler sonst verschlucken. der rescan gehört hierher, nicht in die view.
             if (!isCurrent()) return;
             if (trashedCompatdata) {
               await this.scanTrash();
@@ -477,15 +488,16 @@ export const useCleanupStore = defineStore("cleanup", {
             const refreshGeneration = this._orphanScanGeneration + 1;
             await this.scanOrphans();
             if (this._orphanScanGeneration === refreshGeneration && errors.length) {
-              this.setOrphanError(errors.join("; "));
+              // der rescan-fehler bleibt sichtbar (INV-2), der löschtext kommt dazu.
+              this.setOrphanError(combineErrors([this.orphanError, errors.join("; ")]));
             }
           },
           onCancel: () => {
-            for (const p of prepared) this.deleting.delete(p.key);
+            for (const p of prepared) this.deleting.delete(p.path);
           },
           onError: (e) => {
             logError("Loeschen fehlgeschlagen", e);
-            for (const p of prepared) this.deleting.delete(p.key);
+            for (const p of prepared) this.deleting.delete(p.path);
             if (isCurrent()) {
               errors.push(formatError(e));
               this.setOrphanError(errors.join("; "));
@@ -495,12 +507,12 @@ export const useCleanupStore = defineStore("cleanup", {
         reservation,
       );
       if (!accepted) {
-        for (const p of prepared) this.deleting.delete(p.key);
+        for (const p of prepared) this.deleting.delete(p.path);
         confirm.release(reservation);
       }
     },
 
-    async loadIgnoredMissing(isCurrent: () => boolean = () => true) {
+    async loadIgnoredMissing(isCurrent: () => boolean) {
       if (this.ignoredLoaded) return;
       try {
         const raw = await tauriPorts.cache.get(IGNORED_MISSING_KEY);
@@ -543,25 +555,15 @@ export const useCleanupStore = defineStore("cleanup", {
     async scanTrash() {
       const generation = this._trashScanGeneration + 1;
       this._trashScanGeneration = generation;
-      this.trash = [];
-      this.trashUnknown = [];
-      this.trashLibraries = [];
-      this.trashScanning = false;
-      this.trashError = null;
-      this.syncError();
+      this.clearTrashState();
 
-      const scan = useScanStore();
-      const sourceScanGeneration = scan.scanGeneration;
-      const isCurrent = () =>
-        isCurrentForScan({
-          generation,
-          currentGeneration: this._trashScanGeneration,
-          sourceScanGeneration,
-          scan,
-        });
-      const result = scan.status === "done" || scan.status === "idle" ? scan.result : null;
+      const { result, isCurrent } = cleanupTurn(
+        useScanStore(),
+        generation,
+        () => this._trashScanGeneration,
+      );
       if (!result) {
-        this.setTrashError(t("errors.noScanResult"));
+        this.setTrashScanError(t("errors.noScanResult"));
         return;
       }
 
@@ -580,7 +582,7 @@ export const useCleanupStore = defineStore("cleanup", {
 
         // ein nicht lesbarer papierkorb darf nicht als "leer" durchgehen
         if (unreadable.length) {
-          this.setTrashError(t("cleanup.trashUnreadable", { paths: unreadable.join(", ") }));
+          this.setTrashScanError(t("cleanup.trashUnreadable", { paths: unreadable.join(", ") }));
         }
 
         if (entries.length === 0) return;
@@ -591,7 +593,7 @@ export const useCleanupStore = defineStore("cleanup", {
         attachSizes(this.trash, sizes);
       } catch (e) {
         logError("Papierkorb-Scan fehlgeschlagen", e);
-        if (isCurrent()) this.setTrashError(formatError(e));
+        if (isCurrent()) this.setTrashScanError(formatError(e));
       } finally {
         if (isCurrent()) this.trashScanning = false;
       }
@@ -601,24 +603,25 @@ export const useCleanupStore = defineStore("cleanup", {
      *  (ein backend-token je batch); `remainder` ist die zahl der einträge des
      *  snapshots, die dieser durchgang nicht anfasst, und wird im dialog
      *  genannt. */
-    async deleteTrashEntries(entries: TrashEntry[], remainder = 0) {
+    async deleteTrashEntries(
+      entries: TrashEntry[],
+      remainder = 0,
+      onConfirmed?: (paths: string[]) => void,
+    ) {
       if (entries.length > MAX_PENDING_DELETES) {
         this.setTrashError(
-          t("errors.deleteBatchTooLarge", { n: entries.length, max: MAX_PENDING_DELETES }),
+          combineErrors([
+            this._trashScanError,
+            t("errors.deleteBatchTooLarge", { n: entries.length, max: MAX_PENDING_DELETES }),
+          ]),
         );
         return;
       }
-      const generation = this._trashScanGeneration;
-      const scan = useScanStore();
-      const sourceScanGeneration = scan.scanGeneration;
-      const isCurrent = () =>
-        isCurrentForScan({
-          generation,
-          currentGeneration: this._trashScanGeneration,
-          sourceScanGeneration,
-          scan,
-        });
-      const result = scan.status === "done" || scan.status === "idle" ? scan.result : null;
+      const { result, isCurrent } = cleanupTurn(
+        useScanStore(),
+        this._trashScanGeneration,
+        () => this._trashScanGeneration,
+      );
       // fail-closed wie deleteOrphans: ohne scan-snapshot gibt es kein steamRoot,
       // und mit leerem root lief der pfad als irreführender prepare-fehler weiter
       // statt als noScanResult abzubrechen (N-7).
@@ -630,7 +633,7 @@ export const useCleanupStore = defineStore("cleanup", {
       const confirm = useConfirmStore();
       const reservation = confirm.reserve();
       if (reservation === null) return;
-      if (isCurrent()) this.setTrashError(null);
+      if (isCurrent()) this.setTrashError(this._trashScanError);
       const prepareErrors: string[] = [];
       const executeErrors: string[] = [];
       const prepared: {
@@ -663,7 +666,9 @@ export const useCleanupStore = defineStore("cleanup", {
         confirm.release(reservation);
         return;
       }
-      this.setTrashError(formatTrashErrors(prepareErrors, executeErrors));
+      this.setTrashError(
+        combineErrors([this._trashScanError, formatTrashErrors(prepareErrors, executeErrors)]),
+      );
       if (!prepared.length) {
         confirm.release(reservation);
         return;
@@ -712,6 +717,8 @@ export const useCleanupStore = defineStore("cleanup", {
         },
         {
           onSuccess: async () => {
+            // wie in deleteOrphans; an prepare gescheiterte standen nicht im dialog.
+            onConfirmed?.(prepared.map((p) => p.path));
             let deleted = false;
             for (const p of prepared) {
               try {
@@ -727,21 +734,37 @@ export const useCleanupStore = defineStore("cleanup", {
             if (!isCurrent()) return;
             // A-06: der stand je library (einträge im papierkorb) wird nach der
             // mutation neu gelesen; sonst bleibt der zähler von vor dem löschen
-            // stehen. reihenfolge wie in deleteOrphans: erst refreshen, dann die
-            // löschfehler setzen, weil scanTrash() trashError zurücksetzt.
+            // stehen. scanTrash setzt trashError zurück; ein anschließendes
+            // null darf das neue ergebnis nicht löschen. ein löschfehler wird
+            // mit dem rescan-fehler zusammengeführt, sonst verdrängt der
+            // löschtext die meldung (INV-2).
             if (deleted) {
               const refresh = this._trashScanGeneration + 1;
               await this.scanTrash();
               // ein neuerer lauf hat übernommen: dessen ergebnis stehen lassen.
               if (this._trashScanGeneration !== refresh) return;
             }
-            this.setTrashError(formatTrashErrors(prepareErrors, executeErrors));
+            const deleteMessage = formatTrashErrors(prepareErrors, executeErrors);
+            if (deleteMessage !== null) {
+              // ohne rescan steht der prepare-text schon in trashError,
+              // anhängen würde ihn verdoppeln; die basis ist der alte
+              // scan-fehler. nach dem rescan ist trashError nur noch der neue
+              // lesefehler, der löschtext kommt dazu.
+              this.setTrashError(
+                combineErrors([deleted ? this.trashError : this._trashScanError, deleteMessage]),
+              );
+            }
           },
           onError: (e) => {
             logError("Papierkorb leeren fehlgeschlagen", e);
             if (isCurrent()) {
               executeErrors.push(formatError(e));
-              this.setTrashError(formatTrashErrors(prepareErrors, executeErrors));
+              this.setTrashError(
+                combineErrors([
+                  this._trashScanError,
+                  formatTrashErrors(prepareErrors, executeErrors),
+                ]),
+              );
             }
           },
         },
@@ -750,10 +773,10 @@ export const useCleanupStore = defineStore("cleanup", {
       if (!accepted) confirm.release(reservation);
     },
 
-    async emptyTrash() {
+    async emptyTrash(onConfirmed?: (paths: string[]) => void) {
       const snapshot = this.trash.slice();
       const batch = snapshot.slice(0, MAX_PENDING_DELETES);
-      await this.deleteTrashEntries(batch, snapshot.length - batch.length);
+      await this.deleteTrashEntries(batch, snapshot.length - batch.length, onConfirmed);
     },
 
     async deleteOrphansAll(entries: OrphanEntry[]) {

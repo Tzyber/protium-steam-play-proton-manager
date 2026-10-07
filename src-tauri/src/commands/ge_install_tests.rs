@@ -2,7 +2,6 @@ use super::*;
 use crate::commands::errcode;
 use crate::commands::path::random_suffix;
 use crate::commands::scope::{EnvironmentSnapshot, EnvironmentState};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
 
@@ -53,54 +52,172 @@ fn ge_install_direct_ipc_snapshot_authority_is_current_and_exact() {
     let _ = fs::remove_dir_all(&other);
 }
 
-#[test]
-fn ge_install_snapshot_guard_serializes_replace_and_mutation() {
-    let root = std::env::temp_dir().join(format!("test-ge-guard-{}", random_suffix()));
-    let other = std::env::temp_dir().join(format!("test-ge-guard-other-{}", random_suffix()));
-    fs::create_dir_all(&root).unwrap();
-    fs::create_dir_all(&other).unwrap();
-    let state = EnvironmentState::for_test(ge_snapshot(&root));
-    let tools_dir = root.join("compatibilitytools.d");
-    let entered = Arc::new(Barrier::new(2));
-    let release = Arc::new(Barrier::new(2));
-    let mutation_started = Arc::new(AtomicBool::new(false));
-    let replacement_done = Arc::new(AtomicBool::new(false));
-    let worker_state = state.clone();
-    let worker_entered = Arc::clone(&entered);
-    let worker_release = Arc::clone(&release);
-    let worker_mutation = Arc::clone(&mutation_started);
-    let worker_root = root.clone();
-    let worker_tools = tools_dir.clone();
-    let worker = thread::spawn(move || {
-        worker_state.with_authorized_ge_install(&worker_root, &worker_tools, || {
-            worker_entered.wait();
-            worker_release.wait();
-            worker_mutation.store(true, Ordering::Release);
-            Ok::<(), String>(())
+const GE_NAME: &str = "GE-Proton11-5-x86_64";
+
+fn ge_archive(root: &Path) -> fs::File {
+    let mut bytes = Vec::new();
+    {
+        let encoder = flate2::write::GzEncoder::new(&mut bytes, flate2::Compression::default());
+        let mut archive = tar::Builder::new(encoder);
+        let mut header = tar::Header::new_gnu();
+        header.set_path(GE_NAME).unwrap();
+        header.set_entry_type(tar::EntryType::Directory);
+        header.set_size(0);
+        header.set_cksum();
+        archive.append(&header, std::io::empty()).unwrap();
+        let mut file = tar::Header::new_gnu();
+        file.set_path(format!("{GE_NAME}/version")).unwrap();
+        file.set_size(3);
+        file.set_cksum();
+        archive.append(&file, &b"ok\n"[..]).unwrap();
+        archive.finish().unwrap();
+    }
+    let source = root.join("download");
+    fs::write(&source, bytes).unwrap();
+    fs::File::open(&source).unwrap()
+}
+
+fn has_extract_leftovers(tools: &Path) -> bool {
+    fs::read_dir(tools)
+        .unwrap()
+        .filter_map(Result::ok)
+        .any(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".protium-extract-")
         })
+}
+
+/// Läuft den Authorized-Arm mit der Scope-Closure aus `install_ge_proton`;
+/// `during_extract` läuft zwischen Autorisierung und Rename.
+fn run_authorized_extract(
+    state: &EnvironmentState,
+    root: &Path,
+    tools: &Path,
+    during_extract: &mut dyn FnMut(),
+) -> Result<Result<(), String>, String> {
+    let mut handle = ge_archive(root);
+    extract_in_authorized_environment(
+        state,
+        &|path: &Path| state.is_current_ge_install_path(path, root, tools),
+        root,
+        tools,
+        GE_NAME,
+        &mut handle,
+        &CancelSignal::new(),
+        during_extract,
+    )
+}
+
+#[test]
+fn rescan_mit_gleichem_root_waehrend_der_extraktion_installiert() {
+    let root = std::env::temp_dir().join(format!("test-ge-rescan-{}", random_suffix()));
+    let tools = root.join("compatibilitytools.d");
+    fs::create_dir_all(&tools).unwrap();
+    let state = EnvironmentState::for_test(ge_snapshot(&root));
+    let generation = state.current().unwrap().generation;
+
+    let result = run_authorized_extract(&state, &root, &tools, &mut || {
+        state.replace_for_test(ge_snapshot(&root))
     });
 
-    entered.wait();
-    let replacement_state = state.clone();
-    let replacement_root = other.clone();
-    let replacement_finished = Arc::clone(&replacement_done);
-    let replacement = thread::spawn(move || {
-        replacement_state.replace_for_test(ge_snapshot(&replacement_root));
-        replacement_finished.store(true, Ordering::Release);
+    assert!(matches!(result, Ok(Ok(()))), "{result:?}");
+    assert!(
+        state.current().unwrap().generation > generation,
+        "der rescan muss während der extraktion gelaufen sein"
+    );
+    assert!(tools.join(GE_NAME).join("version").exists());
+    assert!(!has_extract_leftovers(&tools));
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// A-10: Lesen und Ersetzen des Snapshots aus einem anderen Thread warten
+/// nicht auf das Ende der Extraktion. Ein gehaltener Mutex liefe in den
+/// Timeout, statt den Test hängen zu lassen.
+#[test]
+fn snapshot_read_waehrend_der_extraktion_blockiert_nicht() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let root = std::env::temp_dir().join(format!("test-ge-read-{}", random_suffix()));
+    let tools = root.join("compatibilitytools.d");
+    fs::create_dir_all(&tools).unwrap();
+    let state = EnvironmentState::for_test(ge_snapshot(&root));
+    let (seen_tx, seen_rx) = mpsc::channel();
+    let mut seen = None;
+
+    let result = run_authorized_extract(&state, &root, &tools, &mut || {
+        let (other, rescan_root, seen_tx) = (state.clone(), root.clone(), seen_tx.clone());
+        thread::spawn(move || {
+            other.replace_for_test(ge_snapshot(&rescan_root));
+            let _ = seen_tx.send(other.current().map(|snapshot| snapshot.steam_root));
+        });
+        seen = Some(seen_rx.recv_timeout(Duration::from_secs(5)));
     });
-    thread::yield_now();
-    assert!(!mutation_started.load(Ordering::Acquire));
-    assert!(!replacement_done.load(Ordering::Acquire));
-    release.wait();
-    worker.join().unwrap().unwrap();
-    replacement.join().unwrap();
-    assert!(mutation_started.load(Ordering::Acquire));
-    assert!(replacement_done.load(Ordering::Acquire));
-    assert!(state
-        .with_authorized_ge_install(&root, &tools_dir, || -> Result<(), String> {
-            panic!("revoked snapshot must not mutate")
+
+    assert_eq!(seen, Some(Ok(Ok(root.clone()))));
+    assert!(matches!(result, Ok(Ok(()))), "{result:?}");
+    assert!(tools.join(GE_NAME).join("version").exists());
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// A-10: die Operation (in Produktion der finale Rename) läuft unter dem
+/// Environment-Mutex. Ein paralleles `replace` wartet, bis sie fertig ist.
+#[test]
+fn ge_install_operation_laeuft_unter_dem_environment_mutex() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let root = std::env::temp_dir().join(format!("test-ge-locked-{}", random_suffix()));
+    let other = root.join("other");
+    let tools = root.join("compatibilitytools.d");
+    fs::create_dir_all(&root).unwrap();
+    let state = EnvironmentState::for_test(ge_snapshot(&root));
+    let (done_tx, done_rx) = mpsc::channel();
+    let (replacer, other_snapshot) = (state.clone(), ge_snapshot(&other));
+
+    state
+        .with_authorized_ge_install(&root, &tools, || {
+            thread::spawn(move || {
+                replacer.replace_for_test(other_snapshot);
+                let _ = done_tx.send(());
+            });
+            assert!(
+                done_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+                "replace darf nicht zwischen prüfung und rename fallen"
+            );
+            Ok(())
         })
-        .is_err());
+        .unwrap();
+    done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(state.current().unwrap().steam_root, other);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn root_wechsel_waehrend_der_extraktion_verhindert_den_rename() {
+    let root = std::env::temp_dir().join(format!("test-ge-root-switch-{}", random_suffix()));
+    let other = std::env::temp_dir().join(format!("test-ge-root-other-{}", random_suffix()));
+    let tools = root.join("compatibilitytools.d");
+    fs::create_dir_all(&tools).unwrap();
+    fs::create_dir_all(&other).unwrap();
+    let state = EnvironmentState::for_test(ge_snapshot(&root));
+
+    let result = run_authorized_extract(&state, &root, &tools, &mut || {
+        state.replace_for_test(ge_snapshot(&other))
+    });
+
+    let error = result.unwrap().unwrap_err();
+    assert!(
+        errcode::has_code(&error, errcode::BLOCKED_LOCATION),
+        "root-wechsel muss vor dem rename abbrechen: {error}"
+    );
+    assert!(!tools.join(GE_NAME).exists());
+    assert!(!has_extract_leftovers(&tools));
 
     let _ = fs::remove_dir_all(&root);
     let _ = fs::remove_dir_all(&other);
@@ -241,21 +358,23 @@ fn verify_file_hash_on_disk_bricht_bei_cancel_ab() {
     let _ = fs::remove_dir_all(&temp_dir);
 }
 
-#[test]
-fn unverified_confirmation_naht_bindet_404_warning_okcancel_und_ablehnung() {
+#[tokio::test]
+async fn unverified_confirmation_naht_bindet_404_warning_okcancel_und_ablehnung() {
     let mut shown = false;
     let rejected = confirm_unverified_installation(
         "GE-Proton11-3",
         "GE-Proton11-3",
         "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton11-3/GE-Proton11-3.sha512sum",
+        DialogLocale::De,
         |request| {
             shown = true;
             assert_eq!(request.kind, ConfirmationKind::Warning);
             assert_eq!(request.buttons, ConfirmationButtons::OkCancel);
             assert!(request.message.contains("HTTP 404"));
-            Ok(false)
+            std::future::ready(Ok(false))
         },
     )
+    .await
     .unwrap();
     assert!(shown);
     assert!(!rejected, "native ablehnung darf nicht fortsetzen");
@@ -264,17 +383,58 @@ fn unverified_confirmation_naht_bindet_404_warning_okcancel_und_ablehnung() {
         "GE-Proton11-3",
         "GE-Proton11-3",
         "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton11-3/GE-Proton11-3.sha512sum",
+        DialogLocale::De,
         |request| {
             assert_eq!(request.kind, ConfirmationKind::Warning);
             assert_eq!(request.buttons, ConfirmationButtons::OkCancel);
-            Ok(true)
+            std::future::ready(Ok(true))
         },
     )
+    .await
     .unwrap();
     assert!(
         accepted,
         "native zustimmung muss nur den 404-fall fortsetzen"
     );
+}
+
+#[test]
+fn unverified_confirmation_text_folgt_der_locale() {
+    let tag = "GE-Proton11-3";
+    let url = "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton11-3/GE-Proton11-3.sha512sum";
+    let de = unverified_confirmation_request(tag, tag, url, DialogLocale::De);
+    assert_eq!(de.kind, ConfirmationKind::Warning);
+    assert_eq!(de.buttons, ConfirmationButtons::OkCancel);
+    assert_eq!(de.title, "Protium: Installation ohne Prüfsumme bestätigen");
+    assert_eq!(
+        de.message,
+        format!(
+            "Für {tag} ({tag}) wurde das exakt abgeleitete SHA512-Asset mit HTTP 404 nicht gefunden.\n\nURL: {url}\n\nMöchten Sie die unüberprüfte Installation fortsetzen?"
+        )
+    );
+
+    let en = unverified_confirmation_request(tag, tag, url, DialogLocale::En);
+    assert_eq!(en.kind, ConfirmationKind::Warning);
+    assert_eq!(en.buttons, ConfirmationButtons::OkCancel);
+    assert_eq!(en.title, "Protium: Confirm installation without a checksum");
+    assert_eq!(
+        en.message,
+        format!(
+            "The exact derived SHA512 asset for {tag} ({tag}) was not found (HTTP 404).\n\nURL: {url}\n\nDo you want to continue the unverified installation?"
+        )
+    );
+}
+
+#[test]
+fn dialog_locale_akzeptiert_nur_de_und_en() {
+    assert_eq!(parse_dialog_locale("de").unwrap(), DialogLocale::De);
+    assert_eq!(parse_dialog_locale("en").unwrap(), DialogLocale::En);
+    for raw in ["", "DE", "de-DE", "fr", "OK means abort"] {
+        assert_eq!(
+            parse_dialog_locale(raw).unwrap_err(),
+            "invalid-value: locale"
+        );
+    }
 }
 
 #[test]
@@ -335,13 +495,12 @@ fn cancel_nach_guard_check_verhindert_extract_mutation() {
     let worker_root = root.clone();
     let worker_tools = tools.clone();
     let worker = thread::spawn(move || {
-        worker_state.with_authorized_ge_install(&worker_root, &worker_tools, || {
-            worker_entered.wait();
-            worker_release.wait();
-            extract_after_cancel_check(&worker_cancel, || {
-                fs::create_dir_all(&worker_tools).map_err(|e| e.to_string())?;
-                Ok(())
-            })
+        worker_state.with_authorized_ge_install(&worker_root, &worker_tools, || Ok(()))?;
+        worker_entered.wait();
+        worker_release.wait();
+        extract_after_cancel_check(&worker_cancel, || {
+            fs::create_dir_all(&worker_tools).map_err(|e| e.to_string())?;
+            Ok(())
         })
     });
 
@@ -372,7 +531,8 @@ fn install_pipeline_oeffnet_downloadpfad_nicht_erneut() {
     assert!(!body.contains("download_path_str"));
     // der disk-hash läuft über denselben owned-handle, nie über einen pfad
     assert!(body.contains("verify_file_hash_on_disk("));
-    assert!(body.contains("extract_blocking_with_tag("));
+    assert!(body.contains("= extract_in_authorized_environment("));
+    assert!(body.contains("extract_blocking_with_tag_with_hook("));
     assert!(body.contains("&mut downloaded_file"));
 }
 
@@ -392,8 +552,9 @@ async fn install_ge_proton_validiert_release_tag() {
         Arc::new(CancelSignal::new()),
         |_, _| {},
         |_, _| {},
-        |_| Ok(true),
-        &|_| true,
+        DialogLocale::De,
+        |_| std::future::ready(Ok(true)),
+        Arc::new(|_: &Path| true),
         ExtractEnvironment::StaticScopeOnly,
     )
     .await;
@@ -420,8 +581,9 @@ async fn install_ge_proton_validiert_download_url() {
         Arc::new(CancelSignal::new()),
         |_, _| {},
         |_, _| {},
-        |_| Ok(true),
-        &|_| true,
+        DialogLocale::De,
+        |_| std::future::ready(Ok(true)),
+        Arc::new(|_: &Path| true),
         ExtractEnvironment::StaticScopeOnly,
     )
     .await;
@@ -451,8 +613,9 @@ async fn install_ge_proton_lehnt_existierendes_ziel_ab() {
         Arc::new(CancelSignal::new()),
         |_, _| {},
         |_, _| {},
-        |_| Ok(true),
-        &|_| true,
+        DialogLocale::De,
+        |_| std::future::ready(Ok(true)),
+        Arc::new(|_: &Path| true),
         ExtractEnvironment::StaticScopeOnly,
     )
     .await;
@@ -485,8 +648,9 @@ async fn install_ge_proton_meldet_extract_crash_reste_und_loescht_nicht() {
         Arc::new(CancelSignal::new()),
         |_, _| {},
         |_, _| {},
-        |_| Ok(true),
-        &|_| true,
+        DialogLocale::De,
+        |_| std::future::ready(Ok(true)),
+        Arc::new(|_: &Path| true),
         ExtractEnvironment::StaticScopeOnly,
     )
     .await;
@@ -543,8 +707,9 @@ async fn install_ge_proton_lehnt_unscoped_steam_root_ab() {
         Arc::new(CancelSignal::new()),
         |_, _| {},
         |_, _| {},
-        |_| Ok(true),
-        &|_| false,
+        DialogLocale::De,
+        |_| std::future::ready(Ok(true)),
+        Arc::new(|_: &Path| false),
         ExtractEnvironment::StaticScopeOnly,
     )
     .await;

@@ -1,7 +1,10 @@
 // Wrapper um `@node-steam/vdf`: Ein Austausch der Bibliothek betrifft nur diese Datei.
 import { parse } from "@node-steam/vdf";
-import { tokenizeVdf } from "./vdfpatch.js";
+import { tokenizeVdf, unescapeVdfRaw } from "./vdfpatch.js";
 
+export { unescapeVdfRaw };
+
+// export nur für den test (tests/core/vdf.test.ts; K-13).
 export type VdfValue = string | number | VdfNode;
 export interface VdfNode {
   [key: string]: VdfValue;
@@ -202,4 +205,55 @@ export function asInt(v: VdfValue | undefined): number | undefined {
     return Number.isFinite(n) ? Math.trunc(n) : undefined;
   }
   return undefined;
+}
+
+/** Letzter skalarer Tokenizer-Rohwert am Pfad. Die Bibliothek macht aus `"007"`
+ *  eine Zahl, aus `"true"` einen Boolean und aus `"0x2A"` die Zahl 42, und lässt
+ *  `\"` stehen. Name, `display_name` und AppID brauchen die Rohform (A-15).
+ *  Conditionals zählen nicht als Key oder Wert. Keys sind case-insensitive,
+ *  der letzte Treffer gewinnt. */
+export function rawVdfField(text: string, path: readonly string[]): string | undefined {
+  const { tokens } = tokenizeVdf(text);
+  const wanted = path.map((key) => key.toLowerCase());
+  const openKeys: (string | undefined)[] = [];
+  let depth = 0;
+  let pendingKey: string | undefined;
+  let found: string | undefined;
+
+  for (const token of tokens) {
+    if (token.kind === "conditional") continue;
+    if (token.kind === "open") {
+      openKeys[depth] = pendingKey?.toLowerCase();
+      pendingKey = undefined;
+      depth += 1;
+      continue;
+    }
+    if (token.kind === "close") {
+      depth = Math.max(0, depth - 1);
+      pendingKey = undefined;
+      continue;
+    }
+    if (pendingKey !== undefined) {
+      if (matchesRawPath(openKeys, depth, pendingKey, wanted)) found = token.raw;
+      pendingKey = undefined;
+      continue;
+    }
+    pendingKey = token.raw;
+  }
+
+  return found;
+}
+
+function matchesRawPath(
+  openKeys: readonly (string | undefined)[],
+  depth: number,
+  key: string,
+  wanted: readonly string[],
+): boolean {
+  const own = wanted[depth];
+  if (own === undefined || depth !== wanted.length - 1 || key.toLowerCase() !== own) return false;
+  for (let level = 0; level < depth; level += 1) {
+    if (openKeys[level] !== wanted[level]) return false;
+  }
+  return true;
 }

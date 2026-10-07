@@ -25,9 +25,9 @@ use std::os::fd::{AsRawFd, OwnedFd};
 pub(crate) const MAX_VDF_READ_BYTES: u64 = 16 * 1024 * 1024;
 pub(crate) const MAX_ENVIRONMENT_READ_BYTES: u64 = MAX_VDF_READ_BYTES;
 /// Discovery-Kandidaten für den Steam-Root, relativ zum Home. Das Write-Gate
-/// (`steam::is_steam_config_path`) erkennt nur die kanonischen Vertreter
-/// (nativ/flatpak/snap); ein neuer Kandidat hier muss dort mitgeprüft werden.
-/// Der Test `root_kandidaten_kollabieren_auf_die_write_gate_wurzeln` hält das.
+/// erlaubt Config-Dateien nur unter dem hier entdeckten `steam_root`, nicht
+/// unter einer zweiten fest kodierten Wurzelliste. Ein neuer Kandidat ist
+/// schreibbar, sobald die Discovery ihn auswählt.
 pub(crate) const ROOT_CANDIDATES: [&str; 5] = [
     ".local/share/Steam",
     ".steam/steam",
@@ -356,6 +356,13 @@ impl EnvironmentState {
             .is_ok()
     }
 
+    /// Der aktuelle Snapshot muss Root und Tool-Ordner noch autorisieren, dann
+    /// läuft `operation` unter demselben Mutex. Aufrufer übergeben nur den
+    /// Vorab-Check und den finalen Installations-Rename, nie die Extraktion
+    /// (A-10): so landet kein Rename in einem Root, den ein paralleles `replace`
+    /// gerade ablöst. Pfade statt Generation: jeder Rescan erhöht die
+    /// Generation, und ein Rescan ohne Root-Wechsel darf eine laufende
+    /// Installation nicht abbrechen.
     pub(crate) fn with_authorized_ge_install<T, F>(
         &self,
         steam_root: &Path,
@@ -1038,12 +1045,15 @@ pub async fn discover_steam_environment(
     })?;
     // discovery macht blocking io (canonicalize, libraryfolders, app-dirs):
     // spawn_blocking, sonst friert der main-thread beim start ein (C1-muster).
-    let snapshot = crate::commands::spawn_blocking_io(move || {
-        build_environment_snapshot(&home, &app_cache_dir, &app_config_dir)
+    // replace und current nehmen denselben std-Mutex und laufen deshalb
+    // ebenfalls im blocking-pool, nicht auf einem Tokio-Worker.
+    let state = state.inner().clone();
+    crate::commands::spawn_blocking_io(move || {
+        let snapshot = build_environment_snapshot(&home, &app_cache_dir, &app_config_dir)?;
+        state.replace(snapshot);
+        Ok(state.current()?.to_info())
     })
-    .await?;
-    state.replace(snapshot);
-    Ok(state.current()?.to_info())
+    .await
 }
 
 /// extrahiert das library-verzeichnis (alles vor dem letzten "/steamapps/").

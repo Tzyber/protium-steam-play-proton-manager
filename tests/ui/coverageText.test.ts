@@ -117,6 +117,26 @@ describe.each(["de", "en"] as const)("coverageText, warnungsgründe (%s)", (loca
     expect(text).not.toBe(UNKNOWN_SCAN_FACT[locale]);
   });
 
+  it("hängt einen unbekannten launch-rohtext nicht an die coverage-zeile", () => {
+    const text = formatWarning({
+      type: "launch-config",
+      reason: "unreadable",
+      steamUserId: "12345",
+      detail: "cannot read /home/nutzer/Steam/config/loginusers.vdf: Permission denied",
+    });
+    expect(text).not.toContain("Permission");
+    expect(text).not.toContain("/home/nutzer");
+    expect(text).toBe(
+      [
+        t("library.coverageWarningConfig", {
+          source: t("library.coverageLaunchConfig"),
+          reason: t("library.coverageReasonUnreadable"),
+        }),
+        t("library.coverageLaunchAccount", { id: "12345" }),
+      ].join(" · "),
+    );
+  });
+
   it.each(["available", "missing", "unreadable", "ambiguous"] as const)(
     "übersetzt config-status %s",
     (status) => {

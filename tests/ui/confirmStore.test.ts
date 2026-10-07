@@ -10,15 +10,15 @@ describe("confirmStore", () => {
   it("reserviert den gemeinsamen dialog atomar und gibt ihn bei cancel frei", () => {
     const store = useConfirmStore();
     const first = store.reserve();
+    if (first === null) throw new Error("reserve lieferte kein token");
 
-    expect(first).not.toBeNull();
     expect(store.reserved).toBe(true);
     expect(store.reserve()).toBeNull();
-    expect(store.ask({ title: "zweite löschung", message: "folge" }, { onSuccess: vi.fn() })).toBe(
-      false,
-    );
+    expect(
+      store.ask({ title: "zweite löschung", message: "folge" }, { onSuccess: vi.fn() }, first + 1),
+    ).toBe(false);
 
-    expect(store.ask({ title: "erste löschung", message: "folge" }, {}, first ?? -1)).toBe(true);
+    expect(store.ask({ title: "erste löschung", message: "folge" }, {}, first)).toBe(true);
     store.cancel();
 
     expect(store.pending).toBeNull();
@@ -28,12 +28,18 @@ describe("confirmStore", () => {
 
   it("übernimmt ein optionales confirmLabel in den dialog", () => {
     const store = useConfirmStore();
+    const token = store.reserve();
+    if (token === null) throw new Error("reserve lieferte kein token");
 
-    store.ask({
-      title: "verschieben?",
-      message: "folge",
-      confirmLabel: "in den Papierkorb verschieben",
-    });
+    store.ask(
+      {
+        title: "verschieben?",
+        message: "folge",
+        confirmLabel: "in den Papierkorb verschieben",
+      },
+      {},
+      token,
+    );
 
     expect(store.pending?.confirmLabel).toBe("in den Papierkorb verschieben");
     store.cancel();
@@ -42,6 +48,8 @@ describe("confirmStore", () => {
 
   it("schließt nach execute-fehler und übergibt ihn an onError", async () => {
     const store = useConfirmStore();
+    const token = store.reserve();
+    if (token === null) throw new Error("reserve lieferte kein token");
     const error = new Error("token expired");
     const onError = vi.fn();
 
@@ -53,6 +61,7 @@ describe("confirmStore", () => {
         },
         onError,
       },
+      token,
     );
 
     await store.confirm();
@@ -73,7 +82,9 @@ describe("confirmStore", () => {
     });
     onSuccess.mockImplementation(async () => blocked);
 
-    store.ask(first, { onSuccess });
+    const token = store.reserve();
+    if (token === null) throw new Error("reserve lieferte kein token");
+    store.ask(first, { onSuccess }, token);
     const inFlight = store.confirm();
     expect(store.busy).toBe(true);
 
@@ -82,6 +93,7 @@ describe("confirmStore", () => {
       {
         onSuccess: vi.fn(),
       },
+      token,
     );
     store.cancel();
     await store.confirm();

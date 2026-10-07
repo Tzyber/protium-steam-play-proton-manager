@@ -430,7 +430,9 @@ describe("protonStore pump-phasen", () => {
     });
     const downloadId = store.jobs[release.tag]?.downloadId;
     expect(downloadId).toBeDefined();
-    expect(mockInstallGeProton).toHaveBeenCalledWith(expect.objectContaining({ downloadId }));
+    expect(mockInstallGeProton).toHaveBeenCalledWith(
+      expect.objectContaining({ downloadId, locale: "de" }),
+    );
 
     expect(phaseHandler).toBeDefined();
     expect(progressHandler).toBeDefined();
@@ -440,6 +442,61 @@ describe("protonStore pump-phasen", () => {
     expect(store.jobs[release.tag]?.phase).toBe("extracting");
     progressHandler?.({ id: downloadId ?? "", downloaded: 42, total: 100 });
     expect(store.jobs[release.tag]?.downloaded).toBe(42);
+  });
+
+  it("gibt die aktive locale en an die installation weiter", async () => {
+    setLocale("en");
+    mockInstallGeProton.mockImplementationOnce(() => new Promise(() => {}));
+    const scanStore = useScanStore();
+    scanStore.result = fakeScanResult();
+    const store = useProtonStore();
+    store.releases = [release];
+    store.queueInstall(release);
+
+    await vi.waitFor(() => {
+      expect(mockInstallGeProton).toHaveBeenCalledWith(
+        expect.objectContaining({ downloadId: store.jobs[release.tag]?.downloadId, locale: "en" }),
+      );
+    });
+  });
+
+  it("gleiche progress-zeitstempel lassen die rate endlich", async () => {
+    let progressHandler: ProgressHandler | undefined;
+    mockOnDownloadProgress.mockImplementation(async (handler) => {
+      progressHandler = handler;
+      return () => {};
+    });
+    mockOnInstallPhase.mockImplementation(async () => () => {});
+    mockInstallGeProton.mockImplementation(() => new Promise(() => {}));
+    const scanStore = useScanStore();
+    scanStore.result = fakeScanResult();
+    const store = useProtonStore();
+    store.loadReleases = vi.fn(async () => {});
+    await store.init();
+    store.releases = [release];
+    store.queueInstall(release);
+    await vi.waitFor(() => {
+      expect(store.jobs[release.tag]?.downloadId).toBeDefined();
+    });
+    const downloadId = store.jobs[release.tag]?.downloadId ?? "";
+
+    // zweiter aufruf gleicher stempel wie der erste, danach ein späterer schritt.
+    // die probe ohne zeitfortschritt darf weder Infinity liefern noch ihre bytes
+    // verlieren: von 1_000 auf 3_000 B in 1 s sind 2_000 B/s.
+    const nowSpy = vi.spyOn(performance, "now");
+    nowSpy.mockReturnValueOnce(1_000).mockReturnValueOnce(1_000).mockReturnValueOnce(2_000);
+    try {
+      progressHandler?.({ id: downloadId, downloaded: 1_000, total: 4_000 });
+      progressHandler?.({ id: downloadId, downloaded: 2_000, total: 4_000 });
+      const speedAfterSameTimestamp = store.jobs[release.tag]?.speed;
+      expect(store.jobs[release.tag]?.downloaded).toBe(2_000);
+      progressHandler?.({ id: downloadId, downloaded: 3_000, total: 4_000 });
+      const speed = store.jobs[release.tag]?.speed;
+      expect(speedAfterSameTimestamp).toBeUndefined();
+      expect(speed).toBe(2_000);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it("stale callbacks eines alten laufs ändern keinen neuen lauf desselben tags", async () => {

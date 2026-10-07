@@ -3,6 +3,7 @@ import { readToolVdf, usedBy } from "./compatTools.js";
 import { errText } from "./errtext.js";
 import { joinPath, paths } from "./paths.js";
 import type { DirEntry, FileSystem, PathIdentity, System } from "./ports.js";
+import { validNonNegativeInteger } from "./supportRedaction.js";
 import type { CompatTool, ReadFailedCounts, ScanWarning } from "./types.js";
 
 interface CompatToolScanResult {
@@ -134,7 +135,7 @@ async function readCompatToolInfo(
   try {
     const size = await system.dirSize(joinPath(dir, name));
     if (size.status === "measured") {
-      if (!Number.isSafeInteger(size.sizeBytes) || size.sizeBytes < 0) {
+      if (validNonNegativeInteger(size.sizeBytes) === null) {
         throw new Error(`invalid size: ${size.sizeBytes}`);
       }
       sizeBytes = size.sizeBytes;

@@ -1,3 +1,6 @@
+// Diese Datei lädt nur Vitest. NODE_ENV=production lässt die Suite rot werden.
+process.env.NODE_ENV = "test";
+
 import vue from "@vitejs/plugin-vue";
 import { defineConfig } from "vitest/config";
 

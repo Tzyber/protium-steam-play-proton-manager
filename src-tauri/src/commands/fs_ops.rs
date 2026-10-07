@@ -324,14 +324,12 @@ pub(crate) struct PathIdentity {
     pub ino: String,
 }
 
-/// Prüft ausschließlich den Prozessnamen `steam`.
-/// bewusst kein generisches process-enumeration-werkzeug für die webview.
+/// Prüft ausschließlich, ob ein Prozessname `steam` enthält.
+/// Die Webview übergibt keinen Prozessnamen: ein generisches
+/// Process-Enumeration-Werkzeug wäre von dort aus wählbar.
 /// async + spawn_blocking: sync commands laufen bei tauri v2 auf dem main-thread,
 /// und dieser check steht vor JEDEM write-gate.
-pub(super) fn is_process_running_sync(name: &str) -> Result<bool, String> {
-    if name.to_lowercase() != "steam" {
-        return Err(errcode::BLOCKED.into());
-    }
+pub(super) fn is_steam_running_sync() -> bool {
     // Substring-Match schließt absichtlich Steam-Helper wie steamwebhelper ein;
     // false-positive Blockade ist sicherer als false-negative während Writes.
     // nur die prozessliste refreshen, new_all() baute eine komplette
@@ -341,16 +339,14 @@ pub(super) fn is_process_running_sync(name: &str) -> Result<bool, String> {
     let sys = System::new_with_specifics(
         RefreshKind::nothing().with_processes(ProcessRefreshKind::nothing()),
     );
-    let target = name.to_lowercase();
-    Ok(sys
-        .processes()
+    sys.processes()
         .values()
-        .any(|p| p.name().to_string_lossy().to_lowercase().contains(&target)))
+        .any(|p| p.name().to_string_lossy().to_lowercase().contains("steam"))
 }
 
 #[tauri::command]
-pub async fn is_process_running(name: String) -> Result<bool, String> {
-    spawn_blocking_io(move || is_process_running_sync(&name)).await
+pub async fn is_steam_running() -> Result<bool, String> {
+    spawn_blocking_io(|| Ok(is_steam_running_sync())).await
 }
 
 /// Berechnet die Größe eines Verzeichnisses.

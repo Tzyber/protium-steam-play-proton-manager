@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted } from "vue";
 import {
   type ConfigBackupEntry,
   listConfigBackups,
@@ -12,55 +12,23 @@ import { dateTimeText, timeText } from "../dateTime";
 import { formatBytes } from "../format";
 import { formatError } from "../formatError";
 import { t } from "../i18n";
+import { useLatestLoad } from "../useLatestLoad";
 
-const snapshots = ref<ConfigBackupEntry[]>([]);
-const snapshotsLoading = ref(false);
-const snapshotsError = ref<string | null>(null);
-const logText = ref("");
-const logLoading = ref(false);
+const {
+  data: snapshots,
+  loading: snapshotsLoading,
+  error: snapshotsError,
+  load: loadSnapshots,
+} = useLatestLoad<ConfigBackupEntry[]>([], listConfigBackups);
+
 // nicht `logError`: so heißt die protokollhilfe in diagnostics.ts; hier steht
 // der fehlertext des log-panels.
-const logErrorText = ref<string | null>(null);
-
-// Auftrags-Guard wie `useLatestRequest`: ein zweiter Ladevorgang (refresh-knopf,
-// neuer mount) macht die ältere antwort ungültig, damit sie weder inhalt noch
-// ladezustand der jüngeren überschreibt.
-let snapshotsRequest = 0;
-let logRequest = 0;
-
-async function loadSnapshots() {
-  const requestId = ++snapshotsRequest;
-  snapshotsLoading.value = true;
-  snapshotsError.value = null;
-  try {
-    const entries = await listConfigBackups();
-    if (requestId !== snapshotsRequest) return;
-    snapshots.value = entries;
-  } catch (e) {
-    if (requestId !== snapshotsRequest) return;
-    snapshots.value = [];
-    snapshotsError.value = formatError(e);
-  } finally {
-    if (requestId === snapshotsRequest) snapshotsLoading.value = false;
-  }
-}
-
-async function loadLog() {
-  const requestId = ++logRequest;
-  logLoading.value = true;
-  logErrorText.value = null;
-  try {
-    const text = await readLogTail();
-    if (requestId !== logRequest) return;
-    logText.value = text;
-  } catch (e) {
-    if (requestId !== logRequest) return;
-    logText.value = "";
-    logErrorText.value = formatError(e);
-  } finally {
-    if (requestId === logRequest) logLoading.value = false;
-  }
-}
+const {
+  data: logText,
+  loading: logLoading,
+  error: logErrorText,
+  load: loadLog,
+} = useLatestLoad("", readLogTail);
 
 async function openFolder(action: () => Promise<void>, target: "snapshots" | "logs") {
   try {
@@ -76,10 +44,6 @@ function snapshotLabel(entry: ConfigBackupEntry): string {
   return entry.kind === "localconfig"
     ? t("history.snapshotLaunchOptions", { id: entry.targetId })
     : t("history.snapshotCompatTool", { id: entry.targetId });
-}
-
-function snapshotTime(entry: ConfigBackupEntry): string {
-  return dateTimeText(entry.timestampMs);
 }
 
 interface LogLine {
@@ -146,7 +110,7 @@ onMounted(() => {
         <ul v-if="snapshots.length" class="entries">
           <li v-for="entry in snapshots" :key="entry.fileName">
             <span class="entry-main">{{ snapshotLabel(entry) }}</span>
-            <span class="entry-sub">{{ snapshotTime(entry) }} · {{ formatBytes(entry.sizeBytes) }}</span>
+            <span class="entry-sub">{{ dateTimeText(entry.timestampMs) }} · {{ formatBytes(entry.sizeBytes) }}</span>
           </li>
         </ul>
         <p v-else-if="snapshotsError" class="empty" role="status">{{ snapshotsError }}</p>

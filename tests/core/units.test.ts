@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { availableBuiltinProtons, BLOCKLIST, blockReason } from "../../src/core/blocklist.js";
-import { parseCompatToolMapping } from "../../src/core/compatTools.js";
+import { parseCompatToolMapping, readToolVdf } from "../../src/core/compatTools.js";
 import { errText, parseError } from "../../src/core/errtext.js";
 import { parseManifest } from "../../src/core/manifest.js";
 import { joinPath } from "../../src/core/paths.js";
@@ -91,6 +91,43 @@ describe("parseManifest", () => {
     expect(m.appId).toBe(570);
   });
 
+  it('entschärft \\" und \\\\ im spielnamen', () => {
+    const m = parseManifest(String.raw`"AppState"
+{
+	"appid"		"620"
+	"name"		"Say \"Hi\" C:\\logs"
+}`);
+    expect(m.name).toBe(String.raw`Say "Hi" C:\logs`);
+  });
+
+  it("lässt 007 und true als spielnamen stehen", () => {
+    expect(parseManifest('"AppState"\n{\n\t"appid"\t\t"620"\n\t"name"\t\t"007"\n}').name).toBe(
+      "007",
+    );
+    expect(parseManifest('"AppState"\n{\n\t"appid"\t\t"44"\n\t"name"\t\t"true"\n}').name).toBe(
+      "true",
+    );
+  });
+
+  it("lässt einen gleichnamigen schlüssel im verschachtelten block den namen nicht überschreiben", () => {
+    const m = parseManifest(`"AppState"
+{
+	"appid"		"620"
+	"name"		"Portal 2"
+	"UserConfig"
+	{
+		"name"		"Fremder Name"
+	}
+}`);
+    expect(m.name).toBe("Portal 2");
+  });
+
+  it("lehnt die appid 0x2A ab", () => {
+    expect(() => parseManifest('"AppState"\n{\n\t"appid"\t\t"0x2A"\n\t"name"\t\t"Hex"\n}')).toThrow(
+      "manifest-invalid-appid",
+    );
+  });
+
   it.each([
     ["fehlend", undefined],
     ["leer", '""'],
@@ -144,6 +181,8 @@ describe("parseManifest", () => {
 describe("blocklist", () => {
   it("blockt bekannte proton-appid", () =>
     expect(blockReason(1493710, "Proton Experimental")).toBe("id"));
+  it("blockt Legacy Steam Runtime über die exakte appid", () =>
+    expect(blockReason(4690330, "Legacy Steam Runtime")).toBe("id"));
   it("blockt via namens-heuristik", () =>
     expect(blockReason(4242, "Steam Linux Runtime 3.0")).toBe("name-heuristic"));
   it("lässt echtes spiel durch", () => expect(blockReason(620, "Portal 2")).toBe(null));
@@ -376,6 +415,39 @@ describe("parseCompatToolMapping (case-insensitive traversal)", () => {
 	}
 }`;
     expect(parseCompatToolMapping(cfg).get(7)).toBe("bond");
+  });
+});
+
+describe("readToolVdf", () => {
+  it('entschärft \\" und \\\\ in display_name', () => {
+    const tool = readToolVdf(
+      String.raw`"compatibilitytools"
+{
+	"compat_tools"
+	{
+		"tool"
+		{
+			"display_name"		"Say \"Hi\" C:\\logs"
+		}
+	}
+}`,
+      "fallback",
+    );
+    expect(tool).toEqual({ internalName: "tool", displayName: String.raw`Say "Hi" C:\logs` });
+  });
+
+  it("lässt 007 und true als display_name stehen", () => {
+    const numeric = readToolVdf(
+      `"compatibilitytools"\n{\n\t"compat_tools"\n\t{\n\t\t"tool"\n\t\t{\n\t\t\t"display_name"\t\t"007"\n\t\t}\n\t}\n}`,
+      "fallback",
+    );
+    expect(numeric).toEqual({ internalName: "tool", displayName: "007" });
+
+    const flag = readToolVdf(
+      `"compatibilitytools"\n{\n\t"compat_tools"\n\t{\n\t\t"tool"\n\t\t{\n\t\t\t"display_name"\t\t"true"\n\t\t}\n\t}\n}`,
+      "fallback",
+    );
+    expect(flag).toEqual({ internalName: "tool", displayName: "true" });
   });
 });
 

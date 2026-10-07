@@ -1,8 +1,7 @@
 import { ManifestParseError } from "./errors.js";
 import { errText } from "./errtext.js";
 import { NUMERIC_RE, parseSafeAppId } from "./types.js";
-import { asString, getKeyInsensitive, parseVdf } from "./vdf.js";
-import { tokenizeVdf } from "./vdfpatch.js";
+import { getKeyInsensitive, parseVdf, rawVdfField, unescapeVdfRaw } from "./vdf.js";
 
 interface ManifestData {
   appId: number;
@@ -11,52 +10,6 @@ interface ManifestData {
   sizeBytes?: number;
   /** Installationsordner aus `installdir`; fehlend oder unsicher = unbekannt. */
   installdir?: string;
-}
-
-/** roher skalarenwert des letzten passenden feldes direkt unter `AppState`.
- *  laufen über den gemeinsamen tokenizer (K-02); rohform bleibt erhalten, damit
- *  der escaping-vergleich unten die quellsyntax sieht. conditionals zählen wie
- *  für die anderen leser nicht als key/value. */
-function rawManifestField(text: string, fieldName: string): string | undefined {
-  const { tokens } = tokenizeVdf(text);
-  const normalizedFieldName = fieldName.toLowerCase();
-  let depth = 0;
-  let appStateDepth: number | undefined;
-  let pendingKey: string | undefined;
-  let fieldValue: string | undefined;
-
-  for (const token of tokens) {
-    if (token.kind === "conditional") continue;
-    if (token.kind === "open") {
-      if (depth === 0 && pendingKey?.toLowerCase() === "appstate") {
-        appStateDepth = depth + 1;
-      }
-      pendingKey = undefined;
-      depth += 1;
-      continue;
-    }
-    if (token.kind === "close") {
-      depth = Math.max(0, depth - 1);
-      pendingKey = undefined;
-      if (appStateDepth !== undefined && depth < appStateDepth) appStateDepth = undefined;
-      continue;
-    }
-
-    if (pendingKey !== undefined) {
-      if (
-        appStateDepth !== undefined &&
-        depth === appStateDepth &&
-        pendingKey.toLowerCase() === normalizedFieldName
-      ) {
-        fieldValue = token.raw;
-      }
-      pendingKey = undefined;
-      continue;
-    }
-    pendingKey = token.raw;
-  }
-
-  return fieldValue;
 }
 
 function parseManifestSize(raw: string | undefined): number | undefined {
@@ -91,7 +44,10 @@ export function parseManifest(text: string): ManifestData {
   if (typeof app !== "object" || app === null) {
     throw new ManifestParseError("manifest-missing-appstate");
   }
-  const appIdRaw = asString(getKeyInsensitive(app, "appid"));
+  // Rohwert, nicht der typisierte Bibliothekswert: `"0x2A"` darf nicht 42 werden,
+  // `"007"` und `"true"` bleiben im Namen Strings (A-15). Die Grenze selbst ist
+  // weiter `parseSafeAppId` (Ziffern plus 1..u32::MAX), keine zweite Prüfung.
+  const appIdRaw = rawVdfField(text, ["AppState", "appid"]);
   if (appIdRaw === undefined) {
     throw new ManifestParseError("manifest-invalid-appid");
   }
@@ -100,9 +56,10 @@ export function parseManifest(text: string): ManifestData {
     throw new ManifestParseError("manifest-invalid-appid");
   }
 
-  const name = asString(getKeyInsensitive(app, "name")) ?? `app ${appId}`;
-  const sizeBytes = parseManifestSize(rawManifestField(text, "SizeOnDisk"));
-  const installdir = parseManifestInstallDir(rawManifestField(text, "installdir"));
+  const nameRaw = rawVdfField(text, ["AppState", "name"]);
+  const name = nameRaw === undefined ? `app ${appId}` : unescapeVdfRaw(nameRaw);
+  const sizeBytes = parseManifestSize(rawVdfField(text, ["AppState", "SizeOnDisk"]));
+  const installdir = parseManifestInstallDir(rawVdfField(text, ["AppState", "installdir"]));
 
   return { appId, name, sizeBytes, installdir };
 }

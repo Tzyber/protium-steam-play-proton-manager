@@ -18,6 +18,22 @@ import { invoke } from "@tauri-apps/api/core";
 import { exists as fsExists, mkdir, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { openPrefixFolder, tauriPorts } from "../../../src/core/adapters/tauri";
 
+/** Signal des ersten tauriFetch-Aufrufs; wirft ohne maxRedirections 0. */
+function pinnedFetchSignal(): AbortSignal {
+  const value: unknown = mockFetch.mock.calls[0]?.[1];
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "maxRedirections" in value &&
+    value.maxRedirections === 0 &&
+    "signal" in value &&
+    value.signal instanceof AbortSignal
+  ) {
+    return value.signal;
+  }
+  throw new Error("tauriFetch ohne maxRedirections 0 und AbortSignal");
+}
+
 describe("http.get", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -42,6 +58,31 @@ describe("http.get", () => {
     expect(res.ok).toBe(true);
     expect(res.text).toBe("{}");
     expect(res.headers["content-type"]).toBe("application/json");
+    expect(pinnedFetchSignal().aborted).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("räumt den timer auch nach einem fetch-fehler ab", async () => {
+    mockFetch.mockRejectedValue(new Error("network down"));
+
+    await expect(tauriPorts.http.get("https://example.com")).rejects.toThrow("network down");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("bricht einen hängenden body-read per timeout ab", async () => {
+    mockFetch.mockResolvedValue({
+      status: 200,
+      ok: true,
+      text: () => new Promise<string>(() => {}),
+      headers: new Map(),
+    });
+
+    const promise = tauriPorts.http.get("https://example.com");
+    const assertion = expect(promise).rejects.toThrow("HTTP request timed out");
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(pinnedFetchSignal().aborted).toBe(true);
+    await assertion;
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("bricht nach timeout ab, wenn der server nie antwortet", async () => {
@@ -49,8 +90,29 @@ describe("http.get", () => {
 
     const promise = tauriPorts.http.get("https://example.com");
     const assertion = expect(promise).rejects.toThrow("HTTP request timed out");
+    const signal = pinnedFetchSignal();
+    expect(signal.aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(30_000);
+    expect(signal.aborted).toBe(true);
     await assertion;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("GE-Installation IPC", () => {
+  it.each(["de", "en"] as const)("reicht locale %s an install_ge_proton weiter", async (locale) => {
+    vi.mocked(invoke).mockClear();
+    vi.mocked(invoke).mockResolvedValueOnce("verified");
+    const params = {
+      steamRoot: "/steam",
+      releaseTag: "GE-Proton10-12",
+      downloadUrl: "https://github.com/GloriousEggroll/proton-ge-custom/x.tar.gz",
+      downloadId: "dl-1",
+      locale,
+    };
+
+    await expect(tauriPorts.system.installGeProton(params)).resolves.toBe("verified");
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("install_ge_proton", params);
   });
 });
 

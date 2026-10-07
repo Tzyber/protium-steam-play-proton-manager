@@ -1,11 +1,21 @@
 use crate::commands::download::CancelSignal;
 use crate::commands::errcode;
 use crate::commands::path::{
-    canonicalize_nearest_ancestor, is_safe_path, link_target_stays_inside, random_suffix,
+    canonicalize_nearest_ancestor, is_descendant_of, is_safe_path, link_target_stays_inside,
+    random_suffix,
 };
 use std::fs;
 use std::io::{Seek, SeekFrom};
 use std::path::{Component, Path, PathBuf};
+
+/// a-p1-1-rest: einträge der größe 0 umgehen das größen-cap, eine inode- oder
+/// metadatenbombe stoppt erst die eintragszahl. echte GE-Proton-builds haben
+/// rund 9 000 einträge (GE-Proton11-6/11-7 gezählt), 100 000 lässt >10× luft.
+pub(super) const MAX_ARCHIVE_ENTRIES: usize = 100_000;
+
+/// Bekommt den finalen Installations-Rename und führt ihn aus; der Aufrufer
+/// legt die Sperre darum (A-10).
+type RenameGuard<'a> = dyn FnMut(&mut dyn FnMut() -> Result<(), String>) -> Result<(), String> + 'a;
 
 fn archive_entry_path(
     entry: &tar::Entry<'_, flate2::read::GzDecoder<&mut fs::File>>,
@@ -66,8 +76,68 @@ fn path_exists_without_following(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()
 }
 
+/// a-09: `link_target_stays_inside` ist lexikalisch und sieht die kette
+/// `a/l -> ..`, `m -> a/l/..` nicht. nach dem entpacken muss jedes aufgelöste
+/// ziel unter `root` (`<temp>/<tag>`) bleiben, sonst abbruch.
+fn ensure_extracted_symlinks_stay_inside(root: &Path) -> Result<(), String> {
+    let root_canon = fs::canonicalize(root).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("canonicalize extracted tool: {error}"),
+        )
+    })?;
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let entries = fs::read_dir(&dir).map_err(|error| {
+            errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("read extracted tree: {error}"),
+            )
+        })?;
+        for entry in entries {
+            let entry = entry.map_err(|error| {
+                errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("read extracted entry: {error}"),
+                )
+            })?;
+            let path = entry.path();
+            let metadata = fs::symlink_metadata(&path).map_err(|error| {
+                errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("inspect extracted entry: {error}"),
+                )
+            })?;
+            if metadata.file_type().is_symlink() {
+                // derselbe code wie die lexikalische ablehnung, sonst wirkt ein
+                // ausbruch wie ein unvollständiges archiv.
+                let resolved = fs::canonicalize(&path).map_err(|error| {
+                    errcode::with_detail(
+                        errcode::SYMLINK_REJECTED,
+                        format!("resolve symlink: {error}"),
+                    )
+                })?;
+                if !is_descendant_of(&resolved, &root_canon) {
+                    return Err(errcode::with_detail(
+                        errcode::SYMLINK_REJECTED,
+                        format!(
+                            "symlink target leaves archive: {} -> {}",
+                            path.display(),
+                            resolved.display()
+                        ),
+                    ));
+                }
+            } else if metadata.is_dir() {
+                pending.push(path);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// validiert und entpackt genau den bereits geöffneten download-handle.
 /// kein pfad wird zwischen download, hash und extraction erneut geöffnet.
+#[cfg(test)]
 pub(super) fn extract_blocking_with_tag(
     file: &mut fs::File,
     dest_dir: &str,
@@ -81,21 +151,24 @@ pub(super) fn extract_blocking_with_tag(
         dest_dir,
         expected_tag,
         max_unpack_bytes,
+        MAX_ARCHIVE_ENTRIES,
         scope_ok,
         cancel,
         &mut || {},
-        &mut || {},
+        &mut |rename| rename(),
     )
 }
 
 /// Erster Archiv-Durchgang ohne Mutation (r-10): prüft genau einen
-/// Top-Level-Ordner mit dem erwarteten Tag, jede Eintragsart und die entpackte
-/// Gesamtgröße. Derselbe Code wie zuvor, nur aus `extract_blocking_with_tag`
-/// herausgezogen; Fehler und deren Reihenfolge bleiben unverändert.
+/// Top-Level-Ordner mit dem erwarteten Tag, jede Eintragsart, die Eintragszahl
+/// und die entpackte Gesamtgröße. Derselbe Code wie zuvor, nur aus
+/// `extract_blocking_with_tag` herausgezogen; Fehler und deren Reihenfolge
+/// bleiben unverändert.
 fn validate_archive_entries(
     file: &mut fs::File,
     expected_tag: &str,
     max_unpack_bytes: u64,
+    max_entries: usize,
     cancel: &CancelSignal,
 ) -> Result<(), String> {
     use flate2::read::GzDecoder;
@@ -109,6 +182,7 @@ fn validate_archive_entries(
     })?;
     let mut root_seen = false;
     let mut total = 0u64;
+    let mut entries = 0usize;
     {
         let decoder = GzDecoder::new(&mut *file);
         let mut archive = Archive::new(decoder);
@@ -131,6 +205,13 @@ fn validate_archive_entries(
             if is_archive_metadata(entry_type) {
                 continue;
             }
+            entries += 1;
+            if entries > max_entries {
+                return Err(errcode::with_detail(
+                    errcode::SIZE_LIMIT,
+                    "too many archive entries",
+                ));
+            }
             let path = archive_entry_path(&entry)?;
             let mut components = path.components();
             let Some(Component::Normal(root)) = components.next() else {
@@ -147,7 +228,23 @@ fn validate_archive_entries(
             }
 
             match entry_type {
-                tar::EntryType::Regular | tar::EntryType::Directory => {}
+                tar::EntryType::Regular => {}
+                tar::EntryType::Directory => {
+                    // a-08: modus kommt per chmod, nicht über die umask. fehlt
+                    // u+rwx (z. b. 0o500), scheitern entpacken und aufräumen und
+                    // der `.protium-extract-*`-rest blockiert die nächste
+                    // installation. abweisen, die rechte nicht anheben. ein
+                    // leeres mode-feld lässt `mode()` scheitern; tar chmodet
+                    // dann nicht, mkdir behält u+rwx.
+                    if let Ok(mode) = entry.header().mode() {
+                        if mode & 0o700 != 0o700 {
+                            return Err(errcode::with_detail(
+                                errcode::INCOMPLETE,
+                                format!("directory mode lacks 0o700: {}", path.display()),
+                            ));
+                        }
+                    }
+                }
                 tar::EntryType::Link => {
                     let target = entry
                         .link_name()
@@ -194,16 +291,10 @@ fn validate_archive_entries(
                 }
             }
 
-            total = total
-                .checked_add(entry.header().size().map_err(|error| {
-                    errcode::with_detail(
-                        errcode::code_for_io(&error),
-                        format!("read entry size: {error}"),
-                    )
-                })?)
-                .ok_or_else(|| {
-                    errcode::with_detail(errcode::SIZE_LIMIT, "archive size overflow")
-                })?;
+            // header().size() ignoriert die pax-größe, entry.size() nicht.
+            total = total.checked_add(entry.size()).ok_or_else(|| {
+                errcode::with_detail(errcode::SIZE_LIMIT, "archive size overflow")
+            })?;
             if total > max_unpack_bytes {
                 return Err(errcode::with_detail(errcode::SIZE_LIMIT, total));
             }
@@ -215,19 +306,22 @@ fn validate_archive_entries(
     Ok(())
 }
 
-/// wie `extract_blocking_with_tag`, zusätzlich mit Test-Hooks: `before_bind`
-/// läuft zwischen Stat und Open der Parent-Bindung, `before_rename` vor dem
-/// finalen Installations-Rename (Tausch-Versuche der Tests).
+/// wie `extract_blocking_with_tag`, zusätzlich mit Hooks: `before_bind` (Tests)
+/// läuft zwischen Stat und Open der Parent-Bindung, `guard_rename` bekommt den
+/// finalen Installations-Rename und führt ihn aus, etwa unter dem
+/// Environment-Mutex. Ein Fehler davor (etwa ein gewechselter Steam-Root)
+/// bricht ab, ohne umzubenennen.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn extract_blocking_with_tag_with_hook(
     file: &mut fs::File,
     dest_dir: &str,
     expected_tag: Option<&str>,
     max_unpack_bytes: u64,
+    max_entries: usize,
     scope_ok: &dyn Fn(&Path) -> bool,
     cancel: &CancelSignal,
     before_bind: &mut dyn FnMut(),
-    before_rename: &mut dyn FnMut(),
+    guard_rename: &mut RenameGuard<'_>,
 ) -> Result<(), String> {
     let dest = Path::new(dest_dir);
     let dest_ancestor_canon = canonicalize_nearest_ancestor(dest, "extract dest")?;
@@ -272,15 +366,16 @@ pub(super) fn extract_blocking_with_tag_with_hook(
         return Err(errcode::with_detail(errcode::TOOL_EXISTS, "extract target"));
     }
 
-    validate_archive_entries(file, expected_tag, max_unpack_bytes, cancel)?;
+    validate_archive_entries(file, expected_tag, max_unpack_bytes, max_entries, cancel)?;
 
     extract_archive_into_bound_parent(
         file,
         &dest_canon,
         expected_tag,
+        max_unpack_bytes,
         cancel,
         before_bind,
-        before_rename,
+        guard_rename,
     )
 }
 
@@ -298,9 +393,10 @@ fn extract_archive_into_bound_parent(
     file: &mut fs::File,
     dest_canon: &Path,
     expected_tag: &str,
+    max_unpack_bytes: u64,
     cancel: &CancelSignal,
     before_bind: &mut dyn FnMut(),
-    before_rename: &mut dyn FnMut(),
+    guard_rename: &mut RenameGuard<'_>,
 ) -> Result<(), String> {
     use crate::commands::delete_ops::renameat2_no_replace;
     use crate::commands::fd::{open_bound_root_fd, sync_dir_fd};
@@ -335,6 +431,10 @@ fn extract_archive_into_bound_parent(
         })?;
         let decoder = GzDecoder::new(&mut *file);
         let mut archive = Archive::new(decoder);
+        // a-08: explizites chmod (`mode & 0o777`) umgeht die prozess-umask.
+        // 0o022 nimmt gruppen- und weltschreibrechte, ein 0o777-binary wird 0o755.
+        archive.set_mask(0o022);
+        let mut total = 0u64;
         for entry_result in archive.entries().map_err(|error| {
             errcode::with_detail(
                 errcode::code_for_io(&error),
@@ -352,6 +452,12 @@ fn extract_archive_into_bound_parent(
             })?;
             if is_archive_metadata(entry.header().entry_type()) {
                 continue;
+            }
+            total = total.checked_add(entry.size()).ok_or_else(|| {
+                errcode::with_detail(errcode::SIZE_LIMIT, "archive size overflow")
+            })?;
+            if total > max_unpack_bytes {
+                return Err(errcode::with_detail(errcode::SIZE_LIMIT, total));
             }
             entry.unpack_in(&temp_path).map_err(|error| {
                 errcode::with_detail(
@@ -373,23 +479,25 @@ fn extract_archive_into_bound_parent(
         if !metadata.is_dir() || metadata.file_type().is_symlink() {
             return Err(errcode::INCOMPLETE.into());
         }
+        ensure_extracted_symlinks_stay_inside(&unpacked)?;
         if path_exists_without_following(&dest_canon.join(expected_tag)) {
             return Err(errcode::TOOL_EXISTS.into());
         }
-        before_rename();
         let mut relative_source = PathBuf::from(&temp_name);
         relative_source.push(expected_tag);
-        renameat2_no_replace(
-            &dest_dir_file,
-            relative_source.as_os_str(),
-            &dest_dir_file,
-            std::ffi::OsStr::from_bytes(expected_tag.as_bytes()),
-        )
-        .map_err(|error| {
-            errcode::with_detail(
-                errcode::code_for_io(&error),
-                format!("atomically install extracted tool: {error}"),
+        guard_rename(&mut || {
+            renameat2_no_replace(
+                &dest_dir_file,
+                relative_source.as_os_str(),
+                &dest_dir_file,
+                std::ffi::OsStr::from_bytes(expected_tag.as_bytes()),
             )
+            .map_err(|error| {
+                errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("atomically install extracted tool: {error}"),
+                )
+            })
         })?;
         // r-08: ohne verzeichnis-fsync kann die tool-installation nach absturz
         // driftig sichtbar sein. quell- und zielendpunkt des renames liegen
@@ -414,9 +522,10 @@ fn extract_archive_into_bound_parent(
     _file: &mut fs::File,
     _dest_canon: &Path,
     _expected_tag: &str,
+    _max_unpack_bytes: u64,
     _cancel: &CancelSignal,
     _before_bind: &mut dyn FnMut(),
-    _before_rename: &mut dyn FnMut(),
+    _guard_rename: &mut RenameGuard<'_>,
 ) -> Result<(), String> {
     Err(errcode::UNSUPPORTED_PLATFORM.into())
 }
@@ -424,7 +533,8 @@ fn extract_archive_into_bound_parent(
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_blocking_with_tag, extract_blocking_with_tag_with_hook, validate_archive_entries,
+        extract_archive_into_bound_parent, extract_blocking_with_tag,
+        extract_blocking_with_tag_with_hook, validate_archive_entries, MAX_ARCHIVE_ENTRIES,
     };
     use crate::commands::download::CancelSignal;
     use crate::commands::errcode;
@@ -636,19 +746,27 @@ mod tests {
         fs::create_dir_all(&evil).unwrap();
         let mut handle = File::open(&source).unwrap();
         let no_cancel = CancelSignal::new();
-        let mut before_rename = || {
+        let mut guard_rename = |rename: &mut dyn FnMut() -> Result<(), String>| {
             fs::rename(&destination, &moved).unwrap();
             symlink(&evil, &destination).unwrap();
+            assert!(!moved.join("GE-Proton11-5-x86_64").exists());
+            let renamed = rename();
+            assert!(
+                moved.join("GE-Proton11-5-x86_64").exists(),
+                "rename im guard"
+            );
+            renamed
         };
         let result = extract_blocking_with_tag_with_hook(
             &mut handle,
             destination.to_str().unwrap(),
             Some("GE-Proton11-5-x86_64"),
             1024,
+            MAX_ARCHIVE_ENTRIES,
             &|_| true,
             &no_cancel,
             &mut || {},
-            &mut before_rename,
+            &mut guard_rename,
         );
         assert!(result.is_ok(), "{result:?}");
         assert_eq!(
@@ -681,10 +799,11 @@ mod tests {
             destination.to_str().unwrap(),
             Some("GE-Proton11-5-x86_64"),
             1024,
+            MAX_ARCHIVE_ENTRIES,
             &|_| true,
             &no_cancel,
             &mut before_bind,
-            &mut || {},
+            &mut |rename| rename(),
         );
         assert!(
             result.is_err(),
@@ -720,10 +839,11 @@ mod tests {
             destination.to_str().unwrap(),
             Some("GE-Proton11-5-x86_64"),
             1024,
+            MAX_ARCHIVE_ENTRIES,
             &|_| true,
             &cancel,
             &mut before_bind,
-            &mut || {},
+            &mut |rename| rename(),
         );
         assert_eq!(result.unwrap_err(), "cancelled");
         assert!(!destination.join("GE-Proton11-5-x86_64").exists());
@@ -762,7 +882,7 @@ mod tests {
     fn first_pass(source: &Path, tag: &str, cap: u64) -> Result<(), String> {
         let mut handle = File::open(source).unwrap();
         let no_cancel = CancelSignal::new();
-        validate_archive_entries(&mut handle, tag, cap, &no_cancel)
+        validate_archive_entries(&mut handle, tag, cap, MAX_ARCHIVE_ENTRIES, &no_cancel)
     }
 
     /// Baut ein gzip-tar mit einem oder zwei einträgen und erlaubt es, den
@@ -865,6 +985,50 @@ mod tests {
         let result = first_pass(&source, "GE-Proton11-5-x86_64", 1024);
         assert!(result.is_ok(), "{result:?}");
         let _ = fs::remove_dir_all(source.parent().unwrap());
+    }
+
+    /// a-p1-1-rest: leere einträge zählen gegen das eintrags-cap. genau an der
+    /// grenze installiert, ein eintrag darüber bricht im ersten durchgang ab,
+    /// ohne ziel und ohne temp-rest.
+    #[test]
+    fn eintrags_cap_stoppt_leere_eintraege_vor_dem_entpacken() {
+        for (cap, allowed) in [(4usize, true), (3, false)] {
+            let (source, destination) = fixture(&format!("entry-cap-{cap}"), |archive| {
+                archive
+                    .append(&directory_header("GE-Proton11-5-x86_64"), std::io::empty())
+                    .unwrap();
+                for index in 0..3 {
+                    let mut file = tar::Header::new_gnu();
+                    file.set_path(format!("GE-Proton11-5-x86_64/leer-{index}"))
+                        .unwrap();
+                    file.set_size(0);
+                    file.set_cksum();
+                    archive.append(&file, std::io::empty()).unwrap();
+                }
+            });
+            let mut handle = File::open(&source).unwrap();
+            let result = extract_blocking_with_tag_with_hook(
+                &mut handle,
+                destination.to_str().unwrap(),
+                Some("GE-Proton11-5-x86_64"),
+                1024,
+                cap,
+                &|_| true,
+                &CancelSignal::new(),
+                &mut || {},
+                &mut |rename| rename(),
+            );
+            if allowed {
+                assert!(result.is_ok(), "{result:?}");
+            } else {
+                let error = result.unwrap_err();
+                assert!(errcode::has_code(&error, errcode::SIZE_LIMIT), "{error}");
+                assert!(error.contains("too many archive entries"), "{error}");
+                assert!(!destination.join("GE-Proton11-5-x86_64").exists());
+            }
+            assert_no_extract_leftovers(&destination);
+            let _ = fs::remove_dir_all(source.parent().unwrap());
+        }
     }
 
     /// A-13: der cap gilt für die summe der angesagten größen. Genau an der
@@ -979,10 +1143,9 @@ mod tests {
     /// A-04/8, pin: ein kaputter eintragskopf wird als codiertes `unreadable`
     /// gemeldet. Gemessen kommt der fehler aus dem iterator
     /// (`read archive entry: numeric field was not a number …`), weil die
-    /// `tar`-kiste das größenfeld schon beim header-lesen prüft; der zweig
-    /// `read entry size` weiter unten ist damit nicht konstruierbar (prüflücke,
-    /// der code wird dort trotzdem gesetzt). Die prüfsumme des gepatchten kopfs
-    /// wird neu gebildet, damit nicht schon sie den eintrag verwirft.
+    /// `tar`-kiste das größenfeld schon beim header-lesen prüft. Die prüfsumme
+    /// des gepatchten kopfs wird neu gebildet, damit nicht schon sie den
+    /// eintrag verwirft.
     #[test]
     fn erster_durchgang_meldet_kaputten_eintragskopf_mit_code() {
         let mut header = tar::Header::new_gnu();
@@ -996,6 +1159,369 @@ mod tests {
 
         let error = first_pass(&source, "GE-Proton11-5-x86_64", 1024).unwrap_err();
         assert!(errcode::has_code(&error, errcode::UNREADABLE), "{error}");
+        let _ = fs::remove_dir_all(source.parent().unwrap());
+    }
+
+    /// header-größe 0, pax-`size` 4096, leerer body. der iterator springt um
+    /// die pax-größe weiter; ohne die nullen danach endet der strom vor dem
+    /// sprung und der durchgang scheitert an eof statt am cap.
+    fn pax_size_archive(tag: &str) -> (PathBuf, PathBuf) {
+        fixture(tag, |archive| {
+            archive
+                .append(&directory_header("GE-Proton11-5-x86_64"), std::io::empty())
+                .unwrap();
+            let pax: [(&str, &[u8]); 1] = [("size", b"4096")];
+            archive.append_pax_extensions(pax).unwrap();
+            let mut file = tar::Header::new_gnu();
+            file.set_path("GE-Proton11-5-x86_64/payload.bin").unwrap();
+            file.set_size(0);
+            file.set_cksum();
+            archive.append(&file, std::io::empty()).unwrap();
+            archive.get_mut().write_all(&[0u8; 4096]).unwrap();
+        })
+    }
+
+    fn assert_payload_header_zero_pax_4096(source: &Path) {
+        use flate2::read::GzDecoder;
+        use tar::Archive;
+
+        let mut handle = File::open(source).unwrap();
+        let decoder = GzDecoder::new(&mut handle);
+        let mut archive = Archive::new(decoder);
+        let mut saw_payload = false;
+        for entry_result in archive.entries().unwrap() {
+            let entry = entry_result.expect("fixture muss bis zum payload lesbar sein");
+            if super::is_archive_metadata(entry.header().entry_type()) {
+                continue;
+            }
+            if entry.path().unwrap().ends_with("payload.bin") {
+                assert_eq!(entry.header().size().unwrap(), 0, "fixture: header-größe");
+                assert_eq!(entry.size(), 4096, "fixture: pax-größe");
+                saw_payload = true;
+                break;
+            }
+        }
+        assert!(saw_payload, "fixture ohne payload.bin");
+    }
+
+    /// A-P1-1: der cap sieht die pax-größe. verzeichnisgröße 0, datei 4096.
+    #[test]
+    fn erster_durchgang_zaehlt_pax_groesse_gegen_den_cap() {
+        let (source, _destination) = pax_size_archive("pax-size-first");
+        assert_payload_header_zero_pax_4096(&source);
+
+        let limited = first_pass(&source, "GE-Proton11-5-x86_64", 1024).unwrap_err();
+        assert!(
+            errcode::has_code(&limited, errcode::SIZE_LIMIT),
+            "{limited}"
+        );
+
+        let allowed = first_pass(&source, "GE-Proton11-5-x86_64", 4096);
+        assert!(allowed.is_ok(), "{allowed:?}");
+        let _ = fs::remove_dir_all(source.parent().unwrap());
+    }
+
+    /// A-P1-1: der zweite durchgang zählt vor `unpack_in`. über dem cap kommt
+    /// `size-limit-exceeded`, nicht ein kurzer read, und die datei bleibt weg.
+    #[test]
+    fn zweiter_durchgang_lehnt_pax_groesse_vor_dem_entpacken_ab() {
+        let (source, destination) = pax_size_archive("pax-size-second");
+        assert_payload_header_zero_pax_4096(&source);
+        let mut handle = File::open(&source).unwrap();
+        let dest_canon = fs::canonicalize(&destination).unwrap();
+        let no_cancel = CancelSignal::new();
+        let error = extract_archive_into_bound_parent(
+            &mut handle,
+            &dest_canon,
+            "GE-Proton11-5-x86_64",
+            1024,
+            &no_cancel,
+            &mut || {},
+            &mut |rename| rename(),
+        )
+        .unwrap_err();
+        assert!(errcode::has_code(&error, errcode::SIZE_LIMIT), "{error}");
+        assert!(!errcode::has_code(&error, errcode::UNREADABLE), "{error}");
+        assert!(!destination
+            .join("GE-Proton11-5-x86_64/payload.bin")
+            .exists());
+        let _ = fs::remove_dir_all(source.parent().unwrap());
+    }
+
+    fn directory_header_with_mode(path: &str, mode: u32) -> tar::Header {
+        let mut header = directory_header(path);
+        header.set_mode(mode);
+        header.set_cksum();
+        header
+    }
+
+    fn assert_no_extract_leftovers(destination: &Path) {
+        let leftovers: Vec<_> = fs::read_dir(destination)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".protium-extract-")
+            })
+            .collect();
+        assert!(leftovers.is_empty(), "temp-rest muss weg sein");
+    }
+
+    /// a-08: `set_mask(0o022)` zieht gruppen- und weltschreibrechte ab.
+    /// 0o777 wird 0o755, das verzeichnis mit 0o755 bleibt installierbar.
+    #[test]
+    fn entpacken_maskiert_weltschreibbares_binary() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (source, destination) = fixture("mask-binary", |archive| {
+            archive
+                .append(
+                    &directory_header_with_mode("GE-Proton11-5-x86_64", 0o755),
+                    std::io::empty(),
+                )
+                .unwrap();
+            let mut file = tar::Header::new_gnu();
+            file.set_path("GE-Proton11-5-x86_64/proton").unwrap();
+            file.set_mode(0o777);
+            file.set_size(3);
+            file.set_cksum();
+            archive.append(&file, &b"ok\n"[..]).unwrap();
+        });
+        let mut handle = File::open(&source).unwrap();
+        let no_cancel = CancelSignal::new();
+        let result = extract_blocking_with_tag(
+            &mut handle,
+            destination.to_str().unwrap(),
+            Some("GE-Proton11-5-x86_64"),
+            1024,
+            &|_| true,
+            &no_cancel,
+        );
+        assert!(result.is_ok(), "{result:?}");
+        let mode = fs::metadata(destination.join("GE-Proton11-5-x86_64/proton"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(
+            mode & 0o777,
+            0o755,
+            "0o777 darf nicht stehen bleiben: {mode:o}"
+        );
+        let _ = fs::remove_dir_all(source.parent().unwrap());
+    }
+
+    /// a-08: verzeichnis ohne u+rwx wird im ersten durchgang abgewiesen.
+    /// nichts wird entpackt, kein `.protium-extract-*`-rest.
+    #[test]
+    fn erster_durchgang_lehnt_verzeichnis_ohne_0700_ab() {
+        let (source, destination) = fixture("dir-mode-0500", |archive| {
+            archive
+                .append(
+                    &directory_header_with_mode("GE-Proton11-5-x86_64", 0o755),
+                    std::io::empty(),
+                )
+                .unwrap();
+            archive
+                .append(
+                    &directory_header_with_mode("GE-Proton11-5-x86_64/compat", 0o500),
+                    std::io::empty(),
+                )
+                .unwrap();
+        });
+        let error = first_pass(&source, "GE-Proton11-5-x86_64", 1024).unwrap_err();
+        assert!(errcode::has_code(&error, errcode::INCOMPLETE), "{error}");
+        assert!(error.contains("0o700"), "{error}");
+
+        let mut handle = File::open(&source).unwrap();
+        let no_cancel = CancelSignal::new();
+        let installed = extract_blocking_with_tag(
+            &mut handle,
+            destination.to_str().unwrap(),
+            Some("GE-Proton11-5-x86_64"),
+            1024,
+            &|_| true,
+            &no_cancel,
+        );
+        let installed = installed.unwrap_err();
+        assert!(
+            errcode::has_code(&installed, errcode::INCOMPLETE),
+            "{installed}"
+        );
+        assert!(!destination.join("GE-Proton11-5-x86_64").exists());
+        assert_no_extract_leftovers(&destination);
+        let _ = fs::remove_dir_all(source.parent().unwrap());
+    }
+
+    /// Gegenprobe zu a-09: interne links, wie echte builds sie tragen
+    /// (datei-link, verzeichnis-link, `../x` im baum, `.`), installieren.
+    #[test]
+    fn entpacken_installiert_legitime_interne_symlinks() {
+        fn link(path: &str, target: &str) -> tar::Header {
+            let mut header = tar::Header::new_gnu();
+            header.set_path(path).unwrap();
+            header.set_entry_type(tar::EntryType::Symlink);
+            header.set_link_name(target).unwrap();
+            header.set_size(0);
+            header.set_cksum();
+            header
+        }
+        const TAG: &str = "GE-Proton11-5-x86_64";
+        let (source, destination) = fixture("symlink-legit", |archive| {
+            for dir in ["", "/files", "/files/lib"] {
+                archive
+                    .append(&directory_header(&format!("{TAG}{dir}")), std::io::empty())
+                    .unwrap();
+            }
+            for (path, data) in [("version", &b"ok\n"[..]), ("files/lib/libfoo.so.1", b"lib")] {
+                let mut file = tar::Header::new_gnu();
+                file.set_path(format!("{TAG}/{path}")).unwrap();
+                file.set_size(data.len() as u64);
+                file.set_cksum();
+                archive.append(&file, data).unwrap();
+            }
+            for (path, target) in [
+                ("files/lib/libfoo.so", "libfoo.so.1"),
+                ("files/lib64", "lib"),
+                ("files/version", "../version"),
+                ("self", "."),
+            ] {
+                archive
+                    .append(&link(&format!("{TAG}/{path}"), target), std::io::empty())
+                    .unwrap();
+            }
+        });
+
+        let mut handle = File::open(&source).unwrap();
+        let result = extract_blocking_with_tag(
+            &mut handle,
+            destination.to_str().unwrap(),
+            Some(TAG),
+            1024,
+            &|_| true,
+            &CancelSignal::new(),
+        );
+        assert!(result.is_ok(), "{result:?}");
+        let tool = destination.join(TAG);
+        let read = |path: &str| fs::read_to_string(tool.join(path)).unwrap();
+        assert_eq!(
+            fs::read_link(tool.join("files/lib/libfoo.so")).unwrap(),
+            Path::new("libfoo.so.1")
+        );
+        assert_eq!(read("files/lib/libfoo.so"), "lib");
+        assert_eq!(read("files/lib64/libfoo.so.1"), "lib");
+        assert_eq!(read("files/version"), "ok\n");
+        assert_eq!(
+            fs::canonicalize(tool.join("self")).unwrap(),
+            fs::canonicalize(&tool).unwrap()
+        );
+        assert_no_extract_leftovers(&destination);
+        let _ = fs::remove_dir_all(source.parent().unwrap());
+    }
+
+    /// a-09: `a/l -> ..`, `m -> a/l/..` bleibt lexikalisch im baum und zeigt
+    /// aufgelöst auf das temp-verzeichnis über `<temp>/<tag>`.
+    #[test]
+    fn entpacken_lehnt_symlink_kette_aus_dem_baum_ab() {
+        let (source, destination) = fixture("symlink-chain", |archive| {
+            archive
+                .append(&directory_header("GE-Proton11-5-x86_64"), std::io::empty())
+                .unwrap();
+            archive
+                .append(
+                    &directory_header("GE-Proton11-5-x86_64/a"),
+                    std::io::empty(),
+                )
+                .unwrap();
+            let mut link = tar::Header::new_gnu();
+            link.set_path("GE-Proton11-5-x86_64/a/l").unwrap();
+            link.set_entry_type(tar::EntryType::Symlink);
+            link.set_link_name("..").unwrap();
+            link.set_size(0);
+            link.set_cksum();
+            archive.append(&link, std::io::empty()).unwrap();
+            let mut out = tar::Header::new_gnu();
+            out.set_path("GE-Proton11-5-x86_64/m").unwrap();
+            out.set_entry_type(tar::EntryType::Symlink);
+            out.set_link_name("a/l/..").unwrap();
+            out.set_size(0);
+            out.set_cksum();
+            archive.append(&out, std::io::empty()).unwrap();
+        });
+
+        let lexical = first_pass(&source, "GE-Proton11-5-x86_64", 1024);
+        assert!(
+            lexical.is_ok(),
+            "kette muss lexikalisch im baum bleiben: {lexical:?}"
+        );
+
+        let mut handle = File::open(&source).unwrap();
+        let no_cancel = CancelSignal::new();
+        let error = extract_blocking_with_tag(
+            &mut handle,
+            destination.to_str().unwrap(),
+            Some("GE-Proton11-5-x86_64"),
+            1024,
+            &|_| true,
+            &no_cancel,
+        )
+        .unwrap_err();
+        assert!(
+            errcode::has_code(&error, errcode::SYMLINK_REJECTED),
+            "{error}"
+        );
+        assert!(error.contains("symlink target leaves archive"), "{error}");
+        assert!(!destination.join("GE-Proton11-5-x86_64").exists());
+        assert!(
+            destination.exists(),
+            "zielordner darf nicht mitgelöscht werden"
+        );
+        assert_no_extract_leftovers(&destination);
+        let _ = fs::remove_dir_all(source.parent().unwrap());
+    }
+
+    /// a-09: ein dangling symlink bleibt lexikalisch im baum, lässt sich aber
+    /// nicht auflösen; derselbe code wie beim ausbruch, kein temp-rest.
+    #[test]
+    fn entpacken_lehnt_dangling_symlink_ab() {
+        let (source, destination) = fixture("symlink-dangling", |archive| {
+            archive
+                .append(&directory_header("GE-Proton11-5-x86_64"), std::io::empty())
+                .unwrap();
+            let mut link = tar::Header::new_gnu();
+            link.set_path("GE-Proton11-5-x86_64/l").unwrap();
+            link.set_entry_type(tar::EntryType::Symlink);
+            link.set_link_name("fehlt").unwrap();
+            link.set_size(0);
+            link.set_cksum();
+            archive.append(&link, std::io::empty()).unwrap();
+        });
+
+        let lexical = first_pass(&source, "GE-Proton11-5-x86_64", 1024);
+        assert!(
+            lexical.is_ok(),
+            "ziel muss lexikalisch im baum bleiben: {lexical:?}"
+        );
+
+        let mut handle = File::open(&source).unwrap();
+        let no_cancel = CancelSignal::new();
+        let error = extract_blocking_with_tag(
+            &mut handle,
+            destination.to_str().unwrap(),
+            Some("GE-Proton11-5-x86_64"),
+            1024,
+            &|_| true,
+            &no_cancel,
+        )
+        .unwrap_err();
+        assert!(
+            errcode::has_code(&error, errcode::SYMLINK_REJECTED),
+            "{error}"
+        );
+        assert!(error.contains("resolve symlink"), "{error}");
+        assert!(!destination.join("GE-Proton11-5-x86_64").exists());
+        assert_no_extract_leftovers(&destination);
         let _ = fs::remove_dir_all(source.parent().unwrap());
     }
 }

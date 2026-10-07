@@ -9,7 +9,7 @@ import {
   mockFindIncompleteDeletions,
   mockFindOrphans,
   mockFindTrashEntries,
-  mockIsProcessRunning,
+  mockIsSteamRunning,
   mockPrepareDelete,
   resetCleanupMocks,
 } from "../support/cleanupStoreMocks";
@@ -197,7 +197,7 @@ describe("cleanupStore gate logic", () => {
     const scanStore = useScanStore();
     scanStore.result = fakeScan();
     const store = useCleanupStore();
-    mockIsProcessRunning.mockResolvedValue(true);
+    mockIsSteamRunning.mockResolvedValue(true);
     mockFindIncompleteDeletions.mockResolvedValue({
       entries: [],
       unreadable: ["/home/u/.steam/steamapps/.protium-trash"],
