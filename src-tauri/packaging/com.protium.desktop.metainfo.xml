@@ -45,6 +45,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.11.3" date="2026-10-10">
+      <description>
+        <p>Security hardening: a truncated VDF file can no longer stall a scan, network calls go through one Rust command with a fixed URL allowlist, and the webview reads only the files it needs. Includes code-audit follow-ups and dependency updates.</p>
+      </description>
+    </release>
     <release version="0.11.2" date="2026-10-01">
       <description>
         <p>Finishes the error classes: no raw backend text reaches the interface anymore. Cleaner delete path and tests that no longer depend on the repository state.</p>
