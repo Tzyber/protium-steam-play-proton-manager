@@ -47,11 +47,11 @@ when protium is sure:
 
 grab the AppImage or Debian package from the [releases page](https://github.com/Tzyber/protium-steam-play-proton-manager/releases). make the AppImage executable and run it:
 
-current version: `v0.11.1`.
+current version: `v0.11.3`.
 
 ```sh
-chmod +x protium_0.11.1_amd64.AppImage
-./protium_0.11.1_amd64.AppImage
+chmod +x protium_0.11.3_amd64.AppImage
+./protium_0.11.3_amd64.AppImage
 ```
 
 each release ships the AppImage, the Debian package, `SHA256SUMS` and
@@ -89,13 +89,13 @@ if you don't like that, build it yourself (see dev setup). Debian-based
 systems can install the accompanying Debian package:
 
 ```sh
-sudo apt install ./protium_0.11.1_amd64.deb
+sudo apt install ./protium_0.11.3_amd64.deb
 ```
 
 if nothing starts and no error message appears, fuse2 is usually missing. then either `sudo pacman -S fuse2` or run it once without fuse:
 
 ```sh
-./protium_0.11.1_amd64.AppImage --appimage-extract-and-run
+./protium_0.11.3_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## what it does
@@ -130,6 +130,11 @@ window. path handoff and its limits are described in [SECURITY.md](SECURITY.md).
 confirmation runs in the Vue dialog in the main window. the backend binds the
 target, consequences, token, live checks and claim; the webview confirmation
 itself is deliberately not a tamper-proof security boundary.
+
+**history and backups.** before every change to a Steam file, protium keeps a
+copy of the previous state. the history view lists these earlier states and
+the tail of the local log, which never leaves the machine. protium runs only
+once at a time.
 
 **launching games.** via `steam://rungameid/<appId>`. no launcher of its own, no process supervision.
 
@@ -169,7 +174,7 @@ important: the target `compatdata/<appId>` must not already exist. if it does, y
 
 tauri v2 as the shell, vue 3 and typescript for UI and domain logic, rust only for what the webview is not allowed to do. no electron; the binary stays small and uses the system webview (webkit2gtk).
 
-concretely, rust only handles: roughly 7700 productive lines for environment discovery and snapshot-authorised reads, path validation, streaming downloads with hashing, tarball extraction, the delete commands, the write gate and the process check. domain logic and UI decisions do not live in this layer. plus roughly 9100 lines of tests: the paths that modify or delete files carry more tests than the rest. Counted on 2026-09-22, production lines without test modules, `*_tests.rs` counted as tests.
+concretely, rust only handles: roughly 9500 productive lines for environment discovery and snapshot-authorised reads, path validation, streaming downloads with hashing, tarball extraction, the delete commands, the write gate, the process check and the network fetches. domain logic and UI decisions do not live in this layer. plus roughly 12100 lines of tests: the paths that modify or delete files carry more tests than the rest. Counted on 2026-10-10, production lines without test modules, `*_tests.rs` counted as tests.
 
 the domain logic in `src/core/` is entirely UI-free and talks to the system only through ports and adapters. that lets the whole core test suite run headless against fixtures, no tauri, no steam, no network.
 
@@ -187,7 +192,7 @@ then:
 ```sh
 npm install
 npm test              # vitest, core headless against fixtures
-npm run check         # biome (194 lint rules, 0 warnings) + vue-tsc --noEmit
+npm run check         # biome (195 lint rules, 0 warnings) + vue-tsc --noEmit
 (cd src-tauri && cargo test)   # rust: downloads, path validation, extraction, cleanup
 npm run tauri dev     # start the app (the first build compiles rust, takes a while)
 ```
@@ -210,7 +215,7 @@ the cache lives in `~/.cache/com.protium.desktop/`.
 src/core/                    domain logic, UI-free. talks only through ports
 src/core/adapters/tauri.ts   ports against plugin-fs + rust commands
 src/ui/                      vue app: library, proton manager, cleanup, i18n
-src-tauri/                   rust commands (extract, download, process check,
+src-tauri/                   rust commands (extract, download, network, process check,
                              dir size, fs scope, delete paths)
 tests/                       vitest against fake-steam fixtures
 docs/                        screenshots, smoke checklist
@@ -244,6 +249,8 @@ rules for the implementation: writes to steam files go through the write gate wi
   "open prefix folder" workflow
 - [x] v0.10.0: signed checksums, build attestation and immutable releases,
   plus complete package metadata and AppStream data
+- [x] v0.10.1: the Wayland hook now finds the system library on distributions
+  without development packages
 - [x] v0.11.0: error messages in both languages, a "why is this blocked" explanation,
   accessibility with an automatic gate, a performance baseline in CI, a single-instance
   guard, and backups plus the local log in a new history view; the Steam config write
@@ -251,8 +258,11 @@ rules for the implementation: writes to steam files go through the write gate wi
 - [x] v0.11.1: second audit round: one shared write path, one tokenizer for all
   readers, stable error classes instead of raw texts, linear runtime when
   reading large VDF files, and honest UI states
-- [x] v0.10.1: the Wayland hook now finds the system library on distributions
-  without development packages
+- [x] v0.11.2: error messages fully classified, cleaner delete path, tests
+  without depending on the project state
+- [x] v0.11.3: stricter VDF reader, network only through one Rust command with
+  a fixed address list, narrower read scopes for Steam files; plus updated
+  dependencies and the rebuilt tauri npm packages
 
 version history lives in the [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 
@@ -266,33 +276,18 @@ and it is not a promise.
 
 first:
 
-- **error messages in plain language.** today the interface sometimes shows a
-  raw string from the backend, sometimes German, sometimes English. the plan
-  is fixed classes (unavailable, unreadable, incomplete, not found, unknown,
-  blocked) maintained in both languages.
-- **"why is this blocked".** when protium refuses something, it should say
-  exactly what was checked and what is missing.
-- **go through accessibility** and check it automatically.
-- **a speed baseline** in CI so a scan that got slower is noticed.
-- **allow only one instance** and make the backups of Steam files visible.
-- **diagnostics on your own machine:** an error boundary and a log file that
-  stays local.
+- the remaining real-world proofs: an English language pass by hand and the
+  remaining edge cases.
 
 later, if it is worth it:
 
 - remember language and window size, plus a language switch
 - updates from inside the application
 - apply one change to several games at once
-- find Flatpak and Snap installations of Steam
 - make the AppImage smaller or stay with the system WebKit
 
 at the very end, and only if it ever happens: an AUR package so Arch users can
 install protium through their package manager. No deadline, no promise.
-
-the binding internal product plan is `protium-roadmap-v2(1).md`; older roadmap
-documents in the repository are historical. every release still needs its own
-accepted spec; Steam writes and deletions additionally need renewed explicit
-approval.
 
 ## open points
 

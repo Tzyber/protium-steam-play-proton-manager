@@ -51,11 +51,11 @@ rückfrage und nur, wenn protium sich sicher ist:
 AppImage oder Debian-Paket von der [releases-seite](https://github.com/Tzyber/protium-steam-play-proton-manager/releases)
 laden. die AppImage ausführbar machen und starten:
 
-aktuelle version: `v0.11.1`.
+aktuelle version: `v0.11.3`.
 
 ```sh
-chmod +x protium_0.11.1_amd64.AppImage
-./protium_0.11.1_amd64.AppImage
+chmod +x protium_0.11.3_amd64.AppImage
+./protium_0.11.3_amd64.AppImage
 ```
 
 jedes release bringt AppImage, Debian-Paket, `SHA256SUMS` und `SHA256SUMS.asc`.
@@ -94,14 +94,14 @@ wer das nicht mag, baut selbst (siehe dev-setup). für Debian-basierte systeme
 liegt zusätzlich ein Debian-paket bei:
 
 ```sh
-sudo apt install ./protium_0.11.1_amd64.deb
+sudo apt install ./protium_0.11.3_amd64.deb
 ```
 
 startet nichts und es kommt keine fehlermeldung, fehlt meist fuse2. dann
 entweder `sudo pacman -S fuse2` oder einmalig ohne fuse starten:
 
 ```sh
-./protium_0.11.1_amd64.AppImage --appimage-extract-and-run
+./protium_0.11.3_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## was es kann
@@ -150,6 +150,11 @@ dateisystems in den papierkorb. erst beim leeren wird der platz frei. die
 bestätigung läuft im Vue-Dialog des hauptfensters. das backend bindet ziel,
 folgen, token, liveprüfung und claim; die webview-bestätigung selbst ist
 bewusst keine manipulationssichere sicherheitsgrenze.
+
+**verlauf und sicherungen.** vor jeder änderung an einer steam-datei legt
+protium eine sicherungskopie des vorherigen stands an. der verlaufsbereich
+listet diese früheren stände und den schluss des lokalen protokolls, das die
+app nie verlässt. protium läuft nur einmal gleichzeitig.
 
 **spiele starten.** über `steam://rungameid/<appId>`. kein eigener launcher,
 keine prozess-überwachung.
@@ -221,13 +226,14 @@ tauri v2 als shell, vue 3 und typescript für UI und domänenlogik, rust nur fü
 das, was die webview nicht darf. kein electron, das binary bleibt klein und
 nutzt die system-webview (webkit2gtk).
 
-konkret übernimmt rust nur: rund 7700 produktive zeilen für
+konkret übernimmt rust nur: rund 9500 produktive zeilen für
 Environment-Discovery und snapshotautorisierte Reads, Pfadvalidierung,
 streaming-downloads mit hash, tarball-extraktion, die Löschbefehle, das
-Write-Gate und den Prozess-Check. geschäftslogik und UI-entscheidungen liegen
-nicht in dieser schicht. dazu kommen rund 9100 testzeilen: die pfade, die
-dateien verändern oder löschen, sind testlastiger als der rest. gezählt am
-2026-09-22, produktive zeilen ohne testmodule, `*_tests.rs` zählt als test.
+Write-Gate, den Prozess-Check und die Netzabrufe. geschäftslogik und
+UI-entscheidungen liegen nicht in dieser schicht. dazu kommen rund 12100
+testzeilen: die pfade, die dateien verändern oder löschen, sind testlastiger
+als der rest. gezählt am 2026-10-10, produktive zeilen ohne testmodule,
+`*_tests.rs` zählt als test.
 
 die domänenlogik in `src/core/` ist komplett UI-frei und redet mit dem system
 nur über ports und adapter. dadurch läuft die gesamte core-testsuite headless
@@ -247,7 +253,7 @@ dann:
 ```sh
 npm install
 npm test              # vitest, core headless gegen fixtures
-npm run check         # biome (194 lint-regeln, 0 warnings) + vue-tsc --noEmit
+npm run check         # biome (195 lint-regeln, 0 warnings) + vue-tsc --noEmit
 (cd src-tauri && cargo test)   # rust: downloads, pfad-validierung, extraktion, cleanup
 npm run tauri dev     # app starten (erster build kompiliert rust, dauert)
 ```
@@ -275,7 +281,7 @@ wiedervorlage, sobald tauri auf gtk-rs 0.20 geht.
 src/core/                    domänenlogik, UI-frei. redet nur über ports
 src/core/adapters/tauri.ts   ports gegen plugin-fs + rust-commands
 src/ui/                      vue-app: library, proton-manager, cleanup, i18n
-src-tauri/                   rust-commands (extract, download, prozess-check,
+src-tauri/                   rust-commands (extract, download, netz, prozess-check,
                              dir-size, fs-scope, löschpfade)
 tests/                       vitest gegen fake-steam-fixtures
 docs/                        screenshots, smoke-checkliste
@@ -324,6 +330,11 @@ die app blockieren. was sich nicht zuverlässig bestimmen lässt, heißt in der 
   tokenizer für alle leser, stabile fehlerklassen statt rohtexte, lineare
   laufzeit beim lesen großer vdf-dateien und ehrliche zustände in der
   oberfläche
+- [x] v0.11.2: fehlermeldungen vollständig klassifiziert, aufgeräumter
+  löschpfad, tests ohne abhängigkeit vom projektzustand
+- [x] v0.11.3: härterer vdf-leser, netz nur über einen rust-befehl mit fester
+  adressliste, engere lesegrenzen für steam-dateien; dazu aktualisierte
+  abhängigkeiten und der neubau der tauri-npm-pakete
 
 versionshistorie steht in den [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 
@@ -337,15 +348,14 @@ auffällt, und ist kein Versprechen.
 
 zuerst:
 
-- die realen Nachweise nachholen: ein Lauf der AppImage auf fremder Hardware,
-  ein englischer Sprachdurchgang von Hand und die verbliebenen Störfälle.
+- die verbliebenen realen Nachweise: ein englischer Sprachdurchgang von Hand
+  und die restlichen Störfälle.
 
 danach, wenn es sich lohnt:
 
 - sprache und fenstergröße merken, dazu ein Sprachumschalter
 - Updates aus der Anwendung heraus
 - eine Änderung auf mehrere Spiele gleichzeitig anwenden
-- Flatpak- und Snap-Installationen von Steam finden
 - die AppImage verkleinern oder beim System-WebKit bleiben
 
 ganz zum schluss, und nur wenn überhaupt: ein Paket im AUR, damit Arch-Nutzer
