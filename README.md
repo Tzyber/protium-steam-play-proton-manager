@@ -77,6 +77,10 @@ Debian und Ubuntu gehört `libegl1` dazu (`sudo apt install libegl1`). ohne
 beziehungsweise über XWayland; auf einem Wayland-System ohne XWayland startet
 sie nicht.
 
+entwickelt und getestet wird protium auf cachyos/arch. der start ist
+zusätzlich auf debian 13 (trixie) mit AppImage und Debian-paket geprüft,
+zuletzt mit v0.11.3.
+
 fingerprint des schlüssels: `08C084ECC83DFDB10E5CF60A8B2CA074A44AC4FA`
 (auch in [SECURITY.md](SECURITY.md) und auf keys.openpgp.org). vergleiche ihn
 über einen zweiten kanal, bevor du der signatur vertraust.

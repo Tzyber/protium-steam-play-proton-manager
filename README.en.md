@@ -72,6 +72,10 @@ the AppImage bundles GTK and WebKit but expects the usual desktop libraries
 linker stops the start. it starts under X11 or through XWayland; on a Wayland
 system without XWayland it does not start.
 
+protium is developed and tested on cachyos/arch. the start is additionally
+tested on debian 13 (trixie) with the AppImage and the Debian package, most
+recently with v0.11.3.
+
 key fingerprint: `08C084ECC83DFDB10E5CF60A8B2CA074A44AC4FA` (also in
 [SECURITY.md](SECURITY.md) and on keys.openpgp.org). compare it through a
 second channel before you trust the signature.
