@@ -703,3 +703,48 @@ fn cross_parser_erwartungsdatei_ist_echter_rust_output() {
         Some(CROSS_NEU_LAUNCH.to_string())
     );
 }
+
+const MAPPING_PATH: [&str; 5] = [
+    "InstallConfigStore",
+    "Software",
+    "Valve",
+    "Steam",
+    "CompatToolMapping",
+];
+
+#[test]
+fn extract_vdf_block_behaelt_nur_das_mapping() {
+    let text = "\"InstallConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"ConnectCache\"\n\t\t\t\t{\n\t\t\t\t\t\"a1b2\"\t\t\"geheim\"\n\t\t\t\t}\n\t\t\t\t\"CompatToolMapping\"\n\t\t\t\t{\n\t\t\t\t\t\"620\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"name\"\t\t\"GE-Proton9-1\"\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\t\"Accounts\"\n\t\t\t\t{\n\t\t\t\t\t\"user\"\t\t\"x\"\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n";
+    let extracted = extract_vdf_block(text, &MAPPING_PATH).unwrap();
+    assert!(!extracted.contains("geheim"), "{extracted}");
+    assert!(!extracted.contains("Accounts"), "{extracted}");
+    let mut name_path = MAPPING_PATH.to_vec();
+    name_path.extend(["620", "name"]);
+    assert_eq!(
+        get_vdf_value(&extracted, &name_path).unwrap(),
+        Some("GE-Proton9-1".to_string())
+    );
+}
+
+#[test]
+fn extract_vdf_block_ohne_mapping_liefert_leeres_geruest() {
+    let text = "\"InstallConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"ConnectCache\"\t\"geheim\"\n\t}\n}\n";
+    let extracted = extract_vdf_block(text, &MAPPING_PATH).unwrap();
+    assert!(!extracted.contains("geheim"), "{extracted}");
+    assert_eq!(tokenize(&extracted).unwrap().len(), 12);
+}
+
+#[test]
+fn extract_vdf_block_lehnt_kaputte_datei_ab() {
+    assert!(extract_vdf_block("\"InstallConfigStore\"\n{\n\t\"a\"\t\"b\n", &MAPPING_PATH).is_err());
+    assert!(extract_vdf_block("x", &[]).is_err());
+}
+
+#[test]
+fn cross_parser_mapping_ist_echter_rust_output() {
+    // vertragstest S-03: tests/core/compatTools.test.ts liest genau diese
+    // datei mit parseCompatToolMapping zurück.
+    let input = include_str!("../../../tests/fixtures/cross-parser-config-input.vdf");
+    let expected = include_str!("../../../tests/fixtures/cross-parser-mapping-expected.vdf");
+    assert_eq!(extract_vdf_block(input, &MAPPING_PATH).unwrap(), expected);
+}

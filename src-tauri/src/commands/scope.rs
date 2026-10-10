@@ -72,6 +72,16 @@ pub(crate) struct EnvironmentSnapshot {
     pub(crate) app_config_dir: PathBuf,
 }
 
+/// S-03: Welche Inhalte die Webview lesen darf. Nur die Dateien, die
+/// `paths.ts` baut (INV-4); Login-Tokens (`local.vdf`, `ssfn*`), CEF-Cookies
+/// und Logs unter dem Steam-Root bleiben unlesbar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ContentRead {
+    Full,
+    /// `config.vdf` trägt neben `CompatToolMapping` auch `ConnectCache`.
+    CompatToolMappingOnly,
+}
+
 pub(crate) struct AuthorizedBatchPath {
     pub(crate) requested: String,
     pub(crate) real: Option<PathBuf>,
@@ -143,6 +153,46 @@ impl EnvironmentSnapshot {
 
     pub(crate) fn authorizes(&self, path: &Path) -> bool {
         self.roots().any(|root| is_descendant_of(path, root))
+    }
+
+    pub(crate) fn content_read(&self, path: &Path) -> Option<ContentRead> {
+        let names = |root: &Path| -> Option<Vec<&str>> {
+            path.strip_prefix(root)
+                .ok()?
+                .iter()
+                .map(|c| c.to_str())
+                .collect()
+        };
+        let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+        match names(&self.steam_root).as_deref() {
+            Some(["config", "config.vdf"]) => return Some(ContentRead::CompatToolMappingOnly),
+            Some(
+                ["config", "loginusers.vdf"] | ["compatibilitytools.d", _, "compatibilitytool.vdf"],
+            ) => return Some(ContentRead::Full),
+            Some(["userdata", id, "config", "localconfig.vdf" | "shortcuts.vdf"])
+            | Some(["appcache", "librarycache", id, _, "library_header.jpg"])
+                if digits(id) =>
+            {
+                return Some(ContentRead::Full)
+            }
+            _ => {}
+        }
+        let manifest = self
+            .libraries
+            .iter()
+            .chain(std::iter::once(&self.steam_root))
+            .any(|library| match names(library).as_deref() {
+                Some(["steamapps", name]) => name
+                    .strip_prefix("appmanifest_")
+                    .and_then(|rest| rest.strip_suffix(".acf"))
+                    .is_some_and(digits),
+                _ => false,
+            });
+        let system_tool = self
+            .system_compat_dirs
+            .iter()
+            .any(|dir| matches!(names(dir).as_deref(), Some([_, "compatibilitytool.vdf"])));
+        (manifest || system_tool).then_some(ContentRead::Full)
     }
 }
 
@@ -271,6 +321,28 @@ impl EnvironmentState {
         F: FnOnce(PathBuf) -> Result<T, String>,
     {
         self.with_authorized_path(raw, label, false, |authorized| operation(authorized.real))
+    }
+
+    /// Wie `with_authorized_existing`, nur für Dateien aus `content_read`.
+    pub(crate) fn with_authorized_content<T, F>(
+        &self,
+        raw: &str,
+        label: &str,
+        operation: F,
+    ) -> Result<T, String>
+    where
+        F: FnOnce(PathBuf, ContentRead) -> Result<T, String>,
+    {
+        let current = self.lock_current()?;
+        let snapshot = require_snapshot(&current)?;
+        let authorized = Self::authorize_path_with_status(snapshot, raw, label, false)?;
+        let read = snapshot.content_read(&authorized.real).ok_or_else(|| {
+            errcode::with_detail(
+                errcode::BLOCKED_LOCATION,
+                format!("{label}: content not readable: {raw}"),
+            )
+        })?;
+        operation(authorized.real, read)
     }
 
     pub(crate) fn with_authorized_optional<T, F>(

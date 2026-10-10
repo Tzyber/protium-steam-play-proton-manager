@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "protium default capability, enge Anwendungsspeicher-Scope (INV-7). Steam-Environment-Reads laufen ausschließlich über den backendseitigen discover_steam_environment-Snapshot; externe URLs laufen über R-7 (open_external).",
+  "description": "protium default capability, enge Anwendungsspeicher-Scope (INV-7): nur $APPCACHE/cache, die Config-Backups in $APPCACHE/backups bleiben für die Webview unlesbar (S-03). Steam-Environment-Reads laufen ausschließlich über den backendseitigen discover_steam_environment-Snapshot; externe URLs laufen über R-7 (open_external), Netzabfragen über den Rust-Command http_get (S-02).",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -13,29 +13,17 @@
     {
       "identifier": "fs:scope",
       "allow": [
-        { "path": "$APPCACHE" },
-        { "path": "$APPCACHE/**" }
+        { "path": "$APPCACHE/cache" },
+        { "path": "$APPCACHE/cache/**" }
       ]
     },
     {
       "identifier": "fs:allow-write-text-file",
-      "allow": [{ "path": "$APPCACHE/**" }]
+      "allow": [{ "path": "$APPCACHE/cache/**" }]
     },
     {
       "identifier": "fs:allow-mkdir",
-      "allow": [{ "path": "$APPCACHE/**" }]
-    },
-    {
-      "identifier": "http:default",
-      "allow": [
-        { "url": "https://www.protondb.com/*" },
-        {
-          "url": "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases?per_page=15"
-        },
-        {
-          "url": "https://api.github.com/repos/Tzyber/protium-steam-play-proton-manager/releases/latest"
-        }
-      ]
+      "allow": [{ "path": "$APPCACHE/cache" }]
     }
   ]
 }

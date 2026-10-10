@@ -5,8 +5,12 @@ use crate::commands::errcode;
 use crate::commands::fd::{
     ensure_regular_fd, open_bound_root_fd, open_dir_at, open_file_at, read_fd_bytes,
 };
+#[cfg(target_os = "linux")]
+use crate::commands::scope::ContentRead;
 use crate::commands::scope::{EnvironmentState, MAX_ENVIRONMENT_READ_BYTES};
 use crate::commands::spawn_blocking_io;
+#[cfg(target_os = "linux")]
+use crate::commands::vdf_patch;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
@@ -25,6 +29,14 @@ const MAX_BATCH_DIR_SIZE_PATHS: usize = 4096;
 const MAX_DIRECTORY_WALK_DEPTH: usize = 256;
 const MAX_ENVIRONMENT_DIR_ENTRIES: usize = 8192;
 const MAX_SAFE_JS_INTEGER: u64 = 9_007_199_254_740_991;
+#[cfg(target_os = "linux")]
+const COMPAT_TOOL_MAPPING_PATH: [&str; 5] = [
+    "InstallConfigStore",
+    "Software",
+    "Valve",
+    "Steam",
+    "CompatToolMapping",
+];
 
 #[derive(Serialize, Debug, PartialEq, Eq, Clone)]
 #[serde(tag = "status", rename_all = "camelCase")]
@@ -73,7 +85,7 @@ fn read_environment_file_with_hook(
     before_open: &mut dyn FnMut(),
     after_open: &mut dyn FnMut(&mut std::fs::File),
 ) -> Result<Vec<u8>, String> {
-    state.with_authorized_existing(path, label, |real| {
+    state.with_authorized_content(path, label, |real, read| {
         let parent = real.parent().ok_or_else(|| {
             errcode::with_detail(
                 errcode::UNAVAILABLE,
@@ -89,7 +101,16 @@ fn read_environment_file_with_hook(
             errcode::with_detail(errcode::code_for_io(&error), format!("{label}: {error}"))
         })?;
         after_open(&mut file);
-        read_fd_bytes(&mut file, label, MAX_ENVIRONMENT_READ_BYTES, &mut |_| {})
+        let bytes = read_fd_bytes(&mut file, label, MAX_ENVIRONMENT_READ_BYTES, &mut |_| {})?;
+        match read {
+            ContentRead::Full => Ok(bytes),
+            ContentRead::CompatToolMappingOnly => {
+                let text = String::from_utf8(bytes).map_err(|error| {
+                    errcode::with_detail(errcode::UNREADABLE, format!("{label}: {error}"))
+                })?;
+                Ok(vdf_patch::extract_vdf_block(&text, &COMPAT_TOOL_MAPPING_PATH)?.into_bytes())
+            }
+        }
     })
 }
 

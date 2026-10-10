@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { availableBuiltinProtons, BLOCKLIST, blockReason } from "../../src/core/blocklist.js";
 import { parseCompatToolMapping, readToolVdf } from "../../src/core/compatTools.js";
@@ -505,5 +507,31 @@ describe("ensureSizeLimit (M4.3, größen-cap für reads)", () => {
 
   it("über dem limit → wirft", () => {
     expect(() => ensureSizeLimit(MAX_FILE_BYTES + 1)).toThrow(/zu groß/);
+  });
+});
+
+// vertragstest S-03: die datei ist der byte-genaue output von
+// extract_vdf_block (src-tauri/src/commands/vdf_patch_tests.rs,
+// cross_parser_mapping_ist_echter_rust_output). So kommt config.vdf im
+// frontend an: nur das mapping, ohne login-tokens.
+describe("parseCompatToolMapping liest das reduzierte config.vdf", () => {
+  const RUST_OUTPUT = readFileSync(
+    resolve(import.meta.dirname, "../fixtures/cross-parser-mapping-expected.vdf"),
+    "utf8",
+  );
+
+  it("liefert globale und spielweise zuordnung", () => {
+    expect(parseCompatToolMapping(RUST_OUTPUT)).toEqual(
+      new Map([
+        [0, "proton_experimental"],
+        [620, "GE-Proton9-1"],
+      ]),
+    );
+  });
+
+  it("enthält keine login-daten", () => {
+    for (const secret of ["ConnectCache", "geheim", "Accounts", "SentryFile"]) {
+      expect(RUST_OUTPUT).not.toContain(secret);
+    }
   });
 });

@@ -62,13 +62,16 @@ describe("statisch belegter bypass-vertrag der tauri-konfiguration", () => {
       return (entry.allow ?? []).map((rule) => rule.path ?? "");
     }
 
-    expect(allowPaths("fs:scope")).toEqual(["$APPCACHE", "$APPCACHE/**"]);
-    expect(allowPaths("fs:allow-write-text-file")).toEqual(["$APPCACHE/**"]);
-    expect(allowPaths("fs:allow-mkdir")).toEqual(["$APPCACHE/**"]);
+    // S-03: nur der cache-unterordner. $APPCACHE/backups trägt volle
+    // config.vdf-kopien samt login-tokens.
+    expect(allowPaths("fs:scope")).toEqual(["$APPCACHE/cache", "$APPCACHE/cache/**"]);
+    expect(allowPaths("fs:allow-write-text-file")).toEqual(["$APPCACHE/cache/**"]);
+    expect(allowPaths("fs:allow-mkdir")).toEqual(["$APPCACHE/cache"]);
+    expect(readFileSync(join(repo, "src/core/adapters/tauri.ts"), "utf8")).toContain(
+      'const CACHE_SUBDIR = "cache";',
+    );
 
-    // die vierte objekt-permission http:default wird in
-    // github-capability.test.ts exakt gepinnt; hier zählt die string-menge
-    // (objekt-permissions herausgefiltert).
+    // hier zählt die string-menge (objekt-permissions herausgefiltert).
     const stringPermissions = capability.permissions
       .filter((permission): permission is string => typeof permission === "string")
       .sort();
@@ -97,7 +100,6 @@ describe("statisch belegter bypass-vertrag der tauri-konfiguration", () => {
       "fs:allow-read-text-file",
       "fs:allow-write-text-file",
       "fs:scope",
-      "http:default",
     ]);
   });
 });

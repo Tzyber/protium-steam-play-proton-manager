@@ -10,7 +10,6 @@ import {
   readTextFile,
   writeTextFile,
 } from "@tauri-apps/plugin-fs";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type {
   Cache,
   DeleteResult,
@@ -20,7 +19,6 @@ import type {
   EnvironmentSnapshot,
   FileSystem,
   Http,
-  HttpResponse,
   InstallGeResult,
   InstallPhaseEvent,
   PendingDeleteInfo,
@@ -53,51 +51,21 @@ const fs: FileSystem = {
   },
 };
 
-// plugin-http kennt nur connectTimeout, keinen read-timeout: ein server, der
-// die verbindung annimmt und nichts sendet, würde den aufrufer sonst endlos
-// hängen lassen (INV-3). der timer umfasst fetch UND body-read. abort() darin
-// beendet den Rust-Lauf; Promise.race allein lässt ihn weiterlaufen (A-06).
-// im finally nicht aborten: Erfolg ist kein Timeout, der Body ist dann schon gelesen.
-const HTTP_TIMEOUT_MS = 30_000;
-// plugin-http: connectTimeout deckt nur den verbindungsaufbau, den rest des
-// laufs umfasst der timer oben. eigener name statt magic number (K-14).
-const CONNECT_TIMEOUT_MS = 10_000;
-// plugin-http 2.6 prüft nur die erste URL gegen den Scope und folgt Redirects
-// sonst ungeprüft (A-06). ProtonDB und die GitHub-API antworten ohne Redirect.
-const MAX_REDIRECTIONS = 0;
-
+// S-02: Netzabfragen laufen über `http_get` in Rust. URL-Allowlist, Header,
+// Redirect-Verbot, 30-s-Timeout und Größenlimit liegen dort, nicht in der Webview.
 const http: Http = {
   async get(url, opts) {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const controller = new AbortController();
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        controller.abort();
-        reject(new Error("HTTP request timed out"));
-      }, HTTP_TIMEOUT_MS);
+    const res = await invoke<{ status: number; text: string; etag: string | null }>("http_get", {
+      url,
+      ifNoneMatch: opts?.ifNoneMatch ?? null,
     });
-    try {
-      return await Promise.race([
-        (async () => {
-          const res = await tauriFetch(url, {
-            method: "GET",
-            headers: opts?.headers,
-            connectTimeout: CONNECT_TIMEOUT_MS,
-            maxRedirections: MAX_REDIRECTIONS,
-            signal: controller.signal,
-          });
-          const text = await res.text();
-          const headers: Record<string, string> = {};
-          res.headers.forEach((v, k) => {
-            headers[k.toLowerCase()] = v;
-          });
-          return { status: res.status, ok: res.ok, text, headers } satisfies HttpResponse;
-        })(),
-        timeout,
-      ]);
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
+    const headers: Record<string, string> = res.etag === null ? {} : { etag: res.etag };
+    return {
+      status: res.status,
+      ok: res.status >= 200 && res.status < 300,
+      text: res.text,
+      headers,
+    };
   },
 };
 
@@ -168,6 +136,8 @@ const system: System = {
 };
 
 // cache als json-dateien unter dem app-cache-dir
+// spiegel zu $APPCACHE/cache in capabilities/default.json: der webview-scope
+// endet dort, damit $APPCACHE/backups (volle config.vdf) unlesbar bleibt (S-03).
 const CACHE_SUBDIR = "cache";
 let cacheDirReady: Promise<void> | null = null;
 function ensureCacheDir(): Promise<void> {

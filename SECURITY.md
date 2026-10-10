@@ -42,8 +42,25 @@ Die Webview erhält weder statische noch dynamische plugin-fs-Grants auf
 Steam-, Library- oder System-Compat-Pfade. Das lokale Steam-Cover-
 Asset-Protokoll ist deaktiviert. Cover werden über einen begrenzten,
 snapshotautorisierten Binary-Read als Blob-URL geladen und bei Spielwechsel,
-Unmount oder verspäteter Antwort widerrufen. AppCache und AppConfig bleiben
-separat auf die feste Anwendungsspeicherung beschränkt.
+Unmount oder verspäteter Antwort widerrufen. Der plugin-fs-Scope der Webview
+endet bei `$APPCACHE/cache`. Die Config-Backups in `$APPCACHE/backups` tragen
+vollständige `config.vdf`-Kopien und bleiben für die Webview unlesbar.
+
+Dateiinhalte liefert das Backend nur für die Dateien, die das Frontend liest:
+Manifeste, `loginusers.vdf`, `localconfig.vdf`, `shortcuts.vdf`, Tool-VDFs und
+das Cover im `librarycache`. `config.vdf` kommt nur mit dem
+`CompatToolMapping`-Block. Login-Tokens (`ConnectCache`, `local.vdf`,
+`ssfn*`), CEF-Cookies und Logs unter dem Steam-Root sind damit auch für eine
+kompromittierte Webview nicht lesbar.
+
+### Netzabfragen
+
+Die Webview hat keine HTTP-Permission. ProtonDB-Bewertungen und die
+GitHub-Release-Listen laufen über den Rust-Command `http_get`. Er akzeptiert
+nur drei exakte URL-Formen, setzt die Header selbst, folgt keinem Redirect,
+bricht nach 30 Sekunden ab und liest höchstens 4 MiB. `tauri-plugin-http` ist
+entfernt, weil dessen Scope nur die Ziel-URL prüfte und Proxy-Einstellungen
+aus der Webview übernahm.
 
 bitte unbekannte lücken zuerst als [privaten GitHub Vulnerability
 Report](https://github.com/Tzyber/protium-steam-play-proton-manager/security/advisories/new)
@@ -103,6 +120,12 @@ vollständig ab; das Containment ist davon unabhängig und deckt die
 gemessenen Umgehungsformen ab (elf Eingabeformen sind als Regressionstest
 festgehalten). Der Nutzen des Containments hängt nicht daran, dass der
 Pre-Pass jede Form kennt.
+
+Bei einem Wert ohne schließendes Quote hängt die Bibliothek Folgezeilen ohne
+Ende-Prüfung an und prüft jedes Mal die ganze Sammlung: hinter dem Dateiende
+endlos, sonst quadratisch. Ein linearer Vorlauf bildet ihre Zeilenschleife
+nach und lehnt jeden Wert ab, der nicht auf seiner Zeile schließt. Steam
+schreibt Zeilenumbrüche in Werten escaped.
 
 ### Löschautorisierung
 
@@ -337,6 +360,10 @@ Prüfwege gelten ab dem ersten Release mit `SHA256SUMS`; die Releases bis
   maschinengebunden und der Mutationslauf dauert ein Vielfaches des Builds.
 
 ### Bekannte Einschränkungen und akzeptierte Restrisiken
+
+- **Startoptionen sind Shell:**
+  - *Trigger:* Eine kompromittierte Webview ruft `save_launch_options` mit einem beliebigen Befehl auf.
+  - *Wirkung:* Steam führt den Befehl beim nächsten Start des Spiels mit Nutzerrechten aus. Das Write-Gate sichert Ziel, Format und Steuerzeichen, nicht den Inhalt. Die Grenze ist hier die XSS-Freiheit des Frontends: CSP ohne Inline-Skripte, keine HTML-Sinks, keine gerenderten Fremd-URLs.
 
 - **File-Locking & TOCTOU Steam-Start:**
   - *Trigger:* Steam startet exakt im Zeitfenster zwischen der letzten Steam-läuft-Prüfung (unmittelbar vor dem `renameat`) und dem Umbenennen selbst.

@@ -1,0 +1,39 @@
+"InstallConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"ConnectCache"
+				{
+					"7a3f1c2e"		"02000000geheim"
+				}
+				"Accounts"
+				{
+					"testkonto"
+					{
+						"SteamID"		"76561198000000000"
+					}
+				}
+				"CompatToolMapping"
+				{
+					"0"
+					{
+						"name"		"proton_experimental"
+						"config"		""
+						"priority"		"75"
+					}
+					"620"
+					{
+						"name"		"GE-Proton9-1"
+						"config"		""
+						"priority"		"250"
+					}
+				}
+				"SentryFile"		"/home/u/.local/share/Steam/ssfn123"
+			}
+		}
+	}
+}

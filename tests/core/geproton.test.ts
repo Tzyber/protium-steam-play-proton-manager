@@ -237,7 +237,7 @@ describe("fetchReleases", () => {
       async get(_u, opts) {
         calls++;
         if (calls === 1) return r200;
-        expect(opts?.headers?.["If-None-Match"]).toBe('"v1"'); // conditional request
+        expect(opts?.ifNoneMatch).toBe('"v1"'); // conditional request
         return r304;
       },
     };

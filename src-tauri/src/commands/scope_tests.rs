@@ -1015,3 +1015,51 @@ fn prepare_app_dir_meldet_erzeugungsfehler_als_unavailable() {
     assert!(errcode::has_code(&error, errcode::UNAVAILABLE), "{error}");
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn content_read_folgt_den_lesern_aus_paths_ts() {
+    let steam = PathBuf::from("/s");
+    let snapshot = EnvironmentSnapshot::for_test(
+        steam.clone(),
+        vec![steam.clone(), PathBuf::from("/lib")],
+        vec![PathBuf::from("/usr/share/steam/compatibilitytools.d")],
+        PathBuf::from("/cache"),
+        PathBuf::from("/app-config"),
+    );
+    let read = |raw: &str| snapshot.content_read(Path::new(raw));
+
+    assert_eq!(
+        read("/s/config/config.vdf"),
+        Some(ContentRead::CompatToolMappingOnly)
+    );
+    for allowed in [
+        "/s/config/loginusers.vdf",
+        "/s/userdata/12/config/localconfig.vdf",
+        "/s/userdata/12/config/shortcuts.vdf",
+        "/s/compatibilitytools.d/GE-Proton9-1/compatibilitytool.vdf",
+        "/s/appcache/librarycache/620/abc/library_header.jpg",
+        "/s/steamapps/appmanifest_620.acf",
+        "/lib/steamapps/appmanifest_620.acf",
+        "/usr/share/steam/compatibilitytools.d/proton-cachyos/compatibilitytool.vdf",
+    ] {
+        assert_eq!(read(allowed), Some(ContentRead::Full), "{allowed}");
+    }
+    for denied in [
+        "/s/config/local.vdf",
+        "/s/config/htmlcache/Cookies",
+        "/s/ssfn123",
+        "/s/logs/connection_log.txt",
+        "/s/userdata/abc/config/localconfig.vdf",
+        "/s/userdata/12/7/remote/save.dat",
+        "/s/compatibilitytools.d/a/b/compatibilitytool.vdf",
+        "/s/appcache/librarycache/620/library_header.jpg",
+        "/lib/steamapps/appmanifest_.acf",
+        "/lib/steamapps/appmanifest_6x.acf",
+        "/lib/steamapps/common/g/appmanifest_1.acf",
+        "/lib/config/config.vdf",
+        "/cache/protondb/x.json",
+        "/elsewhere/config/config.vdf",
+    ] {
+        assert_eq!(read(denied), None, "{denied}");
+    }
+}

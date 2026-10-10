@@ -540,8 +540,8 @@ fn environment_exists_not_found_is_false_only_inside_snapshot() {
 fn environment_binary_read_requires_current_snapshot_root() {
     let root = std::env::temp_dir().join(format!("protium-env-read-{}", std::process::id()));
     let library = root.join("library");
-    std::fs::create_dir_all(&library).unwrap();
-    let cover = library.join("library_header.jpg");
+    std::fs::create_dir_all(library.join("steamapps")).unwrap();
+    let cover = library.join("steamapps/appmanifest_1.acf");
     std::fs::write(&cover, [1u8, 2, 3]).unwrap();
     let state = EnvironmentState::for_test(EnvironmentSnapshot::for_test(
         root.join("steam"),
@@ -560,6 +560,66 @@ fn environment_binary_read_requires_current_snapshot_root() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+// S-03: inhalte nur aus den dateien, die das frontend liest; config.vdf ohne
+// login-tokens.
+#[test]
+fn environment_read_liefert_nur_freigegebene_inhalte() {
+    let root = std::env::temp_dir().join(format!("protium-env-content-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let steam = root.join("steam");
+    for dir in [
+        "config/htmlcache",
+        "logs",
+        "userdata/7/config",
+        "steamapps/common/g",
+    ] {
+        std::fs::create_dir_all(steam.join(dir)).unwrap();
+    }
+    std::fs::write(
+        steam.join("config/config.vdf"),
+        "\"InstallConfigStore\"\n{\n\"Software\"\n{\n\"Valve\"\n{\n\"Steam\"\n{\n\"ConnectCache\"\n{\n\"k\"\t\"geheim\"\n}\n\"CompatToolMapping\"\n{\n\"620\"\n{\n\"name\"\t\"GE-Proton9-1\"\n}\n}\n}\n}\n}\n}\n",
+    )
+    .unwrap();
+    for file in [
+        "config/loginusers.vdf",
+        "userdata/7/config/localconfig.vdf",
+        "config/htmlcache/Cookies",
+        "config/local.vdf",
+        "ssfn123",
+        "logs/connection_log.txt",
+        "userdata/7/config/other.vdf",
+        "steamapps/common/g/game.cfg",
+    ] {
+        std::fs::write(steam.join(file), "x").unwrap();
+    }
+    let state = EnvironmentState::for_test(EnvironmentSnapshot::for_test(
+        steam.clone(),
+        vec![steam.clone()],
+        Vec::new(),
+        root.join("cache"),
+        root.join("app-config"),
+    ));
+    let read = |rel: &str| read_environment_file(&state, steam.join(rel).to_str().unwrap(), "test");
+
+    let config = String::from_utf8(read("config/config.vdf").unwrap()).unwrap();
+    assert!(!config.contains("geheim"), "{config}");
+    assert!(config.contains("GE-Proton9-1"), "{config}");
+    assert_eq!(read("config/loginusers.vdf").unwrap(), b"x");
+    assert_eq!(read("userdata/7/config/localconfig.vdf").unwrap(), b"x");
+    for rel in [
+        "config/htmlcache/Cookies",
+        "config/local.vdf",
+        "ssfn123",
+        "logs/connection_log.txt",
+        "userdata/7/config/other.vdf",
+        "steamapps/common/g/game.cfg",
+    ] {
+        let error = read(rel).unwrap_err();
+        assert!(error.contains("blocked-location"), "{rel}: {error}");
+    }
+    let _ = std::fs::remove_dir_all(root);
+}
+
 #[test]
 fn environment_read_file_erkennt_parent_tausch_vor_open() {
     let root = std::env::temp_dir().join(format!("protium-env-file-swap-{}", std::process::id()));
@@ -567,8 +627,8 @@ fn environment_read_file_erkennt_parent_tausch_vor_open() {
     let old = library.with_extension("old");
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&old);
-    std::fs::create_dir_all(&library).unwrap();
-    let cover = library.join("cover.jpg");
+    std::fs::create_dir_all(library.join("steamapps")).unwrap();
+    let cover = library.join("steamapps/appmanifest_1.acf");
     std::fs::write(&cover, [1u8, 2, 3]).unwrap();
     let state = EnvironmentState::for_test(EnvironmentSnapshot::for_test(
         root.join("steam"),
@@ -582,8 +642,8 @@ fn environment_read_file_erkennt_parent_tausch_vor_open() {
     // die datei wird nie über den fremden baum gelesen.
     let mut hook = || {
         std::fs::rename(&library, &old).unwrap();
-        std::fs::create_dir_all(&library).unwrap();
-        std::fs::write(library.join("cover.jpg"), [9u8, 9]).unwrap();
+        std::fs::create_dir_all(library.join("steamapps")).unwrap();
+        std::fs::write(library.join("steamapps/appmanifest_1.acf"), [9u8, 9]).unwrap();
     };
     let result = read_environment_file_with_hook(
         &state,
@@ -603,8 +663,8 @@ fn environment_read_file_begrenzt_wachstum_des_geoeffneten_deskriptors() {
     let root = std::env::temp_dir().join(format!("protium-env-file-growth-{}", std::process::id()));
     let library = root.join("library");
     let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&library).unwrap();
-    let cover = library.join("cover.jpg");
+    std::fs::create_dir_all(library.join("steamapps")).unwrap();
+    let cover = library.join("steamapps/appmanifest_1.acf");
     std::fs::write(&cover, [1u8, 2, 3]).unwrap();
     let state = EnvironmentState::for_test(EnvironmentSnapshot::for_test(
         root.join("steam"),

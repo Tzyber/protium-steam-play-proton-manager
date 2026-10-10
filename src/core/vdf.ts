@@ -13,6 +13,8 @@ export interface VdfNode {
 /** Neutralisiert gefährliche Block-Keys vor dem Parse und stellt den globalen
  *  Zustand nach dem Parse exakt wieder her. */
 export function parseVdf(text: string): VdfNode {
+  const input = neutralizeDangerousBlockKeys(text);
+  rejectOpenValues(input);
   // Die Bibliothek weist Keys ungefiltert zu und kann dabei `Object.prototype`
   // bzw. `Object` mutieren. Der Pre-Pass fängt die belegten Formen ab, bildet
   // die zeilenweise Grammatik der Bibliothek aber nicht vollständig ab. Deshalb
@@ -27,7 +29,7 @@ export function parseVdf(text: string): VdfNode {
   // Vorabtest 0,0001 ms, und ein Scan parst hunderte Manifeste.
   const guarded = GUARDED_PATTERN.test(text) ? snapshotGuarded() : undefined;
   try {
-    return sanitize(parse(neutralizeDangerousBlockKeys(text)));
+    return sanitize(parse(input));
   } finally {
     if (guarded !== undefined) restoreGuarded(guarded);
   }
@@ -94,6 +96,36 @@ const GUARDED_BLOCK_KEYS = new Set([...Object.getOwnPropertyNames(Object.prototy
 /** Ein Durchlauf über den Text entscheidet, ob das Containment nötig ist. Die
  *  Namen bestehen nur aus Wortzeichen, das Muster braucht keine Maskierung. */
 const GUARDED_PATTERN = new RegExp([...GUARDED_BLOCK_KEYS].join("|"));
+
+/** Zeilen-Regex von `@node-steam/vdf` 2.2.0 (`lib/index.js`), unverändert. */
+const LIB_LINE =
+  /^("((?:\\.|[^\\"])+)"|([a-z0-9_-]+))([ \t]*("((?:\\.|[^\\"])*)(")?|([a-z0-9_-]+)))?/;
+
+/** S-01: bildet die Zeilenschleife der Bibliothek nach. Schließt ein Wert
+ *  nicht auf seiner Zeile, hängt sie in `while (true)` Folgezeilen an, ohne
+ *  Ende-Prüfung, und prüft dabei jedes Mal die ganze Sammlung: hinter dem
+ *  Dateiende endlos, sonst quadratisch. Steam schreibt Zeilenumbrüche in
+ *  Werten escaped, ein offener Wert wird deshalb abgelehnt. */
+function rejectOpenValues(text: string): void {
+  let comment = false;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (line.startsWith("/*") && line.endsWith("*/")) continue;
+    if (line.startsWith("/*")) {
+      comment = true;
+      continue;
+    }
+    if (line.endsWith("*/")) {
+      comment = false;
+      continue;
+    }
+    if (comment || line === "" || /^[/{}]/.test(line)) continue;
+    const match = LIB_LINE.exec(line);
+    if (match?.[6] !== undefined && match[7] === undefined) {
+      throw new SyntaxError("VDF | Parse: value not closed on its line");
+    }
+  }
+}
 
 function neutralizeDangerousBlockKeys(text: string): string {
   const { tokens } = tokenizeVdf(text);

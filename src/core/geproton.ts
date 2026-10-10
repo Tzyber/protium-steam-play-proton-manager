@@ -206,13 +206,7 @@ export async function fetchReleases(
   }
 
   try {
-    const headers: Record<string, string> = {
-      Accept: "application/vnd.github+json",
-      "User-Agent": "protium",
-    };
-    if (cached?.etag) headers["If-None-Match"] = cached.etag;
-
-    const res = await http.get(RELEASES_URL, { headers });
+    const res = await http.get(RELEASES_URL, cached?.etag ? { ifNoneMatch: cached.etag } : {});
 
     if (res.status === 304 && cached) {
       const at = now();

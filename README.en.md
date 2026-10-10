@@ -67,8 +67,10 @@ gh attestation verify protium_<version>_amd64.deb --repo Tzyber/protium-steam-pl
 ```
 
 the AppImage bundles GTK and WebKit but expects the usual desktop libraries
-(X11, GL, fontconfig, harfbuzz, FriBidi). it starts under X11 or through
-XWayland; on a Wayland system without XWayland it does not start.
+(X11, GL, fontconfig, harfbuzz, FriBidi). on Debian and Ubuntu that includes
+`libegl1` (`sudo apt install libegl1`). without `libEGL.so.1` the dynamic
+linker stops the start. it starts under X11 or through XWayland; on a Wayland
+system without XWayland it does not start.
 
 key fingerprint: `08C084ECC83DFDB10E5CF60A8B2CA074A44AC4FA` (also in
 [SECURITY.md](SECURITY.md) and on keys.openpgp.org). compare it through a
@@ -202,7 +204,7 @@ the cache lives in `~/.cache/com.protium.desktop/`.
 
 ```
 src/core/                    domain logic, UI-free. talks only through ports
-src/core/adapters/tauri.ts   ports against plugin-fs/http + rust commands
+src/core/adapters/tauri.ts   ports against plugin-fs + rust commands
 src/ui/                      vue app: library, proton manager, cleanup, i18n
 src-tauri/                   rust commands (extract, download, process check,
                              dir size, fs scope, delete paths)

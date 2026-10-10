@@ -31,7 +31,7 @@ export interface HttpResponse {
 }
 
 export interface Http {
-  get(url: string, opts?: { headers?: Record<string, string> }): Promise<HttpResponse>;
+  get(url: string, opts?: { ifNoneMatch?: string }): Promise<HttpResponse>;
 }
 
 export interface PathIdentity {

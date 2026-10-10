@@ -62,7 +62,6 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(commands::download::CancelRegistry::default())
         .manage(commands::delete_ops::PendingDeleteRegistry::default())
@@ -70,6 +69,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::fs_ops::is_steam_running,
             commands::external::open_external,
+            commands::http_get::http_get,
             commands::prefix::open_prefix_folder,
             commands::fs_ops::dir_size,
             commands::fs_ops::batch_dir_sizes,

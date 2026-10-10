@@ -17,6 +17,7 @@ pub(crate) mod extract;
 pub(crate) mod fd;
 pub(crate) mod fs_ops;
 pub(crate) mod ge_install;
+pub(crate) mod http_get;
 pub(crate) mod path;
 pub(crate) mod prefix;
 pub(crate) mod scope;

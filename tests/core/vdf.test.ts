@@ -392,3 +392,40 @@ describe("parseVdf schließt geteilte objekte ab (Regression, versteckte klammer
     expect(asNode(node)).toBeDefined();
   });
 });
+
+// S-01: jede dieser formen hing vor dem fix in der sammelschleife der
+// bibliothek, endlos oder quadratisch. ein rückfall blockiert den worker.
+describe("parseVdf lehnt offene werte linear ab (S-01)", () => {
+  const OPEN = /value not closed on its line/;
+
+  it("abgeschnittene datei: wert ohne schließendes quote am dateiende", () => {
+    expect(() => parseVdf('"AppState"\n{\n\t"appid"\t\t"620"\n\t"name"\t\t"Portal 2\n}\n')).toThrow(
+      OPEN,
+    );
+  });
+
+  it("backslash vor dem zeilenende, auch mit leerraum und crlf", () => {
+    expect(() => parseVdf('"a"\n{\n\t"b"\t"c\\\n"\n}\n')).toThrow(OPEN);
+    expect(() => parseVdf('"a"\n{\n\t"b"\t"c\\  \r\n"\n}\n')).toThrow(OPEN);
+  });
+
+  it("blockkommentar mitten in der zeile, den nur der tokenizer kennt", () => {
+    expect(() => parseVdf('"a"\n{\n\t"b"\t"c" /*\n\t"d"\t"e\n*/\n}\n')).toThrow(OPEN);
+  });
+
+  it("großer offener wert bricht sofort ab statt quadratisch zu sammeln", () => {
+    const text = `"AppState"\n{\n\t"name"\t"${"x\n".repeat(200_000)}}\n`;
+    const start = performance.now();
+    expect(() => parseVdf(text)).toThrow(OPEN);
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+
+  it("geschlossene werte, escapte backslashes und kommentare bleiben lesbar", () => {
+    const parsed = parseVdf(
+      '// C:\\\n"a"\n{\n\t"b"\t"C:\\\\"\n\t"c"\t"x \\"y\\""\n\t/* "d" "offen\n\t*/\n}\n',
+    );
+    expect(getPath(parsed, "a", "b")).toBe("C:\\\\");
+    expect(getPath(parsed, "a", "c")).toBe('x \\"y\\"');
+    expect(getPath(parsed, "a", "d")).toBeUndefined();
+  });
+});

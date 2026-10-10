@@ -1,10 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockFetch = vi.hoisted(() => vi.fn());
-
-vi.mock("@tauri-apps/plugin-http", () => ({
-  fetch: mockFetch,
-}));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/plugin-fs", () => ({
   BaseDirectory: {},
@@ -18,84 +13,37 @@ import { invoke } from "@tauri-apps/api/core";
 import { exists as fsExists, mkdir, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { openPrefixFolder, tauriPorts } from "../../../src/core/adapters/tauri";
 
-/** Signal des ersten tauriFetch-Aufrufs; wirft ohne maxRedirections 0. */
-function pinnedFetchSignal(): AbortSignal {
-  const value: unknown = mockFetch.mock.calls[0]?.[1];
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    "maxRedirections" in value &&
-    value.maxRedirections === 0 &&
-    "signal" in value &&
-    value.signal instanceof AbortSignal
-  ) {
-    return value.signal;
-  }
-  throw new Error("tauriFetch ohne maxRedirections 0 und AbortSignal");
-}
-
+// S-02: kein webview-fetch mehr; url und etag gehen an den rust-command.
 describe("http.get", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    mockFetch.mockReset();
-  });
+  it("ruft http_get mit url und ifNoneMatch auf und bildet die antwort ab", async () => {
+    vi.mocked(invoke).mockClear();
+    vi.mocked(invoke).mockResolvedValueOnce({ status: 200, text: "{}", etag: 'W/"v2"' });
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+    const res = await tauriPorts.http.get("https://example.com", { ifNoneMatch: 'W/"v1"' });
 
-  it("liefert antwort inkl. body und headern", async () => {
-    mockFetch.mockResolvedValue({
-      status: 200,
-      ok: true,
-      text: async () => "{}",
-      headers: new Map([["content-type", "application/json"]]),
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("http_get", {
+      url: "https://example.com",
+      ifNoneMatch: 'W/"v1"',
     });
+    expect(res).toEqual({ status: 200, ok: true, text: "{}", headers: { etag: 'W/"v2"' } });
+  });
+
+  it("304 ist nicht ok, ohne etag bleiben die header leer", async () => {
+    vi.mocked(invoke).mockClear();
+    vi.mocked(invoke).mockResolvedValueOnce({ status: 304, text: "", etag: null });
 
     const res = await tauriPorts.http.get("https://example.com");
 
-    expect(res.status).toBe(200);
-    expect(res.ok).toBe(true);
-    expect(res.text).toBe("{}");
-    expect(res.headers["content-type"]).toBe("application/json");
-    expect(pinnedFetchSignal().aborted).toBe(false);
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it("räumt den timer auch nach einem fetch-fehler ab", async () => {
-    mockFetch.mockRejectedValue(new Error("network down"));
-
-    await expect(tauriPorts.http.get("https://example.com")).rejects.toThrow("network down");
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it("bricht einen hängenden body-read per timeout ab", async () => {
-    mockFetch.mockResolvedValue({
-      status: 200,
-      ok: true,
-      text: () => new Promise<string>(() => {}),
-      headers: new Map(),
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("http_get", {
+      url: "https://example.com",
+      ifNoneMatch: null,
     });
-
-    const promise = tauriPorts.http.get("https://example.com");
-    const assertion = expect(promise).rejects.toThrow("HTTP request timed out");
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(pinnedFetchSignal().aborted).toBe(true);
-    await assertion;
-    expect(vi.getTimerCount()).toBe(0);
+    expect(res).toEqual({ status: 304, ok: false, text: "", headers: {} });
   });
 
-  it("bricht nach timeout ab, wenn der server nie antwortet", async () => {
-    mockFetch.mockReturnValue(new Promise(() => {})); // nie auflösen
-
-    const promise = tauriPorts.http.get("https://example.com");
-    const assertion = expect(promise).rejects.toThrow("HTTP request timed out");
-    const signal = pinnedFetchSignal();
-    expect(signal.aborted).toBe(false);
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(signal.aborted).toBe(true);
-    await assertion;
-    expect(vi.getTimerCount()).toBe(0);
+  it("reicht ipc-fehler durch", async () => {
+    vi.mocked(invoke).mockRejectedValueOnce("unavailable: timeout");
+    await expect(tauriPorts.http.get("https://example.com")).rejects.toBe("unavailable: timeout");
   });
 });
 

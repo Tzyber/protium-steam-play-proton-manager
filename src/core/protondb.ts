@@ -3,8 +3,9 @@ import { asTier, isRecord, type Tier } from "./types.js";
 
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-// Der Host muss dem HTTP-Scope entsprechen (`www`, nicht Apex), sonst blockiert Tauri.
-// export nur für den spiegel-test (tests/security/github-capability.test.ts; Q-02)
+// Spiegel zu PROTONDB_SUMMARY_PREFIX in http_get.rs (`www`, nicht Apex), sonst
+// lehnt das Backend die URL ab. export nur für den spiegel-test
+// (tests/security/github-capability.test.ts; Q-02)
 export const PROTONDB_API_BASE = "https://www.protondb.com/api/v1/reports/summaries";
 
 /** öffentliche protondb-seite eines spiels (reports mit OS/proton-version/text). */

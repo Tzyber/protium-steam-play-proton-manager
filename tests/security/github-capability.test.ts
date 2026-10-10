@@ -7,13 +7,7 @@ import { PROTONDB_API_BASE } from "../../src/core/protondb.js";
 import { LATEST_RELEASE_URL } from "../../src/core/update.js";
 
 interface Capability {
-  permissions: (
-    | string
-    | {
-        identifier: string;
-        allow?: { url?: string; path?: string }[];
-      }
-  )[];
+  permissions: (string | { identifier: string })[];
 }
 
 interface TauriConfig {
@@ -28,47 +22,29 @@ const tauriConfig = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../../src-tauri/tauri.conf.json"), "utf8"),
 ) as TauriConfig;
 
-/** Die exakte Liste ist der Vertrag: ein Test, der nur nach Teilstrings sucht,
- *  besteht auch dann, wenn die echte Regel weiter gefasst ist (z. B. auf
- *  `https://api.github.com/**` oder den ganzen Host). */
-function urlAllowList(): string[] {
-  const entry = capability.permissions.find(
-    (permission) => typeof permission !== "string" && permission.identifier === "http:default",
-  );
-  if (typeof entry === "string" || entry === undefined) {
-    throw new Error("http:default fehlt in der capability");
-  }
-  return (entry.allow ?? []).map((rule) => rule.url ?? "");
+const httpGet = readFileSync(
+  resolve(import.meta.dirname, "../../src-tauri/src/commands/http_get.rs"),
+  "utf8",
+);
+
+function rustConst(name: string): string | undefined {
+  return httpGet.match(new RegExp(`const ${name}: &str =\\s*"([^"]+)";`))?.[1];
 }
 
-describe("github http capability", () => {
-  it("erlaubt genau die drei freigegebenen URLs", () => {
-    expect(urlAllowList()).toEqual([
-      "https://www.protondb.com/*",
-      "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases?per_page=15",
-      "https://api.github.com/repos/Tzyber/protium-steam-play-proton-manager/releases/latest",
-    ]);
+// S-02: die webview fetcht nicht mehr selbst. Die Allowlist liegt exakt in
+// `http_get.rs` und ist hier an die TS-URL-konstanten gebunden.
+describe("http-zugang der webview", () => {
+  it("gewährt keine http-permission", () => {
+    const identifiers = capability.permissions.map((permission) =>
+      typeof permission === "string" ? permission : permission.identifier,
+    );
+    expect(identifiers.filter((identifier) => identifier.startsWith("http:"))).toEqual([]);
   });
 
-  it("enthält keine wildcard- oder hostweite github-freigabe", () => {
-    for (const url of urlAllowList()) {
-      if (!url.includes("api.github.com")) continue;
-      expect(url).not.toMatch(/\*$/);
-      expect(url).toMatch(
-        /^https:\/\/api\.github\.com\/repos\/[^/]+\/[^/]+\/releases(\/[^/]+|\?[^/]*)$/,
-      );
-    }
-  });
-
-  // Q-02: die Freigaben sind an die TS-URL-konstanten gebunden. Ein Host- oder
-  // Pfadwechsel im code ohne Capability-Update fällt hier auf, statt erst als
-  // stiller 403 zur laufzeit.
-  it("bindet die http-scopes an die TS-URL-konstanten", () => {
-    const allow = urlAllowList();
-    expect(allow).toContain(RELEASES_URL);
-    expect(allow).toContain(LATEST_RELEASE_URL);
-    // protondb: die capability deckt denselben host wie die TS-basis ab.
-    expect(allow).toContain(`${new URL(PROTONDB_API_BASE).origin}/*`);
+  it("bindet die rust-allowlist an die TS-URL-konstanten", () => {
+    expect(rustConst("GE_RELEASES_URL")).toBe(RELEASES_URL);
+    expect(rustConst("PROTIUM_LATEST_URL")).toBe(LATEST_RELEASE_URL);
+    expect(rustConst("PROTONDB_SUMMARY_PREFIX")).toBe(`${PROTONDB_API_BASE}/`);
   });
 
   it("bindet die CSP img-src an die Cover-URL", () => {

@@ -71,9 +71,11 @@ gh attestation verify protium_<version>_amd64.deb --repo Tzyber/protium-steam-pl
 ```
 
 die AppImage bringt GTK und WebKit mit, setzt aber die üblichen
-Desktop-Bibliotheken voraus (X11, GL, Fontconfig, Harfbuzz, FriBidi). sie
-startet unter X11 beziehungsweise über XWayland; auf einem Wayland-System ohne
-XWayland startet sie nicht.
+Desktop-Bibliotheken voraus (X11, GL, Fontconfig, Harfbuzz, FriBidi). auf
+Debian und Ubuntu gehört `libegl1` dazu (`sudo apt install libegl1`). ohne
+`libEGL.so.1` stoppt der dynamische Linker den Start. sie startet unter X11
+beziehungsweise über XWayland; auf einem Wayland-System ohne XWayland startet
+sie nicht.
 
 fingerprint des schlüssels: `08C084ECC83DFDB10E5CF60A8B2CA074A44AC4FA`
 (auch in [SECURITY.md](SECURITY.md) und auf keys.openpgp.org). vergleiche ihn
@@ -267,7 +269,7 @@ wiedervorlage, sobald tauri auf gtk-rs 0.20 geht.
 
 ```
 src/core/                    domänenlogik, UI-frei. redet nur über ports
-src/core/adapters/tauri.ts   ports gegen plugin-fs/http + rust-commands
+src/core/adapters/tauri.ts   ports gegen plugin-fs + rust-commands
 src/ui/                      vue-app: library, proton-manager, cleanup, i18n
 src-tauri/                   rust-commands (extract, download, prozess-check,
                              dir-size, fs-scope, löschpfade)

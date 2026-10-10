@@ -459,6 +459,35 @@ pub fn get_vdf_value(text: &str, path: &[&str]) -> Result<Option<String>, String
     Ok(None)
 }
 
+/// Liefert nur den Block unter `path`, eingebettet in die Vorfahren-Keys.
+/// Alles andere fällt weg (S-03: `config.vdf` trägt neben dem Mapping auch
+/// Login-Tokens). Fehlt der Block, bleibt nur das leere Gerüst.
+pub fn extract_vdf_block(text: &str, path: &[&str]) -> Result<String, String> {
+    let Some((_, ancestors)) = path.split_last() else {
+        return Err(errcode::with_detail(errcode::INVALID_ID, "empty path"));
+    };
+    let tokens = tokenize(text)?;
+    let (mut from, mut to) = (0, tokens.len());
+    let mut block = String::new();
+    for (depth, &key) in path.iter().enumerate() {
+        let Some(Entry {
+            key: key_token,
+            block: Some((sub_from, sub_to)),
+            ..
+        }) = find_entry(&tokens, from, to, key)?
+        else {
+            break;
+        };
+        if depth == ancestors.len() {
+            block = text[key_token.start..tokens[sub_to].end].to_string();
+        }
+        (from, to) = (sub_from, sub_to);
+    }
+    Ok(ancestors.iter().rev().fold(block, |inner, key| {
+        format!("{}\n{{\n{inner}\n}}", quote(key))
+    }))
+}
+
 pub fn set_vdf_value(text: &str, path: &[&str], value: &str) -> Result<String, String> {
     if path.is_empty() {
         return Err(errcode::with_detail(errcode::INVALID_ID, "empty path"));

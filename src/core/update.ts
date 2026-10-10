@@ -58,9 +58,7 @@ export async function checkForUpdate(
   const current = parseVersion(currentVersion);
   if (!current) return null;
   try {
-    const response = await http.get(LATEST_RELEASE_URL, {
-      headers: { accept: "application/vnd.github+json" },
-    });
+    const response = await http.get(LATEST_RELEASE_URL);
     if (!response.ok) return null;
     const version = latestStableVersion(JSON.parse(response.text));
     const candidate = version ? parseVersion(version) : null;
