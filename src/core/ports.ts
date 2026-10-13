@@ -124,6 +124,7 @@ interface DeleteConsequence {
   action: "trash" | "permanentDelete";
   description: string;
   affectedAppIds?: number[];
+  affectsGlobalDefault?: boolean;
 }
 
 export interface PendingDeleteInfo {

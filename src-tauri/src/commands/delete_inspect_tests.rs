@@ -170,7 +170,7 @@ fn delete_reads_begrenzen_wachstum_nach_fd_pruefung() {
         }
     };
     let config_error =
-        find_apps_using_compat_tool_linux_with_hook(&root_fd, "GE-Proton9-27", &mut config_hook)
+        find_apps_using_compat_tool_linux_with_hook(&root_fd, &["GE-Proton9-27"], &mut config_hook)
             .unwrap_err();
     assert!(
         config_error.contains("size-limit-exceeded"),
@@ -281,7 +281,7 @@ fn config_read_bleibt_am_geoeffneten_fd_bei_pfadtausch() {
         }
     };
     let error =
-        find_apps_using_compat_tool_linux_with_hook(&root_fd, "GE-Proton9-27", &mut before_open)
+        find_apps_using_compat_tool_linux_with_hook(&root_fd, &["GE-Proton9-27"], &mut before_open)
             .unwrap_err();
     assert!(error.contains("size-limit-exceeded"), "error: {error}");
 
@@ -295,9 +295,9 @@ fn config_read_bleibt_am_geoeffneten_fd_bei_pfadtausch() {
         }
     };
     assert_eq!(
-        find_apps_using_compat_tool_linux_with_hook(&root_fd, "GE-Proton9-27", &mut after_open)
+        find_apps_using_compat_tool_linux_with_hook(&root_fd, &["GE-Proton9-27"], &mut after_open)
             .unwrap(),
-        vec![620]
+        (vec![620], false)
     );
 
     let _ = std::fs::remove_dir_all(&root);
@@ -411,10 +411,13 @@ fn find_apps_using_compat_tool_findet_abhaengige_spiele() {
     std::fs::write(config_dir.join("config.vdf"), config_content).unwrap();
 
     let apps = find_apps_using_compat_tool(&steam, "GE-Proton9-27").unwrap();
-    assert_eq!(apps, vec![620, 730]);
+    assert_eq!(apps, (vec![620, 730], false));
 
     let other = find_apps_using_compat_tool(&steam, "GE-Proton10-1").unwrap();
-    assert!(other.is_empty());
+    assert_eq!(other, (vec![], false));
+
+    let global = find_apps_using_compat_tool(&steam, "proton-cachyos-slr").unwrap();
+    assert_eq!(global, (vec![], true));
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -520,6 +523,52 @@ fn inspect_deletion_target_schuetzt_vor_falschen_loeschungen() {
         &|_| true,
     )
     .is_err());
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// INV-6: die folgen eines GE-tools nennen auch den globalen standard
+/// (mapping `"0"`) und gleichen über den internen namen der tool-vdf ab.
+#[test]
+fn compat_tool_folgen_nennen_globalen_standard_und_internen_namen() {
+    let root = wsg_fixture("inspect-tool-internal");
+    let steam = root.join("steam");
+    let config_dir = steam.join("config");
+    let tool = steam.join("compatibilitytools.d/GE-Proton11-4-x86_64");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::create_dir_all(&tool).unwrap();
+    std::fs::write(
+        tool.join("compatibilitytool.vdf"),
+        "\"compatibilitytools\"\n{\n\t\"compat_tools\"\n\t{\n\t\t\"GE-Proton11-4\"\n\t\t{\n\t\t\t\"display_name\"\t\"GE-Proton11-4\"\n\t\t}\n\t}\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        config_dir.join("config.vdf"),
+        "\"InstallConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"Valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"CompatToolMapping\"\n\t\t\t\t{\n\t\t\t\t\t\"0\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"name\"\t\"GE-Proton11-4\"\n\t\t\t\t\t}\n\t\t\t\t\t\"620\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"name\"\t\"GE-Proton11-4\"\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n",
+    )
+    .unwrap();
+
+    let inspection = inspect_deletion_target(
+        steam.to_str().unwrap(),
+        "compatTool",
+        tool.to_str().unwrap(),
+        &|_| true,
+    )
+    .unwrap();
+    let consequence = &inspection.consequences[0];
+    assert_eq!(consequence.affected_app_ids, Some(vec![620]));
+    assert_eq!(consequence.affects_global_default, Some(true));
+
+    std::fs::remove_file(tool.join("compatibilitytool.vdf")).unwrap();
+    let without_vdf = inspect_deletion_target(
+        steam.to_str().unwrap(),
+        "compatTool",
+        tool.to_str().unwrap(),
+        &|_| true,
+    )
+    .unwrap();
+    assert_eq!(without_vdf.consequences[0].affected_app_ids, None);
+    assert_eq!(without_vdf.consequences[0].affects_global_default, None);
 
     let _ = std::fs::remove_dir_all(&root);
 }

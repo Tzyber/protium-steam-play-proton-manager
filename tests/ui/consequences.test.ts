@@ -119,6 +119,28 @@ describe("localizeConsequences", () => {
     expect(lines).toEqual(["Permanently delete GE-Proton tool GE-Proton9-27 (assigned games: 2)"]);
   });
 
+  it("compat-tool als globaler standard ergänzt eine eigene zeile", () => {
+    setLocale("en");
+    const lines = localizeConsequences(
+      pending({
+        targetType: "compatTool",
+        targetPath: "/home/u/.steam/compatibilitytools.d/GE-Proton9-27",
+        consequences: [
+          {
+            path: "/home/u/.steam/compatibilitytools.d/GE-Proton9-27",
+            action: "permanentDelete",
+            description: "GE-Proton-Tool GE-Proton9-27 dauerhaft löschen",
+            affectsGlobalDefault: true,
+          },
+        ],
+      }),
+    );
+    expect(lines).toEqual([
+      "Permanently delete GE-Proton tool GE-Proton9-27",
+      "This tool is Steam's default; games without their own assignment lose their tool",
+    ]);
+  });
+
   it("compat-tool ohne affectedAppIds nutzt weiter die zeile ohne zahl", () => {
     setLocale("en");
     const lines = localizeConsequences(

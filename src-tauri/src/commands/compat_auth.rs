@@ -74,6 +74,10 @@ const VALVE_COMPAT_TOOLS: &[(&str, &[u32])] = &[
     ("proton_hotfix", &[2180100]),
 ];
 
+// kleiner als MAX_VDF_READ_BYTES: tool-vdfs sind winzig
+#[cfg(target_os = "linux")]
+const MAX_COMPAT_VDF_BYTES: u64 = 1024 * 1024;
+
 fn parse_compat_tool_vdf(text: &str) -> Result<Option<String>, String> {
     let tokens = vdf_patch::tokenize(text)?;
     let root = match vdf_patch::find_entry(&tokens, 0, tokens.len(), "compatibilitytools")? {
@@ -141,6 +145,24 @@ where
     compat_root_contains_name_at_fd(&root_fd, requested, hook)
 }
 
+/// Interner Name aus `compatibilitytools.d/<tool>/compatibilitytool.vdf`;
+/// jeder Lese- oder Parsefehler ergibt `None`.
+#[cfg(target_os = "linux")]
+pub(super) fn read_compat_tool_internal_name(
+    steam_root_fd: &OwnedFd,
+    tool_name: &str,
+) -> Option<String> {
+    let tools_fd = open_dir_at(
+        steam_root_fd.as_raw_fd(),
+        OsStr::new("compatibilitytools.d"),
+    )
+    .ok()?;
+    let tool_fd = open_dir_at(tools_fd.as_raw_fd(), OsStr::new(tool_name)).ok()?;
+    let mut vdf = open_file_at(tool_fd.as_raw_fd(), OsStr::new("compatibilitytool.vdf")).ok()?;
+    let text = read_fd_text(&mut vdf, "compatibilitytool.vdf", MAX_COMPAT_VDF_BYTES).ok()?;
+    parse_compat_tool_vdf(&text).ok().flatten()
+}
+
 #[cfg(target_os = "linux")]
 fn compat_root_contains_name_at_fd<F>(
     root_fd: &OwnedFd,
@@ -150,7 +172,6 @@ fn compat_root_contains_name_at_fd<F>(
 where
     F: FnMut(CompatAuthStage),
 {
-    const MAX_COMPAT_VDF_BYTES: u64 = 1024 * 1024; // kleiner als MAX_VDF_READ_BYTES: tool-vdfs sind winzig
     const ENOTDIR: i32 = 20;
     let proc_dir = Path::new("/proc/self/fd").join(root_fd.as_raw_fd().to_string());
     let entries = fs::read_dir(proc_dir).map_err(|error| {

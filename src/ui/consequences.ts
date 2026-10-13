@@ -12,7 +12,7 @@ export function localizeConsequences(
   pending: PendingDeleteInfo,
   targetName?: string | null,
 ): string[] {
-  return pending.consequences.map((c) => {
+  return pending.consequences.flatMap((c) => {
     switch (pending.targetType) {
       case "orphan": {
         const name = targetName ?? String(c.affectedAppIds?.[0] ?? pending.targetPath);
@@ -26,13 +26,14 @@ export function localizeConsequences(
         return t("cleanup.consequenceTrashEntry", { name: pathBasename(c.path) });
       case "compatTool": {
         const affected = c.affectedAppIds ?? [];
-        if (affected.length > 0) {
-          return t("cleanup.consequenceCompatToolMapped", {
-            name: pathBasename(c.path),
-            n: affected.length,
-          });
-        }
-        return t("cleanup.consequenceCompatTool", { name: pathBasename(c.path) });
+        const name = pathBasename(c.path);
+        const line =
+          affected.length > 0
+            ? t("cleanup.consequenceCompatToolMapped", { name, n: affected.length })
+            : t("cleanup.consequenceCompatTool", { name });
+        return c.affectsGlobalDefault
+          ? [line, t("cleanup.consequenceCompatToolGlobalDefault")]
+          : line;
       }
     }
     return c.description;

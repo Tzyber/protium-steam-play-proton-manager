@@ -13,6 +13,8 @@ use std::os::fd::{AsRawFd, OwnedFd};
 
 use crate::commands::compat_auth::is_managed_ge_name;
 #[cfg(target_os = "linux")]
+use crate::commands::compat_auth::read_compat_tool_internal_name;
+#[cfg(target_os = "linux")]
 use crate::commands::compat_auth::{
     open_external_library_fd_with_hook, read_app_manifest_with_hook, ManifestStage,
 };
@@ -39,6 +41,9 @@ pub struct DeleteConsequence {
     pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub affected_app_ids: Option<Vec<u32>>,
+    /// INV-6: das tool ist steams globale standard-zuordnung (mapping `"0"`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub affects_global_default: Option<bool>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -435,7 +440,10 @@ where
 
 /// Findet alle AppIDs in `config.vdf`, die für das angegebene Tool konfiguriert sind.
 #[cfg(test)]
-fn find_apps_using_compat_tool(steam_root: &Path, tool_name: &str) -> Result<Vec<u32>, String> {
+fn find_apps_using_compat_tool(
+    steam_root: &Path,
+    tool_name: &str,
+) -> Result<(Vec<u32>, bool), String> {
     #[cfg(target_os = "linux")]
     {
         let canonical_root = fs::canonicalize(steam_root).map_err(|error| {
@@ -446,7 +454,7 @@ fn find_apps_using_compat_tool(steam_root: &Path, tool_name: &str) -> Result<Vec
         })?;
         let root_fd = open_bound_root_fd(&canonical_root, &mut || {})?;
         let mut no_hook = |_: DeleteReadStage, _: Option<&mut std::fs::File>| {};
-        find_apps_using_compat_tool_linux_with_hook(&root_fd, tool_name, &mut no_hook)
+        find_apps_using_compat_tool_linux_with_hook(&root_fd, &[tool_name], &mut no_hook)
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -459,15 +467,15 @@ fn find_apps_using_compat_tool(steam_root: &Path, tool_name: &str) -> Result<Vec
 #[cfg(target_os = "linux")]
 fn find_apps_using_compat_tool_linux_with_hook<F>(
     steam_root_fd: &OwnedFd,
-    tool_name: &str,
+    tool_names: &[&str],
     hook: &mut F,
-) -> Result<Vec<u32>, String>
+) -> Result<(Vec<u32>, bool), String>
 where
     F: FnMut(DeleteReadStage, Option<&mut std::fs::File>),
 {
     let config_fd = match open_dir_at(steam_root_fd.as_raw_fd(), OsStr::new("config")) {
         Ok(fd) => fd,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok((Vec::new(), false)),
         Err(error) => {
             return Err(errcode::with_detail(
                 errcode::code_for_io(&error),
@@ -478,7 +486,7 @@ where
     hook(DeleteReadStage::ConfigBeforeOpen, None);
     let mut config_vdf = match open_file_at(config_fd.as_raw_fd(), OsStr::new("config.vdf")) {
         Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok((Vec::new(), false)),
         Err(error) => {
             return Err(errcode::with_detail(
                 errcode::code_for_io(&error),
@@ -511,6 +519,7 @@ where
     ];
 
     let mut affected_apps = Vec::new();
+    let mut global_default = false;
 
     for base in &base_paths {
         let mut curr_from = 0;
@@ -540,13 +549,13 @@ where
             for app_entry in mapping_entries {
                 if let vdf_patch::TokenKind::String(app_key) = &app_entry.key.kind {
                     if app_key.chars().all(|c| c.is_ascii_digit()) {
-                        // steam schreibt selbst einen default-eintrag mit appId 0
-                        // (globale standard-zuordnung, kein spiel), der darf
-                        // den lösch-durchlauf nicht brechen.
-                        if app_key == "0" {
-                            continue;
-                        }
-                        let app_id = crate::commands::scope::parse_app_id(app_key)?;
+                        // appId 0 ist steams globale standard-zuordnung, kein
+                        // spiel: sie wird als eigene folge gemeldet.
+                        let app_id = if app_key == "0" {
+                            None
+                        } else {
+                            Some(crate::commands::scope::parse_app_id(app_key)?)
+                        };
                         if let Some((sub_from, sub_to)) = app_entry.block {
                             let sub_entries = vdf_patch::scan_entries(&tokens, sub_from, sub_to)?;
                             for sub in sub_entries {
@@ -554,8 +563,11 @@ where
                                     if sub_k.eq_ignore_ascii_case("name") {
                                         if let vdf_patch::TokenKind::String(tool) = &sub.value.kind
                                         {
-                                            if tool == tool_name {
-                                                affected_apps.push(app_id);
+                                            if tool_names.contains(&tool.as_str()) {
+                                                match app_id {
+                                                    Some(id) => affected_apps.push(id),
+                                                    None => global_default = true,
+                                                }
                                             }
                                         }
                                     }
@@ -570,7 +582,7 @@ where
 
     affected_apps.sort_unstable();
     affected_apps.dedup();
-    Ok(affected_apps)
+    Ok((affected_apps, global_default))
 }
 
 /// Inspiziert ein Löschziel anhand der aktuellen Steam-Zustände (Manifeste, Shortcuts, Configs).
@@ -633,6 +645,7 @@ impl DeleteTargetContext<'_> {
                 action: action.to_string(),
                 description,
                 affected_app_ids,
+                affects_global_default: None,
             }],
         }
     }
@@ -766,18 +779,27 @@ where
         ));
     }
 
-    let affected_apps =
-        find_apps_using_compat_tool_linux_with_hook(steam_root_fd, tool_name, hook)?;
+    // config.vdf trägt den internen namen aus der tool-vdf; er kann vom
+    // ordnernamen abweichen. unlesbar heißt: nur der ordnername zählt.
+    let internal_name = read_compat_tool_internal_name(steam_root_fd, tool_name);
+    let mut names = vec![tool_name];
+    names.extend(internal_name.as_deref());
+    let (affected_apps, global_default) =
+        find_apps_using_compat_tool_linux_with_hook(steam_root_fd, &names, hook)?;
     let affected_app_ids = if affected_apps.is_empty() {
         None
     } else {
         Some(affected_apps)
     };
-    Ok(context.inspection(
+    let mut inspection = context.inspection(
         "permanentDelete",
         format!("permanently delete GE-Proton tool {tool_name}"),
         affected_app_ids,
-    ))
+    );
+    if global_default {
+        inspection.consequences[0].affects_global_default = Some(true);
+    }
+    Ok(inspection)
 }
 
 #[cfg(target_os = "linux")]
