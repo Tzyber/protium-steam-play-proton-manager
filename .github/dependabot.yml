@@ -7,6 +7,12 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    ignore:
+      # vitest 5 bricht das mutationsgate: der stryker-vitest-runner joint
+      # suite-namen mit " " statt " > " (stryker-mutator/stryker-js#6210).
+      # wieder aufnehmen, sobald der fix (PR #6214) released ist.
+      - dependency-name: "vitest"
+        versions: ["5.x"]
 
   # Rust / Tauri backend dependencies
   - package-ecosystem: "cargo"
