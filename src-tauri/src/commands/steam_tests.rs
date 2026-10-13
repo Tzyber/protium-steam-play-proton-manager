@@ -1872,6 +1872,39 @@ fn alias_root_kandidaten_schreiben_in_die_native_config() {
     }
 }
 
+/// Debians `steam-installer`: `.steam/steam` zeigt auf `.steam/debian-installation`.
+/// Die Discovery wählt das Ziel, das Write-Gate schreibt in dessen `config.vdf`.
+#[cfg(target_os = "linux")]
+#[test]
+fn debian_installation_root_ist_schreibbar() {
+    use crate::commands::scope::build_environment_snapshot;
+    use std::os::unix::fs::symlink;
+
+    let (home, cache, debian) = wsg_env_at("debian-root", ".steam/debian-installation");
+    std::fs::create_dir_all(debian.join("steamapps")).unwrap();
+    symlink(&debian, home.join(".steam/steam")).unwrap();
+    let root = home.parent().unwrap();
+    let allowed = build_environment_snapshot(&home, &cache, &root.join("app-config"))
+        .unwrap()
+        .steam_root;
+    assert_eq!(allowed, std::fs::canonicalize(&debian).unwrap());
+
+    let mut reader = || Ok(false);
+    let written = save_compat_tool_inner(
+        home.join(".steam/steam").to_str().unwrap(),
+        620,
+        Some("GE-Proton9-28"),
+        &cache,
+        &allowed,
+        &mut reader,
+    );
+    assert_eq!(written.unwrap(), WriteResult::Written);
+    assert!(std::fs::read_to_string(debian.join("config/config.vdf"))
+        .unwrap()
+        .contains("\"GE-Proton9-28\""));
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// Echtes `~/.steam/steam` (kein Symlink auf `.local/share/Steam`) und ein Home,
 /// dessen Pfad eine Symlink-Komponente enthält, lassen sich schreiben. Der
 /// erlaubte Root ist der von der Discovery kanonisierte Snapshot-Root. Ein
@@ -1974,6 +2007,15 @@ fn write_gate_folgt_keinem_root_tausch_nach_dem_snapshot() {
         "evil"
     );
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn backup_stempel_steigen_streng_auch_in_derselben_millisekunde() {
+    let stamps: Vec<u128> = (0..64).map(|_| next_backup_timestamp()).collect();
+    assert!(
+        stamps.windows(2).all(|pair| pair[0] < pair[1]),
+        "{stamps:?}"
+    );
 }
 
 #[test]

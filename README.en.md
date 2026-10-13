@@ -148,9 +148,11 @@ once at a time.
 
 - **native**: `~/.local/share/Steam` and `~/.steam/steam`
 - **flatpak**: `~/.var/app/com.valvesoftware.Steam/.local/share/Steam`
+- **debian package `steam-installer`**: `~/.steam/debian-installation`
 - **discovery**: `discover_steam_environment` resolves only fixed candidates
   from the backend home directory and reads libraries from `libraryfolders.vdf`;
-  webview-supplied library paths are not trusted.
+  webview-supplied library paths are not trusted. a symlink candidate pointing
+  anywhere else is skipped.
 - **symlinks**: root and library symlinks are canonicalised by the backend and
   checked against the current snapshot for every environment read.
 

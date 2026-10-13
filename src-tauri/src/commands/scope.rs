@@ -28,10 +28,12 @@ pub(crate) const MAX_ENVIRONMENT_READ_BYTES: u64 = MAX_VDF_READ_BYTES;
 /// erlaubt Config-Dateien nur unter dem hier entdeckten `steam_root`, nicht
 /// unter einer zweiten fest kodierten Wurzelliste. Ein neuer Kandidat ist
 /// schreibbar, sobald die Discovery ihn auswählt.
-pub(crate) const ROOT_CANDIDATES: [&str; 5] = [
+pub(crate) const ROOT_CANDIDATES: [&str; 6] = [
     ".local/share/Steam",
     ".steam/steam",
     ".steam/root",
+    // debians `steam-installer` (debian-bug #916303); `.steam/steam` zeigt dorthin.
+    ".steam/debian-installation",
     ".var/app/com.valvesoftware.Steam/.local/share/Steam",
     "snap/steam/common/.local/share/Steam",
 ];
@@ -84,7 +86,8 @@ pub(crate) enum ContentRead {
 
 pub(crate) struct AuthorizedBatchPath {
     pub(crate) requested: String,
-    pub(crate) real: Option<PathBuf>,
+    /// `Err`: nur dieser pfad ist nicht autorisiert, der rest des batches bleibt messbar.
+    pub(crate) real: Result<Option<PathBuf>, String>,
 }
 
 struct AuthorizedPath {
@@ -475,11 +478,11 @@ impl EnvironmentState {
         let snapshot = require_snapshot(&current)?;
         let mut authorized = Vec::with_capacity(paths.len());
         for path in paths {
-            let authorized_path =
-                Self::authorize_path_with_status(snapshot, path, "batch_dir_sizes", true)?;
+            let real = Self::authorize_path_with_status(snapshot, path, "batch_dir_sizes", true)
+                .map(|authorized_path| authorized_path.exists.then_some(authorized_path.real));
             authorized.push(AuthorizedBatchPath {
                 requested: path.clone(),
-                real: authorized_path.exists.then_some(authorized_path.real),
+                real,
             });
         }
         operation(authorized)
@@ -1043,17 +1046,12 @@ pub(crate) fn build_environment_snapshot(
                 format!("steam candidate canonicalize: {error}"),
             )
         })?;
-        if !fixed_candidates.iter().any(|fixed| fixed == &canonical) {
-            return Err(errcode::with_detail(
-                errcode::BLOCKED_LOCATION,
-                "steam candidate resolves to a non-fixed path",
-            ));
-        }
-        if !is_descendant_of(&canonical, &home) {
-            return Err(errcode::with_detail(
-                errcode::BLOCKED_LOCATION,
-                "steam candidate resolves outside home",
-            ));
+        // ein alias auf ein fremdes ziel wird nie root; nur dieser kandidat
+        // entfällt, die übrigen festen kandidaten bleiben auffindbar.
+        if !fixed_candidates.iter().any(|fixed| fixed == &canonical)
+            || !is_descendant_of(&canonical, &home)
+        {
+            continue;
         }
         let steamapps = canonical.join("steamapps");
         let Ok(metadata) = fs::symlink_metadata(&steamapps) else {

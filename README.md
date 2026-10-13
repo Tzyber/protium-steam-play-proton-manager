@@ -187,10 +187,12 @@ oberfläche auf deutsch und englisch, key-parität durch einen test abgesichert.
 
 - **nativ**: `~/.local/share/Steam` und `~/.steam/steam`
 - **flatpak**: `~/.var/app/com.valvesoftware.Steam/.local/share/Steam`
+- **debian-paket `steam-installer`**: `~/.steam/debian-installation`
 - **Discovery**: `discover_steam_environment` löst ausschließlich feste
   Kandidaten aus dem Backend-Home auf und liest Libraries selbst aus
   `libraryfolders.vdf`; externe Library-Pfade werden nicht aus der Webview
-  übernommen.
+  übernommen. Ein Symlink-Kandidat, der auf einen anderen Ort zeigt, wird
+  übersprungen.
 - **Symlinks**: Root- und Library-Symlinks werden backendseitig kanonisiert und
   bei jeder Environment-Leseoperation erneut gegen den aktuellen Snapshot
   geprüft.

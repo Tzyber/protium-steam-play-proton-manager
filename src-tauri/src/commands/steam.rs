@@ -458,6 +458,23 @@ fn lock_write_target(canon: &Path) -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|error| error.into_inner())
 }
 
+/// Streng steigender Millisekunden-Stempel je Prozess: zwei Writes in
+/// derselben Millisekunde oder nach einem Uhrsprung zurück bekämen sonst
+/// denselben Backup-Namen, und `O_EXCL` bräche den zweiten Write ab.
+fn next_backup_timestamp() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+    let previous = LAST
+        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |last| {
+            Some(now.max(last.saturating_add(1)))
+        })
+        .unwrap_or(0);
+    u128::from(now.max(previous.saturating_add(1)))
+}
+
 /// Gemeinsames Grundgerüst beider Steam-Config-Schreibpfade (INV-1):
 /// Pfadprüfung, Lock, gedeckelter Read, Patch, Größenprüfung,
 /// Steam-Läuft-Nachprüfung, Backup und atomarer Write. Die Aufrufer liefern
@@ -506,11 +523,7 @@ where
     }
     ensure_size(&patched, MAX_CONFIG_VDF_BYTES, "patched config")?;
 
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let backup_rel = Path::new("backups").join(backup_name(timestamp));
+    let backup_rel = Path::new("backups").join(backup_name(next_backup_timestamp()));
     if process_reader()? {
         return Err(errcode::STEAM_RUNNING.into());
     }

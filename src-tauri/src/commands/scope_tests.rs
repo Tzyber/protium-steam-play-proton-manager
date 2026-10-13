@@ -161,9 +161,39 @@ fn authorized_batch_preserves_existing_and_missing_paths() {
         .with_authorized_batch(&paths, |authorized| {
             assert_eq!(authorized.len(), 2);
             assert_eq!(authorized[0].requested, paths[0]);
-            assert!(authorized[0].real.is_some());
+            assert!(matches!(authorized[0].real, Ok(Some(_))));
             assert_eq!(authorized[1].requested, paths[1]);
-            assert!(authorized[1].real.is_none());
+            assert!(matches!(authorized[1].real, Ok(None)));
+            Ok(())
+        })
+        .unwrap();
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(unix)]
+#[test]
+fn authorized_batch_isolates_symlink_path_from_the_rest() {
+    let root =
+        std::env::temp_dir().join(format!("protium-env-batch-symlink-{}", std::process::id()));
+    let library = root.join("library");
+    let existing = library.join("steamapps/compatdata/12345");
+    let elsewhere = root.join("other-disk/Game");
+    let linked = library.join("steamapps/common/Game");
+    std::fs::create_dir_all(&existing).unwrap();
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::create_dir_all(linked.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, &linked).unwrap();
+    let state = EnvironmentState::for_test(snapshot(&root, &library));
+    let paths = vec![
+        linked.to_string_lossy().into_owned(),
+        existing.to_string_lossy().into_owned(),
+    ];
+
+    state
+        .with_authorized_batch(&paths, |authorized| {
+            assert!(authorized[0].real.is_err());
+            assert!(matches!(authorized[1].real, Ok(Some(_))));
             Ok(())
         })
         .unwrap();
@@ -240,7 +270,7 @@ fn discovery_rejects_root_symlink_outside_home() {
 
     let result =
         build_environment_snapshot(&home, &home.join("app-cache"), &home.join("app-config"));
-    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("steam-not-found"));
 
     let _ = std::fs::remove_dir_all(home);
     let _ = std::fs::remove_dir_all(outside);
@@ -341,7 +371,46 @@ fn discovery_rejects_alias_to_documents_fake_steam() {
 
     let result =
         build_environment_snapshot(&home, &home.join("app-cache"), &home.join("app-config"));
-    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("steam-not-found"));
+    let _ = std::fs::remove_dir_all(home);
+}
+
+#[cfg(unix)]
+#[test]
+fn discovery_skips_foreign_alias_and_uses_later_fixed_candidate() {
+    let home = std::env::temp_dir().join(format!(
+        "protium-discovery-alias-skip-{}",
+        std::process::id()
+    ));
+    let foreign = home.join("Documents/fake-steam");
+    let flatpak = home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam");
+    let alias = home.join(".steam/steam");
+    std::fs::create_dir_all(foreign.join("steamapps")).unwrap();
+    std::fs::create_dir_all(flatpak.join("steamapps")).unwrap();
+    std::fs::create_dir_all(alias.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&foreign, &alias).unwrap();
+
+    let snapshot =
+        build_environment_snapshot(&home, &home.join("app-cache"), &home.join("app-config"))
+            .unwrap();
+    assert_eq!(snapshot.steam_root, std::fs::canonicalize(flatpak).unwrap());
+    let _ = std::fs::remove_dir_all(home);
+}
+
+#[cfg(unix)]
+#[test]
+fn discovery_accepts_debian_installation_behind_steam_alias() {
+    let home =
+        std::env::temp_dir().join(format!("protium-discovery-debian-{}", std::process::id()));
+    let target = home.join(".steam/debian-installation");
+    std::fs::create_dir_all(target.join("steamapps")).unwrap();
+    std::os::unix::fs::symlink(&target, home.join(".steam/steam")).unwrap();
+    std::os::unix::fs::symlink(&target, home.join(".steam/root")).unwrap();
+
+    let snapshot =
+        build_environment_snapshot(&home, &home.join("app-cache"), &home.join("app-config"))
+            .unwrap();
+    assert_eq!(snapshot.steam_root, std::fs::canonicalize(target).unwrap());
     let _ = std::fs::remove_dir_all(home);
 }
 

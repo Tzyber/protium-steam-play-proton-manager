@@ -404,12 +404,13 @@ pub async fn batch_dir_sizes(
         state.with_authorized_batch(&paths, |authorized| {
             let mut result = HashMap::with_capacity(authorized.len());
             for authorized_path in authorized {
-                let path = authorized_path.requested;
-                let Some(real) = authorized_path.real else {
-                    result.insert(path, DirectorySize::Missing);
-                    continue;
+                let size = match authorized_path.real {
+                    Err(detail) => DirectorySize::Failed { detail },
+                    Ok(None) => DirectorySize::Missing,
+                    Ok(Some(real)) => measure_directory(&real)
+                        .unwrap_or_else(|detail| DirectorySize::Failed { detail }),
                 };
-                result.insert(path, measure_directory(&real)?);
+                result.insert(authorized_path.requested, size);
             }
             Ok(result)
         })
