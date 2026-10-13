@@ -468,7 +468,7 @@ fn next_backup_timestamp() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
     let previous = LAST
-        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |last| {
+        .try_update(Ordering::SeqCst, Ordering::SeqCst, |last| {
             Some(now.max(last.saturating_add(1)))
         })
         .unwrap_or(0);
