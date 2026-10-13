@@ -85,7 +85,8 @@ export function parseError(e: unknown): ParsedError {
   const match = CODE_PATTERN.exec(raw.trim());
   if (match) {
     const code = match[1] ?? "";
-    const kind = CODE_KINDS[code];
+    // hasOwn, sonst liefert "constructor" den Object-konstruktor aus dem prototyp
+    const kind = Object.hasOwn(CODE_KINDS, code) ? CODE_KINDS[code] : undefined;
     if (kind) {
       const detail = match[2];
       return detail === undefined

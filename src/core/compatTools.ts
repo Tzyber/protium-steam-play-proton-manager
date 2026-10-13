@@ -40,7 +40,10 @@ export function readToolVdf(
   let displayName = fallbackName;
   const compatTools = asNode(getPath(parseVdf(text), "compatibilitytools", "compat_tools"));
   if (compatTools) {
-    const internal = Object.keys(compatTools)[0];
+    const keys = Object.keys(compatTools);
+    // mehrere einträge machen die identität mehrdeutig; rust lehnt sie ebenso ab
+    if (keys.length > 1) throw new Error("compat_tools must contain exactly one tool");
+    const internal = keys[0];
     if (internal) {
       internalName = internal;
       // derselbe Rohwert wie beim Manifest-Namen: die Bibliothek macht aus

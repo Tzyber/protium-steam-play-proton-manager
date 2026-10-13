@@ -181,6 +181,40 @@ describe("readAppFields", () => {
       firstError: 'key "Dangling" ohne wert',
     });
   });
+
+  it("nimmt bei defektem erstem doppelblock keine werte aus dem zweiten", () => {
+    const text = `"UserLocalConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"Apps"
+				{
+					"10"
+					{
+						"LaunchOptions"		"broken %command%"
+						"Dangling"
+					}
+					"10"
+					{
+						"LaunchOptions"		"second %command%"
+						"LastPlayed"		"1"
+					}
+				}
+			}
+		}
+	}
+}
+`;
+    expect(readAppFields(text)).toEqual({
+      launchOptions: new Map(),
+      lastPlayed: new Map(),
+      firstError: 'key "Dangling" ohne wert',
+    });
+  });
 });
 
 // C-1: die vorab-probe prüft nur die ebenen des abgefragten pfads. ein defekt

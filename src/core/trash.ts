@@ -1,5 +1,5 @@
 import { parseError } from "./errtext.js";
-import { joinPath } from "./paths.js";
+import { paths } from "./paths.js";
 import type { System, TrashListing } from "./ports.js";
 import { type OrphanType, parseSafeAppId } from "./types.js";
 
@@ -106,7 +106,7 @@ export async function findTrashEntries(
     for (const entry of listing.entries) {
       // pfad aus dem verzeichnis des backends bauen, nicht selbst joinen, sonst
       // zeigt die UI einen anderen ort als den, der gelesen wurde
-      const fullPath = joinPath(listing.dir, entry.name);
+      const fullPath = paths.trashEntryIn(listing.dir, entry.name);
       const match = TRASH_NAME_RE.exec(entry.name);
 
       if (!match) {

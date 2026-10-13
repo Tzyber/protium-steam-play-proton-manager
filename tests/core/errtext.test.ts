@@ -47,6 +47,14 @@ describe("errtext und parseError (B1)", () => {
     expect(parseError(null).kind).toBe("unknown");
   });
 
+  it("prototyp-schlüssel wie constructor sind kein code", () => {
+    expect(parseError("constructor: boom")).toEqual({
+      kind: "unknown",
+      code: "unknown",
+      message: "constructor: boom",
+    });
+  });
+
   it("ProtiumError behaelt Klasse, Code und Detail", () => {
     const parsed = parseError(new SteamRunningError("write"));
     expect(parsed.kind).toBe("blocked");

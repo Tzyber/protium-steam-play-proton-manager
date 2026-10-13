@@ -220,7 +220,7 @@ describe("deriveProtonCheck", () => {
     expect(checks).toEqual([{ appId: 3, reasons: ["tool-not-recognized"] }]);
   });
 
-  it("erlaubt tool-not-recognized trotz symlink-warning eines anderen tools", () => {
+  it("unterdrückt tool-not-recognized bei symlink-warning mit fremdem verzeichnisnamen", () => {
     const checks = deriveProtonCheck(
       result(
         [game(3, { tier: "unknown", confidence: "unknown" }, "missing-tool", "explicit")],
@@ -237,7 +237,7 @@ describe("deriveProtonCheck", () => {
       ),
     );
 
-    expect(checks).toEqual([{ appId: 3, reasons: ["tool-not-recognized"] }]);
+    expect(checks).toEqual([]);
   });
 
   it("erkennt ein tool trotz unbekannter größe weiterhin", () => {

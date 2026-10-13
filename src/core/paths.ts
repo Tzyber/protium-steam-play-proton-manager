@@ -33,6 +33,10 @@ export const paths = {
   compatToolDir: (root: string, toolName: string) => join(root, "compatibilitytools.d", toolName),
   compatToolVdfIn: (baseDir: string, toolDir: string) =>
     join(baseDir, toolDir, "compatibilitytool.vdf"),
+  compatToolDirIn: (baseDir: string, toolDir: string) => join(baseDir, toolDir),
+  manifestIn: (appsDir: string, entryName: string) => join(appsDir, entryName),
+  claimEntryIn: (dir: string, name: string) => join(dir, name),
+  trashEntryIn: (dir: string, name: string) => join(dir, name),
   userdataDir: (root: string) => join(root, "userdata"),
   userdataAccountDir: (root: string, userId: string) => join(root, "userdata", userId),
   localConfigVdf: (root: string, userId: string) =>

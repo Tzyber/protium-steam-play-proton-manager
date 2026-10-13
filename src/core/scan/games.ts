@@ -2,7 +2,7 @@ import { blockReason } from "../blocklist.js";
 import { errText } from "../errtext.js";
 import { readAppFields } from "../localconfig.js";
 import { parseManifest } from "../manifest.js";
-import { joinPath, paths } from "../paths.js";
+import { paths } from "../paths.js";
 import type { DirEntry, Ports } from "../ports.js";
 import {
   type Game,
@@ -115,7 +115,7 @@ async function readManifestFile(
   const m = MANIFEST_RE.exec(entryName);
   if (!m) return null;
 
-  const manifestPath = joinPath(appsDir, entryName);
+  const manifestPath = paths.manifestIn(appsDir, entryName);
   // der leere string deckt den typgetriebenen Fall ab (`m[1]` ist durch
   // noUncheckedIndexedAccess `string | undefined`); parseSafeAppId weist
   // ihn ohnehin ab und liefert null.

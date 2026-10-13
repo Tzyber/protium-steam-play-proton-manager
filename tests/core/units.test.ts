@@ -451,6 +451,15 @@ describe("readToolVdf", () => {
     );
     expect(flag).toEqual({ internalName: "tool", displayName: "true" });
   });
+
+  it("wirft bei mehr als einem eintrag unter compat_tools", () => {
+    expect(() =>
+      readToolVdf(
+        `"compatibilitytools"\n{\n\t"compat_tools"\n\t{\n\t\t"a"\n\t\t{\n\t\t}\n\t\t"b"\n\t\t{\n\t\t}\n\t}\n}`,
+        "fallback",
+      ),
+    ).toThrow("compat_tools must contain exactly one tool");
+  });
 });
 
 describe("errText", () => {

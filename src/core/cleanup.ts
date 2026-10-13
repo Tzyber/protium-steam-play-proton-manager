@@ -1,4 +1,4 @@
-import { joinPath, paths } from "./paths.js";
+import { paths } from "./paths.js";
 import type { DirEntry, FileSystem } from "./ports.js";
 import { SHORTCUT_ID_THRESHOLD } from "./shortcuts.js";
 import { ORPHAN_TYPES, type OrphanEntry, type OrphanType, parseSafeAppId } from "./types.js";
@@ -228,7 +228,7 @@ export async function findIncompleteDeletions(
     for (const entry of entries) {
       if (!entry.isDirectory || entry.isSymlink) continue;
       if (!entry.name.startsWith(DELETE_CLAIM_PREFIX)) continue;
-      found.push({ path: joinPath(dir, entry.name), library, type, name: entry.name });
+      found.push({ path: paths.claimEntryIn(dir, entry.name), library, type, name: entry.name });
     }
   };
 

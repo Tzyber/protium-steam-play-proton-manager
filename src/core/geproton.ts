@@ -29,10 +29,12 @@ export interface GeRelease {
   sha512Url: string | null;
 }
 
+// roher body statt geparster releases: jeder lesezugriff parst neu, sonst
+// überlebt die parse-ausgabe einer älteren app-version den 304-pfad.
 interface CacheEntry {
   etag: string | null;
   fetchedAt: number;
-  releases: GeRelease[];
+  body: string;
 }
 
 export type FetchSource = "cache" | "not-modified" | "fresh" | "offline";
@@ -181,18 +183,23 @@ export async function fetchReleases(
   force = false,
 ): Promise<FetchResult> {
   const cacheKey = `${CACHE_KEY}:${targetArch}`;
-  let cached: CacheEntry | null = null;
+  let cached: (CacheEntry & { releases: GeRelease[] }) | null = null;
   try {
     const raw = await cache.get(cacheKey);
     if (raw) {
       const entry: unknown = JSON.parse(raw);
       // shape-prüfung statt blindem cast (K-14): ein ungültiger oder fehlerhafter
-      // Cache (fremde form, releases kein array) wird wie ein miss behandelt.
-      if (isRecord(entry) && typeof entry.fetchedAt === "number" && Array.isArray(entry.releases)) {
+      // Cache (fremde form, body kein string) wird wie ein miss behandelt.
+      if (
+        isRecord(entry) &&
+        typeof entry.fetchedAt === "number" &&
+        typeof entry.body === "string"
+      ) {
         cached = {
           etag: typeof entry.etag === "string" ? entry.etag : null,
           fetchedAt: entry.fetchedAt,
-          releases: entry.releases,
+          body: entry.body,
+          releases: parseReleases(entry.body, targetArch),
         };
       }
     }
@@ -213,7 +220,11 @@ export async function fetchReleases(
       try {
         await cache.set(
           cacheKey,
-          JSON.stringify({ ...cached, fetchedAt: at } satisfies CacheEntry),
+          JSON.stringify({
+            etag: cached.etag,
+            fetchedAt: at,
+            body: cached.body,
+          } satisfies CacheEntry),
         );
       } catch {
         // cache-schreibfehler darf frische daten nicht verwerfen
@@ -237,7 +248,7 @@ export async function fetchReleases(
         JSON.stringify({
           etag: res.headers.etag ?? null,
           fetchedAt: at,
-          releases,
+          body: res.text,
         } satisfies CacheEntry),
       );
     } catch {

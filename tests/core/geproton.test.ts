@@ -268,7 +268,7 @@ describe("fetchReleases", () => {
     const cache = memCache();
     await cache.set(
       "gh:ge-releases:x86_64",
-      JSON.stringify({ etag: '"v1"', fetchedAt: 0, releases: [release] }),
+      JSON.stringify({ etag: '"v1"', fetchedAt: 0, body: ghBody() }),
     );
     cache.set = async () => {
       throw new Error("disk voll");
@@ -283,7 +283,7 @@ describe("fetchReleases", () => {
     };
     const res = await fetchReleases(http, cache, X86_64, () => t);
     expect(res.source).toBe("not-modified");
-    expect(res.releases).toHaveLength(1);
+    expect(res.releases).toHaveLength(2);
     expect(res.fetchedAt).toBe(TTL_OVER);
     expect(calls).toBe(1);
   });
@@ -309,11 +309,11 @@ describe("fetchReleases", () => {
     expect(rels).toHaveLength(2); // cache statt leer
   });
 
-  it("cache mit releases:null → wie miss behandelt, nicht durchgereicht (M4.2)", async () => {
+  it("cache mit body:null → wie miss behandelt, nicht durchgereicht (M4.2)", async () => {
     const cache = memCache();
     await cache.set(
       "gh:ge-releases:x86_64",
-      JSON.stringify({ etag: null, fetchedAt: 0, releases: null }),
+      JSON.stringify({ etag: null, fetchedAt: 0, body: null }),
     );
     const http: Http = {
       get() {
@@ -325,6 +325,53 @@ describe("fetchReleases", () => {
 
     expect(result.source).toBe("offline"); // cache wurde verworfen
     expect(result.releases).toEqual([]);
+  });
+
+  it("speichert den rohen body und parst ihn bei jedem lesen neu", async () => {
+    const cache = memCache();
+    await fetchReleases(
+      httpOnce({ text: ghBody(), headers: { etag: '"v1"' } }),
+      cache,
+      X86_64,
+      () => 0,
+    );
+    expect(JSON.parse((await cache.get("gh:ge-releases:x86_64")) ?? "null")).toEqual({
+      etag: '"v1"',
+      fetchedAt: 0,
+      body: ghBody(),
+    });
+
+    const res = await fetchReleases(
+      httpOnce({}, () => {
+        throw new Error("kein http erwartet");
+      }),
+      cache,
+      X86_64,
+      () => 0,
+    );
+    expect(res.source).toBe("cache");
+    expect(res.releases).toEqual(parseReleases(ghBody(), X86_64));
+  });
+
+  it("alter cache mit geparsten releases ohne body → miss", async () => {
+    const cache = memCache();
+    await cache.set(
+      "gh:ge-releases:x86_64",
+      JSON.stringify({ etag: '"v1"', fetchedAt: 0, releases: [release] }),
+    );
+    let ifNoneMatch: string | undefined = "unset";
+    const http: Http = {
+      async get(_u, opts) {
+        ifNoneMatch = opts?.ifNoneMatch;
+        return { status: 200, ok: true, text: ghBody(), headers: {} };
+      },
+    };
+
+    const res = await fetchReleases(http, cache, X86_64, () => 0);
+
+    expect(ifNoneMatch).toBeUndefined();
+    expect(res.source).toBe("fresh");
+    expect(res.releases).toHaveLength(2);
   });
 
   it("offline ohne cache → [] statt throw", async () => {

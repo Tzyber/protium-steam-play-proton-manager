@@ -54,12 +54,13 @@ function toolAbsenceUncertain(warnings: ScanWarning[], compatTool: string): bool
       // das verzeichnis ist unbekannt: das gemappte tool könnte darin liegen
       return true;
     }
-    if (warning.reason === "vdf-unreadable" || warning.reason === "vdf-invalid") {
+    if (
+      warning.reason === "vdf-unreadable" ||
+      warning.reason === "vdf-invalid" ||
+      warning.reason === "symlink"
+    ) {
       // der internalName des eintrags ist unbekannt und könnte das gemappte tool sein
       return true;
-    }
-    if (warning.reason === "symlink") {
-      return warning.toolName === compatTool;
     }
     return false;
   });

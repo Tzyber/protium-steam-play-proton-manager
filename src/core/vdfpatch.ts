@@ -345,16 +345,18 @@ export function getVdfChildFieldValues(
   for (const child of scanEntries(tokens, from, to)) {
     if (!child.block) continue;
     const key = child.key.value.toLowerCase();
+    // vor dem parse gemerkt: auch ein defekter erster block belegt den key,
+    // sonst lieferte ein späteres duplikat die werte.
+    const first = !seen.has(key);
+    seen.add(key);
     try {
       const fields = new Map<string, string>();
       for (const leafKey of leafKeys) {
         const entry = findEntry(tokens, child.block.from, child.block.to, leafKey);
         if (entry && !entry.block) fields.set(leafKey, entry.value.value);
       }
-      // die prüfung liegt hinter dem parse: ein defekter doppelter block wird
-      // weiterhin gemeldet, trägt aber keine werte bei.
-      if (seen.has(key)) continue;
-      seen.add(key);
+      // duplikate werden weiter geparst, damit ihr fehler gemeldet wird
+      if (!first) continue;
       // block ohne einen der leafs bleibt draußen, sonst ändert der wrapper sein verhalten
       if (fields.size > 0) values.set(child.key.value, fields);
     } catch (e) {

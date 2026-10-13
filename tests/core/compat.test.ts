@@ -423,6 +423,36 @@ describe("listCompatTools", () => {
     expect(result.tools[0]?.internalName).toBe("internal");
     expect(result.tools[0]?.usedBy).toEqual([620]);
   });
+
+  it("meldet mehrere compat_tools-einträge als vdf-invalid", async () => {
+    const fs: FileSystem = {
+      exists: vi.fn(async () => true),
+      readFile: vi.fn(async () => new Uint8Array()),
+      readDir: vi.fn(async () => [{ name: "Folder", isDirectory: true, isSymlink: false }]),
+      readTextFile: vi.fn(
+        async () => `"compatibilitytools"
+{
+  "compat_tools"
+  {
+    "first" {}
+    "second" {}
+  }
+}`,
+      ),
+    };
+    const system = {
+      pathIdentity: vi.fn(async () => ({ realpath: "/compat", dev: "1", ino: "1" })),
+      dirSize: vi.fn(async () => ({ status: "measured" as const, sizeBytes: 12 })),
+    } as unknown as System;
+
+    const result = await listCompatTools(fs, system, "/steam", new Map(), new Set());
+
+    expect(result.tools).toEqual([]);
+    expect(result.counts).toEqual({ read: 0, failed: 1 });
+    expect(result.warnings).toEqual([
+      expect.objectContaining({ type: "compat-tool", toolName: "Folder", reason: "vdf-invalid" }),
+    ]);
+  });
 });
 
 describe("Zuordnungsanalyse aus vorhandenen Scan-Fakten", () => {
