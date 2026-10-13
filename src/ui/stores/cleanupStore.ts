@@ -445,7 +445,10 @@ export const useCleanupStore = defineStore("cleanup", {
           : [];
       const accepted = confirm.ask(
         {
-          title: t("cleanup.deleteConfirmTitle", { n: prepared.length }),
+          title:
+            prepared.length === 1
+              ? t("cleanup.deleteConfirmSingle", { n: prepared.length })
+              : t("cleanup.deleteConfirmTitle", { n: prepared.length }),
           message: [...batchInfo, ...prepared.flatMap((p) => p.descriptions)].join("\n"),
           // shadercache wird hart gelöscht, compatdata nur verschoben: der
           // knopf benennt die jeweils schwerere wirkung.

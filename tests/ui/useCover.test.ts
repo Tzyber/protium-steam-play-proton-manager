@@ -29,6 +29,26 @@ function game(appId: number, localHeader: string | null): Game {
 }
 
 describe("useCover", () => {
+  it("zeigt ohne lokales cover nach einem cdn-fehler den platzhalter", async () => {
+    const current = ref<Game | null>(game(7, null));
+    let exposed: ReturnType<typeof useCover> | undefined;
+    const host = mount({
+      setup() {
+        exposed = useCover(() => current.value);
+        return {};
+      },
+      template: "<div />",
+    });
+    if (!exposed) throw new Error("useCover not mounted");
+    const cover = exposed;
+
+    await vi.waitFor(() => expect(cover.src.value).toBe("https://cdn.example/7.jpg"));
+    cover.onError();
+    expect(cover.src.value).toBeNull();
+
+    host.unmount();
+  });
+
   it("lädt lokale cover-bytes als blob-url und fällt danach auf cdn zurück", async () => {
     const create = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:cover-1");
     const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
@@ -52,6 +72,8 @@ describe("useCover", () => {
     cover.onError();
     expect(cover.src.value).toBe("https://cdn.example/42.jpg");
     expect(revoke).toHaveBeenCalledWith("blob:cover-1");
+    cover.onError();
+    expect(cover.src.value).toBeNull();
 
     host.unmount();
     create.mockRestore();

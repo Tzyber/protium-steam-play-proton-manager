@@ -107,6 +107,9 @@ export const useScanStore = defineStore("scan", {
           });
       } catch (e) {
         if (!isCurrent()) return;
+        // ein altes ergebnis nach gescheitertem rescan zeigte root und tools,
+        // die es so nicht mehr gibt; löschaktionen liefen gegen den alten root.
+        this.result = null;
         if (parseError(e).code === "steam-not-found") {
           logEvent("info", "Scan: keine Steam-Installation gefunden");
           this.status = "not-found";

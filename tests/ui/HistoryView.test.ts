@@ -3,6 +3,7 @@ import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setLocale, t } from "../../src/ui/i18n";
+import { useUiStore } from "../../src/ui/stores/uiStore";
 import HistoryView from "../../src/ui/views/HistoryView.vue";
 
 const listConfigBackups = vi.fn();
@@ -23,6 +24,7 @@ describe("HistoryView", () => {
     setActivePinia(createPinia());
     listConfigBackups.mockReset();
     readLogTail.mockReset();
+    openLogsFolder.mockReset();
   });
 
   it("zeigt frühere Stände mit Art, Zeitpunkt und Größe, ohne Dateinamen", async () => {
@@ -65,5 +67,17 @@ describe("HistoryView", () => {
     await vi.waitFor(() => expect(wrapper.text()).toContain("unlesbar"));
 
     expect(wrapper.text()).not.toContain(t("history.snapshotsEmpty"));
+  });
+
+  it("meldet einen Fehler beim Öffnen des Ordners auch bei gefülltem Protokoll", async () => {
+    listConfigBackups.mockResolvedValue([]);
+    readLogTail.mockResolvedValue("[1] [INFO] Start\n");
+    openLogsFolder.mockRejectedValue("handler-unavailable");
+
+    const wrapper = mount(HistoryView);
+    await vi.waitFor(() => expect(wrapper.find(".log").exists()).toBe(true));
+    await wrapper.get(".log-block button").trigger("click");
+
+    await vi.waitFor(() => expect(useUiStore().notification).not.toBeNull());
   });
 });

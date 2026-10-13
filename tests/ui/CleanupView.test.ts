@@ -476,6 +476,20 @@ describe("CleanupView incomplete deletions", () => {
     expect(wrapper.text()).toContain(t("cleanup.unavailable"));
   });
 
+  it("papierkorb-tab zeigt während der suche den ladetext statt eines leeren panels", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    store.trashScanning = true;
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+    await wrapper.get("#cv-tab-trash").trigger("click");
+
+    const panel = wrapper.get("#cv-panel-trash .empty");
+    expect(panel.text()).toBe(t("cleanup.searching"));
+  });
+
   it("leer-zustand erscheint nicht bei blockiertem scan", async () => {
     const store = useCleanupStore();
     vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);

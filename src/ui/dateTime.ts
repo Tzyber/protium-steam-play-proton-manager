@@ -31,8 +31,8 @@ export function timeText(ms: number): string {
  *  bleibt der feste sonderfall: Intl würde dort sekunden zählen. `always`
  *  statt `auto`: die tage sind gerundete 24-h-blöcke, „gestern" wäre nach
  *  ~30 h kalendarisch oft falsch. */
-export function relativeTime(ts: number): string {
-  const seconds = Math.round((Date.now() - ts) / 1000);
+export function relativeTime(ts: number, now = Date.now()): string {
+  const seconds = Math.round((now - ts) / 1000);
   if (seconds < 60) return t("time.justNow");
   const minutes = Math.round(seconds / 60);
   const format = new Intl.RelativeTimeFormat(getLocale(), { numeric: "always" });

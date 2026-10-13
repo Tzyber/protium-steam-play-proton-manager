@@ -16,7 +16,7 @@ const { protonState, scanState, uiState, confirmState } = vi.hoisted(() => ({
     loadError: null as string | null,
     removeError: null as string | null,
     lastFetchedAt: null as number | null,
-    lastSource: null,
+    lastSource: null as string | null,
     jobs: {},
     activeTag: null as string | null,
     busyRemove: null as string | null,
@@ -274,7 +274,44 @@ describe("ProtonManagerView downloadfortschritt", () => {
     expect(fill.classes()).not.toContain("fill--indeterminate");
     expect(fill.attributes("style")).toContain("scaleX(0.3)");
     expect(bar.text()).toContain("30%");
+    // screenreader hören den phasenwechsel, nicht jeden fortschrittstick.
+    expect(bar.get('[aria-live="polite"]').text()).not.toContain("30%");
     wrapper.unmount();
+  });
+});
+
+describe("ProtonManagerView löschknopf", () => {
+  it("benennt das tool im accessible name", () => {
+    setLocale("de");
+    protonState.installedTools = [makeInstalledTool("GE-Proton9-27")];
+    protonState.releases = [];
+    const wrapper = mount(ProtonManagerView);
+    const button = wrapper.get("button.rm");
+    expect(button.attributes("aria-label")).toBe("GE-Proton9-27 löschen");
+    expect(button.attributes("aria-busy")).toBe("false");
+    wrapper.unmount();
+  });
+});
+
+describe("ProtonManagerView statuszeile", () => {
+  it("altert die relative zeitangabe bei offener ansicht", async () => {
+    vi.useFakeTimers();
+    setLocale("de");
+    protonState.lastSource = "cache";
+    protonState.lastFetchedAt = Date.now();
+    try {
+      const wrapper = mount(ProtonManagerView);
+      expect(wrapper.text()).toContain("gerade eben");
+
+      await vi.advanceTimersByTimeAsync(3 * 60_000);
+
+      expect(wrapper.text()).not.toContain("gerade eben");
+      wrapper.unmount();
+    } finally {
+      protonState.lastSource = null;
+      protonState.lastFetchedAt = null;
+      vi.useRealTimers();
+    }
   });
 });
 

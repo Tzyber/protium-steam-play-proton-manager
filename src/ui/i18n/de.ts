@@ -172,13 +172,16 @@ export const de = {
     cleanAllShaders: "Alle Shader-Caches bereinigen",
     deleteSelected: "{n} - Ausgewählte löschen",
     moveToTrash: "in den Papierkorb verschieben",
-    deleteConfirmTitle: "{n} verwaiste Einträge löschen?",
+    deleteConfirmTitle: "{n} verwaiste Einträge entfernen?",
+    deleteConfirmSingle: "{n} verwaisten Eintrag entfernen?",
     consequenceMoveToTrash: "Prefix von {name} in den Papierkorb verschieben",
     consequencePermanentShadercache: "Shader-Cache von {name} dauerhaft löschen",
     consequenceTrashEntry: "Papierkorb-Eintrag {name} dauerhaft löschen",
     consequenceCompatTool: "GE-Proton-Tool {name} dauerhaft löschen",
     consequenceCompatToolMapped:
       "GE-Proton-Tool {name} dauerhaft löschen (zugeordnete Spiele: {n})",
+    consequenceCompatToolGlobalDefault:
+      "Das Tool ist in Steam als Standard gesetzt; Spiele ohne eigene Zuordnung verlieren ihr Tool",
     winePrefixMovedNote:
       "Wine-Prefixes werden in den papierkorb verschoben, speicherplatz wird erst beim leeren des papierkorbs frei.",
     trash: "papierkorb",
@@ -216,6 +219,7 @@ export const de = {
     trashTrashedAt: "verschoben am {date}",
   },
   proton: {
+    deleteToolLabel: "{name} löschen",
     versions: "versionen",
     loading: "lädt…",
     refreshReleases: "releases aktualisieren",

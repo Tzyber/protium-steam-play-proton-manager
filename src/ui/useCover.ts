@@ -4,14 +4,11 @@ import type { Game } from "../core/types";
 
 // lokale Steam-Cover kommen als Backend-Bytes. Blob-URLs bleiben deshalb
 // außerhalb des plugin-fs- und asset-Protokolls.
-/** Erster Bildfehler nach dem Laden: genau dann greift das CDN-Bild als Ersatz. */
-const FIRST_FALLBACK_ATTEMPT = 1;
 
 export function useCover(getGame: () => Game | null) {
   const src = ref<string | null>(null);
   let blobUrl: string | null = null;
   let request = 0;
-  let fallbackIndex = 0;
 
   function revokeBlob(): void {
     if (!blobUrl) return;
@@ -22,7 +19,6 @@ export function useCover(getGame: () => Game | null) {
   async function load(): Promise<void> {
     const currentRequest = ++request;
     revokeBlob();
-    fallbackIndex = 0;
     src.value = null;
     const game = getGame();
     if (!game) return;
@@ -45,12 +41,11 @@ export function useCover(getGame: () => Game | null) {
   }
 
   function onError(): void {
+    // nur ein unbrauchbares lokales cover hat das CDN-bild als ersatz; scheitert
+    // das CDN-bild selbst, bleibt der platzhalter.
+    const showedBlob = blobUrl !== null && src.value === blobUrl;
     revokeBlob();
-    fallbackIndex += 1;
-    const game = getGame();
-    // erster fehlschlag: das bild aus dem lokalen header ist unbrauchbar, das
-    // CDN-bild ist der ersatz. danach gibt es keinen kandidaten mehr.
-    src.value = fallbackIndex === FIRST_FALLBACK_ATTEMPT ? (game?.headerImage ?? null) : null;
+    src.value = showedBlob ? (getGame()?.headerImage ?? null) : null;
   }
 
   watch(

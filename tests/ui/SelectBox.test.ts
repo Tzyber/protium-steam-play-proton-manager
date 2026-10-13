@@ -47,6 +47,33 @@ describe("SelectBox", () => {
     expect(firstTrigger.attributes("aria-controls")).toBeUndefined();
   });
 
+  it("schließt bei ESC auf dem trigger nur die liste, ohne das event weiterzugeben", async () => {
+    const parentKeydowns: string[] = [];
+    const wrapper = mount(
+      {
+        components: { SelectBox },
+        data: () => ({ options }),
+        methods: {
+          onKeydown(e: KeyboardEvent) {
+            parentKeydowns.push(e.key);
+          },
+        },
+        template:
+          '<div @keydown="onKeydown"><SelectBox model-value="one" :options="options" /></div>',
+      },
+      { attachTo: document.body },
+    );
+    const trigger = wrapper.find("button");
+    await trigger.trigger("click");
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(true);
+
+    await trigger.trigger("keydown", { key: "Escape" });
+
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(false);
+    expect(parentKeydowns).toEqual([]);
+    wrapper.unmount();
+  });
+
   it("behält eine übergebene trigger-id", () => {
     const wrapper = mount(SelectBox, {
       props: { id: "compat-tool", modelValue: "one", options },

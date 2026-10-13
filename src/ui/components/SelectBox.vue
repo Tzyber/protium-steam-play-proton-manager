@@ -37,6 +37,11 @@ function select(value: string) {
 function onBtnKeydown(e: KeyboardEvent) {
   if (e.key === "Tab") {
     open.value = false;
+  } else if (e.key === "Escape" && open.value) {
+    // per maus geöffnet, fokus noch am knopf: ESC schließt nur die liste, nicht den drawer.
+    e.preventDefault();
+    e.stopPropagation();
+    open.value = false;
   } else if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
     e.preventDefault();
     open.value = true;

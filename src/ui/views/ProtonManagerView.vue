@@ -82,14 +82,20 @@ async function refreshReleases() {
     statusFlash.value = false;
   }, STATUS_FLASH_MS);
 }
+// Date.now() ist nicht reaktiv; ohne takt bliebe „gerade eben" stehen.
+const now = ref(Date.now());
+const nowTimer = setInterval(() => {
+  now.value = Date.now();
+}, 60_000);
 onBeforeUnmount(() => {
   if (flashTimer) clearTimeout(flashTimer);
+  clearInterval(nowTimer);
 });
 
 const statusLine = computed(() => {
   if (proton.loading) return null;
   if (proton.lastFetchedAt == null) return null;
-  const when = relativeTime(proton.lastFetchedAt);
+  const when = relativeTime(proton.lastFetchedAt, now.value);
   const n = proton.releases.length;
   switch (proton.lastSource) {
     case "fresh":
@@ -172,6 +178,8 @@ const statusLine = computed(() => {
             type="button"
             :disabled="removeBlocked"
             :aria-describedby="removeBlocked ? `proton-remove-reason-${tt.name}` : undefined"
+            :aria-label="t('proton.deleteToolLabel', { name: tt.name })"
+            :aria-busy="proton.busyRemove === tt.name"
             @click="proton.remove(tt)"
           >
             {{ proton.busyRemove === tt.name ? "…" : t("common.delete") }}
@@ -214,7 +222,7 @@ const statusLine = computed(() => {
             <div v-if="proton.jobs[r.tag]" class="progress" role="progressbar" :aria-valuemin="0" :aria-valuemax="100" :aria-valuenow="pct(r.tag) ?? undefined" :aria-label="phaseLabel(r.tag)">
               <template v-if="proton.jobs[r.tag]?.phase === 'downloading'">
                 <div class="track"><div class="fill" :class="{ 'fill--indeterminate': pct(r.tag) === null }" :style="fillStyle(r.tag)" /></div>
-                <span class="phase" aria-live="polite">{{ phaseLabel(r.tag) }}<span v-if="pct(r.tag) !== null"> · {{ pct(r.tag) }}%</span><span v-if="speedLabel(r.tag)"> · {{ speedLabel(r.tag) }}</span></span>
+                <span class="phase"><span aria-live="polite">{{ phaseLabel(r.tag) }}</span><span v-if="pct(r.tag) !== null"> · {{ pct(r.tag) }}%</span><span v-if="speedLabel(r.tag)"> · {{ speedLabel(r.tag) }}</span></span>
               </template>
               <span v-else class="phase act" aria-live="polite">{{ phaseLabel(r.tag) }}<span v-if="proton.jobs[r.tag]?.phase === 'extracting' && proton.jobs[r.tag]?.verified"> ✓ {{ t("proton.checksumOk") }}</span></span>
             </div>

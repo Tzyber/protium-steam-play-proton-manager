@@ -175,12 +175,15 @@ export const en = {
     cleanAllShaders: "clean all shader caches",
     deleteSelected: "delete {n} selected",
     moveToTrash: "move to trash",
-    deleteConfirmTitle: "delete {n} orphaned entries?",
+    deleteConfirmTitle: "remove {n} orphaned entries?",
+    deleteConfirmSingle: "remove {n} orphaned entry?",
     consequenceMoveToTrash: "Move prefix of {name} to trash",
     consequencePermanentShadercache: "Permanently delete shader cache of {name}",
     consequenceTrashEntry: "Permanently delete trash entry {name}",
     consequenceCompatTool: "Permanently delete GE-Proton tool {name}",
     consequenceCompatToolMapped: "Permanently delete GE-Proton tool {name} (assigned games: {n})",
+    consequenceCompatToolGlobalDefault:
+      "This tool is Steam's default; games without their own assignment lose their tool",
     winePrefixMovedNote:
       "Wine-Prefixes are moved to trash, disk space is only freed when the trash is emptied.",
     trash: "trash",
@@ -217,6 +220,7 @@ export const en = {
     trashTrashedAt: "trashed {date}",
   },
   proton: {
+    deleteToolLabel: "delete {name}",
     versions: "versions",
     loading: "loading…",
     refreshReleases: "refresh releases",

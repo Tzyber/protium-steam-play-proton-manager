@@ -103,6 +103,19 @@ describe("scanStore.runScan", () => {
     expect(store.error).toBe("unlesbar");
   });
 
+  it("gescheiterter rescan verwirft das alte ergebnis", async () => {
+    mockScanLocal.mockResolvedValue(fakeLocalResult());
+    const store = useScanStore();
+    await store.runScan();
+    expect(store.result).not.toBeNull();
+
+    mockDiscoverEnvironment.mockRejectedValueOnce("steam-not-found");
+    await store.runScan();
+
+    expect(store.status).toBe("not-found");
+    expect(store.result).toBeNull();
+  });
+
   it("string-rejection (tauri-invoke) landet lesbar in error", async () => {
     // tauri-invoke rejectet mit strings, nicht mit Error-objekten (A3)
     mockDiscoverEnvironment.mockRejectedValue("blocked-location: /home/u");

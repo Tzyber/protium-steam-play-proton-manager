@@ -71,6 +71,23 @@ describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
     expect(store.trash).toEqual([{ ...trashed, sizeBytes: 4096 }]);
   });
 
+  it("ein einzelner verwaister eintrag hat einen titel im singular", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+
+    await store.deleteOrphans([
+      {
+        appId: 999999,
+        type: "compatdata",
+        path: "/lib/steamapps/compatdata/999999",
+        library: "/lib",
+      },
+    ]);
+
+    expect(useConfirmStore().pending?.title).toBe("1 verwaisten Eintrag entfernen?");
+  });
+
   it("shadercache löschen lädt den papierkorb NICHT neu (hard delete)", async () => {
     // T-09: statt `not.toHaveBeenCalled` wird der vorbestand geprüft: ein
     // (fälschlicher) refresh würde ihn gegen die frisch gelieferte liste tauschen.

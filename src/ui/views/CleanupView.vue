@@ -181,8 +181,8 @@ async function confirmDeleteOrphans() {
 }
 
 function deleteShadersAll() {
-  // alle shader-caches leeren, selections-umweg unnötig: das backend-gate
-  // bestätigt über den native-dialog.
+  // alle shader-caches leeren, selections-umweg unnötig: der store bestätigt
+  // über den in-app-dialog (confirmStore).
   cleanup.deleteOrphansAll(shadercacheOrphans.value).catch((error: unknown) => {
     logError("Shader-Bereinigung fehlgeschlagen", error);
   });
@@ -526,10 +526,11 @@ const shortcutBlockedItems = computed(() =>
             />
           </li>
         </ul>
-        <div v-else-if="!cleanup.trashScanning && !cleanup.trashUnavailable" class="empty">
+        <div v-else-if="cleanup.trashScanning" class="empty">{{ t("cleanup.searching") }}</div>
+        <div v-else-if="!cleanup.trashUnavailable" class="empty">
           {{ t("cleanup.trashEmptyState") }}
         </div>
-        <div v-else-if="!cleanup.trashScanning" class="empty">
+        <div v-else class="empty">
           {{ t("cleanup.unavailable") }}<ExplainInfo
             class="explain-inline"
             :label="t('explain.topics.cleanupBlocked.title')"

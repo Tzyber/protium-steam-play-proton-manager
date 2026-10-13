@@ -12,6 +12,7 @@ import { dateTimeText, timeText } from "../dateTime";
 import { formatBytes } from "../format";
 import { formatError } from "../formatError";
 import { t } from "../i18n";
+import { useUiStore } from "../stores/uiStore";
 import { useLatestLoad } from "../useLatestLoad";
 
 const {
@@ -30,12 +31,12 @@ const {
   load: loadLog,
 } = useLatestLoad("", readLogTail);
 
-async function openFolder(action: () => Promise<void>, target: "snapshots" | "logs") {
+// als notification: die fehler-refs der listen erscheinen nur bei leerer liste.
+async function openFolder(action: () => Promise<void>) {
   try {
     await action();
   } catch (e) {
-    if (target === "snapshots") snapshotsError.value = formatError(e);
-    else logErrorText.value = formatError(e);
+    useUiStore().showNotification(formatError(e));
   }
 }
 
@@ -97,7 +98,7 @@ onMounted(() => {
             <button
               class="action"
               type="button"
-              @click="openFolder(openBackupsFolder, 'snapshots')"
+              @click="openFolder(openBackupsFolder)"
             >
               {{ t("history.openSnapshotsFolder") }}
             </button>
@@ -124,7 +125,7 @@ onMounted(() => {
         <div class="section-row">
           <p class="hint">{{ t("history.logHint") }}</p>
           <div class="actions">
-            <button class="action" type="button" @click="openFolder(openLogsFolder, 'logs')">
+            <button class="action" type="button" @click="openFolder(openLogsFolder)">
               {{ t("history.openLogsFolder") }}
             </button>
             <button class="action" type="button" :disabled="logLoading" @click="loadLog">
