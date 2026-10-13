@@ -1,27 +1,35 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { openExternal, tauriPorts } from "../../core/adapters/tauri";
-import { availableRuntimes } from "../../core/blocklist";
-import { analyzeLaunchOptions, type LaunchHint } from "../../core/launchHints";
 import { protonDbAppUrl } from "../../core/protondb";
 import type { LaunchConfigStatus, Tier } from "../../core/types";
 import { focusFirstFocusable, restoreFocus, trapFocus } from "../a11y";
+import { useCover } from "../composables/useCover";
+import { type SaveState, useGameConfigSave } from "../composables/useGameConfigSave";
+import { useGameFootprint } from "../composables/useGameFootprint";
+import { usePrefixOpen } from "../composables/usePrefixOpen";
+import { useSupportCopy } from "../composables/useSupportCopy";
 import type { ExplainTopic } from "../explain";
 import { formatBytes, formatKnownBytes } from "../format";
 import { formatError } from "../formatError";
+import {
+  compatOptions as buildCompatOptions,
+  configTopics as buildConfigTopics,
+  compatProvenance as deriveCompatProvenance,
+  launchHints as deriveLaunchHints,
+  compatToolUnrecognized as isCompatToolUnrecognized,
+  launchConfigUnavailable as isLaunchConfigUnavailable,
+  saveLabel,
+} from "../gameConfig";
 import { t } from "../i18n";
 import { useCleanupStore } from "../stores/cleanupStore";
 import { useConfigStore } from "../stores/configStore";
 import { useScanStore } from "../stores/scanStore";
 import { useUiStore } from "../stores/uiStore";
 import { tierName } from "../tier";
-import { useCover } from "../useCover";
-import { type SaveState, useGameConfigSave } from "../useGameConfigSave";
-import { useGameFootprint } from "../useGameFootprint";
-import { usePrefixOpen } from "../usePrefixOpen";
-import { useSupportCopy } from "../useSupportCopy";
 import BlockedExplanation from "./BlockedExplanation.vue";
 import ExplainInfo from "./ExplainInfo.vue";
+import GameFootprintSection from "./GameFootprintSection.vue";
 import PlayButton from "./PlayButton.vue";
 import SelectBox from "./SelectBox.vue";
 import TierBadge from "./TierBadge.vue";
@@ -34,15 +42,8 @@ const cleanup = useCleanupStore();
 // drawer die frischen daten (z. B. direkt nach compat-tool-/startoptionen-write).
 const game = computed(() => scan.result?.games.find((g) => g.appId === ui.selectedAppId) ?? null);
 
-const {
-  result: footprintResult,
-  state: footprintState,
-  invalidate: invalidateFootprint,
-  measure: measureFootprint,
-  partText: footprintPartText,
-  summaryLabel: footprintSummaryLabel,
-  summaryText: footprintSummaryText,
-} = useGameFootprint(game, scan);
+const footprint = useGameFootprint(game, scan);
+const { invalidate: invalidateFootprint, result: footprintResult } = footprint;
 
 // cover-kandidaten wie in der karte
 const { src: cover, onError } = useCover(() => game.value);
@@ -115,109 +116,23 @@ const {
   saveCompat,
 } = useGameConfigSave(game, config);
 
-function launchHintText(hint: LaunchHint): string {
-  switch (hint) {
-    case "gamemode-missing-command":
-      return t("drawer.launchHintGamemodeMissingCommand");
-    case "assignment-after-command":
-      return t("drawer.launchHintAssignmentAfterCommand");
-    case "assignment-without-command":
-      return t("drawer.launchHintAssignmentWithoutCommand");
-    case "proton-log-enabled":
-      return t("drawer.launchHintProtonLogEnabled");
-  }
-}
-
-const launchHints = computed(() => {
-  const current = game.value;
-  const result = scan.result;
-  if (!current || !result || scan.status !== "done" || result.launchConfigStatus !== "available") {
-    return [];
-  }
-  return analyzeLaunchOptions(launchInput.value).map(launchHintText);
-});
-
-const launchConfigUnavailable = computed(
-  () =>
-    scan.result?.launchConfigStatus !== undefined && scan.result.launchConfigStatus !== "available",
+const launchHints = computed(() =>
+  deriveLaunchHints(launchInput.value, game.value, scan.result, scan.status),
 );
 
-const compatProvenance = computed(() => {
-  const result = scan.result;
-  const current = game.value;
-  if (!result || !current) return "";
+const launchConfigUnavailable = computed(() => isLaunchConfigUnavailable(scan.result));
 
-  if (result.compatConfigStatus === "missing") return t("drawer.compatProvenanceMissing");
-  if (result.compatConfigStatus === "unreadable") return t("drawer.compatProvenanceUnreadable");
-  if (current.compatToolSource === "explicit") {
-    return t("drawer.compatProvenanceExplicit", { name: current.compatTool });
-  }
-  if (current.compatToolSource === "default" && result.defaultCompatTool !== null) {
-    return t("drawer.compatProvenanceDefault", { name: result.defaultCompatTool });
-  }
-  return t("drawer.compatProvenanceNoDefault");
-});
+const compatProvenance = computed(() => deriveCompatProvenance(scan.result, game.value));
 
 const compatToolUnrecognized = computed(() =>
-  scan.protonChecks.some(
-    (check) => check.appId === game.value?.appId && check.reasons.includes("tool-not-recognized"),
-  ),
+  isCompatToolUnrecognized(game.value, scan.protonChecks),
 );
 
-const configTopics = computed<ExplainTopic[]>(() => {
-  const topics: ExplainTopic[] = ["compat-tool", "compat-source"];
-  const status = scan.result?.compatConfigStatus;
-  if (status === "missing" || status === "unreadable") topics.push("config-unavailable");
-  if (game.value?.compatToolSource === "default" && scan.result?.defaultCompatTool) {
-    topics.push("global-default");
-  }
-  if (compatToolUnrecognized.value) topics.push("tool-unrecognized");
-  return topics;
-});
-
-const footprintTopics = computed<ExplainTopic[]>(() =>
-  footprintResult.value?.externalCompatdata ? ["footprint", "external-compatdata"] : ["footprint"],
+const configTopics = computed<ExplainTopic[]>(() =>
+  buildConfigTopics(scan.result, game.value, compatToolUnrecognized.value),
 );
 
-const compatOptions = computed(() => {
-  const builtIns = scan.result?.builtinProtonsInstalled ?? [];
-  const tools = scan.result?.compatToolsInstalled ?? [];
-  const current = game.value?.compatTool ?? "";
-  const list: { value: string; label: string }[] = [];
-
-  const seen = new Set<string>(["__default__"]);
-  list.push({ value: "__default__", label: t("drawer.compatDefault") });
-
-  for (const tool of builtIns) {
-    if (seen.has(tool.internalName)) continue;
-    seen.add(tool.internalName);
-    list.push({ value: tool.internalName, label: tool.displayName });
-  }
-
-  for (const tool of tools) {
-    if (seen.has(tool.internalName)) continue;
-    seen.add(tool.internalName);
-    list.push({ value: tool.internalName, label: tool.displayName });
-  }
-
-  const customToolByDirectory = new Map(tools.map((tool) => [tool.name, tool]));
-  if (
-    current &&
-    current !== "default" &&
-    game.value?.compatToolSource === "explicit" &&
-    !seen.has(current)
-  ) {
-    const customTool = customToolByDirectory.get(current);
-    const runtimeLabel = availableRuntimes(new Set(scan.result?.blockedAppIds)).get(current);
-    list.push({
-      value: current,
-      label:
-        customTool?.displayName ?? runtimeLabel ?? t("drawer.notRecognized", { name: current }),
-    });
-  }
-
-  return list;
-});
+const compatOptions = computed(() => buildCompatOptions(scan.result, game.value));
 
 const {
   state: supportCopyState,
@@ -352,92 +267,7 @@ function dismissError() {
           </p>
         </div>
 
-        <section
-          class="footprint"
-          data-testid="footprint-section"
-          :aria-busy="footprintState === 'measuring'"
-        >
-          <div class="section-label-explained">
-            <h3 class="section-label">{{ t("drawer.footprintTitle") }}</h3>
-            <ExplainInfo
-              :label="t('drawer.footprintTitle')"
-              :topics="footprintTopics"
-              :context-key="game.appId"
-            />
-          </div>
-          <p v-if="footprintState === 'idle'" class="hint">
-            {{ t("drawer.footprintExplanation") }}
-          </p>
-          <button
-            class="save footprint-measure"
-            data-testid="footprint-measure"
-            type="button"
-            :disabled="footprintState === 'measuring'"
-            @click="measureFootprint"
-          >
-            {{
-              footprintState === "measuring"
-                ? t("drawer.footprintMeasuring")
-                : t("drawer.footprintMeasure")
-            }}
-          </button>
-
-          <div v-if="footprintState !== 'idle'" class="footprint-values">
-            <div class="footprint-row" data-testid="footprint-game-install">
-              <span class="k">{{ t("drawer.footprintGameFiles") }}</span>
-              <span data-testid="footprint-game-install-value">{{
-                footprintPartText(footprintResult?.gameInstall)
-              }}</span>
-            </div>
-            <div class="footprint-row" data-testid="footprint-compatdata">
-              <span class="k">{{ t("drawer.footprintCompatdata") }}</span>
-              <span data-testid="footprint-compatdata-value">{{
-                footprintPartText(footprintResult?.compatdata)
-              }}</span>
-            </div>
-            <div class="footprint-row" data-testid="footprint-shadercache">
-              <span class="k">{{ t("drawer.footprintShadercache") }}</span>
-              <span data-testid="footprint-shadercache-value">{{
-                footprintPartText(footprintResult?.shadercache)
-              }}</span>
-            </div>
-
-            <div
-              v-if="footprintState === 'measuring'"
-              class="footprint-row footprint-summary"
-              data-testid="footprint-summary"
-            >
-              <span class="k">{{ t("drawer.footprintSummaryLabel") }}</span>
-              <span>{{ footprintSummaryText() }}</span>
-            </div>
-            <p
-              v-else-if="footprintResult?.summary.status === 'not-measured'"
-              class="hint footprint-summary"
-              data-testid="footprint-summary"
-            >
-              {{ t("common.notMeasured") }}
-            </p>
-            <div v-else class="footprint-row footprint-summary" data-testid="footprint-summary">
-              <span class="k">{{ footprintSummaryLabel(footprintResult?.summary ?? { status: "not-measured" }) }}</span>
-              <span>{{ footprintSummaryText() }}</span>
-            </div>
-
-            <p
-              v-if="footprintResult?.externalCompatdata"
-              class="hint"
-              data-testid="footprint-external-compatdata"
-            >
-              {{ t("drawer.footprintExternalCompatdata") }}
-            </p>
-            <p
-              v-if="footprintResult?.compatdataNotChecked"
-              class="hint"
-              data-testid="footprint-compatdata-not-checked"
-            >
-              {{ t("drawer.footprintCompatdataNotChecked") }}
-            </p>
-          </div>
-        </section>
+        <GameFootprintSection :footprint="footprint" :app-id="game.appId" />
 
         <div class="divider" />
         <div class="section-label-explained">
@@ -459,13 +289,7 @@ function dismissError() {
               :disabled="!compatDirty || compatState.kind === 'saving'"
               @click="saveCompat"
             >
-              {{
-                compatState.kind === "saving"
-                  ? "…"
-                  : compatState.kind === "saved"
-                    ? t("drawer.saved")
-                    : t("drawer.save")
-              }}
+              {{ saveLabel(compatState) }}
             </button>
           </div>
           <p class="hint" data-testid="compat-provenance">
@@ -494,13 +318,7 @@ function dismissError() {
               :disabled="!launchDirty || launchState.kind === 'saving'"
               @click="saveLaunch"
             >
-              {{
-                launchState.kind === "saving"
-                  ? "…"
-                  : launchState.kind === "saved"
-                    ? t("drawer.saved")
-                    : t("drawer.save")
-              }}
+              {{ saveLabel(launchState) }}
             </button>
           </div>
           <p class="hint">{{ t("drawer.launchOptionsHint") }}</p>
@@ -614,29 +432,6 @@ function dismissError() {
 .prefix-actions { margin-top: 10px; }
 .support-actions { margin-top: 16px; }
 .support-copy-status { margin-bottom: 0; }
-
-.footprint { margin-top: 20px; }
-.footprint .section-label { margin-bottom: 10px; }
-.footprint-measure { margin-top: 12px; }
-.footprint-values { margin-top: 18px; }
-.footprint-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  min-height: 28px;
-  color: var(--fg-0);
-  font-size: 0.8125rem;
-}
-.footprint-row .k { margin: 0; color: var(--fg-1); }
-.footprint-summary {
-  border-top: 1px solid var(--line-soft);
-  margin-top: 8px;
-  padding-top: 10px;
-  font-weight: 600;
-}
-.footprint-summary .k { color: var(--fg-0); }
-.footprint .hint { margin-top: 12px; }
 
 .section-label-explained {
   display: flex;

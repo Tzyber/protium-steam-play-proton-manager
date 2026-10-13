@@ -2,31 +2,23 @@ import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
 import { ProtiumError } from "../../core/errors";
 import { parseError } from "../../core/errtext";
-import {
-  type FetchSource,
-  fetchReleases,
-  type GeRelease,
-  installRelease,
-  isManagedGeName,
-} from "../../core/geproton";
+import { type FetchSource, fetchReleases, installRelease } from "../../core/geproton";
+import { isManagedGeName } from "../../core/geprotonNames";
+import type { GeRelease } from "../../core/geprotonReleases";
 import { paths } from "../../core/paths";
-import type {
-  DownloadProgressEvent,
-  InstallPhaseEvent,
-  InstallPhase as Phase,
-} from "../../core/ports";
+import type { InstallPhase as Phase } from "../../core/ports";
 import type { CompatTool } from "../../core/types";
 import { localizeConsequences } from "../consequences";
 import { logError, logEvent } from "../diagnostics";
 import { formatError } from "../formatError";
 import { getLocale, t } from "../i18n";
 import { useConfirmStore } from "./confirmStore";
+import { disposeListeners, initListeners } from "./protonListeners";
 import { useScanStore } from "./scanStore";
-import { useUiStore } from "./uiStore";
 
 export type { Phase };
 
-interface Job {
+export interface Job {
   tag: string;
   downloadId: string;
   phase: Phase;
@@ -51,11 +43,6 @@ function createDownloadId(): string {
   return `proton-${Date.now().toString(36)}-${downloadSequence.toString(36)}`;
 }
 
-/** Gleitender Mittelwert der Download-Rate: der neue Messwert wiegt leichter
- *  als der bisherige, sonst flackert die Anzeige zwischen den ~1-MB-Events. */
-const SPEED_SMOOTHING_KEEP = 0.6;
-const SPEED_SMOOTHING_NEW = 0.4;
-
 /** Auftrags-Token je Store für `loadReleases`: `init()` und der Refresh-Knopf
  *  können parallel laden, und eine langsame ältere Antwort darf weder die
  *  frischeren Releases überschreiben noch den Ladezustand des jüngeren
@@ -69,22 +56,6 @@ function removeErrorText(e: unknown): string {
     ? t("proton.removeSteamRunning")
     : t("proton.removeFailed", { msg: formatError(e) });
 }
-
-interface ListenerOwnership {
-  unlisteners: Array<() => void>;
-  token: object;
-}
-
-interface ListenerLifecycle {
-  initPromise: Promise<void> | null;
-  generation: number;
-  disposed: boolean;
-  pending: Map<number, Set<() => void>>;
-}
-
-const listenerLifecycle = new WeakMap<object, ListenerLifecycle>();
-const listenerOwnership = new WeakMap<object, ListenerOwnership>();
-const disposeHooks = new WeakSet<object>();
 
 interface State {
   releases: GeRelease[];
@@ -129,134 +100,11 @@ export const useProtonStore = defineStore("proton", {
   },
   actions: {
     init() {
-      const lifecycle =
-        listenerLifecycle.get(this) ??
-        ({
-          initPromise: null,
-          generation: 0,
-          disposed: false,
-          pending: new Map<number, Set<() => void>>(),
-        } satisfies ListenerLifecycle);
-      listenerLifecycle.set(this, lifecycle);
-      if (this.listenerReady) return Promise.resolve();
-      if (lifecycle.initPromise) return lifecycle.initPromise;
-      if (!disposeHooks.has(this)) {
-        const originalDispose = this.$dispose.bind(this);
-        this.$dispose = () => {
-          void this.disposeListeners();
-          originalDispose();
-        };
-        disposeHooks.add(this);
-      }
-      lifecycle.disposed = false;
-      const generation = lifecycle.generation + 1;
-      lifecycle.generation = generation;
-      const pending = new Set<() => void>();
-      lifecycle.pending.set(generation, pending);
-      const token = {};
-      const promise = (async () => {
-        try {
-          const progressUnlisten = await tauriPorts.system.onDownloadProgress(
-            (payload: DownloadProgressEvent) => {
-              if (listenerOwnership.get(this)?.token !== token) return;
-              const activeTag = this.activeTag;
-              const job = activeTag !== null ? this.jobs[activeTag] : undefined;
-              if (job?.downloadId === payload.id) {
-                const now = performance.now();
-                const base = job.speedBase;
-                // ohne zeitfortschritt bleibt die messbasis stehen: inst liefe auf
-                // Infinity, und weitergeschoben fehlten die bytes dieser probe in
-                // der nächsten rate.
-                if (!base || now > base.ts) {
-                  if (base) {
-                    const inst = ((payload.downloaded - base.bytes) * 1000) / (now - base.ts);
-                    if (Number.isFinite(inst)) {
-                      job.speed = job.speed
-                        ? SPEED_SMOOTHING_KEEP * job.speed + SPEED_SMOOTHING_NEW * inst
-                        : inst;
-                    }
-                  }
-                  job.speedBase = { ts: now, bytes: payload.downloaded };
-                }
-                job.downloaded = payload.downloaded;
-                job.total = payload.total;
-              }
-            },
-          );
-          pending.add(progressUnlisten);
-          if (lifecycle.disposed || lifecycle.generation !== generation) {
-            progressUnlisten();
-            pending.delete(progressUnlisten);
-            return;
-          }
-          const phaseUnlisten = await tauriPorts.system.onInstallPhase(
-            (payload: InstallPhaseEvent) => {
-              if (listenerOwnership.get(this)?.token !== token) return;
-              const activeTag = this.activeTag;
-              const job = activeTag !== null ? this.jobs[activeTag] : undefined;
-              if (job?.downloadId === payload.id) {
-                job.phase = payload.phase;
-                if (payload.verified) {
-                  job.verified = true;
-                }
-              }
-            },
-          );
-          pending.add(phaseUnlisten);
-          if (lifecycle.disposed || lifecycle.generation !== generation) {
-            phaseUnlisten();
-            pending.delete(phaseUnlisten);
-            for (const unlisten of pending) unlisten();
-            pending.clear();
-            return;
-          }
-          listenerOwnership.set(this, {
-            unlisteners: [...pending],
-            token,
-          });
-          lifecycle.pending.delete(generation);
-          this.listenerReady = true;
-          if (!this.releases.length) void this.loadReleases();
-        } catch (e) {
-          listenerOwnership.delete(this);
-          for (const unlisten of pending) unlisten();
-          pending.clear();
-          lifecycle.pending.delete(generation);
-          if (!lifecycle.disposed && lifecycle.generation === generation) {
-            logError("Proton-Listener fehlgeschlagen", e);
-            useUiStore().showNotification(
-              t("proton.listenerUnavailable", { error: formatError(e) }),
-            );
-            if (!this.releases.length) void this.loadReleases();
-          }
-        } finally {
-          if (lifecycle.generation === generation) lifecycle.initPromise = null;
-        }
-      })();
-      lifecycle.initPromise = promise;
-      return promise;
+      return initListeners(this);
     },
 
-    async disposeListeners() {
-      const lifecycle = listenerLifecycle.get(this);
-      if (!lifecycle) {
-        this.listenerReady = false;
-        return;
-      }
-      lifecycle.disposed = true;
-      lifecycle.generation += 1;
-      lifecycle.initPromise = null;
-      const ownership = listenerOwnership.get(this);
-      listenerOwnership.delete(this);
-      this.listenerReady = false;
-      if (ownership) {
-        for (const unlisten of ownership.unlisteners) unlisten();
-      }
-      for (const pending of lifecycle.pending.values()) {
-        for (const unlisten of pending) unlisten();
-        pending.clear();
-      }
-      lifecycle.pending.clear();
+    disposeListeners() {
+      return disposeListeners(this);
     },
 
     async loadReleases(force = false) {

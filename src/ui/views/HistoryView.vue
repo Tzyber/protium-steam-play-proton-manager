@@ -8,12 +8,12 @@ import {
   readLogTail,
 } from "../../core/adapters/tauri";
 import { parseLogRecord } from "../../core/logline";
+import { useLatestLoad } from "../composables/useLatestLoad";
 import { dateTimeText, timeText } from "../dateTime";
 import { formatBytes } from "../format";
 import { formatError } from "../formatError";
 import { t } from "../i18n";
 import { useUiStore } from "../stores/uiStore";
-import { useLatestLoad } from "../useLatestLoad";
 
 const {
   data: snapshots,

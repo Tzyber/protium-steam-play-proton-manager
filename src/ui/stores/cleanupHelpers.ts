@@ -3,10 +3,11 @@
 // Cleanup sperrt". Kein Store-Zustand, kein Pinia, damit einzeln prüfbar.
 
 import { ProtiumError } from "../../core/errors";
+import { validNonNegativeInteger } from "../../core/guards";
 import type { DirectorySize } from "../../core/ports";
 import type { ShortcutResult } from "../../core/shortcuts";
-import { validNonNegativeInteger } from "../../core/supportRedaction";
 import type { ScanResult } from "../../core/types";
+import type { Key } from "../i18n";
 import { t } from "../i18n";
 
 /** Baut den aktuellen Installationsstatus aus Spielen und Shortcuts statt auf
@@ -96,6 +97,21 @@ export function formatTrashErrors(prepareErrors: string[], executeErrors: string
 export function combineErrors(messages: (string | null)[]): string | null {
   const present = messages.filter((message): message is string => message !== null);
   return present.length > 0 ? present.join("; ") : null;
+}
+
+/** batch-zu-groß-text; die fehler-zusammenführung bleibt an der aufrufstelle. */
+export function batchTooLargeText(n: number, max: number): string {
+  return t("errors.deleteBatchTooLarge", { n, max });
+}
+
+/** eine zeile für den batch-hinweis, wenn ein rest bleibt. */
+export function batchInfoLines(key: Key, max: number, rest: number): string[] {
+  return rest > 0 ? [t(key, { max, rest })] : [];
+}
+
+/** titel des bestätigungsdialogs: bei einem eintrag der singular-schlüssel. */
+export function confirmTitle(singleKey: Key, multiKey: Key, n: number): string {
+  return n === 1 ? t(singleKey, { n }) : t(multiKey, { n });
 }
 
 /** Sperrt das Cleanup aus einem der belegten Gründe? `blockedBySkipped` und

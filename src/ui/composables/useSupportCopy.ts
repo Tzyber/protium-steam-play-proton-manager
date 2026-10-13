@@ -4,12 +4,12 @@
 // ungültig), damit nach einem Rescan kein fremder Status stehen bleibt.
 
 import { computed, type Ref, ref } from "vue";
-import { version as appVersion } from "../../package.json";
-import type { GameFootprint } from "../core/footprint";
-import { projectSupportFacts } from "../core/support";
-import type { Game, ScanResult } from "../core/types";
-import { sameContext, watchContext } from "./sameContext";
-import { formatSupportFacts } from "./supportText";
+import { version as appVersion } from "../../../package.json";
+import type { GameFootprint } from "../../core/footprint";
+import { projectSupportFacts } from "../../core/support";
+import type { Game, ScanResult } from "../../core/types";
+import { sameContext, watchContext } from "../sameContext";
+import { formatSupportFacts } from "../supportText";
 import { useLatestRequest } from "./useLatestRequest";
 
 type SupportCopyState = "idle" | "copying" | "copied" | "failed";

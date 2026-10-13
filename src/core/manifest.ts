@@ -1,7 +1,8 @@
 import { ManifestParseError } from "./errors.js";
 import { errText } from "./errtext.js";
-import { NUMERIC_RE, parseSafeAppId } from "./types.js";
-import { getKeyInsensitive, parseVdf, rawVdfField, unescapeVdfRaw } from "./vdf.js";
+import { NUMERIC_RE, parseSafeAppId } from "./guards.js";
+import { getKeyInsensitive, parseVdf, rawVdfField } from "./vdf.js";
+import { unescapeVdfRaw } from "./vdfTokenizer.js";
 
 interface ManifestData {
   appId: number;

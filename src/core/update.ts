@@ -1,5 +1,5 @@
+import { isRecord } from "./guards.js";
 import type { Http } from "./ports.js";
-import { isRecord } from "./types.js";
 
 /** aufrufer-/test-typ von `checkForUpdate` (nur `get`); kein produktiver
  *  fremdimport (K-13). */

@@ -1,7 +1,7 @@
+import { isRecord, validNonNegativeInteger } from "./guards.js";
 import { paths } from "./paths.js";
 import type { System } from "./ports.js";
-import { validNonNegativeInteger } from "./supportRedaction.js";
-import { type Game, isRecord, type LaunchConfigStatus } from "./types.js";
+import type { Game, LaunchConfigStatus } from "./types.js";
 
 type FootprintPartStatus = "measured" | "missing" | "failed" | "not-requested";
 

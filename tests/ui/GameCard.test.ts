@@ -9,7 +9,7 @@ const coverState = vi.hoisted(() => ({ src: null as string | null }));
 vi.mock("../../src/ui/stores/uiStore", () => ({
   useUiStore: () => ({ openGame: vi.fn() }),
 }));
-vi.mock("../../src/ui/useCover", () => ({
+vi.mock("../../src/ui/composables/useCover", () => ({
   useCover: () => ({ src: coverState.src, onError: vi.fn() }),
 }));
 vi.mock("../../src/ui/components/PlayButton.vue", () => ({

@@ -99,7 +99,7 @@ vi.mock("../../src/ui/stores/cleanupStore", () => ({
 }));
 // async-fabriken mit dynamischem import: so liegen die stubs in einer datei,
 // ohne dass hoisting von vi.mock ihre initialisierung überholen kann (N-1).
-vi.mock("../../src/ui/useCover", async () => ({
+vi.mock("../../src/ui/composables/useCover", async () => ({
   useCover: (await import("./GameDetailDrawer.stubs")).useCoverStub,
 }));
 vi.mock("../../src/ui/components/PlayButton.vue", async () => ({

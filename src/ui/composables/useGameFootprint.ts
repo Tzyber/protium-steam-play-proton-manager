@@ -3,17 +3,17 @@
 // Fehlerdegradation war der größte Block im Drawer und wird nur dort gebraucht.
 
 import { computed, type Ref, ref } from "vue";
-import { tauriPorts } from "../core/adapters/tauri";
+import { tauriPorts } from "../../core/adapters/tauri";
 import {
   type FootprintPart,
   type GameFootprint,
   hasExternalCompatdata,
   measureGameFootprint,
-} from "../core/footprint";
-import type { Game, LaunchConfigStatus, ScanResult } from "../core/types";
-import { sizeText } from "./format";
-import { t } from "./i18n";
-import { sameContext, watchContext } from "./sameContext";
+} from "../../core/footprint";
+import type { Game, LaunchConfigStatus, ScanResult } from "../../core/types";
+import { sizeText } from "../format";
+import { t } from "../i18n";
+import { sameContext, watchContext } from "../sameContext";
 import { useLatestRequest } from "./useLatestRequest";
 
 type FootprintUiState = "idle" | "measuring" | "ready";

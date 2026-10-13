@@ -1,14 +1,9 @@
 import type { GameFootprint } from "./footprint.js";
 import { hasExternalCompatdata } from "./footprint.js";
+import { isRecord, validAppId, validNonNegativeInteger } from "./guards.js";
 import { deriveProtonCheck, isCompatToolPresent } from "./protoncheck.js";
 import { deriveScanCoverage } from "./scan/coverage.js";
-import {
-  isToolName,
-  libraryAlias,
-  projectToolName,
-  validAppId,
-  validNonNegativeInteger,
-} from "./supportRedaction.js";
+import { isToolName, libraryAlias, projectToolName } from "./supportRedaction.js";
 import {
   asCompatConfigStatus,
   asCompatToolSource,
@@ -17,7 +12,6 @@ import {
   type CompatConfigStatus,
   type CompatToolSource,
   type Game,
-  isRecord,
   type LaunchConfigStatus,
   type ScanCoverage,
   type ScanResult,

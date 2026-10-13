@@ -1,0 +1,311 @@
+<script setup lang="ts">
+import { computed, ref } from "vue";
+import type { SkipReason } from "../../core/types";
+import { filterWarningsByType } from "../coverageFilter";
+import { formatConfigStatus, formatLibraryReason, formatWarning } from "../coverageText";
+import type { Key } from "../i18n";
+import { t } from "../i18n";
+import { useScanStore } from "../stores/scanStore";
+import ExplainInfo from "./ExplainInfo.vue";
+
+const scan = useScanStore();
+
+const showWarnings = ref(false);
+const coverageDetailsId = "library-coverage-details";
+const coverageTitleId = "library-coverage-title";
+const coverageState = computed(() => scan.coverage?.state ?? "");
+const coverageNeedsAttention = computed(
+  () => coverageState.value === "limited" || coverageState.value === "incomplete",
+);
+const libraryNeedsAttention = computed(
+  () => (scan.coverage?.libraries.unavailable ?? 0) > 0 || libraryWarnings.value.length > 0,
+);
+const configNeedsAttention = computed(
+  () =>
+    scan.coverage?.compatConfig !== "available" ||
+    scan.coverage?.launchConfig !== "available" ||
+    configWarnings.value.some(
+      (warning) => warning.reason === "missing" || warning.reason === "unreadable",
+    ),
+);
+const manifestNeedsAttention = computed(
+  () => (scan.coverage?.manifests.failed ?? 0) > 0 || manifestWarnings.value.length > 0,
+);
+const toolNeedsAttention = computed(
+  () => (scan.coverage?.tools.failed ?? 0) > 0 || toolWarnings.value.length > 0,
+);
+
+const attentionGroups = computed(() =>
+  [
+    [libraryNeedsAttention.value, "library.coverageLibraries"],
+    [configNeedsAttention.value, "library.coverageConfiguration"],
+    [manifestNeedsAttention.value, "library.coverageManifests"],
+    [toolNeedsAttention.value, "library.coverageTools"],
+  ]
+    .filter(([on]) => on)
+    .map(([, key]) => t(key as Key))
+    .join(", "),
+);
+
+const coverageLabel = computed(() => {
+  const coverage = scan.coverage;
+  if (!coverage) return "";
+  if (coverage.state === "complete") {
+    return t("library.coverageComplete", {
+      libraries: coverage.libraries.total,
+      games: scan.games.length,
+    });
+  }
+  return coverage.state === "limited"
+    ? t("library.coverageLimited", { groups: attentionGroups.value })
+    : t("library.coverageIncomplete", { groups: attentionGroups.value });
+});
+
+const libraryRows = computed(() => {
+  const result = scan.result;
+  if (!result) return [];
+  const skipReasons = new Map<string, SkipReason>();
+  for (const skipped of result.skippedLibraries) {
+    if (!skipReasons.has(skipped.path)) skipReasons.set(skipped.path, skipped.reason);
+  }
+  const paths = new Set([...result.libraries, ...skipReasons.keys()]);
+  return [...paths].map((path) => ({ path, reason: skipReasons.get(path) }));
+});
+
+const configWarnings = computed(() =>
+  filterWarningsByType(scan.warnings, ["compat-config", "launch-config"]),
+);
+const manifestWarnings = computed(() => filterWarningsByType(scan.warnings, "manifest"));
+const toolWarnings = computed(() => filterWarningsByType(scan.warnings, "compat-tool"));
+const libraryWarnings = computed(() => filterWarningsByType(scan.warnings, "library"));
+</script>
+
+<template>
+  <section v-if="scan.coverage" class="coverage" :class="`coverage--${coverageState}`">
+      <span v-if="coverageNeedsAttention" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {{ coverageLabel }}. {{ t("library.coverageLocalOnly") }}
+      </span>
+      <div class="coverage-head">
+        <button
+          class="coverage-toggle"
+          type="button"
+          :aria-expanded="showWarnings"
+          :aria-controls="coverageDetailsId"
+          @click="showWarnings = !showWarnings"
+        >
+          <span class="coverage-heading">
+            <span v-if="coverageNeedsAttention" class="coverage-alert" aria-hidden="true">!</span>
+            <span>
+              <span :id="coverageTitleId" class="coverage-summary">{{ coverageLabel }}</span>
+              <span v-if="coverageNeedsAttention" class="coverage-context">{{ t("library.coverageLocalOnly") }}</span>
+            </span>
+          </span>
+          <span class="coverage-action">
+            {{ showWarnings ? t("library.coverageDetailsClose") : t("library.coverageDetailsOpen") }}
+            <span class="coverage-chevron" aria-hidden="true">{{ showWarnings ? "⌃" : "⌄" }}</span>
+          </span>
+        </button>
+        <ExplainInfo
+          class="coverage-explain"
+          :label="t('explain.topics.scanCoverage.title')"
+          :topics="['scan-coverage']"
+        />
+      </div>
+
+      <transition name="fade">
+        <div
+          v-show="showWarnings"
+          :id="coverageDetailsId"
+          class="coverage-details"
+          role="region"
+          :aria-labelledby="coverageTitleId"
+        >
+          <section
+            class="coverage-group coverage-card"
+            :class="libraryNeedsAttention ? 'coverage-card--attention' : 'coverage-card--complete'"
+          >
+            <h2>{{ t("library.coverageLibraries") }}</h2>
+            <p class="coverage-card-summary">
+              {{ t("library.coverageLibrariesSummary", {
+                read: scan.coverage.libraries.read,
+                unavailable: scan.coverage.libraries.unavailable,
+              }) }}
+            </p>
+            <ul>
+              <li v-for="library in libraryRows" :key="library.path">
+                <span v-if="library.reason">
+                  {{ t("library.coverageLibraryUnavailable", { path: library.path }) }}
+                </span>
+                <span v-else>{{ t("library.coverageLibraryRead", { path: library.path }) }}</span>
+                <span v-if="library.reason"> · {{ formatLibraryReason(library.reason) }}</span>
+              </li>
+              <li v-for="(warning, index) in libraryWarnings" :key="`library-warning-${index}`">
+                {{ formatWarning(warning) }}
+              </li>
+            </ul>
+          </section>
+
+          <section
+            class="coverage-group coverage-card"
+            :class="configNeedsAttention ? 'coverage-card--attention' : 'coverage-card--complete'"
+          >
+            <h2>{{ t("library.coverageConfiguration") }}</h2>
+            <p class="coverage-card-summary">
+              {{ t("library.coverageConfigStatus", { source: t("library.coverageCompatConfig"), status: formatConfigStatus(scan.coverage.compatConfig) }) }}
+            </p>
+            <p>
+              {{ t("library.coverageConfigStatus", { source: t("library.coverageLaunchConfig"), status: formatConfigStatus(scan.coverage.launchConfig) }) }}
+            </p>
+            <ul>
+              <li v-for="(warning, index) in configWarnings" :key="`config-warning-${index}`">
+                {{ formatWarning(warning) }}
+              </li>
+            </ul>
+          </section>
+
+          <section
+            class="coverage-group coverage-card"
+            :class="manifestNeedsAttention ? 'coverage-card--attention' : 'coverage-card--complete'"
+          >
+            <h2>{{ t("library.coverageManifests") }}</h2>
+            <p class="coverage-card-summary">
+              {{ t("library.coverageCounts", { read: scan.coverage.manifests.read, failed: scan.coverage.manifests.failed }) }}
+            </p>
+            <ul>
+              <li v-for="(warning, index) in manifestWarnings" :key="`manifest-warning-${index}`">
+                {{ formatWarning(warning) }}
+              </li>
+            </ul>
+          </section>
+
+          <section
+            class="coverage-group coverage-card"
+            :class="toolNeedsAttention ? 'coverage-card--attention' : 'coverage-card--complete'"
+          >
+            <h2>{{ t("library.coverageTools") }}</h2>
+            <p class="coverage-card-summary">
+              {{ t("library.coverageCounts", { read: scan.coverage.tools.read, failed: scan.coverage.tools.failed }) }}
+            </p>
+            <ul>
+              <li v-for="(warning, index) in toolWarnings" :key="`tool-warning-${index}`">
+                {{ formatWarning(warning) }}
+              </li>
+            </ul>
+          </section>
+        </div>
+      </transition>
+    </section>
+</template>
+
+<style scoped>
+.coverage {
+  position: relative;
+  margin: 0 0 18px;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.coverage--limited,
+.coverage--incomplete {
+  border-color: color-mix(in srgb, var(--tier-gold) 40%, var(--line));
+}
+.coverage-head {
+  display: flex;
+  align-items: center;
+}
+.coverage-explain {
+  flex: 0 0 auto;
+  margin: 0 14px 0 10px;
+}
+.coverage-toggle {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  background: transparent;
+  border: none;
+  color: var(--fg-0);
+  font-family: var(--font-body);
+  cursor: pointer;
+  text-align: left;
+}
+.coverage-toggle:hover { background: var(--bg-2); }
+.coverage-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.coverage-alert {
+  display: grid;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--tier-gold) 15%, transparent);
+  color: var(--tier-gold);
+  font-weight: 700;
+}
+.coverage-summary {
+  display: block;
+  color: var(--fg-1);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.coverage-context { display: block; margin-top: 2px; color: var(--fg-2); font-size: 0.75rem; }
+.coverage--limited .coverage-action,
+.coverage--incomplete .coverage-action { color: var(--tier-gold); }
+.coverage--limited .coverage-summary,
+.coverage--incomplete .coverage-summary { color: var(--fg-0); }
+.coverage-action {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-2);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.coverage-chevron { font-size: 1rem; line-height: 1; }
+
+.coverage-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 24px;
+  padding: 14px;
+  border-top: 1px solid var(--line);
+  background: var(--bg-1);
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  color: var(--fg-1);
+}
+.coverage-group h2 {
+  margin: 0 0 8px;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.coverage-group p { margin: 0 0 6px; }
+.coverage-card {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg-0);
+}
+.coverage-card--attention { border-color: color-mix(in srgb, var(--tier-gold) 35%, var(--line)); }
+.coverage-card-summary { color: var(--fg-1); }
+.coverage-card--attention .coverage-card-summary { color: var(--tier-gold); }
+.coverage-card--complete .coverage-card-summary { color: var(--tier-platinum); }
+.coverage-group ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.coverage-group li { padding-top: 6px; border-top: 1px solid var(--line); }
+
+@media (max-width: 760px) {
+  .coverage-details { grid-template-columns: 1fr; }
+  .coverage-toggle { align-items: flex-start; flex-direction: column; gap: 6px; }
+}
+
+.fade-enter-active, .fade-leave-active { transition: opacity 0.15s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+</style>

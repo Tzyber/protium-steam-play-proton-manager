@@ -7,7 +7,7 @@ import {
   isLocalConfigParseable,
   readAppFields,
 } from "../../src/core/localconfig.js";
-import { getVdfValue, VdfPatchError } from "../../src/core/vdfpatch.js";
+import { getVdfValue, VdfPatchError } from "../../src/core/vdfRead.js";
 import { buildFakeSteam, nodeFs } from "../support/fakeSteam.js";
 
 const APPS_PATH = ["UserLocalConfigStore", "Software", "Valve", "Steam", "Apps"];

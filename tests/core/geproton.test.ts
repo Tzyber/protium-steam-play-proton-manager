@@ -1,10 +1,6 @@
-import {
-  fetchReleases,
-  type GeRelease,
-  installRelease,
-  isManagedGeName,
-  parseReleases,
-} from "../../src/core/geproton.js";
+import { fetchReleases, installRelease } from "../../src/core/geproton.js";
+import { isManagedGeName } from "../../src/core/geprotonNames.js";
+import { type GeRelease, parseReleases } from "../../src/core/geprotonReleases.js";
 import type {
   GeInstallParams,
   Http,

@@ -1,7 +1,7 @@
 import { parseError } from "./errtext.js";
+import { NUMERIC_RE } from "./guards.js";
 import { paths } from "./paths.js";
 import type { DirEntry, FileSystem } from "./ports.js";
-import { NUMERIC_RE } from "./types.js";
 
 export const SHORTCUT_ID_THRESHOLD = 2_147_483_648; // 2^31
 
@@ -191,7 +191,7 @@ export async function readAllShortcutAppIds(
     return { status: "unreadable", paths: [], detail: parseError(e).code };
   }
 
-  // parität zu delete_inspect.rs: rust lehnt jeden symlink unter userdata ab,
+  // parität zu delete_usage.rs: rust lehnt jeden symlink unter userdata ab,
   // auch nicht-numerische, und öffnet config mit O_DIRECTORY|O_NOFOLLOW.
   // still überspringen hieße none/ok, obwohl shortcuts hinter dem link liegen.
   for (const entry of entries) {

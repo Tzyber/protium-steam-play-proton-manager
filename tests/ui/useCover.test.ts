@@ -12,7 +12,7 @@ vi.mock("../../src/core/adapters/tauri", () => ({
   tauriPorts: { fs: { readFile: mockReadFile } },
 }));
 
-import { useCover } from "../../src/ui/useCover";
+import { useCover } from "../../src/ui/composables/useCover";
 
 function game(appId: number, localHeader: string | null): Game {
   return {

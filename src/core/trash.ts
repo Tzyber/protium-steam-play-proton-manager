@@ -1,7 +1,8 @@
 import { parseError } from "./errtext.js";
+import { parseSafeAppId } from "./guards.js";
 import { paths } from "./paths.js";
 import type { System, TrashListing } from "./ports.js";
-import { type OrphanType, parseSafeAppId } from "./types.js";
+import type { OrphanType } from "./types.js";
 
 export interface TrashEntry {
   /** voller pfad des papierkorb-eintrags */
@@ -50,6 +51,28 @@ interface TrashScanResult {
 }
 
 const TRASH_NAME_RE = /^(compatdata|shadercache)_(\d+)_(\d+)$/;
+
+/** zerlegt einen papierkorb-verzeichnisnamen; null = unbekanntes muster.
+ *  Die abbruch-gründe bleiben in derselben reihenfolge wie in der schleife. */
+function parseTrashName(
+  name: string,
+): { type: "compatdata" | "shadercache"; appId: number; trashedAt: number } | null {
+  const match = TRASH_NAME_RE.exec(name);
+  if (!match) return null;
+  const [, typeRaw, appIdRaw, msRaw] = match;
+  if (typeRaw === undefined || appIdRaw === undefined || msRaw === undefined) return null;
+  // fail-closed statt `as`-cast: die regex-gruppe ist heute einer der beiden
+  // typen, die prüfung hält den cast aus dem code (K-14).
+  if (typeRaw !== "compatdata" && typeRaw !== "shadercache") return null;
+
+  // Riesige Ziffernfolgen und 0 sind im Zeitstempelteil
+  // nie gültige unix-ms (appId-guard steckt in parseSafeAppId)
+  const appId = parseSafeAppId(appIdRaw);
+  const trashedAt = Number.parseInt(msRaw, 10);
+  if (appId === null || !Number.isSafeInteger(trashedAt) || trashedAt <= 0) return null;
+
+  return { type: typeRaw, appId, trashedAt };
+}
 
 export async function findTrashEntries(
   libraries: readonly string[],
@@ -107,30 +130,9 @@ export async function findTrashEntries(
       // pfad aus dem verzeichnis des backends bauen, nicht selbst joinen, sonst
       // zeigt die UI einen anderen ort als den, der gelesen wurde
       const fullPath = paths.trashEntryIn(listing.dir, entry.name);
-      const match = TRASH_NAME_RE.exec(entry.name);
+      const parsed = parseTrashName(entry.name);
 
-      if (!match) {
-        unknown.push(fullPath);
-        continue;
-      }
-
-      const [, typeRaw, appIdRaw, msRaw] = match;
-      if (typeRaw === undefined || appIdRaw === undefined || msRaw === undefined) {
-        unknown.push(fullPath);
-        continue;
-      }
-      // fail-closed statt `as`-cast: die regex-gruppe ist heute einer der beiden
-      // typen, die prüfung hält den cast aus dem code (K-14).
-      if (typeRaw !== "compatdata" && typeRaw !== "shadercache") {
-        unknown.push(fullPath);
-        continue;
-      }
-
-      // Riesige Ziffernfolgen und 0 sind im Zeitstempelteil
-      // nie gültige unix-ms (appId-guard steckt in parseSafeAppId)
-      const appId = parseSafeAppId(appIdRaw);
-      const trashedAt = Number.parseInt(msRaw, 10);
-      if (appId === null || !Number.isSafeInteger(trashedAt) || trashedAt <= 0) {
+      if (parsed === null) {
         unknown.push(fullPath);
         continue;
       }
@@ -144,9 +146,9 @@ export async function findTrashEntries(
         path: fullPath,
         library: lib,
         name: entry.name,
-        type: typeRaw,
-        appId,
-        trashedAt,
+        type: parsed.type,
+        appId: parsed.appId,
+        trashedAt: parsed.trashedAt,
       });
       count++;
     }

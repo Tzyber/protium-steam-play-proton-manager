@@ -1,7 +1,8 @@
+import { parseSafeAppId } from "./guards.js";
 import { paths } from "./paths.js";
 import type { DirEntry, FileSystem } from "./ports.js";
 import { SHORTCUT_ID_THRESHOLD } from "./shortcuts.js";
-import { ORPHAN_TYPES, type OrphanEntry, type OrphanType, parseSafeAppId } from "./types.js";
+import { ORPHAN_TYPES, type OrphanEntry, type OrphanType } from "./types.js";
 
 /** Namenspräfix, das `claim_delete_target` (delete_ops.rs) einem Ziel vor der
  *  Mutation gibt. Spiegel zum Rust-Code, beide zusammen pflegen. */

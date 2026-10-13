@@ -3,8 +3,8 @@
 // jüngste Lauf schreibt Inhalt, Fehler und Ladezustand.
 
 import { describe, expect, it } from "vitest";
+import { useLatestLoad } from "../../src/ui/composables/useLatestLoad";
 import { formatError } from "../../src/ui/formatError";
-import { useLatestLoad } from "../../src/ui/useLatestLoad";
 import { deferred } from "../support/factories";
 
 function take<T>(items: readonly T[], index: number): T {

@@ -57,3 +57,26 @@ describe("paths", () => {
     ]);
   });
 });
+
+describe("joinPath (path-traversal-rejection)", () => {
+  it("verbietet .. in segmenten", () => {
+    expect(() => joinPath("/home", "..", "etc")).toThrow("..");
+  });
+
+  it("verbietet .. am anfang", () => {
+    expect(() => joinPath("/foo", "..")).toThrow("..");
+  });
+
+  it("verbietet .. in mehrteiligem segment", () => {
+    expect(() => joinPath("/a/b", "c/../../etc")).toThrow("..");
+  });
+
+  it("erlaubt normale pfade", () => {
+    expect(joinPath("/home/u", ".local", "share")).toBe("/home/u/.local/share");
+  });
+
+  it("erlaubt externe mount-pfade", () => {
+    expect(joinPath("/run/media/user", "SteamLibrary")).toBe("/run/media/user/SteamLibrary");
+    expect(joinPath("/mnt", "games")).toBe("/mnt/games");
+  });
+});

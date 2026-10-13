@@ -1,18 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
-import { blockedReport } from "../../core/cleanupBlocked";
-import type { TrashEntry } from "../../core/trash";
-import type { OrphanEntry } from "../../core/types";
-import BlockedExplanation from "../components/BlockedExplanation.vue";
-import CleanupRow from "../components/CleanupRow.vue";
-import ExplainInfo from "../components/ExplainInfo.vue";
-import { shortDate } from "../dateTime";
+import CleanupNotices from "../components/CleanupNotices.vue";
+import OrphanPanel from "../components/OrphanPanel.vue";
+import TrashPanel from "../components/TrashPanel.vue";
+import { useSelection } from "../composables/useSelection";
 import { logError } from "../diagnostics";
-import { formatKnownBytes, sizeText } from "../format";
-import { formatError, formatErrorKind } from "../formatError";
+import { formatKnownBytes } from "../format";
 import { t } from "../i18n";
 import { bySizeDesc, formatSizeSummary } from "../sizeSummary";
-import { toggleInSet } from "../stores/cleanupHelpers";
 import { useCleanupStore } from "../stores/cleanupStore";
 import { useConfirmStore } from "../stores/confirmStore";
 import { useScanStore } from "../stores/scanStore";
@@ -95,56 +90,8 @@ watch(
 
 // ---- verwaiste daten ----
 
-/** Bis zu drei segmente passen ganz in die zeile; erst darüber lohnt die kürzung. */
-const SHORT_PATH_MAX_SEGMENTS = 3;
-/** Ein Segment vorn plus die letzten zwei reichen, um library und spiel zu erkennen. */
-const SHORT_PATH_TAIL_SEGMENTS = 2;
-
-/** kürzt die mitte: erstes segment + die letzten zwei. der lange
- *  library-prefix wiederholt sich in jeder zeile und trägt keine information,
- *  aber /mnt vs /home muss unterscheidbar bleiben. voller pfad im title. */
-function shortPath(p: string): string {
-  const parts = p.split("/").filter(Boolean);
-  if (parts.length <= SHORT_PATH_MAX_SEGMENTS) return p;
-  return `/${parts[0]}/…/${parts.slice(-SHORT_PATH_TAIL_SEGMENTS).join("/")}`;
-}
-
 const shadercacheOrphans = computed(() => [...cleanup.shadercacheOrphans].sort(bySizeDesc));
 const compatdataOrphans = computed(() => [...cleanup.compatdataOrphans].sort(bySizeDesc));
-
-/** spielname aus steams localconfig, sonst die app-id (z. B. bei
- *  non-steam-shortcuts oder fehlendem eintrag). */
-function orphanLabel(o: OrphanEntry): string {
-  return cleanup.orphanNames[o.path] ?? String(o.appId);
-}
-
-function useSelection<T extends { path: string }>(
-  entries: () => readonly T[],
-  options?: {
-    selected?: Set<string>;
-    candidates?: (entries: readonly T[]) => readonly T[];
-  },
-) {
-  const picked = options?.selected ?? reactive(new Set<string>());
-  const selectable = () => options?.candidates?.(entries()) ?? entries();
-  const allSelected = computed(() => {
-    const list = selectable();
-    return list.length > 0 && list.every((entry) => picked.has(entry.path));
-  });
-  const selectedEntries = computed(() => entries().filter((entry) => picked.has(entry.path)));
-  function toggle(path: string) {
-    toggleInSet(picked, path);
-  }
-  function selectAll() {
-    const list = selectable();
-    const clear = allSelected.value;
-    for (const entry of list) {
-      if (clear) picked.delete(entry.path);
-      else picked.add(entry.path);
-    }
-  }
-  return reactive({ selected: picked, allSelected, selectedEntries, toggle, selectAll });
-}
 
 const selected = reactive(new Set<string>());
 const shaders = useSelection(() => shadercacheOrphans.value, { selected });
@@ -157,10 +104,6 @@ const trashSelection = useSelection(() => cleanup.trash);
 function displaySize(entries: readonly { sizeBytes?: number }[]): string {
   return formatSizeSummary(entries, formatKnownBytes);
 }
-
-const shadercacheTotal = computed(() => displaySize(shadercacheOrphans.value));
-const compatdataTotal = computed(() => displaySize(compatdataOrphans.value));
-const steamOwnedTotal = computed(() => displaySize(cleanup.steamOwnedPrefixes));
 
 /** auswahl des SICHTBAREN tabs, sonst stünde "0 ausgewählt", während in einer
  *  anderen liste 19 einträge markiert sind. */
@@ -192,10 +135,6 @@ const busy = computed(() => cleanup.scanning || cleanup.deleting.size > 0);
 const destructiveBusy = computed(() => busy.value || confirm.reserved || confirm.busy);
 
 // ---- papierkorb ----
-
-const trashBySize = computed(() => [...cleanup.trash].sort(bySizeDesc));
-
-const trashTotal = computed(() => displaySize(cleanup.trash));
 
 const trashSelectedSize = computed(() => displaySize(trashSelection.selectedEntries));
 
@@ -232,19 +171,6 @@ const tabLabel = (id: Tab) =>
     : id === "prefixes"
       ? t("cleanup.winePrefixes")
       : t("cleanup.trash");
-
-const blockedItems = computed(() => {
-  const items = blockedReport(scan.result).map((item) =>
-    t("cleanup.blockedItem", { path: item.path, class: formatErrorKind(item.kind) }),
-  );
-  return items.length > 0 ? items : [t("cleanup.scanBlocked")];
-});
-
-const shortcutBlockedItems = computed(() =>
-  cleanup.shortcutUnreadablePaths.map((path) =>
-    t("cleanup.blockedItem", { path, class: formatErrorKind("unreadable") }),
-  ),
-);
 </script>
 
 <template>
@@ -297,51 +223,7 @@ const shortcutBlockedItems = computed(() =>
 
     <!-- alles zwischen kopf und aktionsleiste scrollt; leiste und tabs nicht -->
     <div class="scroller">
-      <BlockedExplanation
-        v-if="cleanup.blockedBySkipped"
-        :title="t('cleanup.blockedTitle')"
-        :intro="t('common.couldNotVerify')"
-        :items="blockedItems"
-        :guarantee="t('cleanup.guaranteeScope')"
-      />
-
-      <div v-if="cleanup.pathMissingLibs.length" class="pathmissing">
-        <p class="pm-title">{{ t("cleanup.pathMissingTitle") }}</p>
-        <ul class="pm-list">
-          <li v-for="p in cleanup.pathMissingLibs" :key="p">{{ p }}</li>
-        </ul>
-        <p class="pm-note">{{ t("cleanup.pathMissingNote") }}</p>
-        <button class="pm-btn" type="button" @click="cleanup.dismissPathMissing()">
-          {{ t("cleanup.pathMissingDismiss") }}
-        </button>
-      </div>
-
-      <BlockedExplanation
-        v-if="tab === 'prefixes' && cleanup.shortcutUnreadable"
-        :title="t('cleanup.blockedPrefixesTitle')"
-        :intro="t('common.couldNotVerify')"
-        :items="shortcutBlockedItems"
-        :guarantee="t('cleanup.guaranteeScope')"
-        tone="info"
-      />
-
-      <div v-if="cleanup.incompleteDeletions.length" class="blocked">
-        <strong>{{ t("cleanup.incompleteDeletionsTitle") }}</strong>
-        <ExplainInfo
-          class="explain-inline"
-          :label="t('explain.topics.incompleteDeletion.title')"
-          :topics="['incomplete-deletion']"
-        />
-        <p class="pm-note">{{ t("cleanup.incompleteDeletionsBody") }}</p>
-        <p class="pm-note">{{ t("cleanup.incompleteDeletionsHint") }}</p>
-        <ul class="pm-list">
-          <li v-for="d in cleanup.incompleteDeletions" :key="d.path" class="mono">{{ d.path }}</li>
-        </ul>
-      </div>
-
-      <div v-if="cleanup.incompleteDeletionsError" class="blocked" role="alert">
-        {{ cleanup.incompleteDeletionsError }}
-      </div>
+      <CleanupNotices :shortcut-hint="tab === 'prefixes'" />
 
       <!-- ---- shader-caches ---- -->
       <div
@@ -353,42 +235,7 @@ const shortcutBlockedItems = computed(() =>
         aria-labelledby="cv-tab-shaders"
         tabindex="0"
       >
-        <div class="section-bar">
-          <span class="section">
-            <span class="count" data-testid="shader-total">{{ t("cleanup.total", { size: shadercacheTotal }) }}</span>
-          </span>
-          <button
-            v-if="shadercacheOrphans.length"
-            class="sel-all"
-            type="button"
-            :aria-pressed="shaders.allSelected"
-            @click="shaders.selectAll()"
-          >
-            {{ t("cleanup.selectAll") }}
-          </button>
-        </div>
-
-        <ul v-if="shadercacheOrphans.length" class="list">
-          <li v-for="o in shadercacheOrphans" :key="o.path">
-            <CleanupRow
-              :label="orphanLabel(o)"
-              :path="o.path"
-              :short-path="shortPath(o.path)"
-              :size-text="sizeText(o.sizeBytes)"
-              :selected="shaders.selected.has(o.path)"
-              @toggle="shaders.toggle(o.path)"
-            />
-          </li>
-        </ul>
-        <div v-else-if="cleanup.scanning" class="empty">{{ t("cleanup.searching") }}</div>
-        <div v-else-if="!cleanup.shaderUnavailable" class="empty">{{ t("cleanup.empty") }}</div>
-        <div v-else class="empty">
-          {{ t("cleanup.unavailable") }}<ExplainInfo
-            class="explain-inline"
-            :label="t('explain.topics.cleanupBlocked.title')"
-            :topics="['cleanup-blocked']"
-          />
-        </div>
+        <OrphanPanel kind="shader" :entries="shadercacheOrphans" :selection="shaders" />
       </div>
 
       <!-- ---- wine-prefixes ---- -->
@@ -401,60 +248,7 @@ const shortcutBlockedItems = computed(() =>
         aria-labelledby="cv-tab-prefixes"
         tabindex="0"
       >
-        <div class="section-bar">
-          <span class="section">
-            <span class="warn-label">{{ t("cleanup.winePrefixWarn") }}</span>
-            <span class="count" data-testid="prefix-total">{{ t("cleanup.total", { size: compatdataTotal }) }}</span>
-          </span>
-          <button
-            v-if="compatdataOrphans.length"
-            class="sel-all warn"
-            type="button"
-            :aria-pressed="prefixes.allSelected"
-            @click="prefixes.selectAll()"
-          >
-            {{ t("cleanup.selectAll") }}
-          </button>
-        </div>
-
-        <p class="moved-note">{{ t("cleanup.winePrefixMovedNote") }}</p>
-
-        <div v-if="cleanup.steamOwnedPrefixes.length" class="blocked" role="status" data-testid="steam-owned-total">
-          {{
-            t("cleanup.steamOwnedHint", {
-              n: cleanup.steamOwnedPrefixes.length,
-              size: steamOwnedTotal,
-            })
-          }}
-          <ExplainInfo
-            class="explain-inline"
-            :label="t('explain.topics.steamOwned.title')"
-            :topics="['steam-owned']"
-          />
-        </div>
-
-        <ul v-if="compatdataOrphans.length" class="list">
-          <li v-for="o in compatdataOrphans" :key="o.path">
-            <CleanupRow
-              :label="orphanLabel(o)"
-              :path="o.path"
-              :short-path="shortPath(o.path)"
-              :size-text="sizeText(o.sizeBytes)"
-              :selected="prefixes.selected.has(o.path)"
-              :warning="o.potentialShortcut ? t('cleanup.potentialShortcutTooltip') : undefined"
-              @toggle="prefixes.toggle(o.path)"
-            />
-          </li>
-        </ul>
-        <div v-else-if="cleanup.scanning" class="empty">{{ t("cleanup.searching") }}</div>
-        <div v-else-if="!cleanup.prefixUnavailable" class="empty">{{ t("cleanup.empty") }}</div>
-        <div v-else class="empty">
-          {{ t("cleanup.unavailable") }}<ExplainInfo
-            class="explain-inline"
-            :label="t('explain.topics.cleanupBlocked.title')"
-            :topics="['cleanup-blocked']"
-          />
-        </div>
+        <OrphanPanel kind="prefix" :entries="compatdataOrphans" :selection="prefixes" />
       </div>
 
       <!-- ---- papierkorb ---- -->
@@ -467,76 +261,7 @@ const shortcutBlockedItems = computed(() =>
         aria-labelledby="cv-tab-trash"
         tabindex="0"
       >
-        <div class="section-bar">
-          <span class="section">
-            <span class="count" data-testid="trash-total">{{ t("cleanup.total", { size: trashTotal }) }}</span>
-          </span>
-          <div class="section-actions">
-            <button
-              v-if="trashBySize.length"
-              class="sel-all"
-              type="button"
-              :aria-pressed="trashSelection.allSelected"
-              @click="trashSelection.selectAll()"
-            >
-              {{ t("cleanup.selectAll") }}
-            </button>
-            <button
-              class="sel-all"
-              type="button"
-              :disabled="cleanup.trashScanning"
-              @click="cleanup.scanTrash()"
-            >
-              {{ cleanup.trashScanning ? t("cleanup.searching") : t("cleanup.trashSearchButton") }}
-            </button>
-          </div>
-        </div>
-
-        <div v-if="cleanup.trashLibraries.length" class="libstatus">
-          <div v-for="l in cleanup.trashLibraries" :key="l.library" class="mono">
-            {{ l.duplicateOf
-              ? t("cleanup.trashLibDuplicate", { dir: l.dir || l.library, lib: l.duplicateOf })
-              : l.error
-                ? t("cleanup.trashLibError", { dir: l.dir || l.library, msg: formatError(l.error) })
-                : !l.present
-                  ? t("cleanup.trashLibNone", { dir: l.dir || l.library })
-                  : t("cleanup.trashLibCount", { dir: l.dir, n: l.count }) }}
-          </div>
-        </div>
-
-        <div v-if="cleanup.trashUnknown.length" class="blocked">
-          {{ t("cleanup.trashUnknownHint", { n: cleanup.trashUnknown.length }) }}
-          <ul class="pm-list">
-            <li v-for="p in cleanup.trashUnknown" :key="p" class="mono">{{ p }}</li>
-          </ul>
-        </div>
-
-        <ul v-if="trashBySize.length" class="list">
-          <li v-for="entry in trashBySize" :key="entry.path">
-            <CleanupRow
-              :label="String(entry.appId)"
-              :path="entry.path"
-              :short-path="shortPath(entry.path)"
-              :size-text="sizeText(entry.sizeBytes)"
-              :extra="shortDate(entry.trashedAt)"
-              :extra-title="t('cleanup.trashTrashedAt', { date: shortDate(entry.trashedAt) })"
-              with-date
-              :selected="trashSelection.selected.has(entry.path)"
-              @toggle="trashSelection.toggle(entry.path)"
-            />
-          </li>
-        </ul>
-        <div v-else-if="cleanup.trashScanning" class="empty">{{ t("cleanup.searching") }}</div>
-        <div v-else-if="!cleanup.trashUnavailable" class="empty">
-          {{ t("cleanup.trashEmptyState") }}
-        </div>
-        <div v-else class="empty">
-          {{ t("cleanup.unavailable") }}<ExplainInfo
-            class="explain-inline"
-            :label="t('explain.topics.cleanupBlocked.title')"
-            :topics="['cleanup-blocked']"
-          />
-        </div>
+        <TrashPanel :selection="trashSelection" />
       </div>
 
     </div>
@@ -622,37 +347,6 @@ const shortcutBlockedItems = computed(() =>
 .scan-btn:disabled { opacity: 0.55; cursor: default; }
 .scan-btn:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 
-.blocked {
-  background: color-mix(in srgb, var(--tier-borked) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--tier-borked) 40%, transparent);
-  color: #ff9aa0;
-  border-radius: var(--r-sm);
-  padding: 12px 16px;
-  font-family: var(--font-body);
-  font-size: 0.875rem;
-  margin-bottom: 16px;
-}
-
-.pathmissing {
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  padding: 14px 16px;
-  margin-bottom: 16px;
-}
-.pm-title { margin: 0 0 8px; color: var(--signal); font-size: 0.875rem; }
-.pm-list { margin: 0 0 10px; padding-left: 18px; }
-.pm-list li { color: var(--fg-1); font-family: var(--font-mono); font-size: 0.875rem; line-height: 1.6; }
-.pm-note { margin: 0 0 12px; color: var(--fg-2); font-size: 0.875rem; line-height: 1.5; }
-.pm-btn {
-  background: var(--signal); border: none; color: var(--bg-0);
-  border-radius: var(--r-sm); padding: 10px 15px;
-  font-family: var(--font-body); font-weight: 600; font-size: 0.875rem; cursor: pointer;
-}
-.pm-btn:hover { background: var(--signal-bright); }
-.pm-btn:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
-
-
 
 /* ---- tabs ---- */
 .tabs {
@@ -683,19 +377,6 @@ const shortcutBlockedItems = computed(() =>
 .panel { padding-top: 14px; }
 .panel:focus-visible { outline: 2px solid var(--signal); outline-offset: 4px; border-radius: var(--r-sm); }
 
-.section-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; min-height: 34px; }
-.section {
-  font-family: var(--font-display); font-size: 1rem; font-weight: 600; color: var(--fg-1);
-  display: flex; align-items: center; gap: 10px;
-}
-.section .count { color: var(--fg-2); font-weight: 400; }
-.section .warn-label {
-  font-family: var(--font-body); font-size: 0.875rem; color: var(--fg-1);
-  border: 1px solid color-mix(in srgb, var(--tier-gold) 45%, transparent);
-  border-radius: 999px; padding: 2px 9px;
-}
-.section-actions { display: flex; gap: 8px; }
-
 .sel-all {
   background: none; border: 1px solid var(--line); color: var(--fg-1);
   border-radius: var(--r-sm); padding: 8px 14px;
@@ -704,7 +385,6 @@ const shortcutBlockedItems = computed(() =>
 .sel-all:hover:not(:disabled) { color: var(--fg-0); border-color: var(--signal-dim); }
 .sel-all:disabled { opacity: 0.55; cursor: default; }
 .sel-all:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
-.sel-all.warn:hover:not(:disabled) { border-color: var(--tier-gold); color: var(--tier-gold); }
 
 .ignored {
   display: flex; align-items: center; gap: 10px;
@@ -717,20 +397,6 @@ const shortcutBlockedItems = computed(() =>
   color: var(--signal); font-size: 0.875rem; cursor: pointer;
   text-decoration: underline; text-underline-offset: 3px;
 }
-.libstatus {
-  font-family: var(--font-mono); font-size: 0.875rem; color: var(--fg-1); line-height: 1.7;
-  background: var(--bg-2); border: 1px solid var(--line);
-  border-radius: var(--r-sm); padding: 12px 16px; margin-bottom: 14px;
-  overflow-wrap: anywhere;
-}
-
-.list { display: grid; gap: 6px; list-style: none; padding: 0; margin: 0; }
-
-.moved-note {
-  color: var(--fg-2); font-size: 0.875rem; font-family: var(--font-body);
-  margin: 0 0 10px; font-style: italic;
-}
-
 /* footer der view: liegt außerhalb der scroll-fläche, also immer unten und
    niemals über einer listenzeile. vorher war das position:sticky mit negativem
    margin, dadurch verdeckte die leiste die letzte zeile, die dann nicht mehr
@@ -761,8 +427,6 @@ const shortcutBlockedItems = computed(() =>
 .action.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--tier-borked) 30%, transparent); }
 
 .hint { color: var(--tier-gold); font-family: var(--font-body); font-size: 0.875rem; margin-bottom: 12px; }
-.explain-inline { margin-left: 7px; vertical-align: middle; }
-.empty { color: var(--fg-2); font-family: var(--font-body); font-size: 0.875rem; padding: 32px 0; text-align: center; }
 
 
 </style>

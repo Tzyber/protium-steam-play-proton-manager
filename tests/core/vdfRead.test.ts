@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { getVdfChildFieldValues, getVdfValue, VdfPatchError } from "../../src/core/vdfpatch.js";
+import { getVdfChildFieldValues, getVdfValue, VdfPatchError } from "../../src/core/vdfRead.js";
 
 const LOCALCONFIG = `"UserLocalConfigStore"
 {

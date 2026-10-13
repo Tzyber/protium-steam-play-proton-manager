@@ -18,7 +18,7 @@ import type {
 } from "../../src/core/cleanup";
 import type { DirectorySize, PendingDeleteInfo, PrepareDeleteRequest } from "../../src/core/ports";
 import type { readAllShortcutAppIds } from "../../src/core/shortcuts";
-import type { findTrashEntries, TrashEntry } from "../../src/core/trash";
+import type { findTrashEntries, TrashEntry, TrashLibraryStatus } from "../../src/core/trash";
 import type { OrphanEntry, ScanResult } from "../../src/core/types";
 import { orphan as makeOrphan, trashEntry as makeTrashEntry, scanResult } from "./factories";
 
@@ -176,6 +176,28 @@ export function resetCleanupMocks(): void {
   mockReadLocalConfig.mockResolvedValue("");
   mockIsSteamRunning.mockReset();
   mockIsSteamRunning.mockResolvedValue(false);
+}
+
+export const TRASH_DIR = "/lib/steamapps/.protium-trash";
+
+/** Papierkorb-stand für `findTrashEntries`. Der store liest den papierkorb seit
+ *  A-06 nach jeder mutation neu, deshalb beschreibt der mock in diesen tests den
+ *  zustand NACH dem löschen (die einträge, die noch liegen). */
+export function trashScan(
+  entries: TrashEntry[],
+  count = entries.length,
+): {
+  entries: TrashEntry[];
+  unknown: string[];
+  unreadable: string[];
+  libraries: TrashLibraryStatus[];
+} {
+  return {
+    entries,
+    unknown: [],
+    unreadable: [],
+    libraries: [{ library: "/lib", dir: TRASH_DIR, present: true, count }],
+  };
 }
 
 /** Scan-Snapshot mit leerem Inventar; nur skipped/unsafe-Libraries variieren in

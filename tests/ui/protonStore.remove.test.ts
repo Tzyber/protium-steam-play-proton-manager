@@ -1,7 +1,7 @@
 // T-08: die mock-preamble muss vor jedem src-/store-import geladen werden.
 // biome-ignore assist/source/organizeImports: mock-registrierung muss vor den modul-importen laufen (T-08)
 import { fakeScanResult, mockHttpGet, mockInstallGeProton, release } from "./protonStore.preamble";
-import { MOCK_TOKEN_TTL_MS } from "../support/cleanupStoreMocks";
+import { MOCK_TOKEN_TTL_MS } from "../support/mockTokenTtl";
 import { customTool } from "../support/factories";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";

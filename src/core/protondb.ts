@@ -1,5 +1,6 @@
+import { isRecord } from "./guards.js";
 import type { Cache, Http } from "./ports.js";
-import { asTier, isRecord, type Tier } from "./types.js";
+import { asTier, type Tier } from "./types.js";
 
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;
 

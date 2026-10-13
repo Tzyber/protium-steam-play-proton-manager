@@ -92,7 +92,7 @@ export type ScanWarning =
       detail?: string;
     };
 
-export type CompatToolSource = "explicit" | "default" | "unavailable";
+export type CompatToolSource = (typeof COMPAT_TOOL_SOURCES)[number];
 
 /** String-Sentinels, die in `compatTool` stehen können, aber keinen echten
  *  tool-namen bezeichnen: "default" = globaler Standard, "unknown" = keine
@@ -192,7 +192,7 @@ export interface SkippedLibrary {
   reason: SkipReason;
 }
 
-export type OrphanType = "compatdata" | "shadercache";
+export type OrphanType = (typeof ORPHAN_TYPES)[number];
 
 export interface OrphanEntry {
   appId: number;
@@ -201,28 +201,4 @@ export interface OrphanEntry {
   library: string;
   sizeBytes?: number;
   potentialShortcut?: boolean;
-}
-
-/** Prüft vor `parseSafeAppId`, ob eine App-ID nur Ziffern enthält. */
-export const NUMERIC_RE = /^\d+$/;
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** Obergrenze gültiger Steam-App-IDs: u32::MAX. Spiegel zur Rust-Grenze in
- *  `parse_app_id` (scope.rs). Non-Steam-Shortcut-IDs belegen legitim den
- *  Bereich 2^31..2^32−1 (Bit 31 gesetzt) und müssen angeboten werden können. */
-export const MAX_APP_ID = 4_294_967_295;
-
-/** Riesige Ziffernfolgen parsen jenseits der JS-Präzision (NAME_MAX erlaubt
- *  254 Ziffern → 1.8e254). solche strings liegen über MAX_APP_ID und werden
- *  schon von der Grenzprüfung abgewiesen; jeder wert ≤ MAX_APP_ID ist ohnehin
- *  ein sicherer Integer, ein eigener `isSafeInteger`-Guard wäre tot (K-14).
- *  null = kein brauchbarer wert. */
-export function parseSafeAppId(str: string): number | null {
-  if (!NUMERIC_RE.test(str)) return null;
-  const appId = Number.parseInt(str, 10);
-  if (appId < 1 || appId > MAX_APP_ID) return null;
-  return appId;
 }

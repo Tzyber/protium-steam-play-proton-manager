@@ -8,10 +8,10 @@ import {
   LEGACY_MAX_MAJOR,
   LEGACY_MAX_MINOR,
   MANAGED_GE_NAME_RE,
-} from "../../src/core/geproton.js";
+} from "../../src/core/geprotonNames.js";
+import { MAX_APP_ID } from "../../src/core/guards.js";
 import { SYSTEM_COMPAT_DIRS } from "../../src/core/paths.js";
 import { MAX_BINARY_VDF_DEPTH } from "../../src/core/shortcuts.js";
-import { MAX_APP_ID } from "../../src/core/types.js";
 import { formatDetail, formatError } from "../../src/ui/formatError.js";
 import { setLocale, t } from "../../src/ui/i18n/index.js";
 import { MAX_PENDING_DELETES } from "../../src/ui/stores/cleanupStore.js";
@@ -90,7 +90,7 @@ describe("TypeScript-/Rust-Spiegelwerte", () => {
   it("bindet die GE-Namens- und Legacy-Regeln an Rust (Q-01)", () => {
     const compatAuth = readFileSync(join(repo, "src-tauri/src/commands/compat_auth.rs"), "utf8");
     const geInstall = readFileSync(join(repo, "src-tauri/src/commands/ge_install.rs"), "utf8");
-    const geproton = readFileSync(join(repo, "src/core/geproton.ts"), "utf8");
+    const geproton = readFileSync(join(repo, "src/core/geprotonReleases.ts"), "utf8");
 
     // MANAGED_GE_NAME_RE spiegelt compat_auth::is_managed_ge_name: prefix,
     // versionsnummern, optionale arch-suffixe. Beide Seiten müssen dieselbe

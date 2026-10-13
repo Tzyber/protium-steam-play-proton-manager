@@ -4,8 +4,8 @@
 // unabhängig prüfbar bleiben.
 
 import { BLOCKLIST } from "./blocklist.js";
-import { MANAGED_GE_NAME_RE } from "./geproton.js";
-import { type Game, isCompatToolSentinel, MAX_APP_ID, type ScanResult } from "./types.js";
+import { MANAGED_GE_NAME_RE } from "./geprotonNames.js";
+import { type Game, isCompatToolSentinel, type ScanResult } from "./types.js";
 
 /** platzhalter für einen compat-tool-namen, der nicht als builtin oder
  *  managed GE-Name belegt ist. */
@@ -21,20 +21,6 @@ export function projectToolName(name: string): string {
   if (builtin) return builtin.label;
   // Nur Syntaxfreigabe, kein Beleg für Herkunft oder Installation.
   return MANAGED_GE_NAME_RE.exec(name)?.[0] === name ? name : TOOL_ALIAS;
-}
-
-/** appId, die im bericht genannt werden darf; alles andere wird verworfen. */
-export function validAppId(value: unknown): number | null {
-  return typeof value === "number" &&
-    Number.isSafeInteger(value) &&
-    value >= 1 &&
-    value <= MAX_APP_ID
-    ? value
-    : null;
-}
-
-export function validNonNegativeInteger(value: unknown): number | null {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 /** library-pfad → `<steam-library-N>` (index in der scan-liste). */

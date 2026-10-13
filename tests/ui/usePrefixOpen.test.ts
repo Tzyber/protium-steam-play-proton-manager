@@ -17,9 +17,9 @@ vi.mock("../../src/core/adapters/tauri", () => ({
   openPrefixFolder: mockOpenPrefixFolder,
 }));
 
+import { usePrefixOpen } from "../../src/ui/composables/usePrefixOpen";
 import { setLocale, t } from "../../src/ui/i18n";
 import { useScanStore } from "../../src/ui/stores/scanStore";
-import { usePrefixOpen } from "../../src/ui/usePrefixOpen";
 import { game as makeGame, scanResult } from "../support/factories";
 
 function game(overrides: Partial<Game> = {}): Game {

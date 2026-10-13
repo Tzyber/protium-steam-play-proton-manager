@@ -1,15 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { isManagedGeName } from "../../core/geproton";
+import { isManagedGeName } from "../../core/geprotonNames";
 import type { CompatTool } from "../../core/types";
 import ExplainInfo from "../components/ExplainInfo.vue";
+import ReleaseRow from "../components/ReleaseRow.vue";
 import { relativeTime } from "../dateTime";
-import { formatBytes, formatKnownBytes, sizeText } from "../format";
-import type { Key } from "../i18n";
+import { formatKnownBytes, sizeText } from "../format";
 import { t } from "../i18n";
 import { formatSizeSummary } from "../sizeSummary";
 import { useConfirmStore } from "../stores/confirmStore";
-import type { Phase } from "../stores/protonStore";
 import { useProtonStore } from "../stores/protonStore";
 import { useUiStore } from "../stores/uiStore";
 
@@ -35,39 +34,6 @@ const installedNames = computed(() => new Set(proton.installedTools.map((tt) => 
 
 const mappedTools = computed(() => proton.installedTools.filter((tool) => tool.usedBy.length > 0));
 const mappedSize = computed(() => formatSizeSummary(mappedTools.value, formatKnownBytes));
-
-function pct(tag: string): number | null {
-  const j = proton.jobs[tag];
-  if (!j?.total) return null;
-  return Math.min(100, Math.round((j.downloaded / j.total) * 100));
-}
-
-/** Ohne bekannte Gesamtgröße gibt es keinen echten Prozentwert: dann läuft der
- *  Balken als indeterminierte Animation (U-06), statt einen erfundenen
- *  Füllstand vorzutäuschen. */
-function fillStyle(tag: string): Record<string, string> | undefined {
-  const value = pct(tag);
-  return value === null ? undefined : { transform: `scaleX(${value / 100})` };
-}
-
-// literale keys statt laufzeit-konkatenation: fehlt eine übersetzung, schlägt
-// der typecheck fehl statt erst die UI.
-const PHASE_KEYS = {
-  queued: "phase.queued",
-  downloading: "phase.downloading",
-  verifying: "phase.verifying",
-  extracting: "phase.extracting",
-} as const satisfies Record<Phase, Key>;
-
-function phaseLabel(tag: string): string {
-  const phase = proton.jobs[tag]?.phase;
-  return phase ? t(PHASE_KEYS[phase]) : "";
-}
-
-function speedLabel(tag: string): string {
-  const speed = proton.jobs[tag]?.speed ?? 0;
-  return speed > 0 ? `${formatBytes(Math.round(speed))}/s` : "";
-}
 
 const statusFlash = ref(false);
 let flashTimer: ReturnType<typeof setTimeout> | null = null;
@@ -212,40 +178,7 @@ const statusLine = computed(() => {
     </div>
     <ul class="list" :aria-busy="proton.loading">
       <li v-for="r in proton.releases" :key="r.tag">
-        <div class="row">
-          <div class="rmain">
-            <div class="rname">
-              {{ r.tag }}
-              <span v-if="installedNames.has(r.installName)" class="tag ok">{{ t("proton.installed") }}</span>
-            </div>
-            <div class="rsub mono">{{ formatBytes(r.tarball.size) }}</div>
-            <div v-if="proton.jobs[r.tag]" class="progress" role="progressbar" :aria-valuemin="0" :aria-valuemax="100" :aria-valuenow="pct(r.tag) ?? undefined" :aria-label="phaseLabel(r.tag)">
-              <template v-if="proton.jobs[r.tag]?.phase === 'downloading'">
-                <div class="track"><div class="fill" :class="{ 'fill--indeterminate': pct(r.tag) === null }" :style="fillStyle(r.tag)" /></div>
-                <span class="phase"><span aria-live="polite">{{ phaseLabel(r.tag) }}</span><span v-if="pct(r.tag) !== null"> · {{ pct(r.tag) }}%</span><span v-if="speedLabel(r.tag)"> · {{ speedLabel(r.tag) }}</span></span>
-              </template>
-              <span v-else class="phase act" aria-live="polite">{{ phaseLabel(r.tag) }}<span v-if="proton.jobs[r.tag]?.phase === 'extracting' && proton.jobs[r.tag]?.verified"> ✓ {{ t("proton.checksumOk") }}</span></span>
-            </div>
-          </div>
-          <button
-            v-if="!installedNames.has(r.installName) && !proton.jobs[r.tag]"
-            class="install"
-            type="button"
-            @click="proton.queueInstall(r)"
-          >
-            {{ t("proton.install") }}
-          </button>
-          <button
-            v-else-if="proton.jobs[r.tag]"
-            class="cancel"
-            type="button"
-            :title="proton.activeTag === r.tag ? t('proton.cancelDownload') : t('proton.cancelQueue')"
-            @click="proton.cancel(r.tag)"
-          >
-            <span aria-hidden="true">✕</span> {{ t("common.cancel") }}
-          </button>
-          <span v-else class="used muted">{{ t("proton.installed") }}</span>
-        </div>
+        <ReleaseRow :release="r" :installed="installedNames.has(r.installName)" />
       </li>
     </ul>
 
@@ -300,7 +233,6 @@ const statusLine = computed(() => {
 .rsub { color: var(--fg-2); font-size: 0.8125rem; font-weight: 600; margin-top: 3px; }
 
 .tag { font-family: var(--font-body); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 6px; border-radius: 999px; }
-.tag.ok { color: var(--tier-platinum); background: color-mix(in srgb, var(--tier-platinum) 14%, transparent); }
 .tag.distro { color: var(--fg-2); border: 1px solid var(--line); margin-left: 8px; }
 
 .used { background: none; border: 1px solid var(--signal-dim); color: var(--signal-bright); border-radius: var(--r-sm); padding: 5px 9px; font-family: var(--font-body); font-size: 0.875rem; cursor: pointer; white-space: nowrap; }
@@ -309,53 +241,6 @@ const statusLine = computed(() => {
 .rm { background: none; border: 1px solid color-mix(in srgb, var(--tier-borked) 45%, transparent); color: var(--tier-borked); border-radius: var(--r-sm); padding: 5px 10px; font-family: var(--font-body); font-size: 0.875rem; cursor: pointer; }
 .rm:hover:not(:disabled) { background: color-mix(in srgb, var(--tier-borked) 14%, transparent); }
 .rm-lock { position: relative; color: var(--fg-2); font-size: 0.8125rem; }
-
-.install { background: var(--signal); color: #0a0b11; border: none; border-radius: var(--r-sm); padding: 7px 14px; font-family: var(--font-body); font-weight: 600; font-size: 0.8125rem; cursor: pointer; }
-.install:hover:not(:disabled) { background: var(--signal-bright); }
-.cancel {
-  background: none;
-  border: 1px solid color-mix(in srgb, var(--tier-borked) 50%, transparent);
-  color: var(--tier-borked);
-  border-radius: var(--r-sm);
-  padding: 7px 12px;
-  font-family: var(--font-body);
-  font-size: 0.8125rem;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.cancel:hover { background: color-mix(in srgb, var(--tier-borked) 14%, transparent); }
-
-.progress { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
-.track { flex: 1; max-width: 320px; height: 5px; background: var(--bg-0); border-radius: 999px; overflow: hidden; }
-.fill { width: 100%; height: 100%; background: var(--signal); transform-origin: left; transition: transform 0.2s; }
-/* unbekannte gesamtgröße: ein durchlaufender Balken statt eines erfundenen
-   Prozentwerts (aria-valuenow fehlt, also indeterminierte progressbar). */
-.fill--indeterminate { width: 40%; transform: none; animation: fill-indeterminate 1.2s ease-in-out infinite; }
-@keyframes fill-indeterminate {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(250%); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .fill--indeterminate { width: 100%; opacity: 0.4; animation: none; }
-}
-.phase { color: var(--fg-2); font-size: 0.75rem; }
-.phase.act::before {
-  content: "●";
-  display: inline-block;
-  font-size: 0.9rem;
-  line-height: 1;
-  vertical-align: middle;
-  margin-right: 0.35em;
-  animation: phase-pulse 1s ease-in-out infinite;
-}
-.phase.act { color: var(--signal-bright); }
-@keyframes phase-pulse {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 1; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .phase.act::before { opacity: 0.6; animation: none; }
-}
 
 .hint { color: var(--tier-gold); font-family: var(--font-body); font-size: 0.75rem; margin-bottom: 10px; }
 .hint--warning { color: var(--tier-bronze); display: flex; align-items: center; gap: 8px; } /* bronze statt gold, von fehlermeldung unterscheidbar */

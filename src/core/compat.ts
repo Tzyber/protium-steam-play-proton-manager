@@ -1,9 +1,9 @@
 import type { CompatToolMapping } from "./compatTools.js";
 import { readToolVdf, usedBy } from "./compatTools.js";
 import { errText } from "./errtext.js";
+import { validNonNegativeInteger } from "./guards.js";
 import { paths } from "./paths.js";
 import type { DirEntry, FileSystem, PathIdentity, System } from "./ports.js";
-import { validNonNegativeInteger } from "./supportRedaction.js";
 import type { CompatTool, ReadFailedCounts, ScanWarning } from "./types.js";
 
 interface CompatToolScanResult {

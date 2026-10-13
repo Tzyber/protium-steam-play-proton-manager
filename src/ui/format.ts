@@ -1,4 +1,4 @@
-import { validNonNegativeInteger } from "../core/supportRedaction";
+import { validNonNegativeInteger } from "../core/guards";
 
 // Belegte Null ist eine Messung; formatBytes(0) steht für „leer oder ungültig".
 export function formatKnownBytes(bytes: number): string {
@@ -37,4 +37,18 @@ export function sizeText(
 export function pathBasename(path: string): string {
   const index = path.lastIndexOf("/");
   return index >= 0 ? path.slice(index + 1) : path;
+}
+
+/** Bis zu drei segmente passen ganz in die zeile; erst darüber lohnt die kürzung. */
+const SHORT_PATH_MAX_SEGMENTS = 3;
+/** Ein Segment vorn plus die letzten zwei reichen, um library und spiel zu erkennen. */
+const SHORT_PATH_TAIL_SEGMENTS = 2;
+
+/** kürzt die mitte: erstes segment + die letzten zwei. der lange
+ *  library-prefix wiederholt sich in jeder zeile und trägt keine information,
+ *  aber /mnt vs /home muss unterscheidbar bleiben. voller pfad im title. */
+export function shortPath(p: string): string {
+  const parts = p.split("/").filter(Boolean);
+  if (parts.length <= SHORT_PATH_MAX_SEGMENTS) return p;
+  return `/${parts[0]}/…/${parts.slice(-SHORT_PATH_TAIL_SEGMENTS).join("/")}`;
 }

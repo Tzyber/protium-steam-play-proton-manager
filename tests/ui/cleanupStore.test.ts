@@ -5,9 +5,11 @@
 // biome-ignore assist/source/organizeImports: mock-registrierung muss vor dem store-import laufen (T-01)
 import {
   fakeScan,
+  mockBatchDirSizes,
   mockExecuteDelete,
   mockFindIncompleteDeletions,
   mockFindOrphans,
+  mockFindSteamOwnedPrefixes,
   mockFindTrashEntries,
   mockIsSteamRunning,
   mockPrepareDelete,
@@ -374,5 +376,47 @@ describe("cleanupStore gate logic", () => {
     expect(store.blockedBySkipped).toBe(false);
     expect(store.pathMissingLibs).toEqual([]);
     expect(store.error).toBeNull();
+  });
+});
+
+describe("cleanupStore steamOwnedPrefixes", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    setLocale("de");
+    resetCleanupMocks();
+  });
+
+  it("übernimmt steam-eigene prefixes und hängt deren größen an", async () => {
+    mockFindSteamOwnedPrefixes.mockResolvedValue([
+      { appId: 4628710, path: "/lib/compatdata/4628710", library: "/lib" },
+    ]);
+    mockBatchDirSizes.mockResolvedValue({
+      "/lib/compatdata/4628710": { status: "measured", sizeBytes: 8192 },
+    });
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+
+    await store.scanOrphans();
+
+    expect(store.steamOwnedPrefixes).toHaveLength(1);
+    expect(store.steamOwnedPrefixes[0]?.sizeBytes).toBe(8192);
+    expect(mockBatchDirSizes).toHaveBeenCalledWith(["/lib/compatdata/4628710"]);
+  });
+
+  it("setzt die einträge beim nächsten scan zurück", async () => {
+    mockFindSteamOwnedPrefixes.mockResolvedValue([
+      { appId: 4628710, path: "/lib/compatdata/4628710", library: "/lib" },
+    ]);
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+
+    await store.scanOrphans();
+    expect(store.steamOwnedPrefixes).toHaveLength(1);
+
+    mockFindSteamOwnedPrefixes.mockResolvedValue([]);
+    await store.scanOrphans();
+    expect(store.steamOwnedPrefixes).toEqual([]);
   });
 });

@@ -1,16 +1,11 @@
 import { blockReason } from "../blocklist.js";
 import { errText } from "../errtext.js";
+import { parseSafeAppId } from "../guards.js";
 import { readAppFields } from "../localconfig.js";
 import { parseManifest } from "../manifest.js";
 import { paths } from "../paths.js";
 import type { DirEntry, Ports } from "../ports.js";
-import {
-  type Game,
-  parseSafeAppId,
-  type ReadFailedCounts,
-  type ScanWarning,
-  type SkippedLibrary,
-} from "../types.js";
+import type { Game, ReadFailedCounts, ScanWarning, SkippedLibrary } from "../types.js";
 import { resolveLocalHeader } from "./cover.js";
 
 const MANIFEST_RE = /^appmanifest_(\d+)\.acf$/;

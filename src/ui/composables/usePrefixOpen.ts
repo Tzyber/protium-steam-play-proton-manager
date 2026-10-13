@@ -1,9 +1,9 @@
 import { computed, type Ref, shallowRef, watch } from "vue";
-import { openPrefixFolder } from "../core/adapters/tauri";
-import { hasExternalCompatdata } from "../core/footprint";
-import type { Game } from "../core/types";
-import type { Key } from "./i18n";
-import { useScanStore } from "./stores/scanStore";
+import { openPrefixFolder } from "../../core/adapters/tauri";
+import { hasExternalCompatdata } from "../../core/footprint";
+import type { Game } from "../../core/types";
+import type { Key } from "../i18n";
+import { useScanStore } from "../stores/scanStore";
 
 const ERROR_KEYS = {
   "external-target": "drawer.prefixExternal",

@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { Game } from "../../src/core/types";
-import { useLatestRequest } from "../../src/ui/useLatestRequest";
+import { useLatestRequest } from "../../src/ui/composables/useLatestRequest";
 import { game as makeGame } from "../support/factories";
 
 function holder(initial: Game | null) {

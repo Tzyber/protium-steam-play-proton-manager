@@ -1,8 +1,14 @@
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { CompatAssignment } from "../../../src/core/scan/games.js";
 import { scanGames } from "../../../src/core/scan/games.js";
 import { buildFakeSteam, nodeFs } from "../../support/fakeSteam";
+
+const defaultResolver = (): CompatAssignment => ({
+  compatTool: "default",
+  compatToolSource: "default",
+});
 
 describe("scanGames", () => {
   it("klassifiziert eine nicht lesbare library als read-failed", async () => {
@@ -17,13 +23,7 @@ describe("scanGames", () => {
       },
     };
 
-    const result = await scanGames(
-      fs,
-      root,
-      [root],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(fs, root, [root], defaultResolver, null);
 
     expect(result.games).toEqual([]);
     expect(result.blockedAppIds).toEqual(new Set());
@@ -57,13 +57,7 @@ describe("scanGames", () => {
       },
     };
 
-    const result = await scanGames(
-      fs,
-      root,
-      [root, readableLibrary],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(fs, root, [root, readableLibrary], defaultResolver, null);
 
     // die erste library fällt über die probe aus, die zweite wird trotzdem gelesen
     expect(result.warnings).toEqual([
@@ -93,13 +87,7 @@ describe("scanGames", () => {
       },
     };
 
-    const result = await scanGames(
-      fs,
-      root,
-      [root, readableLibrary],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(fs, root, [root, readableLibrary], defaultResolver, null);
 
     expect(result.games.map((game) => game.library)).toEqual([readableLibrary, readableLibrary]);
     expect(result.warnings).toEqual([
@@ -127,13 +115,7 @@ describe("scanGames", () => {
       },
     };
 
-    const result = await scanGames(
-      fs,
-      root,
-      [root],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(fs, root, [root], defaultResolver, null);
 
     expect(result.manifestCounts).toEqual({ read: 1, failed: 2 });
     expect(result.warnings).toEqual(
@@ -175,13 +157,7 @@ describe("scanGames", () => {
 `,
     );
 
-    const result = await scanGames(
-      nodeFs(),
-      root,
-      [root],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(nodeFs(), root, [root], defaultResolver, null);
     const game = result.games.find((candidate) => candidate.appId === 42);
 
     expect(game).toEqual(
@@ -221,13 +197,7 @@ describe("scanGames", () => {
 `,
     );
 
-    const result = await scanGames(
-      nodeFs(),
-      root,
-      [root, lib2],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(nodeFs(), root, [root, lib2], defaultResolver, null);
 
     expect(result.games.find((game) => game.appId === 570)?.installdir).toBe("Dota 2");
     expect(result.games.find((game) => game.appId === 570)?.name).toBe("Dota 2");
@@ -249,13 +219,7 @@ describe("scanGames", () => {
       `"AppState"\n{\n\t"appid"\t\t"570"\n\t"name"\t\t"Dota 2"\n\t"installdir"\t\t${value}\n}\n`,
     );
 
-    const result = await scanGames(
-      nodeFs(),
-      root,
-      [root],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(nodeFs(), root, [root], defaultResolver, null);
 
     expect(result.games.find((game) => game.appId === 570)?.installdir).toBeUndefined();
   });
@@ -271,13 +235,7 @@ describe("scanGames", () => {
       '"AppState"\n{\n\t"appid"\t\t"571"\n\t"name"\t\t"Zero Bytes"\n\t"SizeOnDisk"\t\t"0"\n}\n',
     );
 
-    const result = await scanGames(
-      nodeFs(),
-      root,
-      [root],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(nodeFs(), root, [root], defaultResolver, null);
 
     expect(result.games.find((game) => game.appId === 570)?.sizeBytes).toBeUndefined();
     expect(result.games.find((game) => game.appId === 571)?.sizeBytes).toBe(0);
@@ -290,13 +248,7 @@ describe("scanGames", () => {
       `"AppState"\n{\n\t"appid"\t\t"440"\n\t"name"\t\t"Mismatch Game"\n}\n`,
     );
 
-    const result = await scanGames(
-      nodeFs(),
-      root,
-      [root],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(nodeFs(), root, [root], defaultResolver, null);
 
     expect(result.games.find((g) => g.appId === 570 || g.appId === 440)).toBeUndefined();
     expect(
@@ -327,13 +279,7 @@ describe("scanGames", () => {
       );
     }
 
-    const result = await scanGames(
-      fs,
-      root,
-      [root],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(fs, root, [root], defaultResolver, null);
 
     expect(result.cleanupUnsafeLibraries).toContain(root);
     expect(result.games.some((g) => [100, 101, 102, 103, 104].includes(g.appId))).toBe(false);
@@ -349,13 +295,7 @@ describe("scanGames", () => {
       `"AppState"\n{\n\t"appid"\t\t"2147483647"\n\t"name"\t\t"Upper Bound"\n}\n`,
     );
 
-    const result = await scanGames(
-      nodeFs(),
-      root,
-      [root],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(nodeFs(), root, [root], defaultResolver, null);
 
     expect(result.games.map((game) => game.appId)).toContain(2147483647);
   });
@@ -370,13 +310,7 @@ describe("scanGames", () => {
     await writeFile(join(lib1, "steamapps/appmanifest_570.acf"), manifestContent);
     await writeFile(join(lib2, "steamapps/appmanifest_570.acf"), manifestContent);
 
-    const result = await scanGames(
-      nodeFs(),
-      lib1,
-      [lib1, lib2],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(nodeFs(), lib1, [lib1, lib2], defaultResolver, null);
 
     const dotaGames = result.games.filter((g) => g.appId === 570);
     expect(dotaGames).toHaveLength(1);
@@ -400,13 +334,7 @@ describe("scanGames", () => {
       `"AppState"\n{\n\t"appid"\t\t"570"\n\t"name"\t\t"Dota 2 Dupe"\n}\n`,
     );
 
-    const result = await scanGames(
-      nodeFs(),
-      root,
-      [root],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(nodeFs(), root, [root], defaultResolver, null);
 
     const dotaGames = result.games.filter((g) => g.appId === 570);
     expect(dotaGames).toHaveLength(1);
@@ -423,13 +351,7 @@ describe("scanGames", () => {
       `"AppState"\n{\n\t"appid"\t\t"1493710"\n\t"name"\t\t"Proton Experimental Dup"\n\t"SizeOnDisk"\t\t"100"\n}\n`,
     );
 
-    const result = await scanGames(
-      nodeFs(),
-      root,
-      [root, lib2],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(nodeFs(), root, [root, lib2], defaultResolver, null);
 
     expect(result.blockedAppIds.has(1493710)).toBe(true);
     expect(result.cleanupUnsafeLibraries).toEqual(expect.arrayContaining([root, lib2]));
@@ -445,13 +367,7 @@ describe("scanGames", () => {
     const { root } = await buildFakeSteam();
     await writeFile(join(root, "steamapps/downloading_progress.json"), '{"foo":1}');
 
-    const result = await scanGames(
-      nodeFs(),
-      root,
-      [root],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(nodeFs(), root, [root], defaultResolver, null);
 
     // keine warnung für die json-datei
     expect(
@@ -475,13 +391,7 @@ describe("scanGames", () => {
       `"AppState"\n{\n\t"appid"\t\t"5"\n\t"name"\t\t"Suffix Game"\n}\n`,
     );
 
-    const result = await scanGames(
-      nodeFs(),
-      root,
-      [root],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(nodeFs(), root, [root], defaultResolver, null);
 
     // weder präfix noch suffix-datei erzeugt einen eintrag in games
     expect(result.games.some((g) => g.appId === 5)).toBe(false);
@@ -507,13 +417,7 @@ describe("scanGames", () => {
       `"AppState"\n{\n\t"appid"\t\t"381310"\n\t"name"\t\t"Proton Pulse"\n}\n`,
     );
 
-    const result = await scanGames(
-      nodeFs(),
-      root,
-      [root],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(nodeFs(), root, [root], defaultResolver, null);
 
     const game = result.games.find((g) => g.appId === 381310);
     expect(game).toBeDefined();
@@ -542,13 +446,7 @@ describe("scanGames", () => {
       `"AppState"\n{\n\t"appid"\t\t"4628710"\n\t"name"\t\t"Proton 11.0"\n}\n`,
     );
 
-    const result = await scanGames(
-      nodeFs(),
-      root,
-      [root],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(nodeFs(), root, [root], defaultResolver, null);
 
     expect(result.games.some((g) => g.appId === 4628710)).toBe(false);
     expect(result.blockedAppIds.has(4628710)).toBe(true);
@@ -566,13 +464,7 @@ describe("scanGames", () => {
       `"AppState"\n{\n\t"appid"\t\t"4183110"\n\t"name"\t\t"Steam Linux Runtime 4.0"\n}\n`,
     );
 
-    const result = await scanGames(
-      nodeFs(),
-      root,
-      [root],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      null,
-    );
+    const result = await scanGames(nodeFs(), root, [root], defaultResolver, null);
 
     expect(result.games.some((game) => game.appId === 4183110)).toBe(false);
     expect(result.blockedAppIds.has(4183110)).toBe(true);
@@ -606,13 +498,7 @@ describe("scanGames", () => {
 }
 `;
 
-    const result = await scanGames(
-      nodeFs(),
-      root,
-      [root, lib2],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      localConfigText,
-    );
+    const result = await scanGames(nodeFs(), root, [root, lib2], defaultResolver, localConfigText);
 
     expect(result.localConfigDegraded).toBe('key "Dangling" ohne wert');
     expect(result.games.map((game) => game.appId).sort((a, b) => a - b)).toEqual([570, 620, 730]);
@@ -655,13 +541,7 @@ describe("scanGames", () => {
  }
  `;
 
-    const result = await scanGames(
-      nodeFs(),
-      root,
-      [root, lib2],
-      () => ({ compatTool: "default", compatToolSource: "default" }),
-      localConfigText,
-    );
+    const result = await scanGames(nodeFs(), root, [root, lib2], defaultResolver, localConfigText);
 
     expect(result.games.find((game) => game.appId === 570)?.lastPlayed).toBe(1757000000);
     expect(result.games.find((game) => game.appId === 620)?.lastPlayed).toBeUndefined();

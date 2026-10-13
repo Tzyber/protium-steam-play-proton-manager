@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { GeRelease } from "../../src/core/geproton";
+import type { GeRelease } from "../../src/core/geprotonReleases";
 import type { ScanResult } from "../../src/core/types";
 
 export type ProgressHandler = (event: DownloadProgressEvent) => void;

@@ -28,7 +28,7 @@ vi.mock("../../src/core/footprint", async (importOriginal) => {
 // async-fabriken mit dynamischem import: die stubs liegen gemeinsam in
 // GameDetailDrawer.stubs.ts, damit preamble und integrationstest nicht
 // auseinanderlaufen (N-1).
-vi.mock("../../src/ui/useCover", async () => ({
+vi.mock("../../src/ui/composables/useCover", async () => ({
   useCover: (await import("./GameDetailDrawer.stubs")).useCoverStub,
 }));
 vi.mock("../../src/ui/components/PlayButton.vue", async () => ({
@@ -44,13 +44,13 @@ vi.mock("../../src/ui/components/TierBadge.vue", async () => ({
 import { tauriPorts } from "../../src/core/adapters/tauri";
 import { projectSupportFacts } from "../../src/core/support";
 import GameDetailDrawer from "../../src/ui/components/GameDetailDrawer.vue";
+import { usePrefixOpen } from "../../src/ui/composables/usePrefixOpen";
 import { setLocale, t } from "../../src/ui/i18n";
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useConfigStore } from "../../src/ui/stores/configStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
 import { useUiStore } from "../../src/ui/stores/uiStore";
 import { formatSupportFacts } from "../../src/ui/supportText";
-import { usePrefixOpen } from "../../src/ui/usePrefixOpen";
 import { deferred, game as makeGame } from "../support/factories";
 
 const marker = "fixture-secret-934";

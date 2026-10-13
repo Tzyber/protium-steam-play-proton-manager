@@ -1,8 +1,6 @@
 // Wrapper um `@node-steam/vdf`: Ein Austausch der Bibliothek betrifft nur diese Datei.
 import { parse } from "@node-steam/vdf";
-import { tokenizeVdf, unescapeVdfRaw } from "./vdfpatch.js";
-
-export { unescapeVdfRaw };
+import { tokenizeVdf } from "./vdfTokenizer.js";
 
 // export nur für den test (tests/core/vdf.test.ts; K-13).
 export type VdfValue = string | number | VdfNode;

@@ -3,7 +3,7 @@
 import { mount } from "@vue/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { reactive } from "vue";
-import type { GeRelease } from "../../src/core/geproton";
+import type { GeRelease } from "../../src/core/geprotonReleases";
 import type { CompatTool } from "../../src/core/types";
 import { setLocale } from "../../src/ui/i18n";
 import { useProtonStore } from "../../src/ui/stores/protonStore";

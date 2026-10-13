@@ -3,8 +3,9 @@
 // `compat.ts`, hier steht nur Parsing und Zuordnung, dort Dateisystem und
 // Größenmessung.
 
-import { parseSafeAppId } from "./types.js";
-import { asNode, asString, getPath, parseVdf, rawVdfField, unescapeVdfRaw } from "./vdf.js";
+import { parseSafeAppId } from "./guards.js";
+import { asNode, asString, getPath, parseVdf, rawVdfField } from "./vdf.js";
+import { unescapeVdfRaw } from "./vdfTokenizer.js";
 
 /** appId → compat-tool-name (interner name, wie in config.vdf). */
 export type CompatToolMapping = Map<number, string>;

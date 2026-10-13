@@ -52,5 +52,5 @@ describe("sizeText", () => {
 });
 
 // T-09: `errText` gehört zum Core (src/core/errtext.ts) und wird dort von
-// tests/core/units.test.ts umfassender geprüft (inkl. undefined und parseError);
+// tests/core/errtext.test.ts umfassender geprüft (inkl. undefined und parseError);
 // die hier entfernte wortgleiche Kopie brachte keine zusätzliche Deckung.

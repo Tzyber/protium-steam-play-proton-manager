@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseManifest } from "../../src/core/manifest.js";
 import { getPath, parseVdf } from "../../src/core/vdf.js";
-import { getVdfValue, tokenizeVdf } from "../../src/core/vdfpatch.js";
+import { getVdfValue } from "../../src/core/vdfRead.js";
+import { tokenizeVdf } from "../../src/core/vdfTokenizer.js";
 
-// K-02: vdfpatch, manifest und vdf teilen sich einen tokenizer. diese tests
+// K-02: vdfRead, manifest und vdf teilen sich einen tokenizer. diese tests
 // belegen die token-grenzen für die zuvor drift-anfälligen randfälle und dass
 // die drei fassaden dieselbe eingabe über dieselben grenzen lesen.
 const kinds = (text: string): string[] => tokenizeVdf(text).tokens.map((token) => token.kind);
@@ -68,11 +69,11 @@ describe("gemeinsamer Text-VDF-Tokenizer (K-02)", () => {
   it("trennt an jedem zeichen, das trim als leer erkennt", () => {
     // valve-whitespace ist mehr als ` \t\r\n`: die geparste lib trennt mit
     // `trim`, deshalb spaltet u+00a0 auch bare-tokens (isVdfWhitespace,
-    // vdfpatch.ts). die vorfassung von vdfpatch ließ `a\u00a0b` verkleben.
+    // vdfTokenizer.ts). die vorfassung von vdfpatch ließ `a\u00a0b` verkleben.
     expect(spans("a\u00a0b")).toEqual(["a", "b"]);
   });
 
-  it("liest einen bare-token mit `[` nicht als eigenständigen key in vdfpatch", () => {
+  it("liest einen bare-token mit `[` nicht als eigenständigen key in vdfRead", () => {
     // der conditional-marker darf die key-/value-paare nicht verschieben.
     const text = '"Root"\n{\n\t"Key"\t\t"value"\t[linux]\n\t"Other"\t\t"other"\n}\n';
     expect(getVdfValue(text, ["Root", "Key"])).toBe("value");
@@ -91,7 +92,7 @@ describe("die drei leser teilen die token-grenzen (K-02)", () => {
 }
 `;
 
-  it("vdfpatch liefert den unescapten wert", () => {
+  it("vdfRead liefert den unescapten wert", () => {
     expect(getVdfValue(TEXT, ["AppState", "LaunchOptions"])).toBe(
       String.raw`MANGOHUD_CONFIG="fps" C:\logs`,
     );
@@ -119,7 +120,7 @@ describe("die drei leser teilen die token-grenzen (K-02)", () => {
     expect(tokenizeVdf(TEXT).unterminated).toBeUndefined();
   });
 
-  it("behält ein mehrbyte-zeichen nach backslash in vdfpatch", () => {
+  it("behält ein mehrbyte-zeichen nach backslash in vdfRead", () => {
     const text = String.raw`"Root"
 {
 	"Key"		"a\äb"

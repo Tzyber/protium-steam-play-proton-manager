@@ -5,7 +5,7 @@
 // einmal. Die Id ist nach außen undurchsichtig, damit kein Aufrufer die
 // Bestandteile selbst vergleicht.
 
-import type { Game } from "../core/types";
+import type { Game } from "../../core/types";
 
 interface RequestToken {
   readonly requestId: number;

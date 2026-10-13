@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { parse } from "@node-steam/vdf";
 import { describe, expect, it } from "vitest";
 import { asNode, getPath, parseVdf, type VdfNode, type VdfValue } from "../../src/core/vdf.js";
-import { getVdfValue } from "../../src/core/vdfpatch.js";
+import { getVdfValue } from "../../src/core/vdfRead.js";
 
 describe("parseVdf prototype-safety", () => {
   it("neutralisiert __proto__-keys: keine globale prototype-pollution", () => {

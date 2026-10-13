@@ -1,10 +1,10 @@
-// localconfig.vdf (pro steam-account): startoptionen lesen/schreiben + aktiven user finden.
+// localconfig.vdf (pro steam-account): startoptionen lesen + aktiven user finden (geschrieben wird in rust, vdf_patch.rs).
 import { errText } from "./errtext.js";
+import { NUMERIC_RE, parseSafeAppId } from "./guards.js";
 import { paths } from "./paths.js";
 import type { FileSystem } from "./ports.js";
-import { NUMERIC_RE, parseSafeAppId } from "./types.js";
 import { asInt, asNode, getPath, parseVdf } from "./vdf.js";
-import { getVdfChildFieldValues, getVdfValue } from "./vdfpatch.js";
+import { getVdfChildFieldValues, getVdfValue } from "./vdfRead.js";
 
 const APPS_PATH = ["UserLocalConfigStore", "Software", "Valve", "Steam", "Apps"];
 
@@ -42,7 +42,8 @@ export function readAppFields(localConfigText: string): {
  *  block-kommentar). die treffen die ganze datei und lassen deshalb JEDEN
  *  `getVdfValue`-aufruf werfen; der scan prüft das einmal vorab statt pro spiel
  *  (INV-2). strukturelle defekte unterhalb des geprüften pfads erkennt diese
- *  probe NICHT, dafür fängt `scanGames` den wurf pro spiel ab. */
+ *  probe NICHT; `scanGames` fängt dafür den einen tokenize-lauf von
+ *  `readAppFields` ab und degradiert die quelle (localConfigDegraded). */
 export function isLocalConfigParseable(localConfigText: string): { detail: string } | null {
   try {
     getVdfValue(localConfigText, launchOptionsPath(0));
@@ -56,15 +57,7 @@ export function isLocalConfigParseable(localConfigText: string): { detail: strin
  *  einträge auch für deinstallierte spiele weiter, daher die quelle für
  *  namen in der cleanup-liste. undefined = kein eintrag. */
 export function readAppName(localConfigText: string, appId: number): string | undefined {
-  const name = getVdfValue(localConfigText, [
-    "UserLocalConfigStore",
-    "Software",
-    "Valve",
-    "Steam",
-    "Apps",
-    String(appId),
-    "name",
-  ]);
+  const name = getVdfValue(localConfigText, [...APPS_PATH, String(appId), "name"]);
   return name && name.trim() !== "" ? name : undefined;
 }
 

@@ -3,10 +3,10 @@
 // die gemeinsame Klammer aus Auftrags-Gültigkeit und Entwurfs-Vergleich.
 
 import { computed, type Ref, ref, watch } from "vue";
-import { parseError } from "../core/errtext";
-import type { WriteResult } from "../core/ports";
-import type { Game } from "../core/types";
-import { formatError } from "./formatError";
+import { parseError } from "../../core/errtext";
+import type { WriteResult } from "../../core/ports";
+import type { Game } from "../../core/types";
+import { formatError } from "../formatError";
 import { useLatestRequest } from "./useLatestRequest";
 
 /** Status eines Speichervorgangs: bekannte Schlagworte ODER die Fehlermeldung.

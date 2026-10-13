@@ -1,6 +1,6 @@
 import { onBeforeUnmount, ref, watch } from "vue";
-import { tauriPorts } from "../core/adapters/tauri";
-import type { Game } from "../core/types";
+import { tauriPorts } from "../../core/adapters/tauri";
+import type { Game } from "../../core/types";
 
 // lokale Steam-Cover kommen als Backend-Bytes. Blob-URLs bleiben deshalb
 // außerhalb des plugin-fs- und asset-Protokolls.

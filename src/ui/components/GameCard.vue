@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import type { Game } from "../../core/types";
+import { useCover } from "../composables/useCover";
 import { formatBytes } from "../format";
 import { t } from "../i18n";
 import { useUiStore } from "../stores/uiStore";
-import { useCover } from "../useCover";
 import PlayButton from "./PlayButton.vue";
 import TierBadge from "./TierBadge.vue";
 

@@ -1,15 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
-import { version as appVersion } from "../../package.json";
-import { openExternal, tauriPorts } from "../core/adapters/tauri";
-import { checkForUpdate, UPDATE_RELEASE_URL } from "../core/update";
+import { computed, nextTick, onMounted, watch } from "vue";
+import AppSidebar from "./components/AppSidebar.vue";
 import ConfirmDialogHost from "./components/ConfirmDialogHost.vue";
-import ProtiumLogo from "./components/ProtiumLogo.vue";
-import { logError } from "./diagnostics";
+import NotificationToast from "./components/NotificationToast.vue";
+import UpdateNotice from "./components/UpdateNotice.vue";
 import { t } from "./i18n";
 import { useConfirmStore } from "./stores/confirmStore";
 import { useScanStore } from "./stores/scanStore";
-import { useUiStore, type ViewId } from "./stores/uiStore";
+import { useUiStore } from "./stores/uiStore";
 import CleanupView from "./views/CleanupView.vue";
 import HistoryView from "./views/HistoryView.vue";
 import LibraryView from "./views/LibraryView.vue";
@@ -18,25 +16,10 @@ import ProtonManagerView from "./views/ProtonManagerView.vue";
 const scan = useScanStore();
 const ui = useUiStore();
 const confirm = useConfirmStore();
-const updateVersion = ref<string | null>(null);
 
 onMounted(() => {
   scan.runScan();
-  void checkForUpdate(tauriPorts.http, appVersion)
-    .then((version) => {
-      updateVersion.value = version;
-    })
-    .catch((error: unknown) => logError("Update-Pruefung fehlgeschlagen", error));
 });
-
-function openUpdateRelease() {
-  const version = updateVersion.value;
-  const url = version ? `${UPDATE_RELEASE_URL}/tag/v${version}` : UPDATE_RELEASE_URL;
-  void openExternal(url).catch(() => {
-    // kein stilles scheitern: ein wirkungsloser klick wäre sonst nicht erklärbar
-    ui.showNotification(t("app.openReleaseFailed"));
-  });
-}
 
 // dialoge (bestätigung, detail-drawer, erklär-panel) sperren den hintergrund
 // für screenreader + tab (inert). zentral hier, weil sie per teleport
@@ -82,122 +65,17 @@ watch(
     );
   },
 );
-
-const nav: { id: ViewId; label: string }[] = [
-  { id: "library", label: t("app.navLibrary") },
-  { id: "proton", label: t("app.navProton") },
-  { id: "cleanup", label: t("app.navCleanup") },
-  { id: "history", label: t("app.navHistory") },
-];
-
-const rootShort = computed(() => {
-  const r = scan.result?.steamRoot;
-  return r ? r.replace(/^\/home\/[^/]+/, "~") : "-";
-});
-
-type CopyState = "idle" | "copied" | "failed";
-
-const copyState = ref<CopyState>("idle");
-/** Wie lange das kopier-häkchen stehen bleibt: lang genug zum sehen, kurz
- *  genug, um den knopf nicht dauerhaft als bestätigung zu zeigen. */
-const COPY_CONFIRM_MS = 2000;
-// nur "copied" läuft über COPY_CONFIRM_MS ab. "failed" hat bewusst keinen
-// timer und bleibt bis zur nächsten meldung oder einem erfolgreichen kopieren
-// stehen, damit ein fehlschlag nicht unbemerkt verschwindet (U-14).
-let copiedTimer: ReturnType<typeof setTimeout> | null = null;
-
-async function copyError() {
-  if (!ui.notification) return;
-  const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard;
-  if (!clipboard || typeof clipboard.writeText !== "function") {
-    copyState.value = "failed";
-    return;
-  }
-  try {
-    await clipboard.writeText(ui.notification.message);
-    copyState.value = "copied";
-    if (copiedTimer) clearTimeout(copiedTimer);
-    copiedTimer = setTimeout(() => {
-      copyState.value = "idle";
-    }, COPY_CONFIRM_MS);
-  } catch {
-    // clipboard gesperrt (unsicherer kontext, fehlende berechtigung): sichtbar
-    // melden statt den klick stumm zu verwerfen.
-    copyState.value = "failed";
-  }
-}
-
-// eine neue meldung trägt ihren eigenen kopierstatus
-watch(
-  () => ui.notification,
-  () => {
-    copyState.value = "idle";
-  },
-);
 </script>
 
 <template>
   <div class="app-background" :inert="ui.inertMain || undefined">
     <a class="skip-link" href="#main-content">{{ t("app.skipToContent") }}</a>
     <div class="shell">
-      <aside class="sidebar">
-      <div class="brand">
-        <div class="logo"><ProtiumLogo :size="28"/></div>
-        <div>
-          <div class="name">PROTIUM</div>
-          <div class="label">{{ t("app.brandTagline") }}</div>
-        </div>
-      </div>
-
-      <nav :aria-label="t('app.navAria')">
-        <button
-          v-for="item in nav"
-          :key="item.id"
-          class="nav-item"
-          :class="{ active: ui.activeView === item.id }"
-          type="button"
-          :aria-current="ui.activeView === item.id ? 'page' : undefined"
-          @click="ui.go(item.id)"
-        >
-          {{ item.label }}
-        </button>
-      </nav>
-
-      <div class="readout">
-        <div class="row"><span class="label">{{ t("app.root") }}</span><span class="mono val">{{ rootShort }}</span></div>
-        <div class="row"><span class="label">{{ t("app.libs") }}</span><span class="mono val">{{ scan.result?.libraries.length ?? "-" }}</span></div>
-        <div class="row"><span class="label">{{ t("app.tools") }}</span><span class="mono val">{{ scan.compatTools.length || "-" }}</span></div>
-        <div class="row" v-if="scan.elapsedMs"><span class="label">{{ t("app.scan") }}</span><span class="mono val">{{ scan.elapsedMs }} ms</span></div>
-        <div class="row readout-version"><span class="label">{{ t("app.version") }}</span><span class="mono val">v{{ appVersion }}</span></div>
-      </div>
-      </aside>
+      <AppSidebar />
 
       <main id="main-content" class="content" tabindex="-1">
-      <section v-if="updateVersion" class="update-notice" role="status">
-        <span>{{ t("app.updateAvailable", { version: updateVersion, current: appVersion }) }}</span>
-        <button class="update-open" type="button" @click="openUpdateRelease">
-          {{ t("app.openRelease") }}
-        </button>
-        <button class="update-close" type="button" :aria-label="t('app.dismissUpdate')" @click="updateVersion = null">✕</button>
-      </section>
-      <transition name="toast" mode="out-in">
-        <div v-if="ui.notification" :key="ui.notification.message" class="note toast" role="alert">
-          <span class="note-icon" aria-hidden="true">⚠</span>
-          <span class="note-msg">{{ ui.notification.message }}</span>
-          <!-- der knopf kopiert weiterhin: sein name bleibt die aktion, nicht
-               der fehlertext. der fehlschlag lebt in der live-region (U-14). -->
-          <button
-            class="note-copy"
-            type="button"
-            :aria-label="copyState === 'copied' ? t('app.copied') : t('app.copyError')"
-            @click="copyError"
-          >
-            {{ copyState === "copied" ? "✓" : copyState === "failed" ? "⚠" : "📋" }}
-          </button>
-          <span v-if="copyState === 'failed'" class="sr-only" role="alert">{{ t("app.copyFailed") }}</span>
-          <button class="note-close" type="button" :aria-label="t('app.dismissNotification')" @click="ui.dismissNotification()">✕</button>
-        </div>
-      </transition>
+      <UpdateNotice />
+      <NotificationToast />
       <LibraryView v-if="ui.activeView === 'library'" />
       <ProtonManagerView v-else-if="ui.activeView === 'proton'" />
       <CleanupView v-else-if="ui.activeView === 'cleanup'" />
@@ -230,146 +108,12 @@ watch(
 .app-background { height: 100%; }
 .shell { display: grid; grid-template-columns: 216px 1fr; grid-template-rows: minmax(0, 1fr); height: 100%; }
 
-.sidebar {
-  min-height: 0;
-  overflow-y: auto;
-  background: var(--bg-1);
-  border-right: 1px solid var(--line);
-  display: flex;
-  flex-direction: column;
-  padding: 18px 14px;
-  gap: 24px;
-}
-
-.brand { display: flex; align-items: center; gap: 10px; }
-.logo {
-  width: 32px; height: 32px;
-  display: grid; place-items: center;
-  background: var(--signal);
-  color: var(--bg-0);
-  border-radius: 8px;
-  font-size: 0.9375rem;
-  box-shadow: 0 0 18px -4px var(--signal-glow);
-}
-.brand .name { font-family: var(--font-display); font-weight: 700; letter-spacing: 0.06em; font-size: 0.9375rem; }
-
-nav { display: flex; flex-direction: column; gap: 2px; }
-.nav-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: transparent;
-  border: none;
-  border-radius: var(--r-sm);
-  padding: 9px 12px;
-  color: var(--fg-1);
-  font-family: var(--font-body);
-  font-size: 0.875rem;
-  font-weight: 500;
-  text-align: left;
-  cursor: pointer;
-}
-.nav-item:hover:not(:disabled):not(.active) { background: var(--bg-2); color: var(--fg-0); }
-.nav-item.active {
-  background: color-mix(in srgb, var(--signal) 14%, transparent);
-  color: var(--signal-bright);
-  box-shadow: inset 2px 0 0 var(--signal);
-}
-.readout {
-  margin-top: auto;
-  display: grid;
-  gap: 7px;
-  padding: 12px;
-  background: var(--bg-0);
-  border: 1px solid var(--line-soft);
-  border-radius: var(--r-sm);
-}
-.readout .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.readout .val { color: var(--fg-1); font-size: 0.8125rem; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
 .content {
   min-height: 0;
   overflow-y: scroll;
   overflow-x: auto;
   scrollbar-gutter: stable;
 }
-
-.update-notice {
-  position: sticky;
-  top: 8px;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  margin: 8px 12px 0;
-  background: color-mix(in srgb, var(--signal) 12%, var(--bg-0));
-  border: 1px solid var(--signal-dim);
-  border-radius: var(--r-sm);
-  color: var(--fg-0);
-  font-size: 0.84375rem;
-}
-.update-open, .update-close {
-  border: 0;
-  border-radius: 4px;
-  cursor: pointer;
-  font-family: var(--font-body);
-}
-.update-open {
-  margin-left: auto;
-  padding: 6px 9px;
-  background: var(--signal);
-  color: var(--bg-0);
-  font-weight: 600;
-}
-.update-close {
-  width: 32px;
-  height: 32px;
-  background: transparent;
-  color: var(--fg-2);
-  font-size: 0.875rem;
-}
-.update-open:hover { background: var(--signal-bright); }
-.update-close:hover { color: var(--fg-0); background: color-mix(in srgb, var(--fg-1) 10%, transparent); }
-
-/* app-weite meldung (store-notification, nicht der frühere drawer-toast): sticky
-   oben, copy-button, kein auto-dismiss im view (der store räumt nach 30s auf) */
-.note.toast {
-  position: sticky;
-  top: 8px;
-  z-index: 10;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px 12px;
-  margin: 8px 12px 0;
-  background: color-mix(in srgb, var(--tier-borked) 8%, var(--bg-0));
-  border: 1px solid var(--tier-borked);
-  border-radius: var(--r-sm);
-  font-family: var(--font-body);
-}
-.note-icon { color: var(--tier-borked); font-size: 0.875rem; flex-shrink: 0; margin-top: 2px; }
-.note-msg { flex: 1; color: var(--fg-0); font-size: 0.84375rem; line-height: 1.5; word-break: break-word; }
-.note-copy, .note-close {
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 0.875rem;
-  padding: 0;
-  color: var(--fg-2);
-  border-radius: 4px;
-  font-family: var(--font-body);
-  display: grid;
-  place-items: center;
-  line-height: 1;
-}
-.note-copy:hover, .note-close:hover { color: var(--fg-0); background: color-mix(in srgb, var(--fg-1) 10%, transparent); }
-
-.toast-enter-active, .toast-leave-active { transition: opacity 0.2s, transform 0.2s; }
-.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(-6px); }
 </style>
 
 <!-- globale .bar-basis aller views (header-zeile oben). gap bleibt view-lokal:

@@ -3,7 +3,7 @@
 // bis zur eigenen Antwort stehen, ein Fehler setzt den Leerwert.
 
 import { type Ref, ref } from "vue";
-import { formatError } from "./formatError";
+import { formatError } from "../formatError";
 
 export function useLatestLoad<T>(empty: T, read: () => Promise<T>) {
   const data = ref(empty) as Ref<T>;
