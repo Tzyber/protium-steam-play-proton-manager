@@ -353,12 +353,6 @@ jobs:
           cmp squashfs-root/apprun-hooks/01-wayland-fix.sh "$GITHUB_WORKSPACE/src-tauri/appimage-hooks/01-wayland-fix.sh"
           echo "OK: ausgelieferter Hook ist identisch mit dem Repository"
 
-      # SHA256SUMS über die FINALEN Artefakte: die AppImage wird nach dem
-      # tauri-build gepatcht und neu gepackt, alles davor wäre falsch. Die
-      # Liste entsteht in einem Staging-Verzeichnis, damit sie ohne
-      # Verzeichnispräfix auskommt und `sha256sum -c SHA256SUMS` im
-      # Download-Ordner funktioniert. Signiert wird lokal (Option A,
-      # 2026-09-16); SHA256SUMS.asc kommt vor dem Publish in den Draft.
       # Artefakt-Smoke (A3): die fertige AppImage muss starten und ein Fenster
       # zeigen. Geprueft wird damit die Verpackung (AppRun, Wayland-Hook,
       # WebKit-Start), nicht die Vollstaendigkeit des Bibliotheks-Bundles: der
@@ -413,6 +407,12 @@ jobs:
             fi
           '
 
+      # SHA256SUMS über die FINALEN Artefakte: die AppImage wird nach dem
+      # tauri-build gepatcht und neu gepackt, alles davor wäre falsch. Die
+      # Liste entsteht in einem Staging-Verzeichnis, damit sie ohne
+      # Verzeichnispräfix auskommt und `sha256sum -c SHA256SUMS` im
+      # Download-Ordner funktioniert. Signiert wird lokal (Option A,
+      # 2026-09-16); SHA256SUMS.asc kommt vor dem Publish in den Draft.
       - name: Create SHA256SUMS
         run: |
           STAGE=$(mktemp -d)
