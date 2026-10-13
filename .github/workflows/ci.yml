@@ -36,7 +36,35 @@ jobs:
       - run: npm run vite:build
       - run: npm audit --omit=dev
 
+  # mutation läuft bei jedem push auf main (das gate bleibt voll). in PRs nur,
+  # wenn die mutierten bereiche oder die testinfrastruktur betroffen sind:
+  # dependabot-, doku- und rust-PRs sparen so die vollen ~47 min. der filter
+  # läuft über den diff zur PR-basis, nicht über paths-ignore des workflows,
+  # damit check/rust/audit weiter bei jedem PR laufen.
+  changes:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      mutation: ${{ steps.diff.outputs.mutation }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: diff
+        run: |
+          if ! changed=$(git diff --name-only "${{ github.event.pull_request.base.sha }}...HEAD"); then
+            echo "diff zur PR-basis fehlgeschlagen; mutation laeuft sicherheitshalber" >&2
+            echo "mutation=true" >> "$GITHUB_OUTPUT"
+          elif printf '%s\n' "$changed" | grep -Eq '^(src/core/|tests/|stryker\.config\.mjs|scripts/run-mutation\.mjs|vitest\.config\.ts|vitest\.shared\.ts|src/ui/consequences\.ts|src/ui/formatError\.ts|src/ui/sizeSummary\.ts|src/ui/stores/confirmStore\.ts|src/ui/stores/cleanupHelpers\.ts)'; then
+            echo "mutation=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "mutation=false" >> "$GITHUB_OUTPUT"
+          fi
+
   mutation:
+    needs: [changes]
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.mutation == 'true')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
