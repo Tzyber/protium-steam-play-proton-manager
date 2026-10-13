@@ -495,7 +495,7 @@ fn escaping_roundtrip_quotes_und_backslashes() {
 #[test]
 fn text_vdf_golden_fixture_bindet_gleiche_erwartungen_wie_typescript() {
     // gemeinsame datei tests/fixtures/text-vdf-golden.vdf; get-erwartungen
-    // wie tests/core/vdfpatch.test.ts (spiegel zu shortcuts-golden.vdf);
+    // wie tests/core/vdfRead.test.ts (spiegel zu shortcuts-golden.vdf);
     // schreiben und entfernen bleiben ausschließlich Rust-Funktionalität.
     let golden = include_str!("../../../tests/fixtures/text-vdf-golden.vdf");
     let launch_570: Vec<&str> = vec![

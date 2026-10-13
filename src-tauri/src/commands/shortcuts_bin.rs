@@ -1,6 +1,6 @@
 // Binärer shortcuts.vdf-Minimalparser (nur AppID-Extraktion), von steam.rs
-// entlang der Verantwortlichkeit geteilt. Die Delete-Inspektion in steam.rs
-// nutzt diesen Parser über `parse_binary_shortcut_ids`.
+// entlang der Verantwortlichkeit geteilt. Die Nutzungsabfragen
+// (delete_usage.rs) nutzen diesen Parser über `parse_binary_shortcut_ids`.
 
 use std::collections::HashSet;
 
@@ -214,7 +214,7 @@ mod tests {
     #[test]
     fn binary_shortcuts_parser_golden_fixture_bindet_gleiche_appids_wie_typescript() {
         // gemeinsame datei tests/fixtures/shortcuts-golden.vdf; dieselbe
-        // erwartete menge wie tests/core/shortcuts.test.ts.
+        // erwartete menge wie tests/core/shortcuts.binary.test.ts.
         let bytes = include_bytes!("../../../tests/fixtures/shortcuts-golden.vdf");
         let ids = parse_binary_shortcut_ids(bytes).unwrap();
         let mut expected = HashSet::new();

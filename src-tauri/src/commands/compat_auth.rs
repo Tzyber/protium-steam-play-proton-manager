@@ -14,7 +14,7 @@ use crate::commands::fd::{
     read_fd_text, FdIdentity,
 };
 #[cfg(target_os = "linux")]
-use crate::commands::scope::LibraryFoldersStage;
+use crate::commands::libraryfolders::LibraryFoldersStage;
 use crate::commands::scope::SYSTEM_COMPAT_DIRS;
 use crate::commands::vdf_patch;
 #[cfg(target_os = "linux")]
@@ -270,7 +270,7 @@ where
 {
     // r-06: dieselbe Suchreihenfolge, dasselbe Cap und derselbe
     // steamapps-Fallback wie die Discovery, geteilt über die eine fd-Kette in
-    // `scope::libraryfolders_contents_from_root_fd`. Der frühere eigene 1-MiB-cap
+    // `libraryfolders::libraryfolders_contents_from_root_fd`. Der frühere eigene 1-MiB-cap
     // (eine datei zwischen 1 und 16 MiB ließ diese autorisierung sichtbar
     // scheitern, obwohl die Discovery sie vollständig las) ist damit entfallen.
     // hook(`RootOpened`) bleibt der Start-Haken (Root-Tausch),
@@ -281,11 +281,11 @@ where
             hook(CompatAuthStage::LibraryFileOpened);
         }
     };
-    match crate::commands::scope::libraryfolders_contents_from_root_fd(
+    match crate::commands::libraryfolders::libraryfolders_contents_from_root_fd(
         steam_root_fd,
         &mut libraryfolders_hook,
     )? {
-        Some(text) => crate::commands::scope::parse_library_folder_paths(&text),
+        Some(text) => crate::commands::libraryfolders::parse_library_folder_paths(&text),
         None => Ok(vec![steam_root.to_path_buf()]),
     }
 }
@@ -351,7 +351,7 @@ impl ManifestReadError {
     }
 }
 
-/// Zeitpunkte des einen Manifest-Readers (r-05). `delete_inspect` bildet alle
+/// Zeitpunkte des einen Manifest-Readers (r-05). `delete_usage` bildet alle
 /// drei auf seine `DeleteReadStage` ab, die Valve-Autorität nur `AfterOpen` auf
 /// ihren Hook-kanal 4; die Zeitpunkte bleiben je Aufrufer unverändert.
 #[cfg(target_os = "linux")]
@@ -472,7 +472,7 @@ where
 {
     let manifest_name = format!("appmanifest_{app_id}.acf");
     // appmanifeste sind klein; dasselbe limit wie im valve-pfad
-    // (delete_inspect), nicht das 16-MiB-limit der config-dateien.
+    // (delete_usage), nicht das 16-MiB-limit der config-dateien.
     let mut manifest_hook = |stage: ManifestStage, _file: Option<&mut std::fs::File>| {
         if stage == ManifestStage::AfterOpen {
             hook(CompatAuthStage::ManifestOpened);

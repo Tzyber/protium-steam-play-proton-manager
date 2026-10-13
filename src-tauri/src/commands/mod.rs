@@ -9,6 +9,7 @@ pub(crate) mod cleanup;
 pub(crate) mod compat_auth;
 pub(crate) mod delete_inspect;
 pub(crate) mod delete_ops;
+pub(crate) mod delete_usage;
 pub(crate) mod diagnostics;
 pub(crate) mod download;
 pub(crate) mod errcode;
@@ -18,12 +19,14 @@ pub(crate) mod fd;
 pub(crate) mod fs_ops;
 pub(crate) mod ge_install;
 pub(crate) mod http_get;
+pub(crate) mod libraryfolders;
 pub(crate) mod path;
 pub(crate) mod prefix;
 pub(crate) mod scope;
 pub(crate) mod shortcuts_bin;
 pub(crate) mod steam;
 pub(crate) mod vdf_patch;
+pub(crate) mod write_gate;
 
 /// spawn_blocking + join-handle-fehler → String. die sync-commands laufen
 /// bei tauri v2 auf dem main-thread, blockierende IO gehört in den
@@ -52,6 +55,76 @@ pub(crate) mod test_util {
         fixture_dir("wsg", tag)
     }
 
+    pub(super) fn wsg_env(
+        tag: &str,
+    ) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+        wsg_env_at(tag, ".local/share/Steam")
+    }
+
+    pub(super) fn wsg_env_at(
+        tag: &str,
+        steam_relative: &str,
+    ) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+        let root = wsg_fixture(tag);
+        let home = root.join("fakehome");
+        let steam = home.join(steam_relative);
+        std::fs::create_dir_all(steam.join("config")).unwrap();
+        std::fs::create_dir_all(steam.join("userdata/123/config")).unwrap();
+        let config_vdf = r#""InstallConfigStore"
+    {
+    	"Software"
+    	{
+    		"Valve"
+    		{
+    			"Steam"
+    			{
+    				"CompatToolMapping"
+    				{
+    					"620"
+    					{
+    						"name"		"GE-Proton9-27"
+    					}
+    				}
+    			}
+    		}
+    	}
+    }
+    "#;
+        let local_vdf = r#""UserLocalConfigStore"
+    {
+    	"Software"
+    	{
+    		"Valve"
+    		{
+    			"Steam"
+    			{
+    				"Apps"
+    				{
+    					"620"
+    					{
+    						"LaunchOptions"		"gamemoderun %command%"
+    					}
+    				}
+    			}
+    		}
+    	}
+    }
+    "#;
+        std::fs::write(steam.join("config/config.vdf"), config_vdf).unwrap();
+        std::fs::write(steam.join("userdata/123/config/localconfig.vdf"), local_vdf).unwrap();
+        for tool_name in ["GE-Proton9-27", "GE-Proton9-28"] {
+            let tool_dir = steam.join("compatibilitytools.d").join(tool_name);
+            std::fs::create_dir_all(&tool_dir).unwrap();
+            let tool_vdf = format!(
+                "\"compatibilitytools\" {{ \"compat_tools\" {{ \"{tool_name}\" {{ }} }} }}"
+            );
+            std::fs::write(tool_dir.join("compatibilitytool.vdf"), tool_vdf).unwrap();
+        }
+        let cache = root.join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        (home, cache, steam)
+    }
+
     /// Legt ein minimales App-Manifest an; compat_auth- und Write-Gate-Tests
     /// brauchen denselben Nachweis einer installierten Steam-App.
     pub(super) fn write_appmanifest(steamapps: &std::path::Path, app_id: u32) {
@@ -69,7 +142,7 @@ pub(crate) mod test_util {
     /// Grenze ist ausschließlich die Moduldeklaration `#[cfg(test)]` direkt vor
     /// `mod tests {`. Ein nacktes `split("#[cfg(test)]")` wäre still falsch:
     /// `download.rs` trägt einen `#[cfg(test)]`-Import und einen
-    /// `#[cfg(test)]`-Testseam VOR dem Produktionscode, `steam.rs` mehrere
+    /// `#[cfg(test)]`-Testseam VOR dem Produktionscode, `write_gate.rs` mehrere
     /// `#[cfg(test)]`-Blöcke. Ein zu früher Schnitt macht den geprüften Text
     /// kürzer und den Test damit grün, ohne dass er noch etwas prüft. Deshalb
     /// gilt: kein Treffer = Panik.

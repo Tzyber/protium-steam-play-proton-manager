@@ -1,9 +1,10 @@
 // Generische, plattformgebundene Dateideskriptor-Helfer der Rust-Schicht.
-// Geteilt von Write-Gate (steam.rs), Delete-Inspektion (delete_inspect.rs),
-// Read-only-Environment (fs_ops.rs) und Extract (extract.rs). steam.rs war
-// die historische Heimat; die Trennung hält das Write-Gate-Modul fachlich
-// schmal. Alle Helfer sind Linux-no-follow-Deskriptor-Ketten; die Aufrufer
-// steuern ihre eigenen cfg-Fallbacks.
+// Geteilt von Write-Gate (write_gate.rs), Delete-Inspektion (delete_inspect.rs,
+// delete_usage.rs), Read-only-Environment (fs_ops.rs) und Extract
+// (extract.rs). steam.rs war die historische Heimat; die Trennung hält das
+// Write-Gate-Modul fachlich schmal. Alle Helfer sind
+// Linux-no-follow-Deskriptor-Ketten; die Aufrufer steuern ihre eigenen
+// cfg-Fallbacks.
 
 #![cfg(target_os = "linux")]
 
@@ -336,12 +337,14 @@ mod tests {
     // lebt nur in dieser datei. Ein `open_absolute_dir(` und `fd_identity(` im
     // selben aufrufer wäre die alte duplizierung. Die testdateien liegen in
     // eigenen `*_tests.rs`, der hier gelesene text ist also produktion.
-    const CALLER_SOURCES: [(&str, &str); 5] = [
+    const CALLER_SOURCES: [(&str, &str); 7] = [
         ("compat_auth.rs", include_str!("compat_auth.rs")),
         ("prefix.rs", include_str!("prefix.rs")),
         ("delete_ops.rs", include_str!("delete_ops.rs")),
         ("delete_inspect.rs", include_str!("delete_inspect.rs")),
+        ("delete_usage.rs", include_str!("delete_usage.rs")),
         ("ge_install.rs", include_str!("ge_install.rs")),
+        ("write_gate.rs", include_str!("write_gate.rs")),
     ];
 
     #[test]

@@ -498,7 +498,7 @@ pub fn set_vdf_value(text: &str, path: &[&str], value: &str) -> Result<String, S
             "value must not contain line breaks",
         ));
     }
-    // Spiegel zur identity-prüfung in parse_compat_tool_vdf (steam.rs): vales
+    // Spiegel zur identity-prüfung in parse_compat_tool_vdf (compat_auth.rs): vales
     // keyvalues-parser liest C-strings, ein NUL oder anderes steuerzeichen im
     // wert würde die datei für steam unlesbar machen. die webview ist keine
     // vertrauensgrenze, deshalb lehnt das backend hier ab (INV-1).

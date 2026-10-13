@@ -720,14 +720,20 @@ mod manifest_reader_tests {
 }
 
 /// r-05: die manifest-Lesekette (AppID inkl. „AppId“-Fallback) existiert nur
-/// noch einmal im gemeinsamen reader; delete_inspect ruft sie nur auf. Der
+/// noch einmal im gemeinsamen reader; delete_usage ruft sie nur auf. Der
 /// appmanifest-Cap lebt ausschließlich im reader. Produktionsquellen, keine
 /// Testtexte (Testmodule sind ausgelagert).
 #[test]
 fn manifest_lesekette_existiert_nur_einmal() {
     use crate::commands::test_util::production_source;
     let compat = production_source(include_str!("compat_auth.rs"));
-    let delete_inspect = production_source(include_str!("delete_inspect.rs"));
+    // die delete-seite ist auf inspektion und nutzungsabfragen verteilt; beide
+    // zählen als ein aufrufer.
+    let delete_inspect = [
+        production_source(include_str!("delete_inspect.rs")),
+        production_source(include_str!("delete_usage.rs")),
+    ]
+    .concat();
     for path in ["[\"AppState\", \"appid\"]", "[\"AppState\", \"AppId\"]"] {
         assert_eq!(
             compat.matches(path).count(),
