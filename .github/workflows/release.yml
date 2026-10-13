@@ -20,13 +20,16 @@ permissions: {}
 jobs:
   # Ein Release-Tag darf nur auf einem Commit entstehen, der auf `main` liegt:
   # jeder `v*`-Tag startete sonst einen Release aus einem beliebigen Stand.
-  # Ob die vollständige CI zum selben Commit gruen war, bleibt prozessual
-  # (dokumentiert in SECURITY.md) — dieser Job prueft nur die Herkunft.
+  # zusaetzlich muss die vollstaendige CI zum selben commit gruen sein,
+  # mutation eingeschlossen: v0.11.3 erschien, waehrend mutation noch lief.
   guard:
     name: Verify tag is on main
     permissions:
       contents: read
+      checks: read
     runs-on: ubuntu-24.04
+    # 75 minuten warten auf die CI plus checkout und fetch.
+    timeout-minutes: 80
     steps:
       # Im Dry-Run läuft keine Prüfung, also auch keine volle Historie.
       - name: Checkout
@@ -44,6 +47,53 @@ jobs:
             exit 1
           fi
           echo "OK: $GITHUB_SHA liegt auf origin/main"
+      # die namen sind die job-ids aus ci.yml. fehlende oder laufende checks
+      # sind kein fehler, die CI laeuft beim push von commit und tag parallel.
+      # ein reiner doku-commit loest wegen paths-ignore keine CI aus, und ein
+      # push mehrerer commits prueft nur den letzten. gibt es nach 10 minuten
+      # keinen der vier laeufe, bricht der guard deshalb frueh ab.
+      - name: CI for tag commit must be green
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          start=$(date +%s)
+          deadline=$(( start + 75 * 60 ))
+          while :; do
+            # API-aussetzer zaehlen als "noch offen", nicht als fehler.
+            api_ok=1
+            runs=$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" \
+              --jq '.check_runs[] | [.name, .status, (.conclusion // "")] | @tsv') || { runs=""; api_ok=0; }
+            pending=""
+            found=0
+            for name in check mutation rust audit; do
+              states=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1 == n { print $2 "/" $3 }')
+              [ -n "$states" ] || { pending="$pending $name"; continue; }
+              found=$((found + 1))
+              for state in $states; do
+                case "$state" in
+                  completed/success) ;;
+                  completed/*) echo "FEHLER: CI-Job $name zu $GITHUB_SHA endet mit ${state#completed/}"; exit 1 ;;
+                  *) pending="$pending $name"; break ;;
+                esac
+              done
+            done
+            if [ -z "$pending" ]; then
+              echo "OK: CI zu $GITHUB_SHA ist gruen (check, mutation, rust, audit)"
+              exit 0
+            fi
+            if [ "$found" = 0 ] && [ "$api_ok" = 1 ] \
+              && [ "$(date +%s)" -ge $(( start + 10 * 60 )) ]; then
+              echo "FEHLER: zu $GITHUB_SHA gibt es keine CI-Laeufe; den release-commit einzeln pushen und die CI abwarten"
+              exit 1
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "FEHLER: CI zu $GITHUB_SHA nach 75 Minuten nicht gruen, offen:$pending"
+              exit 1
+            fi
+            echo "warte auf:$pending"
+            sleep 60
+          done
 
   # Der Wayland-Hook muss auch dort greifen, wo nur das Laufzeitpaket
   # installiert ist (Debian, Ubuntu, Fedora). v0.10.0 hat das nicht geprueft:
@@ -182,11 +232,6 @@ jobs:
           toolchain: stable
           # rustfmt fehlt im minimal-Profil; `cargo fmt --check` braucht es.
           components: clippy, rustfmt
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
-        with:
-          workspaces: src-tauri
 
       - name: Install cargo-audit
         uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26

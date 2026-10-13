@@ -16,6 +16,9 @@ const MARKDOWN_HEADING_PATTERN = /^\s{0,3}#{1,6}[ \t]+(.+?)\s*$/u;
  * @property {string} tauriConfig
  * @property {string} cargoToml
  * @property {string} cargoLock
+ * @property {string} metainfo
+ * @property {string} readme
+ * @property {string} readmeEn
  * @property {string | undefined} releaseNotes
  */
 
@@ -234,6 +237,44 @@ function extractCargoLockRootVersion(content) {
   return extractTomlField(rootBlock, "version", source);
 }
 
+/** @param {string} content @returns {string} */
+function extractMetainfoVersion(content) {
+  const source = "src-tauri/packaging/com.protium.desktop.metainfo.xml";
+  // die releases stehen neueste zuerst; nur der erste eintrag muss passen.
+  const match = requireText(content, source).match(/<release\s+version="([^"]*)"/u);
+  if (match === null) {
+    throw new Error(`${source}: no <release> entry found`);
+  }
+  return requireVersion(match[1], source);
+}
+
+/**
+ * @param {string} content
+ * @param {string} label
+ * @param {string} source
+ * @returns {string}
+ */
+function extractReadmeVersion(content, label, source) {
+  const pattern = new RegExp(`^${label}: \`v([^\`]*)\``, "gmu");
+  const matches = [...requireText(content, source).matchAll(pattern)];
+  if (matches.length !== 1) {
+    throw new Error(`${source}: expected exactly one "${label}" line`);
+  }
+  return requireVersion(matches[0]?.[1], source);
+}
+
+/** @param {string} content @param {string} source @returns {string} */
+function extractReadmeDownloadVersions(content, source) {
+  // platzhalter wie protium_<version>_amd64 beginnen nicht mit einer ziffer.
+  const matches = [...requireText(content, source).matchAll(/protium_([0-9][^_\s]*)_amd64/gu)];
+  if (matches.length === 0) {
+    throw new Error(`${source}: no protium_<version>_amd64 file name found`);
+  }
+  // abweichende dateinamen im selben readme bleiben als liste sichtbar und
+  // passen so zu keiner anderen quelle.
+  return [...new Set(matches.map((match) => requireVersion(match[1], source)))].join("|");
+}
+
 /**
  * @param {Record<string, string | undefined>} environment
  * @returns {{refType: string, ref: string | undefined, tag: string}}
@@ -354,6 +395,12 @@ function validFixture() {
     cargoToml: '[package]\nname = "protium"\nversion = "0.3.1"\nedition = "2021"\n',
     cargoLock:
       'version = 3\n\n[[package]]\nname = "other"\nversion = "1.0.0"\n\n[[package]]\nname = "protium"\nversion = "0.3.1"\ndependencies = []\n',
+    metainfo:
+      '<releases>\n  <release version="0.3.1" date="2026-01-02"/>\n  <release version="0.3.0" date="2026-01-01"/>\n</releases>\n',
+    readme:
+      "aktuelle version: `v0.3.1`.\n\nchmod +x protium_0.3.1_amd64.AppImage\nsudo apt install ./protium_0.3.1_amd64.deb\ngh attestation verify protium_<version>_amd64.deb\n",
+    readmeEn:
+      "current version: `v0.3.1`.\n\nchmod +x protium_0.3.1_amd64.AppImage\nsudo apt install ./protium_0.3.1_amd64.deb\n",
     releaseNotes: "# v0.3.1\n\n## 0.3.1, besser bedienbar\n\nRelease-Text.\n",
   };
 }
@@ -408,6 +455,18 @@ function runSelfTest() {
     ...valid,
     cargoLock: valid.cargoLock.replace("0.3.1", "0.3.2"),
   });
+  expectFailure("metainfo newest release", {
+    ...valid,
+    metainfo: valid.metainfo.replace('"0.3.1"', '"0.3.2"'),
+  });
+  expectFailure("README.md current version", {
+    ...valid,
+    readme: valid.readme.replace("`v0.3.1`", "`v0.3.2`"),
+  });
+  expectFailure("README.en.md download name", {
+    ...valid,
+    readmeEn: valid.readmeEn.replace("protium_0.3.1_amd64.deb", "protium_0.3.2_amd64.deb"),
+  });
   expectFailure("branch ref", {
     ...valid,
     refType: "branch",
@@ -457,6 +516,29 @@ function runSelfTest() {
     ...valid,
     cargoLock: valid.cargoLock.replace("0.3.1", "0.3.2"),
   });
+  expectFilesOnlyFailure("files-only: metainfo newest release", {
+    ...valid,
+    metainfo: valid.metainfo.replace('"0.3.1"', '"0.3.2"'),
+  });
+  expectFilesOnlyFailure("files-only: README.md current version", {
+    ...valid,
+    readme: valid.readme.replace("`v0.3.1`", "`v0.3.2`"),
+  });
+  expectFilesOnlyFailure("files-only: README.en.md current version", {
+    ...valid,
+    readmeEn: valid.readmeEn.replace("`v0.3.1`", "`v0.3.2`"),
+  });
+  expectFilesOnlyFailure("files-only: README.md download name", {
+    ...valid,
+    readme: valid.readme.replace("protium_0.3.1_amd64.deb", "protium_0.3.2_amd64.deb"),
+  });
+  expectFilesOnlyFailure("files-only: README.en.md download name", {
+    ...valid,
+    readmeEn: valid.readmeEn.replace(
+      "protium_0.3.1_amd64.AppImage",
+      "protium_0.3.2_amd64.AppImage",
+    ),
+  });
 }
 
 /**
@@ -467,6 +549,9 @@ function runSelfTest() {
  *   tauriConfig: string,
  *   cargoToml: string,
  *   cargoLock: string,
+ *   metainfo: string,
+ *   readme: string,
+ *   readmeEn: string,
  * }}
  */
 function readRepositoryInputs(rootDirectory) {
@@ -478,13 +563,16 @@ function readRepositoryInputs(rootDirectory) {
     tauriConfig: read("src-tauri/tauri.conf.json"),
     cargoToml: read("src-tauri/Cargo.toml"),
     cargoLock: read("src-tauri/Cargo.lock"),
+    metainfo: read("src-tauri/packaging/com.protium.desktop.metainfo.xml"),
+    readme: read("README.md"),
+    readmeEn: read("README.en.md"),
   };
 }
 
 /**
- * Versionen aller fuenf Versionsdateien (sechs Quellen) ueber die
+ * Versionen aller acht Versionsdateien (elf Quellen) ueber die
  * vorhandenen Extraktoren, ohne tag und release-notes.
- * @param {Pick<ReleaseInputs, "packageJson" | "packageLock" | "tauriConfig" | "cargoToml" | "cargoLock">} inputs
+ * @param {Omit<ReleaseInputs, "refType" | "tag" | "ref" | "releaseNotes">} inputs
  * @returns {Record<string, string>}
  */
 function collectFileVersions(inputs) {
@@ -496,6 +584,21 @@ function collectFileVersions(inputs) {
     "src-tauri/tauri.conf.json": extractTauriVersion(inputs.tauriConfig),
     "src-tauri/Cargo.toml": extractCargoTomlVersion(inputs.cargoToml),
     "src-tauri/Cargo.lock": extractCargoLockRootVersion(inputs.cargoLock),
+    "src-tauri/packaging/com.protium.desktop.metainfo.xml <release>": extractMetainfoVersion(
+      inputs.metainfo,
+    ),
+    "README.md aktuelle version": extractReadmeVersion(
+      inputs.readme,
+      "aktuelle version",
+      "README.md",
+    ),
+    "README.en.md current version": extractReadmeVersion(
+      inputs.readmeEn,
+      "current version",
+      "README.en.md",
+    ),
+    "README.md protium_*_amd64": extractReadmeDownloadVersions(inputs.readme, "README.md"),
+    "README.en.md protium_*_amd64": extractReadmeDownloadVersions(inputs.readmeEn, "README.en.md"),
   };
 }
 

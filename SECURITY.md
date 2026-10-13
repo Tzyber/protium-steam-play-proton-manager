@@ -354,9 +354,11 @@ Prüfwege gelten ab dem ersten Release mit `SHA256SUMS`; die Releases bis
   zweiten Kanal; ohne sie bleibt es TOFU.
 - **Tag-Herkunft und Gate-Umfang:** Der Workflow prüft in einem eigenen Job,
   dass der Tag-Commit auf `origin/main` liegt; jeder `v*`-Tag startete sonst
-  einen Release aus einem beliebigen Stand. Dass die vollständige CI zum selben
-  Commit grün war, bleibt prozessual und wird nicht automatisch erzwungen.
-  `bench:gate` und der Mutationslauf laufen nur in der CI: das Bench-Gate ist
+  einen Release aus einem beliebigen Stand. Derselbe Job wartet bis zu 75
+  Minuten, bis die CI-Jobs `check`, `mutation`, `rust` und `audit` zum selben
+  Commit erfolgreich abgeschlossen sind, und bricht ab, sobald einer davon
+  fehlschlägt oder nach 10 Minuten keiner existiert; erst dann startet der
+  Build. `bench:gate` und der Mutationslauf laufen nur in der CI: das Bench-Gate ist
   maschinengebunden und der Mutationslauf dauert ein Vielfaches des Builds.
 
 ### Bekannte Einschränkungen und akzeptierte Restrisiken

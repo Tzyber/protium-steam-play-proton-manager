@@ -3,8 +3,17 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore: ["docs/**", "**/*.md"]
   pull_request:
     branches: [main]
+    paths-ignore: ["docs/**", "**/*.md"]
+
+# nur PR-läufe werden abgebrochen. der release-guard braucht das ergebnis jedes
+# main-commits; deshalb hat jeder push eine eigene gruppe, sonst würde github
+# einen wartenden main-lauf beim nächsten push verwerfen.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
