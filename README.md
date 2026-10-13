@@ -51,11 +51,11 @@ rückfrage und nur, wenn protium sich sicher ist:
 AppImage oder Debian-Paket von der [releases-seite](https://github.com/Tzyber/protium-steam-play-proton-manager/releases)
 laden. die AppImage ausführbar machen und starten:
 
-aktuelle version: `v0.11.3`.
+aktuelle version: `v0.11.4`.
 
 ```sh
-chmod +x protium_0.11.3_amd64.AppImage
-./protium_0.11.3_amd64.AppImage
+chmod +x protium_0.11.4_amd64.AppImage
+./protium_0.11.4_amd64.AppImage
 ```
 
 jedes release bringt AppImage, Debian-Paket, `SHA256SUMS` und `SHA256SUMS.asc`.
@@ -79,7 +79,7 @@ sie nicht.
 
 entwickelt und getestet wird protium auf cachyos/arch. der start ist
 zusätzlich auf debian 13 (trixie) mit AppImage und Debian-paket geprüft,
-zuletzt mit v0.11.3.
+zuletzt mit v0.11.4.
 
 fingerprint des schlüssels: `08C084ECC83DFDB10E5CF60A8B2CA074A44AC4FA`
 (auch in [SECURITY.md](SECURITY.md) und auf keys.openpgp.org). vergleiche ihn
@@ -94,14 +94,14 @@ wer das nicht mag, baut selbst (siehe dev-setup). für Debian-basierte systeme
 liegt zusätzlich ein Debian-paket bei:
 
 ```sh
-sudo apt install ./protium_0.11.3_amd64.deb
+sudo apt install ./protium_0.11.4_amd64.deb
 ```
 
 startet nichts und es kommt keine fehlermeldung, fehlt meist fuse2. dann
 entweder `sudo pacman -S fuse2` oder einmalig ohne fuse starten:
 
 ```sh
-./protium_0.11.3_amd64.AppImage --appimage-extract-and-run
+./protium_0.11.4_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## was es kann
@@ -338,6 +338,9 @@ die app blockieren. was sich nicht zuverlässig bestimmen lässt, heißt in der 
 - [x] v0.11.3: härterer vdf-leser, netz nur über einen rust-befehl mit fester
   adressliste, engere lesegrenzen für steam-dateien; dazu aktualisierte
   abhängigkeiten und der neubau der tauri-npm-pakete
+- [x] v0.11.4: robustheits- und sicherheitskorrekturen aus dem app-review,
+  quinn-proto gegen fünf RUSTSEC-advisories aktualisiert; dazu ein interner
+  umbau in kleinere dateien ohne sichtbare änderung
 
 versionshistorie steht in den [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 

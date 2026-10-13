@@ -47,11 +47,11 @@ when protium is sure:
 
 grab the AppImage or Debian package from the [releases page](https://github.com/Tzyber/protium-steam-play-proton-manager/releases). make the AppImage executable and run it:
 
-current version: `v0.11.3`.
+current version: `v0.11.4`.
 
 ```sh
-chmod +x protium_0.11.3_amd64.AppImage
-./protium_0.11.3_amd64.AppImage
+chmod +x protium_0.11.4_amd64.AppImage
+./protium_0.11.4_amd64.AppImage
 ```
 
 each release ships the AppImage, the Debian package, `SHA256SUMS` and
@@ -74,7 +74,7 @@ system without XWayland it does not start.
 
 protium is developed and tested on cachyos/arch. the start is additionally
 tested on debian 13 (trixie) with the AppImage and the Debian package, most
-recently with v0.11.3.
+recently with v0.11.4.
 
 key fingerprint: `08C084ECC83DFDB10E5CF60A8B2CA074A44AC4FA` (also in
 [SECURITY.md](SECURITY.md) and on keys.openpgp.org). compare it through a
@@ -89,13 +89,13 @@ if you don't like that, build it yourself (see dev setup). Debian-based
 systems can install the accompanying Debian package:
 
 ```sh
-sudo apt install ./protium_0.11.3_amd64.deb
+sudo apt install ./protium_0.11.4_amd64.deb
 ```
 
 if nothing starts and no error message appears, fuse2 is usually missing. then either `sudo pacman -S fuse2` or run it once without fuse:
 
 ```sh
-./protium_0.11.3_amd64.AppImage --appimage-extract-and-run
+./protium_0.11.4_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## what it does
@@ -265,6 +265,9 @@ rules for the implementation: writes to steam files go through the write gate wi
 - [x] v0.11.3: stricter VDF reader, network only through one Rust command with
   a fixed address list, narrower read scopes for Steam files; plus updated
   dependencies and the rebuilt tauri npm packages
+- [x] v0.11.4: robustness and security fixes from the app review, quinn-proto
+  updated against five RUSTSEC advisories; plus an internal split into
+  smaller files without a visible change
 
 version history lives in the [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 
