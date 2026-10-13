@@ -118,27 +118,12 @@ jobs:
         with:
           persist-credentials: false
 
-      # Der Hook wird gesourct und darf die Shell nicht beenden. Deshalb
-      # laeuft er in einer Subshell, die am Ende einen Sentinel ausgibt:
-      # fehlt der Sentinel, hat der Hook die Shell verlassen.
       - name: Hook finds system library without dev package
         run: |
           apt-get install -y --no-install-recommends libwayland-client0
           ls -la /usr/lib/x86_64-linux-gnu/libwayland-client*
           [ ! -e /usr/lib/x86_64-linux-gnu/libwayland-client.so ] || { echo "FEHLER: Entwicklerpaket vorhanden, Test ungueltig"; exit 1; }
-          out=$(
-            set +e
-            LD_PRELOAD=
-            . src-tauri/appimage-hooks/01-wayland-fix.sh
-            printf 'HOOK_RC=%s\nHOOK_LD=%s\nHOOK_SENTINEL=yes\n' "$?" "${LD_PRELOAD:-}"
-          )
-          echo "$out"
-          case "$out" in *HOOK_SENTINEL=yes*) : ;; *) echo "FEHLER: Hook hat die Shell beendet"; exit 1 ;; esac
-          ld=$(printf '%s\n' "$out" | sed -n 's/^HOOK_LD=//p')
-          case "$ld" in
-            *libwayland-client.so*) echo "OK: Hook laedt die Systembibliothek vor: $ld" ;;
-            *) echo "FEHLER: Hook findet die Systembibliothek nicht"; exit 1 ;;
-          esac
+          bash scripts/test-wayland-hook.sh system
 
       # Nur der ldconfig-Zweig kann diese Bibliothek finden: sie liegt in
       # einem Verzeichnis, das nicht in der Pfadliste des Hooks steht.
@@ -149,37 +134,13 @@ jobs:
           mv /usr/lib/x86_64-linux-gnu/libwayland-client.so.0* /tmp/
           ldconfig
           ldconfig -p | grep libwayland-client
-          out=$(
-            set +e
-            LD_PRELOAD=
-            . src-tauri/appimage-hooks/01-wayland-fix.sh
-            printf 'HOOK_RC=%s\nHOOK_LD=%s\nHOOK_SENTINEL=yes\n' "$?" "${LD_PRELOAD:-}"
-          )
-          echo "$out"
-          case "$out" in *HOOK_SENTINEL=yes*) : ;; *) echo "FEHLER: Hook hat die Shell beendet"; exit 1 ;; esac
-          ld=$(printf '%s\n' "$out" | sed -n 's/^HOOK_LD=//p')
-          case "$ld" in
-            /usr/local/lib/libwayland-client.so*) echo "OK: Hook nutzt die ldconfig-Rueckfrage: $ld" ;;
-            *) echo "FEHLER: ldconfig-Rueckfrage greift nicht"; exit 1 ;;
-          esac
+          bash scripts/test-wayland-hook.sh ldconfig
 
       - name: Hook stays silent without system library
         run: |
           rm -f /usr/local/lib/libwayland-client.so* /usr/lib/x86_64-linux-gnu/libwayland-client.so.0*
           ldconfig
-          out=$(
-            set +e
-            LD_PRELOAD=
-            . src-tauri/appimage-hooks/01-wayland-fix.sh
-            printf 'HOOK_RC=%s\nHOOK_LD=%s\nHOOK_SENTINEL=yes\n' "$?" "${LD_PRELOAD:-}"
-          )
-          echo "$out"
-          case "$out" in *HOOK_SENTINEL=yes*) : ;; *) echo "FEHLER: Hook hat die Shell beendet"; exit 1 ;; esac
-          rc=$(printf '%s\n' "$out" | sed -n 's/^HOOK_RC=//p')
-          ld=$(printf '%s\n' "$out" | sed -n 's/^HOOK_LD=//p')
-          [ "$rc" = "0" ] || { echo "FEHLER: Hook endet mit $rc"; exit 1; }
-          [ -z "$ld" ] || { echo "FEHLER: LD_PRELOAD ohne Bibliothek gesetzt: $ld"; exit 1; }
-          echo "OK: Hook bleibt still"
+          bash scripts/test-wayland-hook.sh silent
 
   build:
     # npm, Cargo und build.rs laufen hier. Schreibrecht und id-token bleiben
@@ -374,38 +335,7 @@ jobs:
           cp "$APPIMAGE" /tmp/smoke.AppImage
           chmod +x /tmp/smoke.AppImage
 
-          dbus-run-session -- bash -euc '
-            Xvfb :99 -screen 0 1280x800x24 >/tmp/xvfb.log 2>&1 &
-            sleep 2
-            export DISPLAY=:99 APPIMAGE_EXTRACT_AND_RUN=1 WEBKIT_DISABLE_COMPOSITING_MODE=1
-            /tmp/smoke.AppImage >/tmp/app.log 2>&1 &
-            for _ in $(seq 1 24); do
-              xdotool search --name protium >/dev/null 2>&1 && break
-              sleep 5
-            done
-            if ! xdotool search --name protium >/dev/null 2>&1; then
-              echo "FEHLER: kein protium-Fenster nach 120 s"
-              tail -20 /tmp/app.log
-              exit 1
-            fi
-            echo "Fenster gefunden:"
-            xwininfo -root -tree | grep -i protium || true
-
-            # Der AppRun-Hook muss im gestarteten Prozess wirksam sein. Der
-            # Build-Container hat eine Wayland-Bibliothek, also muss
-            # LD_PRELOAD gesetzt sein; fehlt sie, wird der Punkt uebersprungen.
-            PID=$(pgrep -x protium | head -1)
-            if [ -e /usr/lib/x86_64-linux-gnu/libwayland-client.so.0 ] || [ -e /usr/lib/x86_64-linux-gnu/libwayland-client.so ]; then
-              if [ -n "$PID" ] && tr '\0' '\n' < "/proc/$PID/environ" | grep -q '^LD_PRELOAD=.*libwayland-client'; then
-                echo "OK: AppRun hat den Hook ausgefuehrt und LD_PRELOAD gesetzt"
-              else
-                echo "FEHLER: Hook wurde im gestarteten Prozess nicht wirksam"
-                exit 1
-              fi
-            else
-              echo "Hinweis: keine Wayland-Bibliothek im Container, Hook-Pruefung uebersprungen"
-            fi
-          '
+          dbus-run-session -- bash scripts/smoke-appimage.sh /tmp/smoke.AppImage
 
       # SHA256SUMS über die FINALEN Artefakte: die AppImage wird nach dem
       # tauri-build gepatcht und neu gepackt, alles davor wäre falsch. Die
