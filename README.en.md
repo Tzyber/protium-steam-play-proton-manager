@@ -206,10 +206,10 @@ the cache lives in `~/.cache/com.protium.desktop/`.
 ### dependencies and advisories
 
 ```sh
-(cd src-tauri && cargo audit)
+cargo audit --file src-tauri/Cargo.lock
 ```
 
-`.cargo/audit.toml` lists advisories that are knowingly accepted, each by ID with a reason, so that a **new** advisory still trips the check. these mostly concern tauri's GTK3 stack (the gtk-rs bindings are unmaintained; gtk-rs moved on to GTK4) and build-time-only crates. to be revisited once tauri moves to gtk-rs 0.20.
+run from the repo root: cargo-audit looks for `.cargo/audit.toml` in the current directory. `.cargo/audit.toml` lists advisories that are knowingly accepted, each by ID with a reason, so that a **new** advisory still trips the check. these mostly concern tauri's GTK3 stack (the gtk-rs bindings are unmaintained; gtk-rs moved on to GTK4) and build-time-only crates. to be revisited once tauri moves to gtk-rs 0.20.
 
 ## layout
 

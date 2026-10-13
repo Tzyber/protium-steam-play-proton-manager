@@ -268,10 +268,11 @@ cache liegt unter `~/.cache/com.protium.desktop/`.
 ### abhängigkeiten und advisories
 
 ```sh
-(cd src-tauri && cargo audit)
+cargo audit --file src-tauri/Cargo.lock
 ```
 
-`.cargo/audit.toml` listet advisories, die bewusst getragen werden, jeweils
+vom repo-root aus: cargo-audit sucht `.cargo/audit.toml` im aktuellen
+verzeichnis. `.cargo/audit.toml` listet advisories, die bewusst getragen werden, jeweils
 per ID mit begründung, damit ein **neuer** advisory weiterhin anschlägt.
 betrifft im wesentlichen tauris GTK3-stack (die gtk-rs-bindings sind
 unmaintained, gtk-rs ist auf GTK4 umgezogen) und build-time-only-crates.

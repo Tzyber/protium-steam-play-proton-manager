@@ -374,10 +374,10 @@ Prüfwege gelten ab dem ersten Release mit `SHA256SUMS`; die Releases bis
   - *Trigger:* Ein fremder Prozess enthält `"steam"` im Namen (z. B. `steam-idle` oder Entwicklungswerkzeuge).
   - *Wirkung:* Protium verweigert vorsorglich Schreib- und Löschoperationen (Fail-Closed False Positive), um Race-Conditions mit echten Steam-Helfern (z. B. `steamwebhelper`) sicher auszuschließen.
 - **Upstream-Advisories (Stryker / transitive Dev-Dependencies):**
-  - *Trigger:* Bekannte Advisories in Entwicklungs-/Mutations-Testwerkzeugen (z. B. `qs` in `@stryker-mutator/core`).
+  - *Trigger:* Bekannte Advisories in Entwicklungs-/Mutations-Testwerkzeugen (z. B. transitive Abhängigkeiten von `@stryker-mutator/core`; `qs` ist per `overrides` auf eine gepatchte Version gehoben).
   - *Wirkung:* Betrifft ausschließlich lokale Testläufe und Build-Pipelines zur Entwicklungszeit, hat keinen Einfluss auf das kompilierte Protium-Binary oder die Laufzeitumgebung der Endanwender.
 - **Lokales Diagnoseprotokoll:**
   - *Trigger:* Fehlertexte des Backends werden in `$APPLOCALDATA/logs` protokolliert; der Nutzer kann den Ordner über die Oberfläche öffnen und die Datei weitergeben.
-  - *Wirkung:* Das Protokoll ist lokal und enthält bewusst die rohe Backend-Meldung samt Fehlercode (die Oberfläche zeigt nur übersetzten Text). Das Backend ersetzt darin Home-Pfade durch `~`; absolute Pfade außerhalb des Home-Verzeichnisses können dennoch vorkommen. Wer das Protokoll weitergibt, gibt damit eigene Pfade weiter.
+  - *Wirkung:* Das Protokoll ist lokal und enthält bewusst die rohe Backend-Meldung samt Fehlercode (die Oberfläche zeigt nur übersetzten Text). Das Backend ersetzt darin Home-Pfade und den Benutzernamen in `/media/$USER` und `/run/media/$USER` durch `~` sowie Steam-Account-IDs in `userdata/<id>` durch `<redacted>`; andere absolute Pfade, etwa Libraries auf fremden Mounts, können dennoch vorkommen. Wer das Protokoll weitergibt, gibt damit eigene Pfade weiter.
 
 Fixes und private reproduzierbare Nachweise zu diesen Punkten sind willkommen.
