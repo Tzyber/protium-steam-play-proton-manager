@@ -44,7 +44,7 @@
     "typescript": "^5.7.3",
     "vite": "^8.3.3",
     "vitest": "^4.1.11",
-    "vue-tsc": "^3.3.11"
+    "vue-tsc": "^3.3.12"
   },
   "dependencies": {
     "@node-steam/vdf": "^2.2.0",
