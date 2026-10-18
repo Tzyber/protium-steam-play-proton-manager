@@ -88,10 +88,14 @@ jobs:
           toolchain: stable
           components: clippy, rustfmt
       # nur main schreibt caches; PR-läufe lesen sie mit. jede PR schrieb sonst
-      # rund 1 GB, womit das repo-limit (10 GB) schnell voll lief.
+      # rund 1 GB, womit das repo-limit (10 GB) schnell voll lief. shared-key
+      # fixiert den key: sonst trägt er den lock- und rustc-hash und jeder
+      # main-commit mit geänderter Cargo.lock legt einen weiteren ~1-GB-eintrag
+      # an, statt den vorhandenen zu überschreiben.
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: src-tauri
+          shared-key: main
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # tauri braucht webkit2gtk schon zum kompilieren (pkg-config im build-script)
       - run: |
@@ -111,10 +115,14 @@ jobs:
         with:
           toolchain: stable
       # nur main schreibt caches; PR-läufe lesen sie mit. jede PR schrieb sonst
-      # rund 1 GB, womit das repo-limit (10 GB) schnell voll lief.
+      # rund 1 GB, womit das repo-limit (10 GB) schnell voll lief. shared-key
+      # fixiert den key: sonst trägt er den lock- und rustc-hash und jeder
+      # main-commit mit geänderter Cargo.lock legt einen weiteren ~1-GB-eintrag
+      # an, statt den vorhandenen zu überschreiben.
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: src-tauri
+          shared-key: main
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
