@@ -53,10 +53,10 @@ jobs:
           persist-credentials: false
       - id: diff
         run: |
-          if ! changed=$(git diff --name-only "${{ github.event.pull_request.base.sha }}...HEAD"); then
+          if ! changed=$(git diff --name-only --no-renames "${{ github.event.pull_request.base.sha }}...HEAD"); then
             echo "diff zur PR-basis fehlgeschlagen; mutation laeuft sicherheitshalber" >&2
             echo "mutation=true" >> "$GITHUB_OUTPUT"
-          elif printf '%s\n' "$changed" | grep -Eq '^(src/core/|tests/|stryker\.config\.mjs|scripts/run-mutation\.mjs|vitest\.config\.ts|vitest\.shared\.ts|src/ui/consequences\.ts|src/ui/formatError\.ts|src/ui/sizeSummary\.ts|src/ui/stores/confirmStore\.ts|src/ui/stores/cleanupHelpers\.ts)'; then
+          elif printf '%s\n' "$changed" | grep -Eq '^(package\.json$|package-lock\.json$|src/core/|tests/|stryker\.config\.mjs$|scripts/run-mutation\.mjs$|vitest\.config\.ts$|vitest\.shared\.ts$|src/ui/consequences\.ts$|src/ui/formatError\.ts$|src/ui/sizeSummary\.ts$|src/ui/stores/confirmStore\.ts$|src/ui/stores/cleanupHelpers\.ts$|src/ui/format\.ts$|src/ui/i18n/)'; then
             echo "mutation=true" >> "$GITHUB_OUTPUT"
           else
             echo "mutation=false" >> "$GITHUB_OUTPUT"
@@ -64,8 +64,14 @@ jobs:
 
   mutation:
     needs: [changes]
-    if: always() && (github.event_name == 'push' || needs.changes.outputs.mutation == 'true')
+    # fällt `changes` aus, ist der output leer; der zweite zweig startet die
+    # mutation dann fail-closed. `cancelled` (überholter PR-lauf) zählt nicht:
+    # der nachfolgende lauf prüft denselben stand. das timeout bleibt unter dem
+    # 75-minuten-budget des release-guards (release.yml), sonst sieht der guard
+    # den fehlschlag nie.
+    if: always() && (github.event_name == 'push' || needs.changes.result == 'failure' || needs.changes.outputs.mutation == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 70
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -102,9 +108,11 @@ jobs:
       - run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      # `--locked` erzwingt einen unveränderten Cargo.lock; `cargo fmt` kennt
+      # das Flag nicht, clippy/test lösen den Lockfile aber ohnehin.
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
 
   audit:
     runs-on: ubuntu-latest
