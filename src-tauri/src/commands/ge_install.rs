@@ -649,7 +649,10 @@ fn resolve_ge_install_targets(
 /// Identität, damit der anonyme Download-Descriptor nicht in einen
 /// ausgetauschten Ordner schreibt.
 fn open_downloads_directory(cache_dir: &Path) -> Result<(fs::File, (u64, u64)), String> {
-    fs::create_dir_all(cache_dir).map_err(|error| {
+    // R5: ein per Discovery verengter Cache darf nicht offen neu entstehen,
+    // wenn er geloescht wurde; Anlegen und Bestandsverengung laufen deshalb
+    // ueber dieselbe private Anlage wie die uebrigen App-Verzeichnisse.
+    crate::commands::scope::ensure_private_dir(cache_dir).map_err(|error| {
         errcode::with_detail(
             errcode::code_for_io(&error),
             format!("create app cache dir: {error}"),
@@ -662,7 +665,7 @@ fn open_downloads_directory(cache_dir: &Path) -> Result<(fs::File, (u64, u64)), 
         )
     })?;
     let downloads_dir = cache_canon.join("downloads");
-    fs::create_dir_all(&downloads_dir).map_err(|error| {
+    crate::commands::scope::ensure_private_dir(&downloads_dir).map_err(|error| {
         errcode::with_detail(
             errcode::code_for_io(&error),
             format!("create downloads dir: {error}"),

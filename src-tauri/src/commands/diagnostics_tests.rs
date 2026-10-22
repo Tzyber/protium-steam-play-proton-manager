@@ -16,6 +16,38 @@ fn test_append_log_entry() {
     let _ = fs::remove_dir_all(&root);
 }
 
+/// Audit 2026-10-20, 6.1: Logdatei 0600, Logverzeichnis 0700; Bestand wird
+/// beim Append nachgezogen.
+#[cfg(unix)]
+#[test]
+fn logdatei_und_verzeichnis_sind_privat() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = wsg_fixture("test_log_permissions");
+    let log_dir = root.join("logs");
+    let main_log = log_dir.join("protium.log");
+    let mode = |path: &std::path::Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+
+    append_log_entry(&log_dir, "info", "erste").unwrap();
+    assert_eq!(mode(&log_dir), 0o700);
+    assert_eq!(mode(&main_log), 0o600);
+
+    fs::set_permissions(&log_dir, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(&main_log, fs::Permissions::from_mode(0o644)).unwrap();
+    append_log_entry(&log_dir, "info", "zweite").unwrap();
+    assert_eq!(mode(&log_dir), 0o700);
+    assert_eq!(mode(&main_log), 0o600);
+    let content = fs::read_to_string(&main_log).unwrap();
+    assert!(content.contains("erste"));
+    assert!(content.contains("zweite"));
+
+    // nur verengen: ein bereits privater Modus bleibt unveraendert
+    fs::set_permissions(&main_log, fs::Permissions::from_mode(0o700)).unwrap();
+    append_log_entry(&log_dir, "info", "dritte").unwrap();
+    assert_eq!(mode(&main_log), 0o700);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
 #[test]
 fn test_rotate_logs() {
     let root = wsg_fixture("test_rotate_log");

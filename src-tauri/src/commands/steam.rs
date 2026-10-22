@@ -353,9 +353,17 @@ pub async fn open_backups_folder(app: tauri::AppHandle) -> Result<(), String> {
     // WARUM prepare_app_dir und nicht der Environment-Snapshot: die Backups
     // gehoeren der App, die Anzeige muss auch ohne Steam-Installation
     // funktionieren. prepare_app_dir bringt dieselbe Haertung (keine
-    // Symlink-Komponenten, regulaeres Verzeichnis, kanonischer Pfad).
-    let backup_dir =
-        crate::commands::scope::prepare_app_dir(&cache_dir.join("backups"), "app backups")?;
+    // Symlink-Komponenten, regulaeres Verzeichnis, kanonischer Pfad, 0700).
+    // keine Wurzel heisst: der plattformpfad ist unbrauchbar (interne
+    // Invariante), kein Nutzerfehler.
+    let cache_root = cache_dir
+        .parent()
+        .ok_or_else(|| errcode::with_detail(errcode::UNAVAILABLE, "app cache: no parent root"))?;
+    let backup_dir = crate::commands::scope::prepare_app_dir(
+        &cache_dir.join("backups"),
+        cache_root,
+        "app backups",
+    )?;
     #[cfg(target_os = "linux")]
     {
         spawn_blocking_io(move || {

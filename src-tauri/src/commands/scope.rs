@@ -1,7 +1,8 @@
 use crate::commands::errcode;
 use crate::commands::libraryfolders::read_library_folders_with_failures;
 use crate::commands::path::{
-    canonicalize_nearest_ancestor, is_descendant_of, is_safe_path, sanitize_path,
+    canonicalize_nearest_ancestor, is_descendant_of, is_safe_path, next_existing_ancestor,
+    sanitize_path,
 };
 use serde::Serialize;
 use std::fs;
@@ -541,6 +542,14 @@ fn require_snapshot(
     })
 }
 
+/// Prueft die Komponenten eines Rohpfads per `lstat` auf Symlinks, bevor
+/// irgendetwas kanonisiert oder angelegt wird. `include_leaf` schliesst die
+/// letzte Komponente ein; mit `true` faellt damit auch ein toter Blatt-Symlink
+/// auf, den `path.exists()` als abwesend melden wuerde.
+///
+/// Abgebrochen wird, sobald eine Komponente fehlt oder nicht durchquerbar ist
+/// (`NotFound`/`NotADirectory`): tiefer liegende Komponenten gibt es dann nicht,
+/// und den echten Grund meldet das Anlegen (F-04: `prepare_app_dir`).
 pub(super) fn reject_symlink_components(
     path: &Path,
     include_leaf: bool,
@@ -563,7 +572,19 @@ pub(super) fn reject_symlink_components(
                 ));
             }
             Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            // Ein fehlender Pfad und ein Nicht-Verzeichnis als Vorfahr koennen
+            // kein Symlink sein; tiefer liegende Komponenten existieren dann
+            // nicht. Den echten Grund meldet das Anlegen (F-04:
+            // `prepare_app_dir`): `unavailable`, nicht die io-regel
+            // `unreadable`/`not-found`.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                ) =>
+            {
+                break
+            }
             Err(error) => {
                 return Err(errcode::with_detail(
                     errcode::code_for_io(&error),
@@ -587,10 +608,121 @@ impl LibraryUnavailableReason {
     }
 }
 
+/// Legt App-Verzeichnisse mit `0700` an; fehlende Elternverzeichnisse
+/// erhalten ebenfalls `0700`. Der Default-Modus (`create_dir_all`) folgt dem
+/// umask und gibt einem zweiten lokalen Account Einblick in Logs, Backups und
+/// Cache-Metadaten (audit 2026-10-20, 6.1).
+#[cfg(unix)]
+pub(crate) fn create_private_dir_all(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(path)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn create_private_dir_all(path: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(path)
+}
+
+/// Pfadbasierter Fallback: nur verengen, Leaf-Symlinks ueberspringen.
+/// Braucht kein Leserecht auf das Verzeichnis und traegt deshalb die Faelle, in
+/// denen der Deskriptor nicht aufgeht (`0111`, `0355`).
+#[cfg(unix)]
+fn restrict_dir_to_owner_by_path(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return;
+    };
+    if metadata.file_type().is_symlink() {
+        return;
+    }
+    let mode = metadata.permissions().mode() & 0o7777;
+    if mode & 0o077 != 0 {
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode & !0o077));
+    }
+}
+
+/// Best effort: Bestand aus aelteren Versionen kann weiter offen stehen.
+/// Nur verengen; ein bereits engerer Modus bleibt erhalten.
+///
+/// Der Linux-Deskriptorweg beseitigt zwei Dinge: das Folgen eines Blatt-Symlinks
+/// (das `chmod` traefe sonst das Ziel dahinter) und das Fenster zwischen `lstat`
+/// und `chmod` am Blatt selbst (R3).
+///
+/// Was er NICHT beseitigt: die Elternkomponenten werden in BEIDEN Zweigen
+/// pfadbasiert aufgeloest, dort bleibt das TOCTOU-Restfenster. Wird ein
+/// Elternpfad zwischen Aufloesung und `chmod` ausgetauscht, kann das `chmod`
+/// ein fremdes Verzeichnis treffen. Der Fallback greift bei JEDEM Fehler des
+/// Deskriptor-Opens, insbesondere bei EACCES aus fehlendem Leserecht
+/// (`0111`/`0355`): dann bleibt nur der pfadbasierte Weg, damit das Verengen
+/// nicht still entfaellt; dort kommt das Folgen von Blatt-Symlinks hinzu.
+#[cfg(target_os = "linux")]
+fn restrict_dir_to_owner(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(fd) = crate::commands::fd::open_absolute_dir(path) else {
+        restrict_dir_to_owner_by_path(path);
+        return;
+    };
+    let file = fs::File::from(fd);
+    let Ok(metadata) = file.metadata() else {
+        return;
+    };
+    let mode = metadata.permissions().mode() & 0o7777;
+    if mode & 0o077 != 0 {
+        let _ = file.set_permissions(fs::Permissions::from_mode(mode & !0o077));
+    }
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn restrict_dir_to_owner(path: &Path) {
+    restrict_dir_to_owner_by_path(path);
+}
+
+#[cfg(not(unix))]
+fn restrict_dir_to_owner(_path: &Path) {}
+
+/// Anlegen und Bestand verengen, ohne `exists()`-Vorpruefung: so zieht auch
+/// ein bereits vorhandenes Verzeichnis nach (Panic-Pfad ohne Discovery).
+///
+/// Bewusst ohne Root- und Descendant-Pruefung: der Aufruf verengt jedes
+/// uebergebene Verzeichnis. Nur mit bereits geprueften App-Pfaden aufrufen.
+pub(crate) fn ensure_private_dir(path: &Path) -> std::io::Result<()> {
+    create_private_dir_all(path)?;
+    restrict_dir_to_owner(path);
+    Ok(())
+}
+
 /// Legt ein App-Verzeichnis an und gibt den kanonischen Pfad zurueck. Auch von
 /// den Backup- und Log-Commands genutzt, damit Pfad-Haertung und Ableitung
 /// ueberall gleich sind.
-pub(crate) fn prepare_app_dir(path: &Path, label: &str) -> Result<PathBuf, String> {
+///
+/// Wirkung: der `app_root` selbst wird bei Bedarf angelegt (Default-Modus, siehe
+/// `create_dir_all` unten), ein fehlendes Kindverzeichnis entsteht mit `0700`,
+/// vorhandener Bestand wird auf `0700` verengt (nur verengen, nie weiten). Der
+/// Pfad muss echt unterhalb des uebergebenen `app_root` liegen; der Root selbst
+/// wird abgelehnt. Die Zugehoerigkeitspruefung ist noetig, weil das Verengen
+/// sonst auch ein fremdes Verzeichnis (`/home`, `/tmp/...`, als root
+/// systemweit) träfe (R2).
+///
+/// `app_root` selbst laeuft bewusst NICHT durch `reject_symlink_components`
+/// (nur `is_safe_path` nach der Kanonisierung): ein Symlink-Root wird also
+/// verfolgt und als kanonisches Ziel zur Wurzel der Descendant-Pruefung. Der
+/// kanonische Gleichheitscheck unten faengt nur Aliase derselben Komponente ab
+/// (etwa `/pfad/.`), nicht einen Root, der ueber einen Symlink auf ein anderes
+/// Verzeichnis zeigt.
+///
+/// Fuer einen nicht durchquerbaren Vorfahren (Datei als Elternverzeichnis,
+/// `NotADirectory`) bricht `reject_symlink_components` die Komponentenpruefung
+/// ab; der Abbruch endet jetzt beim Anlegen als `unavailable` statt vorher als
+/// `unreadable` aus der Komponentenpruefung. Diese Vertragsaenderung ist bewusst
+/// und mit dem F-04-Test gepinnt.
+pub(crate) fn prepare_app_dir(
+    path: &Path,
+    app_root: &Path,
+    label: &str,
+) -> Result<PathBuf, String> {
     let raw = path.to_string_lossy();
     sanitize_path(&raw, label)?;
     if !is_safe_path(&raw) {
@@ -599,10 +731,72 @@ pub(crate) fn prepare_app_dir(path: &Path, label: &str) -> Result<PathBuf, Strin
             format!("{path:?}"),
         ));
     }
-    reject_symlink_components(path, path.exists(), label)?;
+    // Symlink-komponenten werden auf dem Rohpfad VOR jedem Kanonisieren
+    // abgelehnt: sonst verdeckt der spaetere Descendant-Check den Grund und die
+    // Ablehnung traegt `blocked-location` statt `symlink-rejected`.
+    // `true` schliesst das Blatt ein; die Begruendung (toter Blatt-Symlink, den
+    // `path.exists()` als abwesend meldet) steht beim Helper. Fehlende Vorfahren
+    // brechen die Schleife selbst ab, fehlende Pfade kosten also nichts.
+    reject_symlink_components(path, true, label)?;
+    // Der Root selbst ist kein App-Verzeichnis: er wuerde beim spaeteren
+    // Verengen ein fremdes Elternverzeichnis treffen.
+    if path == app_root {
+        return Err(errcode::with_detail(
+            errcode::BLOCKED_LOCATION,
+            format!("{label}: app root itself: {path:?}"),
+        ));
+    }
+    // Der Root darf fehlen (erster Start, geloeschter Cache) und wird hier
+    // angelegt. Bewusst `create_dir_all` im Default-Modus: der Root ist die
+    // App-Basis, deren Elternverzeichnis der App nicht gehoert (`~/.cache`,
+    // `~/.local/share`); ein 0700 dort waere ein Eingriff in fremde Rechte. Die
+    // Kindpfade laufen weiter ueber `create_private_dir_all` (0700).
+    fs::create_dir_all(app_root).map_err(|error| {
+        errcode::with_detail(errcode::UNAVAILABLE, format!("{label} root: {error}"))
+    })?;
+    let canonical_root = fs::canonicalize(app_root).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("{label} root: {error}"),
+        )
+    })?;
+    if !is_safe_path(&canonical_root.to_string_lossy()) {
+        return Err(errcode::with_detail(
+            errcode::BLOCKED_LOCATION,
+            format!("{app_root:?}"),
+        ));
+    }
+    // Der descendant-check läuft VOR dem anlegen: sonst entstünde schon ein
+    // Verzeichnis außerhalb des App-Roots, bevor die Prüfung greift.
+    let ancestor = next_existing_ancestor(path).ok_or_else(|| {
+        errcode::with_detail(
+            errcode::NOT_FOUND,
+            format!("{label}: no existing ancestor for {path:?}"),
+        )
+    })?;
+    let ancestor_canonical = fs::canonicalize(&ancestor).map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("{label} ancestor: {error}"),
+        )
+    })?;
+    if !is_descendant_of(&ancestor_canonical, &canonical_root) {
+        return Err(errcode::with_detail(
+            errcode::BLOCKED_LOCATION,
+            format!("{label}: outside app root: {path:?}"),
+        ));
+    }
     // F-04: ein fehlgeschlagenes anlegen ist kein lesevorgang; `code_for_io`
     // (not-found/unreadable) beschreibt hier die falsche ursache (rechte/ro).
-    fs::create_dir_all(path)
+    //
+    // Restrisiko "R11-TOCTOU": im Wettlauf (Komponente zwischen Pruefung und
+    // mkdir/chmod ausgetauscht) kann hier ein Pfad ausserhalb des Roots
+    // entstehen. Ebenso kann ein Elternpfad zwischen der zweiten
+    // Descendant-Pruefung und dem chmod getauscht werden; dann verengt
+    // `restrict_dir_to_owner` ein fremdes Verzeichnis. Beides ist ein
+    // Restrisiko, nicht ausgeschlossen: Pfadpruefung und Dateizugriff sind
+    // nicht atomar, und der Deskriptorweg deckt nur das Blatt ab.
+    create_private_dir_all(path)
         .map_err(|error| errcode::with_detail(errcode::UNAVAILABLE, format!("{label}: {error}")))?;
     let metadata = fs::symlink_metadata(path).map_err(|error| {
         errcode::with_detail(errcode::code_for_io(&error), format!("{label}: {error}"))
@@ -622,6 +816,23 @@ pub(crate) fn prepare_app_dir(path: &Path, label: &str) -> Result<PathBuf, Strin
             format!("{path:?}"),
         ));
     }
+    // Zweite Root-Pruefung: der lexikalische Check oben greift nicht, wenn sich
+    // der Rohpfad erst durch die Kanonisierung auf den Root abbildet.
+    if canonical == canonical_root {
+        return Err(errcode::with_detail(
+            errcode::BLOCKED_LOCATION,
+            format!("{label}: app root itself: {path:?}"),
+        ));
+    }
+    // Nach dem Anlegen erneut prüfen: eine Komponente kann zwischen den
+    // beiden Läufen ausgetauscht worden sein.
+    if !is_descendant_of(&canonical, &canonical_root) {
+        return Err(errcode::with_detail(
+            errcode::BLOCKED_LOCATION,
+            format!("{label}: outside app root: {path:?}"),
+        ));
+    }
+    restrict_dir_to_owner(&canonical);
     Ok(canonical)
 }
 
@@ -711,8 +922,17 @@ pub(crate) fn build_environment_snapshot(
 
     let (unique, unavailable_libraries) = read_library_folders_with_failures(&steam_root)?;
 
-    let app_cache_dir = prepare_app_dir(app_cache_dir, "app cache")?;
-    let app_config_dir = prepare_app_dir(app_config_dir, "app config")?;
+    // Root ist jeweils das Elternverzeichnis: fachlich die App-Basis, unter der
+    // Cache und Config liegen, nicht das Verzeichnis selbst (sonst wäre der
+    // descendant-check tautologisch).
+    let cache_root = app_cache_dir
+        .parent()
+        .ok_or_else(|| errcode::with_detail(errcode::UNAVAILABLE, "app cache: no parent root"))?;
+    let app_cache_dir = prepare_app_dir(app_cache_dir, cache_root, "app cache")?;
+    let config_root = app_config_dir
+        .parent()
+        .ok_or_else(|| errcode::with_detail(errcode::UNAVAILABLE, "app config: no parent root"))?;
+    let app_config_dir = prepare_app_dir(app_config_dir, config_root, "app config")?;
 
     let mut system_compat_dirs = Vec::new();
     for fixed in SYSTEM_COMPAT_DIRS {

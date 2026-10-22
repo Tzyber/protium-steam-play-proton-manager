@@ -36,13 +36,62 @@ pub fn run() {
                     utils::config::{Color, WebviewUrl},
                     Manager, WebviewWindowBuilder,
                 };
+                // stderr kann geschlossen sein; `eprintln!` panikt dann, `writeln!`
+                // mit verworfenem Ergebnis nicht.
+                use std::io::Write as _;
                 // Panic-Hook vor dem Fenster: ein Panic soll lokal sichtbar
                 // bleiben, auch wenn er waehrend eines Steam-Writes passiert.
                 if let Ok(data_dir) = app.path().app_local_data_dir() {
-                    if let Ok(log_dir) =
-                        commands::scope::prepare_app_dir(&data_dir.join("logs"), "app logs")
-                    {
+                    if let Ok(log_dir) = commands::scope::prepare_app_dir(
+                        &data_dir.join("logs"),
+                        &data_dir,
+                        "app logs",
+                    ) {
                         commands::diagnostics::install_panic_hook(log_dir);
+                    }
+                }
+                // R4: Bestand beim Start nachziehen, damit ein 0755-Ordner aus
+                // einer aelteren Version nicht bis zum ersten Öffnen offen
+                // bleibt. Best-effort heisst hier: JEDER Fehler dieses Aufrufs
+                // wird geschluckt (fehlender Root, fehlende Rechte,
+                // Symlink-Ablehnung, ...), der Start darf an der Verengung
+                // nicht scheitern. Damit das stille Scheitern sichtbar bleibt,
+                // loggt jeder fehlgeschlagene Aufruf eine statische Zeile ohne
+                // Pfad; Rohpfade gehoeren nicht ins Log. Die Zeile erscheint bei
+                // jedem Start, solange die Ursache bleibt.
+                let narrow =
+                    |path: &std::path::Path, root: &std::path::Path, label: &str, note: &str| {
+                        if commands::scope::prepare_app_dir(path, root, label).is_err() {
+                            // `eprintln!` panikt bei geschlossenem stderr (etwa
+                            // `2>&-`): dann wuerde die Diagnose den Start
+                            // abbrechen, den sie nur begleiten soll.
+                            let _ = writeln!(std::io::stderr(), "{note}");
+                        }
+                    };
+                if let Ok(cache_dir) = app.path().app_cache_dir() {
+                    if let Some(cache_root) = cache_dir.parent() {
+                        narrow(
+                            &cache_dir,
+                            cache_root,
+                            "app cache",
+                            "protium: app cache permissions not narrowed",
+                        );
+                        narrow(
+                            &cache_dir.join("backups"),
+                            cache_root,
+                            "app backups",
+                            "protium: app backup permissions not narrowed",
+                        );
+                    }
+                }
+                if let Ok(config_dir) = app.path().app_config_dir() {
+                    if let Some(config_root) = config_dir.parent() {
+                        narrow(
+                            &config_dir,
+                            config_root,
+                            "app config",
+                            "protium: app config permissions not narrowed",
+                        );
                     }
                 }
                 // fenster wird hier statt in tauri.conf gebaut, weil nur der

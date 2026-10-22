@@ -536,6 +536,51 @@ fn install_pipeline_oeffnet_downloadpfad_nicht_erneut() {
     assert!(body.contains("&mut downloaded_file"));
 }
 
+/// R5: ein vorhandener, offen angelegter Cache und `downloads` werden beim
+/// Öffnen verengt, damit ein gelöschter und neu entstandener Cache nicht offen
+/// bleibt.
+#[cfg(unix)]
+#[test]
+fn open_downloads_directory_verengt_cache_und_downloads_auf_0700() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("test-ge-downloads-mode-{}", random_suffix()));
+    let cache = root.join("cache");
+    let downloads = cache.join("downloads");
+    fs::create_dir_all(&downloads).unwrap();
+    fs::set_permissions(&cache, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(&downloads, fs::Permissions::from_mode(0o755)).unwrap();
+    let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&cache), 0o755);
+    assert_eq!(mode(&downloads), 0o755);
+
+    let (_directory, _identity) = open_downloads_directory(&cache).unwrap();
+
+    assert_eq!(mode(&cache), 0o700);
+    assert_eq!(mode(&downloads), 0o700);
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// B8: fehlt `downloads` in einem bereits vorhandenen, offen angelegten Cache,
+/// entsteht es privat; der Bestand des Caches wird dabei mitverengt.
+#[cfg(unix)]
+#[test]
+fn open_downloads_directory_legt_fehlendes_downloads_privat_an() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("test-ge-downloads-create-{}", random_suffix()));
+    let cache = root.join("cache");
+    let downloads = cache.join("downloads");
+    fs::create_dir_all(&cache).unwrap();
+    fs::set_permissions(&cache, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(!downloads.exists(), "fixture muss ohne downloads starten");
+    let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+
+    let (_directory, _identity) = open_downloads_directory(&cache).unwrap();
+
+    assert_eq!(mode(&cache), 0o700);
+    assert_eq!(mode(&downloads), 0o700);
+    let _ = fs::remove_dir_all(&root);
+}
+
 #[tokio::test]
 async fn install_ge_proton_validiert_release_tag() {
     let temp_dir = std::env::temp_dir().join(format!("test-ge-tag-{}", random_suffix()));

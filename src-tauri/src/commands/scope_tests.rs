@@ -590,9 +590,255 @@ fn prepare_app_dir_meldet_erzeugungsfehler_als_unavailable() {
     let blocker = root.join("blocker");
     std::fs::write(&blocker, b"x").unwrap();
 
-    let error = prepare_app_dir(&blocker.join("sub"), "app cache").unwrap_err();
+    let error = prepare_app_dir(&blocker.join("sub"), &root, "app cache").unwrap_err();
 
     assert!(errcode::has_code(&error, errcode::UNAVAILABLE), "{error}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Audit 2026-10-20, 6.1: App-Verzeichnisse sind privat, auch wenn eine
+/// aeltere Version sie mit weiterem Modus angelegt hat.
+#[cfg(unix)]
+#[test]
+fn prepare_app_dir_legt_privat_an_und_zieht_bestand_nach() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = wsg_fixture("prepare-app-dir-private");
+    let dir = root.join("logs");
+    let mode =
+        |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+
+    let canonical = prepare_app_dir(&dir, &root, "app logs").unwrap();
+    assert_eq!(mode(&canonical), 0o700);
+
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(mode(&canonical), 0o755);
+
+    prepare_app_dir(&dir, &root, "app logs").unwrap();
+    assert_eq!(mode(&canonical), 0o700);
+
+    // nur verengen: 0500 hat keine Gruppen-/Andere-Rechte und bleibt
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+    prepare_app_dir(&dir, &root, "app logs").unwrap();
+    assert_eq!(mode(&canonical), 0o500);
+
+    // rekursiv angelegte eltern: jede ebene entsteht privat, nicht nur das blatt
+    let deep = root.join("nested/deep");
+    let canonical_deep = prepare_app_dir(&deep, &root, "app logs").unwrap();
+    assert_eq!(mode(&canonical_deep), 0o700);
+    assert_eq!(mode(&root.join("nested")), 0o700);
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// R2: das Verengen darf kein Verzeichnis außerhalb des App-Roots treffen.
+/// Der Pfad wird abgelehnt, bevor irgendetwas angelegt wird.
+#[test]
+fn prepare_app_dir_lehnt_pfad_ausserhalb_des_app_roots_ab() {
+    let base = wsg_fixture("prepare-app-dir-outside-root");
+    let app_root = base.join("root");
+    let outside = base.join("outside");
+    std::fs::create_dir_all(&app_root).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    let target = outside.join("nested");
+
+    let error = prepare_app_dir(&target, &app_root, "app cache").unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::BLOCKED_LOCATION),
+        "{error}"
+    );
+    assert!(
+        !target.exists(),
+        "pfad außerhalb des app-roots darf nicht angelegt werden"
+    );
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// B1: ein fehlender App-Root wird angelegt statt verlangt. Der Root entsteht im
+/// Default-Modus (ein fremdes Elternverzeichnis wie `~/.cache` darf nicht auf
+/// 0700 gezogen werden), das Kind bleibt privat.
+#[cfg(unix)]
+#[test]
+fn prepare_app_dir_legt_fehlenden_root_an() {
+    use std::os::unix::fs::PermissionsExt;
+    let base = wsg_fixture("prepare-app-dir-missing-root");
+    let root = base.join("root");
+    let dir = root.join("logs");
+    assert!(!root.exists(), "fixture muss ohne app-root starten");
+    let mode =
+        |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+
+    let canonical = prepare_app_dir(&dir, &root, "app logs").unwrap();
+
+    assert_eq!(canonical, std::fs::canonicalize(&dir).unwrap());
+    assert!(root.exists(), "fehlender app-root muss angelegt werden");
+    assert_eq!(mode(&dir), 0o700);
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// B2: der Root selbst ist kein App-Verzeichnis; Gleichheit wird abgelehnt,
+/// bevor etwas angelegt oder verengt wird.
+#[test]
+fn prepare_app_dir_lehnt_root_selbst_ab() {
+    let base = wsg_fixture("prepare-app-dir-root-itself");
+    let root = base.join("root");
+    std::fs::create_dir_all(&root).unwrap();
+
+    let error = prepare_app_dir(&root, &root, "app cache").unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::BLOCKED_LOCATION),
+        "{error}"
+    );
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// B3: die Symlink-Ablehnung läuft auf dem Rohpfad VOR dem Kanonisieren, damit
+/// eine Symlink-Komponente `symlink-rejected` meldet und nicht als
+/// `blocked-location` des Descendant-Checks endet.
+#[cfg(unix)]
+#[test]
+fn prepare_app_dir_lehnt_blatt_symlink_als_symlink_rejected_ab() {
+    let base = wsg_fixture("prepare-app-dir-leaf-symlink");
+    let root = base.join("root");
+    let outside = base.join("outside");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    let link = root.join("logs");
+    std::os::unix::fs::symlink(&outside, &link).unwrap();
+
+    let error = prepare_app_dir(&link, &root, "app logs").unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::SYMLINK_REJECTED),
+        "{error}"
+    );
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// B3: auch ein Symlink im Elternpfad bleibt `symlink-rejected`.
+#[cfg(unix)]
+#[test]
+fn prepare_app_dir_lehnt_eltern_symlink_als_symlink_rejected_ab() {
+    let base = wsg_fixture("prepare-app-dir-parent-symlink");
+    let root = base.join("root");
+    let outside = base.join("outside");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    let link = root.join("link");
+    std::os::unix::fs::symlink(&outside, &link).unwrap();
+    let target = link.join("logs");
+
+    let error = prepare_app_dir(&target, &root, "app logs").unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::SYMLINK_REJECTED),
+        "{error}"
+    );
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// B3: auch ein toter Blatt-Symlink bleibt `symlink-rejected`. `path.exists()`
+/// folgt dem Symlink und ist hier `false`; ohne `include_leaf = true` bliebe das
+/// Blatt ungeprueft und der Pfad endete erst beim Anlegen als `unavailable`.
+#[cfg(unix)]
+#[test]
+fn prepare_app_dir_lehnt_toten_blatt_symlink_ab() {
+    let root = wsg_fixture("prepare-app-dir-dead-leaf-symlink");
+    let link = root.join("logs");
+    std::os::unix::fs::symlink(root.join("fehlt"), &link).unwrap();
+    assert!(!link.exists(), "fixture muss ein toter symlink sein");
+    assert!(
+        std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "fixture muss ein symlink sein, kein fehlender pfad"
+    );
+
+    let error = prepare_app_dir(&link, &root, "app logs").unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::SYMLINK_REJECTED),
+        "{error}"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// B4: der pfadbasierte Fallback überspringt ein Blatt-Symlink und verengt das
+/// Ziel dahinter nicht.
+#[cfg(target_os = "linux")]
+#[test]
+fn restrict_dir_to_owner_verengt_kein_blatt_symlink_ziel() {
+    use std::os::unix::fs::PermissionsExt;
+    if unsafe { libc::geteuid() } == 0 {
+        return;
+    }
+    let base = wsg_fixture("restrict-dir-leaf-symlink");
+    let target = base.join("ziel");
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let link = base.join("verweis");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    let mode =
+        |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+
+    restrict_dir_to_owner(&link);
+
+    assert_eq!(
+        mode(&target),
+        0o755,
+        "das Ziel hinter einem Blatt-Symlink darf nicht verengt werden"
+    );
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// B4: ohne Leserecht (EACCES beim Deskriptor-Open) greift der pfadbasierte
+/// Fallback und verengt trotzdem.
+#[cfg(target_os = "linux")]
+#[test]
+fn restrict_dir_to_owner_verengt_trotz_fehlendem_leserecht() {
+    use std::os::unix::fs::PermissionsExt;
+    if unsafe { libc::geteuid() } == 0 {
+        return;
+    }
+    let mode =
+        |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    for (start, expected) in [(0o111, 0o100), (0o355, 0o300)] {
+        let base = wsg_fixture(&format!("restrict-dir-mode-{start:o}"));
+        let dir = base.join("dir");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(start)).unwrap();
+        assert_eq!(mode(&dir), start);
+
+        restrict_dir_to_owner(&dir);
+
+        assert_eq!(
+            mode(&dir),
+            expected,
+            "{start:o} muss auf {expected:o} verengt werden"
+        );
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let _ = std::fs::remove_dir_all(base);
+    }
+}
+
+/// R9/R5: Bestand aus einer aelteren Version wird auch ohne Anlegen verengt.
+#[cfg(unix)]
+#[test]
+fn ensure_private_dir_verengt_bestand_auf_0700() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = wsg_fixture("ensure-private-dir-existing");
+    let dir = root.join("backups");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mode =
+        |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&dir), 0o755);
+
+    ensure_private_dir(&dir).unwrap();
+
+    assert_eq!(mode(&dir), 0o700);
     let _ = std::fs::remove_dir_all(root);
 }
 

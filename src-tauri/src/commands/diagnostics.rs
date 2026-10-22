@@ -5,7 +5,7 @@ use tauri::Manager;
 
 use crate::commands::errcode;
 use crate::commands::external::{open_directory_with_handler, spawn_detached_os};
-use crate::commands::scope::prepare_app_dir;
+use crate::commands::scope::{ensure_private_dir, prepare_app_dir};
 use crate::commands::spawn_blocking_io;
 
 pub const MAX_LOG_BYTES: u64 = 2 * 1024 * 1024; // 2 MB
@@ -47,12 +47,14 @@ pub fn rotate_logs_if_needed(log_dir: &Path) {
 }
 
 /// Logfile ohne Symlink-Verfolgung oeffnen (No-follow wie im Write-Gate).
+/// `0600` gilt nur bei der Neuanlage; Bestand zieht `write_log_line` nach.
 #[cfg(unix)]
 fn open_log_file(path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
     OpenOptions::new()
         .create(true)
         .append(true)
+        .mode(0o600)
         .custom_flags(libc::O_NOFOLLOW)
         .open(path)
 }
@@ -76,6 +78,24 @@ fn open_log_file_for_read(path: &Path) -> std::io::Result<std::fs::File> {
 fn open_log_file_for_read(path: &Path) -> std::io::Result<std::fs::File> {
     OpenOptions::new().read(true).open(path)
 }
+
+/// Best effort: Bestand aus aelteren Versionen verengen, ohne einen bereits
+/// engeren Modus zu weiten. Rotationsgenerationen erben den Modus der Datei
+/// und bleiben ueber den 0700-Logordner geschuetzt.
+#[cfg(unix)]
+fn restrict_log_file_to_owner(file: &fs::File) {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(metadata) = file.metadata() else {
+        return;
+    };
+    let mode = metadata.permissions().mode() & 0o7777;
+    if mode & 0o077 != 0 {
+        let _ = file.set_permissions(fs::Permissions::from_mode(mode & !0o077));
+    }
+}
+
+#[cfg(not(unix))]
+fn restrict_log_file_to_owner(_file: &fs::File) {}
 
 pub fn append_log_entry(log_dir: &Path, level: &str, message: &str) -> Result<(), String> {
     let _guard = lock_log();
@@ -243,10 +263,8 @@ fn clean_log_message(
 fn write_log_line(log_dir: &Path, level: &str, message: &str, rotate: bool) -> Result<(), String> {
     // r-14: die codes kommen als konstante aus errcode, nicht handgeformt
     // als praefix im format-string.
-    if !log_dir.exists() {
-        fs::create_dir_all(log_dir)
-            .map_err(|error| errcode::with_detail(errcode::UNAVAILABLE, error))?;
-    }
+    ensure_private_dir(log_dir)
+        .map_err(|error| errcode::with_detail(errcode::UNAVAILABLE, error))?;
     if rotate {
         rotate_logs_if_needed(log_dir);
     }
@@ -256,6 +274,7 @@ fn write_log_line(log_dir: &Path, level: &str, message: &str, rotate: bool) -> R
     if !file.metadata().map(|m| m.is_file()).unwrap_or(false) {
         return Err(errcode::BLOCKED.into());
     }
+    restrict_log_file_to_owner(&file);
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -333,7 +352,7 @@ pub async fn read_log_tail(app: tauri::AppHandle) -> Result<String, String> {
         .path()
         .app_local_data_dir()
         .map_err(|error| errcode::with_detail(errcode::UNAVAILABLE, error))?;
-    let log_dir = prepare_app_dir(&data_dir.join("logs"), "app logs")?;
+    let log_dir = prepare_app_dir(&data_dir.join("logs"), &data_dir, "app logs")?;
     spawn_blocking_io(move || read_log_tail_from_dir(&log_dir)).await
 }
 
@@ -356,7 +375,7 @@ pub async fn log_diagnostic(
         .path()
         .app_local_data_dir()
         .map_err(|e| format!("unavailable: {e}"))?;
-    let log_dir = prepare_app_dir(&data_dir.join("logs"), "app logs")?;
+    let log_dir = prepare_app_dir(&data_dir.join("logs"), &data_dir, "app logs")?;
     spawn_blocking_io(move || append_log_entry(&log_dir, &level, &message)).await
 }
 
@@ -366,7 +385,7 @@ pub async fn open_logs_folder(app: tauri::AppHandle) -> Result<(), String> {
         .path()
         .app_local_data_dir()
         .map_err(|e| format!("unavailable: {e}"))?;
-    let log_dir = prepare_app_dir(&data_dir.join("logs"), "app logs")?;
+    let log_dir = prepare_app_dir(&data_dir.join("logs"), &data_dir, "app logs")?;
     #[cfg(target_os = "linux")]
     {
         spawn_blocking_io(move || open_directory_with_handler(&mut spawn_detached_os, &log_dir))
