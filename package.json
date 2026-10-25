@@ -50,7 +50,7 @@
     "@node-steam/vdf": "^2.2.0",
     "@tauri-apps/api": "^2.12.2",
     "@tauri-apps/plugin-fs": "^2.6.0",
-    "pinia": "^4.0.3",
+    "pinia": "^4.1.0",
     "vue": "^3.5.43"
   },
   "overrides": {
