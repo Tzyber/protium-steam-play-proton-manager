@@ -2,11 +2,12 @@
 // Fehlerzusammenfassung und die Basisfrage "gibt es einen Grund, der das
 // Cleanup sperrt". Kein Store-Zustand, kein Pinia, damit einzeln prüfbar.
 
+import type { OrphanUnreadable } from "../../core/cleanup";
 import { ProtiumError } from "../../core/errors";
 import { validNonNegativeInteger } from "../../core/guards";
 import type { DirectorySize } from "../../core/ports";
 import type { ShortcutResult } from "../../core/shortcuts";
-import type { ScanResult } from "../../core/types";
+import type { OrphanEntry, ScanResult } from "../../core/types";
 import type { Key } from "../i18n";
 import { t } from "../i18n";
 
@@ -115,7 +116,11 @@ export function confirmTitle(singleKey: Key, multiKey: Key, n: number): string {
 }
 
 /** Sperrt das Cleanup aus einem der belegten Gründe? `blockedBySkipped` und
- *  `pathMissingLibs` sind die fail-closed-Fälle aus der Discovery (INV-2). */
+ *  `pathMissingLibs` sind die fail-closed-Fälle aus der Discovery (INV-2).
+ *  Die unlesbaren Orphan-Basisverzeichnisse stehen absichtlich NICHT hier,
+ *  sondern in `hasUnreadableOrphanType`: ein unlesbares compatdata ist von
+ *  einem unlesbaren shadercache sicher zu trennen, sonst sperrt ein Bereich den
+ *  anderen ohne Beleg. */
 export function hasOrphanUnavailableBase(state: {
   orphanError: string | null;
   blockedBySkipped: boolean;
@@ -128,6 +133,35 @@ export function hasOrphanUnavailableBase(state: {
     state.pathMissingLibs.length > 0 ||
     state.incompleteDeletionsUnreadable.length > 0
   );
+}
+
+/** Sperrt genau dieser Orphan-Bereich wegen eines unlesbaren Basisverzeichnisses?
+ *  Typ-genau: `shadercache` prüft shadercache-Pfade, `compatdata` compatdata. */
+export function hasUnreadableOrphanType(
+  state: { orphanUnreadable: readonly OrphanUnreadable[] },
+  type: OrphanEntry["type"],
+): boolean {
+  return state.orphanUnreadable.some((entry) => entry.type === type);
+}
+
+/** Führt die typ-genauen Unlesbar-Listen zweier Scans zusammen und dedupliziert
+ *  nach `path+type` (beide Scans sehen dieselben compatdata-Verzeichnisse, ein
+ *  Ort darf nur einmal gemeldet werden). Die Reihenfolge des ersten Vorkommens
+ *  bleibt erhalten. */
+export function mergeOrphanUnreadable(
+  ...lists: readonly (readonly OrphanUnreadable[])[]
+): OrphanUnreadable[] {
+  const merged: OrphanUnreadable[] = [];
+  const seen = new Set<string>();
+  for (const list of lists) {
+    for (const entry of list) {
+      const key = `${entry.type}:${entry.path}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(entry);
+    }
+  }
+  return merged;
 }
 
 /** Auswahl umschalten: dieselbe Regel für Shader-, Prefix- und Papierkorb-Listen. */

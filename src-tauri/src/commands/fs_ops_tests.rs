@@ -1,5 +1,7 @@
 use super::*;
 use crate::commands::scope::{EnvironmentSnapshot, EnvironmentState};
+#[cfg(target_os = "linux")]
+use crate::commands::vdf_patch::tests::BEIDE_LAYOUTS;
 use serde::ser::{self, Impossible, Serialize, SerializeStruct, Serializer};
 use std::os::unix::fs as unixfs;
 use std::path::Path;
@@ -784,4 +786,105 @@ fn environment_read_dir_erkennt_verzeichnis_tausch_vor_open() {
     assert!(result.unwrap_err().contains("changed while opening"));
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&old);
+}
+
+// F5.4: der reduzierte config.vdf-inhalt trägt beide Mapping-layouts und
+// nichts sonst. Der vertragstest für den TS-parser liegt in
+// tests/core/compatTools.test.ts. Den eingabetext (`BEIDE_LAYOUTS`) teilt
+// dieses modul mit `vdf_patch::tests`; er stand vorher wortgleich in beiden
+// testdateien (Befund 12).
+
+#[cfg(target_os = "linux")]
+#[test]
+fn reduce_compat_config_enthaelt_beide_layouts_und_keine_fremden_bloecke() {
+    let reduced = reduce_compat_config(BEIDE_LAYOUTS).unwrap();
+
+    // kein fremder teilbaum (login-tokens u. ä.) im reduzierten inhalt
+    assert!(!reduced.contains("ConnectCache"), "{reduced}");
+    assert!(!reduced.contains("geheim"), "{reduced}");
+
+    // beide layouts sind enthalten, in fester reihenfolge
+    assert_eq!(
+        reduced.matches("\"CompatToolMapping\"").count(),
+        2,
+        "{reduced}"
+    );
+    let klassisch = reduced.find("\"InstallConfigStore\"").expect("layout 1");
+    let flach = reduced.find("\"Software\"\n{").expect("layout 2");
+    assert!(klassisch < flach, "reihenfolge: {reduced}");
+
+    // der reduzierte inhalt ist über beide root-knoten lesbar
+    assert_eq!(
+        crate::commands::vdf_patch::get_vdf_value(
+            &reduced,
+            &[
+                "InstallConfigStore",
+                "Software",
+                "Valve",
+                "Steam",
+                "CompatToolMapping",
+                "620",
+                "name",
+            ],
+        )
+        .unwrap(),
+        Some("GE-Proton9-1".to_string())
+    );
+    assert_eq!(
+        crate::commands::vdf_patch::get_vdf_value(
+            &reduced,
+            &[
+                "Software",
+                "Valve",
+                "Steam",
+                "CompatToolMapping",
+                "730",
+                "name"
+            ],
+        )
+        .unwrap(),
+        Some("proton_experimental".to_string())
+    );
+}
+
+// Cross-parser-vertrag für beide layouts: die fixture ist der byte-genaue
+// output von `reduce_compat_config`, nicht handgeformt. Dieselbe datei liest
+// tests/core/compatTools.test.ts über `parseCompatToolMapping` zurück.
+#[cfg(target_os = "linux")]
+#[test]
+fn reduce_compat_config_beide_layouts_ist_byte_gleich_der_fixture() {
+    let expected = include_str!("../../../tests/fixtures/cross-parser-mapping-both-layouts.vdf");
+    assert_eq!(reduce_compat_config(BEIDE_LAYOUTS).unwrap(), expected);
+}
+
+// Gegenprobe: liegt nur das klassische layout vor, bleibt das flache als
+// leeres gerüst der vorfahren-kette `Software`/`Valve`/`Steam` als zweiter
+// root-knoten stehen. Der klassische teil ist byte-gleich der S-03-fixture
+// (cross-parser-config-input.vdf trägt nur das klassische layout), sodass die
+// erwartung nicht frei erfunden ist.
+#[cfg(target_os = "linux")]
+#[test]
+fn reduce_compat_config_klassisch_ohne_flach_haelt_leeres_geruest() {
+    let klassisch_only = include_str!("../../../tests/fixtures/cross-parser-config-input.vdf");
+    let expected = format!(
+        "{}\n\"Software\"\n{{\n\"Valve\"\n{{\n\"Steam\"\n{{\n\n}}\n}}\n}}",
+        include_str!("../../../tests/fixtures/cross-parser-mapping-expected.vdf")
+    );
+    let reduced = reduce_compat_config(klassisch_only).unwrap();
+    assert_eq!(reduced, expected);
+
+    // das flache mapping fehlt, das gerüst ist trotzdem adressierbar
+    assert_eq!(
+        reduced.matches("\"CompatToolMapping\"").count(),
+        1,
+        "{reduced}"
+    );
+    assert_eq!(
+        crate::commands::vdf_patch::get_vdf_value(
+            &reduced,
+            &["Software", "Valve", "Steam", "CompatToolMapping"],
+        )
+        .unwrap(),
+        None
+    );
 }

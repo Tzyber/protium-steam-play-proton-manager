@@ -9,7 +9,9 @@ import {
   combineErrors,
   formatTrashErrors,
   hasOrphanUnavailableBase,
+  hasUnreadableOrphanType,
   isCurrentForScan,
+  mergeOrphanUnreadable,
   toggleInSet,
 } from "../../src/ui/stores/cleanupHelpers";
 import { game as makeGame, scanResult } from "../support/factories";
@@ -161,6 +163,63 @@ describe("hasOrphanUnavailableBase", () => {
     expect(hasOrphanUnavailableBase({ ...base, blockedBySkipped: true })).toBe(true);
     expect(hasOrphanUnavailableBase({ ...base, pathMissingLibs: ["/gone"] })).toBe(true);
     expect(hasOrphanUnavailableBase({ ...base, incompleteDeletionsUnreadable: ["/x"] })).toBe(true);
+  });
+
+  it("die unlesbaren orphan-ordner sind keine Basis, sondern typ-genau", () => {
+    // Bewusste Grenze: ein unlesbares compatdata darf den shadercache nicht
+    // sperren. Die Basis bleibt deshalb bei den bereichsübergreifenden Gründen.
+    const state = {
+      ...base,
+      orphanUnreadable: [{ path: "/lib/steamapps/compatdata", type: "compatdata" as const }],
+    };
+    expect(hasOrphanUnavailableBase(state)).toBe(false);
+    expect(hasUnreadableOrphanType(state, "compatdata")).toBe(true);
+    expect(hasUnreadableOrphanType(state, "shadercache")).toBe(false);
+  });
+});
+
+describe("hasUnreadableOrphanType", () => {
+  const state = {
+    orphanUnreadable: [
+      { path: "/lib/steamapps/compatdata", type: "compatdata" as const },
+      { path: "/lib2/steamapps/shadercache", type: "shadercache" as const },
+      { path: "/lib3/steamapps/compatdata", type: "compatdata" as const },
+    ],
+  };
+
+  it("prüft genau den übergebenen bereich", () => {
+    expect(hasUnreadableOrphanType(state, "compatdata")).toBe(true);
+    expect(hasUnreadableOrphanType(state, "shadercache")).toBe(true);
+  });
+
+  it("sperrt einen bereich nicht ohne beleg", () => {
+    const onlyShader = {
+      orphanUnreadable: [{ path: "/lib/steamapps/shadercache", type: "shadercache" as const }],
+    };
+    expect(hasUnreadableOrphanType(onlyShader, "compatdata")).toBe(false);
+    expect(hasUnreadableOrphanType({ orphanUnreadable: [] }, "compatdata")).toBe(false);
+  });
+});
+
+describe("mergeOrphanUnreadable", () => {
+  const compat = { path: "/lib/steamapps/compatdata", type: "compatdata" as const };
+  const shader = { path: "/lib/steamapps/shadercache", type: "shadercache" as const };
+
+  it("führt die listen zusammen und dedupliziert nach pfad und typ", () => {
+    expect(mergeOrphanUnreadable([compat], [compat, shader])).toEqual([compat, shader]);
+    expect(mergeOrphanUnreadable([], [])).toEqual([]);
+  });
+
+  it("behandelt denselben pfad mit unterschiedlichem typ als zwei befunde", () => {
+    const samepath = { path: "/lib/x", type: "shadercache" as const };
+    expect(mergeOrphanUnreadable([{ ...compat, path: "/lib/x" }], [samepath])).toEqual([
+      { path: "/lib/x", type: "compatdata" },
+      samepath,
+    ]);
+  });
+
+  it("behält die reihenfolge des ersten vorkommens", () => {
+    expect(mergeOrphanUnreadable([shader], [compat, shader])).toEqual([shader, compat]);
   });
 });
 

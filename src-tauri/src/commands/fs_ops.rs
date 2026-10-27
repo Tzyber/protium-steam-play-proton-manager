@@ -29,14 +29,32 @@ const MAX_BATCH_DIR_SIZE_PATHS: usize = 4096;
 const MAX_DIRECTORY_WALK_DEPTH: usize = 256;
 const MAX_ENVIRONMENT_DIR_ENTRIES: usize = 8192;
 const MAX_SAFE_JS_INTEGER: u64 = 9_007_199_254_740_991;
+// Beide Layouts, in denen Steam die Compat-Zuordnung ablegt: das klassische
+// `InstallConfigStore`-Dokument und ein flaches `Software`-Dokument. Die
+// Reihenfolge ist fest und Teil des Vertrags: der Lesepfad in
+// `src/core/compatTools.ts` nimmt die erste Zuordnung je AppID, bei doppelten
+// AppIDs gewinnt deshalb das `InstallConfigStore`-Layout.
 #[cfg(target_os = "linux")]
-const COMPAT_TOOL_MAPPING_PATH: [&str; 5] = [
-    "InstallConfigStore",
-    "Software",
-    "Valve",
-    "Steam",
-    "CompatToolMapping",
+const COMPAT_TOOL_MAPPING_PATHS: [&[&str]; 2] = [
+    &[
+        "InstallConfigStore",
+        "Software",
+        "Valve",
+        "Steam",
+        "CompatToolMapping",
+    ],
+    &["Software", "Valve", "Steam", "CompatToolMapping"],
 ];
+
+/// Reduziert `config.vdf` auf beide Mapping-Layouts: `extract_vdf_blocks`
+/// tokenisiert die Datei einmal und liefert beide Blöcke in fester Reihenfolge,
+/// verbunden mit `\n`. Das Ergebnis hat zwei Root-Knoten; der TS-Parser liest
+/// sie als zwei Wurzeln. Fremde Teilbäume (Login-Tokens und Ähnliches) fallen
+/// weg (INV-7, S-03).
+#[cfg(target_os = "linux")]
+fn reduce_compat_config(text: &str) -> Result<String, String> {
+    vdf_patch::extract_vdf_blocks(text, &COMPAT_TOOL_MAPPING_PATHS)
+}
 
 #[derive(Serialize, Debug, PartialEq, Eq, Clone)]
 #[serde(tag = "status", rename_all = "camelCase")]
@@ -108,7 +126,7 @@ fn read_environment_file_with_hook(
                 let text = String::from_utf8(bytes).map_err(|error| {
                     errcode::with_detail(errcode::UNREADABLE, format!("{label}: {error}"))
                 })?;
-                Ok(vdf_patch::extract_vdf_block(&text, &COMPAT_TOOL_MAPPING_PATH)?.into_bytes())
+                Ok(reduce_compat_config(&text)?.into_bytes())
             }
         }
     })

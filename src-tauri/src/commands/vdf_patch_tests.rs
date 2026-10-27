@@ -737,7 +737,13 @@ fn extract_vdf_block_ohne_mapping_liefert_leeres_geruest() {
 #[test]
 fn extract_vdf_block_lehnt_kaputte_datei_ab() {
     assert!(extract_vdf_block("\"InstallConfigStore\"\n{\n\t\"a\"\t\"b\n", &MAPPING_PATH).is_err());
-    assert!(extract_vdf_block("x", &[]).is_err());
+    // ein leerer pfad: der wrapper reicht den leeren pfad als ein-elementige
+    // liste an `extract_vdf_blocks` weiter, das ihn codiert ablehnt
+    // (Befund 13).
+    assert_eq!(
+        extract_vdf_block("x", &[]).unwrap_err(),
+        errcode::with_detail(errcode::INVALID_ID, "empty path")
+    );
 }
 
 #[test]
@@ -747,4 +753,157 @@ fn cross_parser_mapping_ist_echter_rust_output() {
     let input = include_str!("../../../tests/fixtures/cross-parser-config-input.vdf");
     let expected = include_str!("../../../tests/fixtures/cross-parser-mapping-expected.vdf");
     assert_eq!(extract_vdf_block(input, &MAPPING_PATH).unwrap(), expected);
+}
+
+// F5.4: Steam legt die zuordnung in zwei layouts ab; beide werden in einem
+// tokenize-lauf aus derselben datei gelesen. Das flache layout beginnt beim
+// root-knoten `Software`, das klassische bei `InstallConfigStore`.
+const MAPPING_PATH_FLACH: [&str; 4] = ["Software", "Valve", "Steam", "CompatToolMapping"];
+const MAPPING_PATHS: [&[&str]; 2] = [&MAPPING_PATH, &MAPPING_PATH_FLACH];
+
+// `pub(crate)`: `fs_ops::tests` prüft mit demselben text den vertrag von
+// `reduce_compat_config` gegen tests/fixtures/cross-parser-mapping-both-layouts.vdf.
+// Der text stand vorher wortgleich in beiden testdateien (Befund 12).
+pub(crate) const BEIDE_LAYOUTS: &str = r#""InstallConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"ConnectCache"
+				{
+					"a1b2"		"geheim"
+				}
+				"CompatToolMapping"
+				{
+					"620"
+					{
+						"name"		"GE-Proton9-1"
+					}
+				}
+			}
+		}
+	}
+}
+"Software"
+{
+	"Valve"
+	{
+		"Steam"
+		{
+			"CompatToolMapping"
+			{
+				"730"
+				{
+					"name"		"proton_experimental"
+				}
+			}
+		}
+	}
+}
+"#;
+
+fn root_keys(text: &str) -> Vec<String> {
+    let tokens = tokenize(text).unwrap();
+    scan_entries(&tokens, 0, tokens.len())
+        .unwrap()
+        .iter()
+        .map(|entry| match &entry.key.kind {
+            TokenKind::String(key) => key.clone(),
+            other => panic!("root-key ist kein string: {other:?}"),
+        })
+        .collect()
+}
+
+#[test]
+fn extract_vdf_blocks_liest_beide_layouts_in_einem_text() {
+    let extracted = extract_vdf_blocks(BEIDE_LAYOUTS, &MAPPING_PATHS).unwrap();
+
+    // fremde teilbäume fallen weiter weg, beide mappings bleiben
+    assert!(!extracted.contains("geheim"), "{extracted}");
+    assert!(!extracted.contains("ConnectCache"), "{extracted}");
+    assert_eq!(extracted.matches("\"CompatToolMapping\"").count(), 2);
+    assert_eq!(extracted.matches("\"InstallConfigStore\"").count(), 1);
+    assert_eq!(extracted.matches("\"Software\"").count(), 2);
+
+    // das verbundene dokument ist mit beiden root-knoten parsebar: der
+    // gemeinsame tokenizer liest genau diese zwei wurzeln in fester reihenfolge
+    assert_eq!(
+        root_keys(&extracted),
+        vec!["InstallConfigStore".to_string(), "Software".to_string()]
+    );
+
+    // und jeder wert ist über seinen eigenen root-knoten erreichbar
+    let mut klassisch = MAPPING_PATH.to_vec();
+    klassisch.extend(["620", "name"]);
+    assert_eq!(
+        get_vdf_value(&extracted, &klassisch).unwrap(),
+        Some("GE-Proton9-1".to_string())
+    );
+    let mut flach = MAPPING_PATH_FLACH.to_vec();
+    flach.extend(["730", "name"]);
+    assert_eq!(
+        get_vdf_value(&extracted, &flach).unwrap(),
+        Some("proton_experimental".to_string())
+    );
+}
+
+#[test]
+fn extract_vdf_blocks_fehlende_bloecke_bleiben_leere_gerueste() {
+    let text = "\"InstallConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"ConnectCache\"\t\"geheim\"\n\t}\n}\n";
+    let extracted = extract_vdf_blocks(text, &MAPPING_PATHS).unwrap();
+    assert!(!extracted.contains("geheim"), "{extracted}");
+    assert!(!extracted.contains("CompatToolMapping"), "{extracted}");
+    // beide layouts bleiben als gerüst ihrer vorfahren stehen: 4 vorfahren
+    // (InstallConfigStore) und 3 vorfahren (Software) ergeben je String/Open/
+    // Close 12 + 9 tokens.
+    assert_eq!(tokenize(&extracted).unwrap().len(), 21);
+    assert_eq!(
+        root_keys(&extracted),
+        vec!["InstallConfigStore".to_string(), "Software".to_string()]
+    );
+    assert_eq!(
+        get_vdf_value(&extracted, &MAPPING_PATH_FLACH).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn extract_vdf_blocks_mit_einem_pfad_gleicht_dem_wrapper() {
+    let einzel = extract_vdf_block(BEIDE_LAYOUTS, &MAPPING_PATH).unwrap();
+    assert_eq!(
+        extract_vdf_blocks(BEIDE_LAYOUTS, &[&MAPPING_PATH]).unwrap(),
+        einzel
+    );
+}
+
+#[test]
+fn extract_vdf_blocks_lehnt_kaputte_datei_ab() {
+    // ein tokenize-lauf für alle pfade: ein kaputter text wirft, auch wenn der
+    // erste pfad für sich genommen auffindbar wäre.
+    assert!(extract_vdf_blocks("\"Software\"\n{\n\t\"a\"\t\"b\n", &MAPPING_PATHS).is_err());
+    // ein leerer pfad in der liste ist ebenso ein aufruferfehler; der code
+    // nennt den grund (Befund 13).
+    assert_eq!(
+        extract_vdf_blocks(BEIDE_LAYOUTS, &[&[] as &[&str]]).unwrap_err(),
+        errcode::with_detail(errcode::INVALID_ID, "empty path")
+    );
+}
+
+#[test]
+fn extract_vdf_blocks_lehnt_leere_pfadliste_ab() {
+    // Befund 13: eine leere pfadliste war vorher ein stiller erfolg (`""`) und
+    // damit nicht von "kein Mapping in der Datei" zu unterscheiden.
+    assert_eq!(
+        extract_vdf_blocks(BEIDE_LAYOUTS, &[]).unwrap_err(),
+        errcode::with_detail(errcode::INVALID_ID, "empty path list")
+    );
+    // die ablehnung greift vor dem tokenize-lauf: auch ein kaputter text
+    // meldet den aufruferfehler, nicht einen lesefehler.
+    assert_eq!(
+        extract_vdf_blocks("\"Software\"\n{\n\t\"a\"\t\"b\n", &[]).unwrap_err(),
+        errcode::with_detail(errcode::INVALID_ID, "empty path list")
+    );
 }

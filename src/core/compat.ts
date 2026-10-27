@@ -6,6 +6,14 @@ import { paths } from "./paths.js";
 import type { DirEntry, FileSystem, PathIdentity, System } from "./ports.js";
 import type { CompatTool, ReadFailedCounts, ScanWarning } from "./types.js";
 
+/** präfix der temporären extraktionsverzeichnisse: entsteht in
+ *  `src-tauri/src/commands/extract.rs:411-415` und wird dort erst nach
+ *  erfolgreichem entpacken auf den zielnamen umbenannt. die zweite
+ *  literal-kopie in `ge_install.rs:619` prüft auf liegengebliebene reste.
+ *  solche reste sind kein tool und werden still übersprungen (befund 5.2);
+ *  den installationspfad meldet `ge_install.rs` bereits als `INCOMPLETE`. */
+export const EXTRACT_TEMP_PREFIX = ".protium-extract-";
+
 interface CompatToolScanResult {
   tools: CompatTool[];
   warnings: ScanWarning[];
@@ -179,6 +187,11 @@ export async function listCompatTools(
     if (entries === null) continue;
 
     for (const entry of entries) {
+      // liegengebliebene extraktionsreste: kein tool, kein zähler, keine
+      // warnung. der installer meldet sie als `INCOMPLETE`, hier zählen sie
+      // weder in `counts.read` noch als warnung (befund 5.2).
+      if (entry.name.startsWith(EXTRACT_TEMP_PREFIX)) continue;
+
       const info = await readCompatToolInfo(fs, system, dir, entry, warnings, counts);
       if (info === null) continue;
 

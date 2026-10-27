@@ -23,7 +23,7 @@ async function setup() {
 describe("findOrphans", () => {
   it("happy path: mix installed/verwaiste, nach Typ getrennt", async () => {
     const { fs, libraries, installedAppIds } = await setup();
-    const orphans = await findOrphans(libraries, installedAppIds, new Set(), fs);
+    const { orphans } = await findOrphans(libraries, installedAppIds, new Set(), fs);
 
     const compatdataOrphans = orphans.filter((o) => o.type === "compatdata");
     const shadercacheOrphans = orphans.filter((o) => o.type === "shadercache");
@@ -40,7 +40,7 @@ describe("findOrphans", () => {
 
   it("nicht-numerisch, 0, datei statt ordner werden ignoriert", async () => {
     const { fs, libraries, installedAppIds } = await setup();
-    const orphans = await findOrphans(libraries, installedAppIds, new Set(), fs);
+    const { orphans } = await findOrphans(libraries, installedAppIds, new Set(), fs);
 
     const appIds = orphans.map((o) => o.appId);
     expect(appIds).not.toContain(0);
@@ -57,7 +57,7 @@ describe("findOrphans", () => {
     await mkdir(`${lib2}/compatdata`, { recursive: true });
     await mkdir(`${lib2}/compatdata/${huge}`, { recursive: true });
 
-    const orphans = await findOrphans([lib2], installedAppIds, new Set(), fs);
+    const { orphans } = await findOrphans([lib2], installedAppIds, new Set(), fs);
 
     expect(orphans).toEqual([]);
   });
@@ -66,7 +66,7 @@ describe("findOrphans", () => {
     const { fs, libraries, installedAppIds } = await setup();
     // 999999 hat ein manifest (blocklist-fall wie proton-builtin 4628710):
     // prefix existiert, aber die app ist kein spiel → kein orphan.
-    const orphans = await findOrphans(libraries, installedAppIds, new Set([999999]), fs);
+    const { orphans } = await findOrphans(libraries, installedAppIds, new Set([999999]), fs);
 
     expect(orphans.map((o) => o.appId)).not.toContain(999999);
     expect(orphans.some((o) => o.appId === 888888)).toBe(true);
@@ -90,7 +90,7 @@ describe("findOrphans", () => {
     expect(scan.blockedAppIds.has(4628710)).toBe(false);
 
     const installed = new Set(scan.games.map((game) => game.appId));
-    const orphans = await findOrphans([root], installed, scan.blockedAppIds, fs);
+    const { orphans } = await findOrphans([root], installed, scan.blockedAppIds, fs);
     expect(orphans.map((o) => o.appId)).toContain(4628710);
     // die echtes-orphan-fixture bleibt unbeeinflusst
     expect(orphans.map((o) => o.appId)).toContain(999999);
@@ -114,26 +114,122 @@ describe("findOrphans", () => {
     expect(scan.blockedAppIds.has(4628710)).toBe(true);
 
     const installed = new Set(scan.games.map((game) => game.appId));
-    const orphans = await findOrphans([root], installed, scan.blockedAppIds, fs);
+    const { orphans } = await findOrphans([root], installed, scan.blockedAppIds, fs);
     expect(orphans.map((o) => o.appId)).not.toContain(4628710);
   });
 
   it("basis-ordner fehlt → kein throw, leeres teilergebnis", async () => {
     const { fs, libraries, installedAppIds } = await setup();
-    // lib2 hat keine compatdata/shadercache dirs, sollte nicht crashen
-    const orphans = await findOrphans([libraries[1] as string], installedAppIds, new Set(), fs);
+    // lib2 hat keine compatdata/shadercache dirs, sollte nicht crashen; ein
+    // fehlender ordner (node ENOENT) ist belegte abwesenheit und damit leer.
+    const { orphans, unreadable } = await findOrphans(
+      [libraries[1] as string],
+      installedAppIds,
+      new Set(),
+      fs,
+    );
     expect(orphans).toEqual([]);
+    expect(unreadable).toEqual([]);
   });
 
   it("defekte/nicht lesbare library → skip, kein throw", async () => {
     const { fs, installedAppIds } = await setup();
-    const orphans = await findOrphans(["/nicht/existenter/pfad"], installedAppIds, new Set(), fs);
+    const { orphans, unreadable } = await findOrphans(
+      ["/nicht/existenter/pfad"],
+      installedAppIds,
+      new Set(),
+      fs,
+    );
     expect(orphans).toEqual([]);
+    // ENOENT belegt die abwesenheit; der pfad ist nicht „unlesbar“.
+    expect(unreadable).toEqual([]);
+  });
+
+  it("vorhandenes aber unlesbares verzeichnis landet typ-genau in unreadable", async () => {
+    const { root, fs, libraries, installedAppIds } = await setup();
+    const unreadableDir = `${root}/steamapps/compatdata`;
+    const originalReadDir = fs.readDir;
+    fs.readDir = async (path) => {
+      if (path === unreadableDir) throw new Error("EACCES: permission denied");
+      return originalReadDir(path);
+    };
+    // exists bestätigt: der ordner ist da, nur nicht lesbar → INV-2, nicht leer.
+    const originalExists = fs.exists;
+    fs.exists = async (path) => (path === unreadableDir ? true : originalExists(path));
+
+    const { orphans, unreadable } = await findOrphans(libraries, installedAppIds, new Set(), fs);
+
+    // der typ gehört zum befund: nur compatdata ist gesperrt, nicht der shadercache
+    expect(unreadable).toEqual([{ path: unreadableDir, type: "compatdata" }]);
+    // die lesbaren verzeichnisse derselben und der anderen library bleiben
+    expect(orphans.map((o) => o.appId)).toEqual([888888]);
+  });
+
+  it("gemischte libraries behalten lesbare orphans neben einem unlesbaren verzeichnis", async () => {
+    const { root, lib2, fs, libraries, installedAppIds } = await setup();
+    const unreadableDir = `${lib2}/steamapps/compatdata`;
+    const originalReadDir = fs.readDir;
+    const originalExists = fs.exists;
+    fs.readDir = async (path) => {
+      if (path === unreadableDir) throw new Error("EIO: input/output error");
+      return originalReadDir(path);
+    };
+    fs.exists = async (path) => (path === unreadableDir ? true : originalExists(path));
+
+    const { orphans, unreadable } = await findOrphans(libraries, installedAppIds, new Set(), fs);
+
+    expect(unreadable).toEqual([{ path: unreadableDir, type: "compatdata" }]);
+    // die lesbaren verzeichnisse der ersten library bleiben vollständig
+    expect(orphans.map((o) => o.path)).toEqual([
+      `${root}/steamapps/compatdata/999999`,
+      `${root}/steamapps/shadercache/888888`,
+    ]);
+  });
+
+  it("readDir wirft und exists wirft → pfad gilt als unlesbar (Befund 3)", async () => {
+    // belegte abwesenheit braucht ENOENT/ENOTDIR oder ein exists, das den pfad
+    // explizit als fehlend meldet. ein werfendes exists belegt nichts und darf
+    // den lesefehler nicht in „nichts gefunden“ verwandeln (INV-2).
+    const { lib2, fs, installedAppIds } = await setup();
+    const unreadableDir = `${lib2}/steamapps/shadercache`;
+    const originalReadDir = fs.readDir;
+    const originalExists = fs.exists;
+    fs.readDir = async (path) => {
+      if (path === unreadableDir) throw new Error("EACCES: permission denied");
+      return originalReadDir(path);
+    };
+    fs.exists = async (path) => {
+      if (path === unreadableDir) throw new Error("EACCES: permission denied");
+      return originalExists(path);
+    };
+
+    const { unreadable } = await findOrphans([lib2], installedAppIds, new Set(), fs);
+
+    expect(unreadable).toEqual([{ path: unreadableDir, type: "shadercache" }]);
+  });
+
+  it("string-codierter symlink-rejected-fehler auf compatdata → unlesbar (Befund 8)", async () => {
+    // das rust-backend rejectet mit einem rohen string ohne codepräfix. der
+    // fehler belegt keine abwesenheit, und exists bestätigt den ordner:
+    // der ort ist unlesbar, nicht leer.
+    const { root, fs, libraries, installedAppIds } = await setup();
+    const unreadableDir = `${root}/steamapps/compatdata`;
+    const originalReadDir = fs.readDir;
+    const originalExists = fs.exists;
+    fs.readDir = async (path) => {
+      if (path === unreadableDir) throw "symlink-rejected";
+      return originalReadDir(path);
+    };
+    fs.exists = async (path) => (path === unreadableDir ? true : originalExists(path));
+
+    const { unreadable } = await findOrphans(libraries, installedAppIds, new Set(), fs);
+
+    expect(unreadable).toEqual([{ path: unreadableDir, type: "compatdata" }]);
   });
 
   it("gleiche appId in beiden typen → zwei getrennte entries", async () => {
     const { fs, libraries, installedAppIds } = await setup();
-    const orphans = await findOrphans(libraries, installedAppIds, new Set(), fs);
+    const { orphans } = await findOrphans(libraries, installedAppIds, new Set(), fs);
 
     // 888888 existiert nur als shadercache, 999999 nur als compatdata
     const byAppId = new Map<number, { compatdata: boolean; shadercache: boolean }>();
@@ -151,7 +247,7 @@ describe("findOrphans", () => {
 
   it("symlink als eintrag → nicht als orphan gemeldet", async () => {
     const { fs, libraries, installedAppIds } = await setup();
-    const orphans = await findOrphans(libraries, installedAppIds, new Set(), fs);
+    const { orphans } = await findOrphans(libraries, installedAppIds, new Set(), fs);
 
     const paths = orphans.map((o) => o.path);
     expect(paths.every((p) => !p.includes("symlink"))).toBe(true);
@@ -160,7 +256,7 @@ describe("findOrphans", () => {
   it("shortcut-appId in installedAppIds → prefix nicht als orphan", async () => {
     const { fs, libraries } = await setup();
     const installedWithShortcut = new Set([570, 620, 730, 3641016077]);
-    const orphans = await findOrphans(libraries, installedWithShortcut, new Set(), fs);
+    const { orphans } = await findOrphans(libraries, installedWithShortcut, new Set(), fs);
 
     const shortcutPrefix = orphans.find((o) => o.appId === 3641016077);
     expect(shortcutPrefix).toBeUndefined();
@@ -172,7 +268,7 @@ describe("findOrphans", () => {
     // echter rest und muss angeboten werden (früher still unsichtbar wegen der
     // 2^31-1-grenze in parseSafeAppId; das rust-backend akzeptiert u32::MAX).
     const withoutShortcut = new Set([570, 620, 730]);
-    const orphans = await findOrphans(libraries, withoutShortcut, new Set(), fs);
+    const { orphans } = await findOrphans(libraries, withoutShortcut, new Set(), fs);
 
     const shortcutPrefix = orphans.find((o) => o.appId === 3641016077);
     expect(shortcutPrefix).toBeDefined();
@@ -186,15 +282,16 @@ describe("findSteamOwnedPrefixes", () => {
     const blocked = new Set([4628710]);
     await mkdir(`${root}/steamapps/compatdata/4628710`, { recursive: true });
 
-    const found = await findSteamOwnedPrefixes(libraries, blocked, fs);
+    const { prefixes, unreadable } = await findSteamOwnedPrefixes(libraries, blocked, fs);
 
-    expect(found).toEqual([
+    expect(prefixes).toEqual([
       {
         appId: 4628710,
         path: `${root}/steamapps/compatdata/4628710`,
         library: root,
       },
     ]);
+    expect(unreadable).toEqual([]);
   });
 
   it("durchsucht kein shadercache", async () => {
@@ -202,9 +299,9 @@ describe("findSteamOwnedPrefixes", () => {
     const blocked = new Set([4628710]);
     await mkdir(`${root}/steamapps/shadercache/4628710`, { recursive: true });
 
-    const found = await findSteamOwnedPrefixes(libraries, blocked, fs);
+    const { prefixes } = await findSteamOwnedPrefixes(libraries, blocked, fs);
 
-    expect(found).toEqual([]);
+    expect(prefixes).toEqual([]);
   });
 
   it("zählt claim-reste nicht mit", async () => {
@@ -214,17 +311,17 @@ describe("findSteamOwnedPrefixes", () => {
       recursive: true,
     });
 
-    const found = await findSteamOwnedPrefixes(libraries, blocked, fs);
+    const { prefixes } = await findSteamOwnedPrefixes(libraries, blocked, fs);
 
-    expect(found).toEqual([]);
+    expect(prefixes).toEqual([]);
   });
 
   it("liefert eine leere liste statt undefined, wenn nichts gefunden wird", async () => {
     const { fs, libraries } = await setup();
 
-    const found = await findSteamOwnedPrefixes(libraries, new Set(), fs);
+    const { prefixes } = await findSteamOwnedPrefixes(libraries, new Set(), fs);
 
-    expect(found).toEqual([]);
+    expect(prefixes).toEqual([]);
   });
 
   it("konsistenz: filter und meldung beschreiben dieselbe menge", async () => {
@@ -233,8 +330,8 @@ describe("findSteamOwnedPrefixes", () => {
     await mkdir(`${root}/steamapps/compatdata/4628710`, { recursive: true }); // steam-eigen (gefiltert)
     await mkdir(`${root}/steamapps/compatdata/999999`, { recursive: true }); // echtes orphan
 
-    const orphans = await findOrphans(libraries, installedAppIds, blocked, fs);
-    const owned = await findSteamOwnedPrefixes(libraries, blocked, fs);
+    const { orphans } = await findOrphans(libraries, installedAppIds, blocked, fs);
+    const { prefixes: owned } = await findSteamOwnedPrefixes(libraries, blocked, fs);
 
     const orphanPaths = new Set(orphans.map((o) => o.path));
     const ownedPaths = new Set(owned.map((p) => p.path));
@@ -264,8 +361,8 @@ describe("gemeinsamer compat-Iterator (K-05)", () => {
     await mkdir(`${root}/steamapps/compatdata/4628710`, { recursive: true }); // blocklistet
     await mkdir(`${root}/steamapps/compatdata/999999`, { recursive: true }); // echtes orphan
 
-    const orphans = await findOrphans(libraries, installedAppIds, blocked, fs);
-    const owned = await findSteamOwnedPrefixes(libraries, blocked, fs);
+    const { orphans } = await findOrphans(libraries, installedAppIds, blocked, fs);
+    const { prefixes: owned } = await findSteamOwnedPrefixes(libraries, blocked, fs);
 
     const compatdataPaths = [...orphans, ...owned]
       .map((entry) => entry.path)
@@ -278,6 +375,43 @@ describe("gemeinsamer compat-Iterator (K-05)", () => {
       orphans.filter((entry) => entry.type === "compatdata").map((entry) => entry.appId),
     ).toEqual([999999]);
     expect(owned.map((entry) => entry.appId)).toEqual([4628710]);
+  });
+
+  it("beide Scans melden dasselbe unlesbare compatdata typ-genau", async () => {
+    // entkoppelt (Befund 1): findSteamOwnedPrefixes verwirft sein Set nicht
+    // mehr, sondern meldet den ort selbst. Beide Scans sehen dieselben
+    // libraries und typen, deshalb ist die doppelung erwartbar; der store
+    // dedupliziert nach `path+type` (mergeOrphanUnreadable).
+    const { root, fs, libraries, installedAppIds } = await setup();
+    const unreadableDir = `${root}/steamapps/compatdata`;
+    const originalReadDir = fs.readDir;
+    const originalExists = fs.exists;
+    fs.readDir = async (path) => {
+      if (path === unreadableDir) throw new Error("EACCES: permission denied");
+      return originalReadDir(path);
+    };
+    fs.exists = async (path) => (path === unreadableDir ? true : originalExists(path));
+
+    const { prefixes, unreadable: ownedUnreadable } = await findSteamOwnedPrefixes(
+      libraries,
+      new Set([4628710]),
+      fs,
+    );
+    const { orphans, unreadable } = await findOrphans(
+      libraries,
+      installedAppIds,
+      new Set([4628710]),
+      fs,
+    );
+
+    // kein throw, keine prefixes aus dem unlesbaren ort
+    expect(prefixes).toEqual([]);
+    // die unlesbare herkunft wird nicht als „nichts gefunden“ ausgegeben:
+    // nur der lesbare shadercache-rest steht als orphan, der ort selbst muss
+    // typ-genau gemeldet werden (INV-2).
+    expect(orphans.map((entry) => entry.type)).toEqual(["shadercache"]);
+    expect(unreadable).toEqual([{ path: unreadableDir, type: "compatdata" }]);
+    expect(ownedUnreadable).toEqual([{ path: unreadableDir, type: "compatdata" }]);
   });
 });
 
@@ -305,7 +439,7 @@ describe("findIncompleteDeletions", () => {
       "shadercache",
     );
 
-    const orphans = await findOrphans(libraries, installedAppIds, new Set(), fs);
+    const { orphans } = await findOrphans(libraries, installedAppIds, new Set(), fs);
     expect(orphans.every((entry) => !entry.path.includes(DELETE_CLAIM_PREFIX))).toBe(true);
   });
 

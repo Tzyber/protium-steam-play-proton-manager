@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BLOCKLIST } from "../../src/core/blocklist.js";
+import { EXTRACT_TEMP_PREFIX } from "../../src/core/compat.js";
 import { parseError } from "../../src/core/errtext.js";
 import {
   isManagedGeName,
@@ -118,6 +119,32 @@ describe("TypeScript-/Rust-Spiegelwerte", () => {
     const assetPath = "/GloriousEggroll/proton-ge-custom/releases/download/";
     expect(geInstall).toContain(assetPath);
     expect(geproton).toContain(assetPath);
+  });
+
+  it("bindet das Extraktions-Temp-Präfix an beide Rust-Literale (5.2)", () => {
+    // Drei Stellen tragen denselben Präfix: die TS-Konstante filtert die
+    // Einträge in listCompatTools, extract.rs baut damit den temporären
+    // Verzeichnisnamen, ge_install.rs erkennt daran liegengebliebene reste.
+    // Driftet eine davon, sieht die Webview einen extraktionsrest entweder
+    // wieder als installiertes Tool (TS zu eng) oder verschluckt ein echtes
+    // Tool (TS zu weit), während der Installer weiter auf den alten reste-
+    // namen prüft.
+    const extract = readFileSync(join(repo, "src-tauri/src/commands/extract.rs"), "utf8");
+    const geInstall = readFileSync(join(repo, "src-tauri/src/commands/ge_install.rs"), "utf8");
+
+    expect(EXTRACT_TEMP_PREFIX).toBe(".protium-extract-");
+
+    // extract.rs:411-415: format!(".protium-extract-{}-{}", pid, suffix).
+    // Der Präfix ist alles vor dem ersten Platzhalter.
+    const tempNameMatch = extract.match(/let temp_name = format!\(\s*"([^"]*)"/);
+    expect(tempNameMatch, "temp_name-format! fehlt in extract.rs").not.toBeNull();
+    const rustTempPrefix = (tempNameMatch?.[1] ?? "").split("{")[0] ?? "";
+    expect(rustTempPrefix).toBe(EXTRACT_TEMP_PREFIX);
+
+    // ge_install.rs:619: starts_with auf demselben Präfix (reste-prüfung).
+    const startsWithMatch = geInstall.match(/name\.starts_with\("([^"]+)"\)/);
+    expect(startsWithMatch, "starts_with-reste-prüfung fehlt in ge_install.rs").not.toBeNull();
+    expect(startsWithMatch?.[1]).toBe(EXTRACT_TEMP_PREFIX);
   });
 
   it("bindet das Delete-Batch-Limit an die Rust-Registry", () => {

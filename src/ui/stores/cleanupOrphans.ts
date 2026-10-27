@@ -10,6 +10,7 @@ import {
   findOrphans,
   findSteamOwnedPrefixes,
   type IncompleteDeletion,
+  type OrphanUnreadable,
   type SteamOwnedPrefix,
 } from "../../core/cleanup";
 import { readAppName } from "../../core/localconfig";
@@ -28,6 +29,7 @@ import {
   collectInstalledAppIds,
   combineErrors,
   confirmTitle,
+  mergeOrphanUnreadable,
 } from "./cleanupHelpers";
 import { MAX_PENDING_DELETES } from "./cleanupStore";
 import { useConfirmStore } from "./confirmStore";
@@ -37,6 +39,10 @@ import { useScanStore } from "./scanStore";
  *  `ReturnType<typeof useCleanupStore>`: das erzeugt einen zirkulären Typ). */
 export interface OrphanStore {
   orphans: OrphanEntry[];
+  /** compatdata/shadercache-Verzeichnisse, deren Inhalt nicht gelesen werden
+   *  konnte – typ-genau. Eine leere Orphan-Liste ist mit diesem Zustand kein
+   *  vollständiger Scan (INV-2). */
+  orphanUnreadable: OrphanUnreadable[];
   orphanNames: Record<string, string>;
   steamOwnedPrefixes: SteamOwnedPrefix[];
   incompleteDeletions: IncompleteDeletion[];
@@ -168,22 +174,27 @@ export async function scanOrphans(store: OrphanStore): Promise<void> {
 
     const installedAppIds = collectInstalledAppIds(result, shortcutResult);
 
-    const orphans = await findOrphans(
+    const orphanScan = await findOrphans(
       result.libraries,
       installedAppIds,
       new Set(result.blockedAppIds),
       tauriPorts.fs,
     );
     if (!isCurrent()) return;
-    store.orphans = orphans;
+    store.orphans = orphanScan.orphans;
 
-    const steamOwnedPrefixes = await findSteamOwnedPrefixes(
+    const steamOwned = await findSteamOwnedPrefixes(
       result.libraries,
       new Set(result.blockedAppIds),
       tauriPorts.fs,
     );
     if (!isCurrent()) return;
-    store.steamOwnedPrefixes = steamOwnedPrefixes;
+    store.steamOwnedPrefixes = steamOwned.prefixes;
+    // VOR dem frühabbruch bei leerer liste übernehmen: ein unlesbares
+    // compatdata/shadercache ist kein „nichts gefunden“ (INV-2), der
+    // frühausstieg unten würde den Zustand sonst wieder verwerfen. Beide Scans
+    // sehen dieselben compatdata-Orte, deshalb nach `path+type` dedupliziert.
+    store.orphanUnreadable = mergeOrphanUnreadable(orphanScan.unreadable, steamOwned.unreadable);
 
     // Klassifikation (fail-closed bei unlesbarer shortcuts.vdf, Shortcut-
     // bereich) liegt fachlich bei findOrphans in core/cleanup.
@@ -228,7 +239,42 @@ export async function deleteOrphans(
     );
     return;
   }
-  if (store.blockedBySkipped || entries.some((e) => store.orphanDeleteBlocked(e.type))) return;
+  // Die Sperre darf nicht stumm greifen (Befund 10): ein programmatischer
+  // Aufruf soll denselben Grund sehen, den der deaktivierte Knopf zeigt.
+  // Vorhandene Meldungen bleiben stehen, statt sie durch eine allgemeinere zu ersetzen.
+  const blockedTypes = [...new Set(entries.map((e) => e.type))].filter((type) =>
+    store.orphanDeleteBlocked(type),
+  );
+  if (store.blockedBySkipped || blockedTypes.length > 0) {
+    if (store.orphanError === null) {
+      // Reihenfolge vom konkretesten zum allgemeinsten Beleg: der unlesbare Ort
+      // des gesperrten Typs nennt den Pfad, ein unlesbarer Claim-Parent die
+      // Claim-Pfade, ein liegender Claim-Rest den Titel; erst danach der Fehler
+      // des letzten Scans. Kein Zweig setzt null — sonst bliebe die Sperre bei
+      // Claim-Resten und unlesbaren Claim-Parents stumm (M1).
+      const unreadablePaths = store.orphanUnreadable
+        .filter((entry) => blockedTypes.includes(entry.type))
+        .map((entry) => entry.path);
+      if (unreadablePaths.length > 0) {
+        store.setOrphanError(t("cleanup.unreadableDirs", { paths: unreadablePaths.join(", ") }));
+      } else if (store.incompleteDeletionsUnreadable.length > 0) {
+        store.setOrphanError(
+          t("errors.incompleteDeletionsUnreadable", {
+            paths: store.incompleteDeletionsUnreadable.join(", "),
+          }),
+        );
+      } else if (
+        // `IncompleteDeletionType` ist breiter als `OrphanType` (trash,
+        // compat-tool); der Vergleich läuft deshalb über die gesperrten typen.
+        store.incompleteDeletions.some((entry) => blockedTypes.some((type) => type === entry.type))
+      ) {
+        store.setOrphanError(t("cleanup.incompleteDeletionsTitle"));
+      } else if (store._orphanScanError !== null) {
+        store.setOrphanError(store._orphanScanError);
+      }
+    }
+    return;
+  }
 
   const { result, isCurrent } = cleanupTurn(
     useScanStore(),

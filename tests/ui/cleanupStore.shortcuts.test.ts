@@ -89,10 +89,13 @@ describe("cleanupStore, S-05 + shortcuts", () => {
       paths: [],
       detail: "EACCES: permission denied",
     });
-    mockFindOrphans.mockResolvedValue([
-      { appId: 999999, type: "compatdata", path: "/fake/wine", library: "/lib" },
-      { appId: 888888, type: "shadercache", path: "/fake/shader", library: "/lib" },
-    ]);
+    mockFindOrphans.mockResolvedValue({
+      orphans: [
+        { appId: 999999, type: "compatdata", path: "/fake/wine", library: "/lib" },
+        { appId: 888888, type: "shadercache", path: "/fake/shader", library: "/lib" },
+      ],
+      unreadable: [],
+    });
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
     const store = useCleanupStore();
@@ -121,10 +124,13 @@ describe("cleanupStore, S-05 + shortcuts", () => {
       status: "unreadable",
       paths: ["/home/u/.steam/userdata/123/config/shortcuts.vdf"],
     });
-    mockFindOrphans.mockResolvedValue([
-      { appId: 111111, type: "compatdata", path: "/lib/compatdata/111111", library: "/lib" },
-      { appId: 222222, type: "shadercache", path: "/lib/shadercache/222222", library: "/lib" },
-    ]);
+    mockFindOrphans.mockResolvedValue({
+      orphans: [
+        { appId: 111111, type: "compatdata", path: "/lib/compatdata/111111", library: "/lib" },
+        { appId: 222222, type: "shadercache", path: "/lib/shadercache/222222", library: "/lib" },
+      ],
+      unreadable: [],
+    });
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
     const store = useCleanupStore();
@@ -175,7 +181,7 @@ describe("cleanupStore, S-05 + shortcuts", () => {
   it("bereitet und führt exakt 32 orphan-einträge in einem dialog aus", async () => {
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
-    mockFindOrphans.mockResolvedValue([]);
+    mockFindOrphans.mockResolvedValue({ orphans: [], unreadable: [] });
     const store = useCleanupStore();
     const entries = Array.from({ length: 32 }, (_, index) => fakeOrphanEntry(index));
     store.orphans = [...entries];
@@ -300,7 +306,7 @@ describe("cleanupStore, S-05 + shortcuts", () => {
     const entries = fakeOrphanEntries(33);
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
-    mockFindOrphans.mockResolvedValue([]);
+    mockFindOrphans.mockResolvedValue({ orphans: [], unreadable: [] });
     const store = useCleanupStore();
     store.orphans = [...entries];
 
@@ -325,7 +331,7 @@ describe("cleanupStore, S-05 + shortcuts", () => {
     const entries = fakeOrphanEntries(70);
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
-    mockFindOrphans.mockResolvedValue([]);
+    mockFindOrphans.mockResolvedValue({ orphans: [], unreadable: [] });
     const store = useCleanupStore();
     store.orphans = [...entries];
 
@@ -344,7 +350,7 @@ describe("cleanupStore, S-05 + shortcuts", () => {
     const entries = fakeOrphanEntries(32);
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
-    mockFindOrphans.mockResolvedValue([]);
+    mockFindOrphans.mockResolvedValue({ orphans: [], unreadable: [] });
     const store = useCleanupStore();
     store.orphans = [...entries];
 
@@ -362,7 +368,7 @@ describe("cleanupStore, S-05 + shortcuts", () => {
     const entries = fakeOrphanEntries(33);
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
-    mockFindOrphans.mockResolvedValue([]);
+    mockFindOrphans.mockResolvedValue({ orphans: [], unreadable: [] });
     const store = useCleanupStore();
     store.orphans = [...entries];
 

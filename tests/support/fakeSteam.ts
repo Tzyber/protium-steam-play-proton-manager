@@ -280,8 +280,14 @@ export function nodeFs(): FileSystem {
       try {
         await lstat(p);
         return true;
-      } catch {
-        return false;
+      } catch (error) {
+        // Nur belegte Abwesenheit ist "existiert nicht": ENOENT/ENOTDIR sind
+        // die beiden kanonischen Fälle, in denen der Pfad nachweislich fehlt.
+        // EACCES, ELOOP, EIO oder EMFILE belegen nichts (INV-2) und werden
+        // deshalb weitergereicht, statt still als "kein Pfad" zu gelten.
+        const code = (error as { code?: unknown } | null)?.code;
+        if (code === "ENOENT" || code === "ENOTDIR") return false;
+        throw error;
       }
     },
     // Größenprüfung wie im Tauri-Adapter: stat, Limit, Read.

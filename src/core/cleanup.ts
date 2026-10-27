@@ -1,3 +1,4 @@
+import { parseError } from "./errtext.js";
 import { parseSafeAppId } from "./guards.js";
 import { paths } from "./paths.js";
 import type { DirEntry, FileSystem } from "./ports.js";
@@ -37,6 +38,30 @@ function typeDir(library: string, type: OrphanType): string {
   return type === "compatdata" ? paths.compatdataDir(library) : paths.shadercacheDir(library);
 }
 
+/** Belegte Abwesenheit eines Verzeichnisses (INV-2): nur dann darf ein
+ *  Lesefehler als "nichts gefunden" gelten. Zwei Quellen zählen, weil
+ *  `nodeFs()` rohe Node-Fehler ohne Codepräfix wirft: der kanonische
+ *  `not-found`-Code und ein `exists`, das den Pfad explizit als fehlend
+ *  meldet. `true` oder ein werfendes `exists` belegen nichts und gelten
+ *  deshalb als unlesbar. */
+async function isConfirmedAbsence(dir: string, fs: FileSystem, error: unknown): Promise<boolean> {
+  if (parseError(error).code === "not-found") return true;
+  try {
+    return !(await fs.exists(dir));
+  } catch {
+    return false;
+  }
+}
+
+/** Ein vorhandenes, aber nicht lesbares Basisverzeichnis eines Orphan-Bereichs.
+ *  Typ-genau, weil ein unlesbares compatdata nur die Prefix-Löschung sperrt und
+ *  ein unlesbares shadercache nur die Shader-Löschung: der Typ ist die einzige
+ *  Information, die diese Grenze zieht (INV-2, fail-closed je Bereich). */
+export interface OrphanUnreadable {
+  path: string;
+  type: OrphanType;
+}
+
 interface CompatEntry {
   library: string;
   type: OrphanType;
@@ -48,21 +73,29 @@ interface CompatEntry {
  *  Ausschlussfilter (kein Ordner, Symlink, Claim-Rest, nicht-numerischer Name)
  *  liegen hier genau einmal; `accept` entscheidet je appId. findOrphans und
  *  findSteamOwnedPrefixes teilen den Iterator, damit ihre Filter nicht driften
- *  (K-05). Reihenfolge: library-major, danach die übergebene Typ-Reihenfolge. */
+ *  (K-05). Reihenfolge: library-major, danach die übergebene Typ-Reihenfolge.
+ *
+ *  Vorhandene, aber nicht lesbare Verzeichnisse landen typ-genau in
+ *  `unreadable`. Fehlende Verzeichnisse sind der Normalfall (eine library ohne
+ *  compatdata) und gelten nur dann als leer, wenn ihre Abwesenheit belegt ist;
+ *  ein Lesefehler wird nie verschluckt und nie geworfen (INV-2). */
 async function forEachCompatEntry(
   libraries: readonly string[],
   types: readonly OrphanType[],
   fs: FileSystem,
+  unreadable: OrphanUnreadable[],
   accept: (appId: number) => boolean,
   handle: (entry: CompatEntry) => void,
 ): Promise<void> {
   for (const lib of libraries) {
     for (const type of types) {
+      const dir = typeDir(lib, type);
       let entries: DirEntry[];
       try {
-        entries = await fs.readDir(typeDir(lib, type));
-      } catch {
-        continue; // Fehlende oder nicht lesbare Verzeichnisse überspringen.
+        entries = await fs.readDir(dir);
+      } catch (error) {
+        if (!(await isConfirmedAbsence(dir, fs, error))) unreadable.push({ path: dir, type });
+        continue;
       }
 
       for (const entry of entries) {
@@ -80,13 +113,22 @@ async function forEachCompatEntry(
   }
 }
 
+/** Ergebnis des Orphan-Scans. Fehlende Verzeichnisse sind normal; nur
+ *  vorhandene, aber nicht lesbare Orte stehen typ-genau in `unreadable`
+ *  (INV-2). */
+interface OrphanScanResult {
+  orphans: OrphanEntry[];
+  unreadable: OrphanUnreadable[];
+}
+
 export async function findOrphans(
   libraries: readonly string[],
   installedAppIds: ReadonlySet<number>,
   blockedAppIds: ReadonlySet<number>,
   fs: FileSystem,
-): Promise<OrphanEntry[]> {
+): Promise<OrphanScanResult> {
   const orphans: OrphanEntry[] = [];
+  const unreadable: OrphanUnreadable[] = [];
 
   // blockedAppIds = appIDs, deren manifest existiert, die aber kein spiel sind
   // (z. B. proton-builtin-pakete). ihr prefix ist kein verwaister prefix, sonst
@@ -96,6 +138,7 @@ export async function findOrphans(
     libraries,
     ORPHAN_TYPES,
     fs,
+    unreadable,
     (appId) => !installedAppIds.has(appId) && !blockedAppIds.has(appId),
     ({ library, type, appId, name }) => {
       orphans.push({
@@ -110,7 +153,7 @@ export async function findOrphans(
     },
   );
 
-  return orphans;
+  return { orphans, unreadable };
 }
 
 /**
@@ -157,18 +200,25 @@ export interface SteamOwnedPrefix {
  *
  * Nur compatdata: Shader-Caches der Steam-Pakete sind von dem Filter nicht
  * betroffen.
+ *
+ * Liefert seine unlesbaren compatdata-Verzeichnisse selbst (typ-genau), statt
+ * sich auf den Aufrufer zu verlassen: der Store merged beide Listen nach
+ * `path+type` dedupliziert, damit kein Bereich eine Sperre erbt, die er nicht
+ * belegen kann.
  */
 export async function findSteamOwnedPrefixes(
   libraries: readonly string[],
   blockedAppIds: ReadonlySet<number>,
   fs: FileSystem,
-): Promise<SteamOwnedPrefix[]> {
+): Promise<{ prefixes: SteamOwnedPrefix[]; unreadable: OrphanUnreadable[] }> {
   const found: SteamOwnedPrefix[] = [];
+  const unreadable: OrphanUnreadable[] = [];
 
   await forEachCompatEntry(
     libraries,
     ["compatdata"],
     fs,
+    unreadable,
     (appId) => blockedAppIds.has(appId),
     ({ library, appId, name }) => {
       found.push({
@@ -179,7 +229,7 @@ export async function findSteamOwnedPrefixes(
     },
   );
 
-  return found;
+  return { prefixes: found, unreadable };
 }
 
 /**
@@ -214,15 +264,11 @@ export async function findIncompleteDeletions(
     let entries: DirEntry[];
     try {
       entries = await fs.readDir(dir);
-    } catch {
+    } catch (error) {
       // Ein fehlender Parent ist der Normalfall. Bei einem echten Lesefehler
       // muss der Store ihn sichtbar halten, sonst wird ein unbekannter Claim
       // als leerer Scan dargestellt (INV-2).
-      try {
-        if (!(await fs.exists(dir))) return;
-      } catch {
-        // Ein fehlgeschlagener Exists-Check bestätigt kein fehlendes Ziel.
-      }
+      if (await isConfirmedAbsence(dir, fs, error)) return;
       unreadable.add(dir);
       return;
     }

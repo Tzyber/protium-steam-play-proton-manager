@@ -1,11 +1,11 @@
 import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
-import type { IncompleteDeletion, SteamOwnedPrefix } from "../../core/cleanup";
+import type { IncompleteDeletion, OrphanUnreadable, SteamOwnedPrefix } from "../../core/cleanup";
 import type { TrashEntry, TrashLibraryStatus } from "../../core/trash";
 import type { OrphanEntry, ScanResult } from "../../core/types";
 import { formatDetail } from "../formatError";
 import { t } from "../i18n";
-import { combineErrors, hasOrphanUnavailableBase } from "./cleanupHelpers";
+import { combineErrors, hasOrphanUnavailableBase, hasUnreadableOrphanType } from "./cleanupHelpers";
 import { deleteOrphans, readOrphanNames, scanOrphans } from "./cleanupOrphans";
 import { deleteTrashEntries, scanTrash } from "./cleanupTrash";
 
@@ -17,6 +17,12 @@ export const MAX_PENDING_DELETES = 32;
 export const useCleanupStore = defineStore("cleanup", {
   state: () => ({
     orphans: [] as OrphanEntry[],
+    /** compatdata/shadercache-verzeichnisse, die vorhanden, aber nicht lesbar
+     *  waren – typ-genau, weil ein unlesbares compatdata nur die
+     *  Prefix-Löschung sperrt und ein unlesbares shadercache nur die
+     *  Shader-Löschung. Eine leere Orphan-liste ist damit kein vollständiger
+     *  Scan; die Sperre trägt `hasUnreadableOrphanType`. */
+    orphanUnreadable: [] as OrphanUnreadable[],
     /** spielnamen je orphan-pfad aus steams localconfig (kosmetik; fehlt der
      *  name, zeigt die view die app-id). */
     orphanNames: {} as Record<string, string>,
@@ -78,17 +84,30 @@ export const useCleanupStore = defineStore("cleanup", {
         : null;
       return combineErrors([s.orphanError, shortcutError, s.trashError]);
     },
+    /** Anzeige-Sperre des Shader-Bereichs. Die Basis wird wie in
+     *  `orphanDeleteBlocked` mit `_orphanScanError` statt mit `orphanError`
+     *  ausgewertet: `orphanError` trägt auch den Lösch-/Guard-Text des letzten
+     *  Versuchs („nicht lesbar, Anzeige unvollständig: …“, Claim-Titel), ein
+     *  solcher Text ist kein Beleg für einen unvollständigen Scan und darf die
+     *  typ-genaue Anzeige nicht verfälschen. */
     shaderUnavailable: (s) =>
-      hasOrphanUnavailableBase(s) || s.incompleteDeletions.some((d) => d.type === "shadercache"),
-    /** Löschsperre je Orphan-Bereich: nur Scan-Gründe und Löschreste. Ein
-     *  Löschfehler des letzten Versuchs steht auch in `orphanError`, sperrt
-     *  aber nicht, sonst ginge bis zum nächsten Scan nichts mehr (INV-2). */
+      hasOrphanUnavailableBase({ ...s, orphanError: s._orphanScanError }) ||
+      hasUnreadableOrphanType(s, "shadercache") ||
+      s.incompleteDeletions.some((d) => d.type === "shadercache"),
+    /** Löschsperre je Orphan-Bereich: nur Scan-Gründe, Löschreste und der
+     *  unlesbare Basisordner GENAU dieses Bereichs. Ein Löschfehler des letzten
+     *  Versuchs steht auch in `orphanError`, sperrt aber nicht, sonst ginge bis
+     *  zum nächsten Scan nichts mehr (INV-2). */
     orphanDeleteBlocked: (s) => (type: OrphanEntry["type"]) =>
       hasOrphanUnavailableBase({ ...s, orphanError: s._orphanScanError }) ||
+      hasUnreadableOrphanType(s, type) ||
       s.incompleteDeletions.some((d) => d.type === type),
+    /** Anzeige-Sperre des Prefix-Bereichs; die Basis kommt aus demselben
+     *  Scan-Basiswert wie bei `orphanDeleteBlocked` (siehe `shaderUnavailable`). */
     prefixUnavailable: (s) =>
-      hasOrphanUnavailableBase(s) ||
+      hasOrphanUnavailableBase({ ...s, orphanError: s._orphanScanError }) ||
       s.shortcutUnreadable ||
+      hasUnreadableOrphanType(s, "compatdata") ||
       s.incompleteDeletions.some((d) => d.type === "compatdata"),
     trashUnavailable: (s) =>
       s.trashError !== null ||
@@ -118,6 +137,7 @@ export const useCleanupStore = defineStore("cleanup", {
 
     clearOrphanState() {
       this.orphans = [];
+      this.orphanUnreadable = [];
       this.orphanNames = {};
       this.steamOwnedPrefixes = [];
       this.incompleteDeletions = [];

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { listCompatTools } from "../../src/core/compat.js";
+import { EXTRACT_TEMP_PREFIX, listCompatTools } from "../../src/core/compat.js";
 import { recomputeToolUsedBy } from "../../src/core/compatTools.js";
 import type {
   DirEntry,
@@ -452,6 +452,145 @@ describe("listCompatTools", () => {
     expect(result.warnings).toEqual([
       expect.objectContaining({ type: "compat-tool", toolName: "Folder", reason: "vdf-invalid" }),
     ]);
+  });
+
+  it("filtert liegengebliebene extraktionsreste im user-verzeichnis (5.2)", async () => {
+    const steamRoot = "/fake/steam";
+    const toolsDir = `${steamRoot}/compatibilitytools.d`;
+    const tempName = `${EXTRACT_TEMP_PREFIX}4242-a1b2c3`;
+    const real: DirEntry = { name: "GE-Proton9-27", isDirectory: true, isSymlink: false };
+    const temp: DirEntry = { name: tempName, isDirectory: true, isSymlink: false };
+
+    /** scannt genau die übergebenen einträge im user-verzeichnis. */
+    const scan = async (entries: DirEntry[]) => {
+      const dirSize = vi.fn(async (_dir: string) => ({
+        status: "measured" as const,
+        sizeBytes: 12,
+      }));
+      const fs: FileSystem = {
+        exists: vi.fn(async () => true),
+        readFile: vi.fn(async () => new Uint8Array()),
+        readDir: vi.fn(async () => entries),
+        // der interne name ist der verzeichnisname: ein durchgerutschter
+        // temp-eintrag wäre damit auch in `tools` sichtbar.
+        readTextFile: vi.fn(async (vdfPath: string) => {
+          const name = vdfPath.split("/").slice(-2, -1)[0] ?? "";
+          return `"compatibilitytools"
+{
+	"compat_tools"
+	{
+		"${name}"
+		{
+			"display_name" "Tool"
+		}
+	}
+}`;
+        }),
+      };
+      const system = {
+        pathIdentity: vi.fn(async () => ({ realpath: toolsDir, dev: "1", ino: "1" })),
+        dirSize,
+      } as unknown as System;
+
+      const result = await listCompatTools(fs, system, steamRoot, new Map(), new Set());
+      return { result, dirSize };
+    };
+
+    const baseline = await scan([real]);
+    const withTemp = await scan([temp, real]);
+
+    // der rest erscheint nicht als tool ...
+    expect(baseline.result.tools.map((tool) => tool.name)).toEqual(["GE-Proton9-27"]);
+    expect(withTemp.result.tools.map((tool) => tool.name)).toEqual(["GE-Proton9-27"]);
+    expect(withTemp.result.tools.some((tool) => tool.name.startsWith(EXTRACT_TEMP_PREFIX))).toBe(
+      false,
+    );
+
+    // ... verschiebt keinen zähler (kein `read`, kein `failed`) ...
+    expect(withTemp.result.counts).toEqual(baseline.result.counts);
+    expect(withTemp.result.counts).toEqual({ read: 1, failed: 0 });
+
+    // ... erzeugt keine warnung und wird nicht vermessen.
+    expect(withTemp.result.warnings).toEqual([]);
+    expect(
+      withTemp.result.warnings.some((w) => w.type === "compat-tool" && w.toolName === tempName),
+    ).toBe(false);
+    expect(withTemp.dirSize.mock.calls.map(([sizePath]) => sizePath)).toEqual([
+      `${toolsDir}/GE-Proton9-27`,
+    ]);
+  });
+
+  it("filtert liegengebliebene extraktionsreste in einem systemCompatDirs-eintrag (5.2)", async () => {
+    const steamRoot = "/fake/steam";
+    const systemDir = "/usr/share/steam/compatibilitytools.d";
+    const tempName = `${EXTRACT_TEMP_PREFIX}777-b0b1`;
+    const userTool: DirEntry = { name: "GE-Proton9-27", isDirectory: true, isSymlink: false };
+    const systemTool: DirEntry = { name: "GE-Proton10-1", isDirectory: true, isSymlink: false };
+    const temp: DirEntry = { name: tempName, isDirectory: true, isSymlink: false };
+
+    /** scannt user-verzeichnis plus einen system-eintrag. */
+    const scan = async (systemEntries: DirEntry[]) => {
+      const dirSize = vi.fn(async (_dir: string) => ({
+        status: "measured" as const,
+        sizeBytes: 12,
+      }));
+      const fs: FileSystem = {
+        exists: vi.fn(async () => true),
+        readFile: vi.fn(async () => new Uint8Array()),
+        readDir: vi.fn(async (dir: string) => (dir === systemDir ? systemEntries : [userTool])),
+        readTextFile: vi.fn(async (vdfPath: string) => {
+          const name = vdfPath.split("/").slice(-2, -1)[0] ?? "";
+          return `"compatibilitytools"
+{
+	"compat_tools"
+	{
+		"${name}"
+		{
+			"display_name" "Tool"
+		}
+	}
+}`;
+        }),
+      };
+      const system = {
+        // eigene identität je verzeichnis: sonst greift die symlink-
+        // deduplizierung aus readCompatDirEntries und der system-eintrag
+        // würde nie gelesen.
+        pathIdentity: vi.fn(async (dir: string) => ({ realpath: dir, dev: "1", ino: dir })),
+        dirSize,
+      } as unknown as System;
+
+      const result = await listCompatTools(fs, system, steamRoot, new Map(), new Set(), [
+        systemDir,
+      ]);
+      return { result, dirSize };
+    };
+
+    const baseline = await scan([systemTool]);
+    const withTemp = await scan([temp, systemTool]);
+
+    expect(baseline.result.tools.map((tool) => tool.name)).toEqual([
+      "GE-Proton9-27",
+      "GE-Proton10-1",
+    ]);
+    expect(withTemp.result.tools.map((tool) => tool.name)).toEqual([
+      "GE-Proton9-27",
+      "GE-Proton10-1",
+    ]);
+    expect(withTemp.result.tools.map((tool) => tool.source)).toEqual(["user", "system"]);
+
+    // `read` zählt beide echten tools, der rest bleibt unsichtbar.
+    expect(withTemp.result.counts).toEqual(baseline.result.counts);
+    expect(withTemp.result.counts).toEqual({ read: 2, failed: 0 });
+    expect(withTemp.result.warnings).toEqual([]);
+    expect(
+      withTemp.result.warnings.some((w) => w.type === "compat-tool" && w.toolName === tempName),
+    ).toBe(false);
+    expect(
+      withTemp.dirSize.mock.calls
+        .map(([sizePath]) => sizePath)
+        .some((sizePath) => sizePath.includes(EXTRACT_TEMP_PREFIX)),
+    ).toBe(false);
   });
 });
 

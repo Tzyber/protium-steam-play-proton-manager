@@ -1,0 +1,35 @@
+"InstallConfigStore"
+{
+"Software"
+{
+"Valve"
+{
+"Steam"
+{
+"CompatToolMapping"
+				{
+					"620"
+					{
+						"name"		"GE-Proton9-1"
+					}
+				}
+}
+}
+}
+}
+"Software"
+{
+"Valve"
+{
+"Steam"
+{
+"CompatToolMapping"
+			{
+				"730"
+				{
+					"name"		"proton_experimental"
+				}
+			}
+}
+}
+}

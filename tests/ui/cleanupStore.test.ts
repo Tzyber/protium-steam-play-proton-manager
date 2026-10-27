@@ -18,7 +18,7 @@ import {
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ScanResult } from "../../src/core/types";
-import { setLocale } from "../../src/ui/i18n";
+import { setLocale, t } from "../../src/ui/i18n";
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
 
@@ -219,14 +219,17 @@ describe("cleanupStore gate logic", () => {
     scanStore.result = fakeScan();
     const store = useCleanupStore();
 
-    mockFindOrphans.mockResolvedValue([
-      {
-        appId: 3641016077,
-        type: "compatdata",
-        path: "/home/u/.steam/steamapps/compatdata/3641016077",
-        library: "/home/u/.steam",
-      },
-    ]);
+    mockFindOrphans.mockResolvedValue({
+      orphans: [
+        {
+          appId: 3641016077,
+          type: "compatdata",
+          path: "/home/u/.steam/steamapps/compatdata/3641016077",
+          library: "/home/u/.steam",
+        },
+      ],
+      unreadable: [],
+    });
 
     await store.scanOrphans();
 
@@ -314,6 +317,204 @@ describe("cleanupStore gate logic", () => {
     expect(store.deleting.size).toBe(0);
   });
 
+  it("gesperrte bereiche brechen nicht stumm ab, sondern nennen den unlesbaren ort (Befund 10)", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan();
+    const store = useCleanupStore();
+    const unreadableDir = "/lib/steamapps/compatdata";
+    mockFindOrphans.mockResolvedValue({
+      orphans: [],
+      unreadable: [{ path: unreadableDir, type: "compatdata" }],
+    });
+
+    await store.scanOrphans();
+    // der scan selbst ist fehlerfrei, die sperre hängt am unlesbaren ort
+    expect(store.orphanError).toBeNull();
+    expect(store.orphanDeleteBlocked("compatdata")).toBe(true);
+
+    await store.deleteOrphans([
+      { appId: 999999, type: "compatdata", path: `${unreadableDir}/999999`, library: "/lib" },
+    ]);
+
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
+    expect(mockExecuteDelete).not.toHaveBeenCalled();
+    expect(store.deleting.size).toBe(0);
+    expect(store.orphanError).toBe(t("cleanup.unreadableDirs", { paths: unreadableDir }));
+
+    // der lesbare bereich bleibt löschbar, die meldung ist keine dauersperre
+    await store.deleteOrphans([
+      {
+        appId: 888888,
+        type: "shadercache",
+        path: "/lib/steamapps/shadercache/888888",
+        library: "/lib",
+      },
+    ]);
+    expect(mockPrepareDelete).toHaveBeenCalledTimes(1);
+    expect(store.orphanError).toBeNull();
+  });
+
+  it("lösch- und guard-texte in orphanError kippen die typ-genaue anzeige nicht (M2)", () => {
+    // `orphanError` trägt auch den Lösch-/Guard-Text des letzten versuchs. Der
+    // ist kein Beleg für einen unvollständigen Scan und darf die anzeige nicht
+    // auf „unlesbar“ stellen (das täte er, wenn die getter die rohe basis lesen).
+    const store = useCleanupStore();
+
+    store.orphanError = t("cleanup.unreadableDirs", { paths: "/lib/steamapps/compatdata" });
+    expect(store._orphanScanError).toBeNull();
+    expect(store.orphanUnreadable).toEqual([]);
+    expect(store.shaderUnavailable).toBe(false);
+    expect(store.prefixUnavailable).toBe(false);
+
+    // gegenprobe: ein echter scan-fehler sperrt weiterhin beide bereiche
+    store.setOrphanScanError("scan unlesbar");
+    expect(store.shaderUnavailable).toBe(true);
+    expect(store.prefixUnavailable).toBe(true);
+  });
+
+  it("gesperrte bereiche nennen den liegenden claim statt stumm zu bleiben (M1)", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan();
+    const store = useCleanupStore();
+    mockFindIncompleteDeletions.mockResolvedValue({
+      entries: [
+        {
+          path: "/lib/steamapps/compatdata/.protium-delete-claim-1",
+          library: "/lib",
+          type: "compatdata",
+          name: ".protium-delete-claim-1",
+        },
+      ],
+      unreadable: [],
+    });
+
+    await store.scanOrphans();
+    expect(store.orphanError).toBeNull();
+    expect(store.incompleteDeletions).toHaveLength(1);
+
+    await store.deleteOrphans([
+      {
+        appId: 999999,
+        type: "compatdata",
+        path: "/lib/steamapps/compatdata/999999",
+        library: "/lib",
+      },
+    ]);
+
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
+    expect(mockExecuteDelete).not.toHaveBeenCalled();
+    expect(store.deleting.size).toBe(0);
+    expect(store.orphanError).not.toBeNull();
+    expect(store.orphanError).toBe(t("cleanup.incompleteDeletionsTitle"));
+  });
+
+  it("unlesbare claim-parents gehen dem liegenden claim vor (M1-Reihenfolge)", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan();
+    const store = useCleanupStore();
+    const unreadableClaimParent = "/lib/steamapps/compatdata/.protium-delete-claims";
+    mockFindIncompleteDeletions.mockResolvedValue({
+      entries: [
+        {
+          path: "/lib/steamapps/compatdata/.protium-delete-claim-1",
+          library: "/lib",
+          type: "compatdata",
+          name: ".protium-delete-claim-1",
+        },
+      ],
+      unreadable: [unreadableClaimParent],
+    });
+
+    await store.scanOrphans();
+    expect(store.orphanError).toBeNull();
+
+    await store.deleteOrphans([
+      {
+        appId: 999999,
+        type: "compatdata",
+        path: "/lib/steamapps/compatdata/999999",
+        library: "/lib",
+      },
+    ]);
+
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
+    expect(mockExecuteDelete).not.toHaveBeenCalled();
+    expect(store.orphanError).toBe(
+      t("errors.incompleteDeletionsUnreadable", { paths: unreadableClaimParent }),
+    );
+  });
+
+  it("der unlesbare ort geht unlesbaren claim-parents vor (M1-Reihenfolge)", async () => {
+    // beide gründe liegen gleichzeitig vor; die meldung nennt den konkretesten
+    // beleg (den ort), nicht den allgemeineren claim-lesefehler.
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan();
+    const store = useCleanupStore();
+    const unreadableDir = "/lib/steamapps/compatdata";
+    mockFindOrphans.mockResolvedValue({
+      orphans: [],
+      unreadable: [{ path: unreadableDir, type: "compatdata" }],
+    });
+    mockFindIncompleteDeletions.mockResolvedValue({
+      entries: [],
+      unreadable: ["/lib/steamapps/compatdata/.protium-delete-claims"],
+    });
+
+    await store.scanOrphans();
+    expect(store.orphanError).toBeNull();
+
+    await store.deleteOrphans([
+      {
+        appId: 999999,
+        type: "compatdata",
+        path: "/lib/steamapps/compatdata/999999",
+        library: "/lib",
+      },
+    ]);
+
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
+    expect(mockExecuteDelete).not.toHaveBeenCalled();
+    expect(store.orphanError).toBe(t("cleanup.unreadableDirs", { paths: unreadableDir }));
+  });
+
+  it("unlesbares shadercache sperrt die shader-einträge, aber nicht die prefixes (N9)", async () => {
+    // gegenrichtung zum test oben: die sperre ist typ-genau, der prefix-bereich
+    // bleibt handlungsfähig und der mock-prepare wird für compatdata gerufen.
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan();
+    const store = useCleanupStore();
+    const unreadableDir = "/lib/steamapps/shadercache";
+    mockFindOrphans.mockResolvedValue({
+      orphans: [],
+      unreadable: [{ path: unreadableDir, type: "shadercache" }],
+    });
+
+    await store.scanOrphans();
+    expect(store.orphanError).toBeNull();
+    expect(store.orphanDeleteBlocked("shadercache")).toBe(true);
+    expect(store.orphanDeleteBlocked("compatdata")).toBe(false);
+
+    await store.deleteOrphans([
+      { appId: 888888, type: "shadercache", path: `${unreadableDir}/888888`, library: "/lib" },
+    ]);
+
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
+    expect(mockExecuteDelete).not.toHaveBeenCalled();
+    expect(store.orphanError).toBe(t("cleanup.unreadableDirs", { paths: unreadableDir }));
+
+    await store.deleteOrphans([
+      {
+        appId: 999999,
+        type: "compatdata",
+        path: "/lib/steamapps/compatdata/999999",
+        library: "/lib",
+      },
+    ]);
+
+    expect(mockPrepareDelete).toHaveBeenCalledTimes(1);
+    expect(store.orphanError).toBeNull();
+  });
+
   it("blockiert scanOrphans wenn cleanupUnsafeLibraries vorhanden sind", async () => {
     const scanStore = useScanStore();
     scanStore.result = fakeScan([], ["/unsafe/lib"]);
@@ -387,9 +588,10 @@ describe("cleanupStore steamOwnedPrefixes", () => {
   });
 
   it("übernimmt steam-eigene prefixes und hängt deren größen an", async () => {
-    mockFindSteamOwnedPrefixes.mockResolvedValue([
-      { appId: 4628710, path: "/lib/compatdata/4628710", library: "/lib" },
-    ]);
+    mockFindSteamOwnedPrefixes.mockResolvedValue({
+      prefixes: [{ appId: 4628710, path: "/lib/compatdata/4628710", library: "/lib" }],
+      unreadable: [],
+    });
     mockBatchDirSizes.mockResolvedValue({
       "/lib/compatdata/4628710": { status: "measured", sizeBytes: 8192 },
     });
@@ -405,9 +607,10 @@ describe("cleanupStore steamOwnedPrefixes", () => {
   });
 
   it("setzt die einträge beim nächsten scan zurück", async () => {
-    mockFindSteamOwnedPrefixes.mockResolvedValue([
-      { appId: 4628710, path: "/lib/compatdata/4628710", library: "/lib" },
-    ]);
+    mockFindSteamOwnedPrefixes.mockResolvedValue({
+      prefixes: [{ appId: 4628710, path: "/lib/compatdata/4628710", library: "/lib" }],
+      unreadable: [],
+    });
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
     const store = useCleanupStore();
@@ -415,7 +618,7 @@ describe("cleanupStore steamOwnedPrefixes", () => {
     await store.scanOrphans();
     expect(store.steamOwnedPrefixes).toHaveLength(1);
 
-    mockFindSteamOwnedPrefixes.mockResolvedValue([]);
+    mockFindSteamOwnedPrefixes.mockResolvedValue({ prefixes: [], unreadable: [] });
     await store.scanOrphans();
     expect(store.steamOwnedPrefixes).toEqual([]);
   });

@@ -33,12 +33,15 @@ const hoisted = vi.hoisted(() => {
   const MOCK_TOKEN_TTL_MS = 300_000;
   return {
     MOCK_TOKEN_TTL_MS,
-    mockFindOrphans: vi.fn<typeof findOrphans>(async () => []),
+    mockFindOrphans: vi.fn<typeof findOrphans>(async () => ({ orphans: [], unreadable: [] })),
     mockFindIncompleteDeletions: vi.fn<typeof findIncompleteDeletions>(async () => ({
       entries: [],
       unreadable: [],
     })),
-    mockFindSteamOwnedPrefixes: vi.fn<typeof findSteamOwnedPrefixes>(async () => []),
+    mockFindSteamOwnedPrefixes: vi.fn<typeof findSteamOwnedPrefixes>(async () => ({
+      prefixes: [],
+      unreadable: [],
+    })),
     mockReadAllShortcutAppIds: vi.fn<typeof readAllShortcutAppIds>(async () => ({
       status: "none" as const,
     })),
@@ -144,11 +147,11 @@ vi.mock("../../src/core/adapters/tauri", async () => {
  *  erwartete Sprache und der Store-Lifecycle sichtbar sind. */
 export function resetCleanupMocks(): void {
   mockFindOrphans.mockReset();
-  mockFindOrphans.mockResolvedValue([]);
+  mockFindOrphans.mockResolvedValue({ orphans: [], unreadable: [] });
   mockFindIncompleteDeletions.mockReset();
   mockFindIncompleteDeletions.mockResolvedValue({ entries: [], unreadable: [] });
   mockFindSteamOwnedPrefixes.mockReset();
-  mockFindSteamOwnedPrefixes.mockResolvedValue([]);
+  mockFindSteamOwnedPrefixes.mockResolvedValue({ prefixes: [], unreadable: [] });
   mockReadAllShortcutAppIds.mockReset();
   mockReadAllShortcutAppIds.mockResolvedValue({ status: "none" });
   mockFindTrashEntries.mockReset();

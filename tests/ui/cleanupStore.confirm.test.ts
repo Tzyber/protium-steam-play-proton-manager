@@ -166,10 +166,13 @@ describe("cleanupStore, batch_dir_sizes NotFound-Skip", () => {
   });
 
   it("übersprungener pfad → sizeBytes undefined, vorhandener pfad → gemessene größe", async () => {
-    mockFindOrphans.mockResolvedValue([
-      { appId: 12345, type: "compatdata", path: "/lib/compatdata/12345", library: "/lib" },
-      { appId: 99999, type: "compatdata", path: "/lib/compatdata/99999_gone", library: "/lib" },
-    ]);
+    mockFindOrphans.mockResolvedValue({
+      orphans: [
+        { appId: 12345, type: "compatdata", path: "/lib/compatdata/12345", library: "/lib" },
+        { appId: 99999, type: "compatdata", path: "/lib/compatdata/99999_gone", library: "/lib" },
+      ],
+      unreadable: [],
+    });
     mockBatchDirSizes.mockResolvedValue({
       "/lib/compatdata/12345": { status: "measured", sizeBytes: 8192 },
       "/lib/compatdata/99999_gone": { status: "missing" },
@@ -195,9 +198,12 @@ describe("cleanupStore, batch_dir_sizes NotFound-Skip", () => {
   });
 
   it("fehlender batch-map-eintrag ist ein vertragsfehler", async () => {
-    mockFindOrphans.mockResolvedValue([
-      { appId: 12345, type: "compatdata", path: "/lib/compatdata/12345", library: "/lib" },
-    ]);
+    mockFindOrphans.mockResolvedValue({
+      orphans: [
+        { appId: 12345, type: "compatdata", path: "/lib/compatdata/12345", library: "/lib" },
+      ],
+      unreadable: [],
+    });
     mockBatchDirSizes.mockResolvedValue({});
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
@@ -210,9 +216,12 @@ describe("cleanupStore, batch_dir_sizes NotFound-Skip", () => {
   });
 
   it("failed-status bleibt unbekannt und wird nicht als fehlerhafte nullsumme gespeichert", async () => {
-    mockFindOrphans.mockResolvedValue([
-      { appId: 12345, type: "compatdata", path: "/lib/compatdata/12345", library: "/lib" },
-    ]);
+    mockFindOrphans.mockResolvedValue({
+      orphans: [
+        { appId: 12345, type: "compatdata", path: "/lib/compatdata/12345", library: "/lib" },
+      ],
+      unreadable: [],
+    });
     mockBatchDirSizes.mockResolvedValue({
       "/lib/compatdata/12345": { status: "failed", detail: "EIO" },
     });
@@ -227,9 +236,12 @@ describe("cleanupStore, batch_dir_sizes NotFound-Skip", () => {
   });
 
   it("unsicherer measured-wert ist ein vertragsfehler", async () => {
-    mockFindOrphans.mockResolvedValue([
-      { appId: 12345, type: "compatdata", path: "/lib/compatdata/12345", library: "/lib" },
-    ]);
+    mockFindOrphans.mockResolvedValue({
+      orphans: [
+        { appId: 12345, type: "compatdata", path: "/lib/compatdata/12345", library: "/lib" },
+      ],
+      unreadable: [],
+    });
     mockBatchDirSizes.mockResolvedValue({
       "/lib/compatdata/12345": {
         status: "measured",
@@ -247,10 +259,13 @@ describe("cleanupStore, batch_dir_sizes NotFound-Skip", () => {
   });
 
   it("übernimmt bei einem späteren vertragsfehler keinen früheren batch-messwert", async () => {
-    mockFindOrphans.mockResolvedValue([
-      { appId: 12345, type: "compatdata", path: "/lib/compatdata/12345", library: "/lib" },
-      { appId: 12346, type: "compatdata", path: "/lib/compatdata/12346", library: "/lib" },
-    ]);
+    mockFindOrphans.mockResolvedValue({
+      orphans: [
+        { appId: 12345, type: "compatdata", path: "/lib/compatdata/12345", library: "/lib" },
+        { appId: 12346, type: "compatdata", path: "/lib/compatdata/12346", library: "/lib" },
+      ],
+      unreadable: [],
+    });
     mockBatchDirSizes.mockResolvedValue({
       "/lib/compatdata/12345": { status: "measured", sizeBytes: 8192 },
       "/lib/compatdata/12346": {
@@ -269,10 +284,13 @@ describe("cleanupStore, batch_dir_sizes NotFound-Skip", () => {
   });
 
   it("reichert orphan-namen aus steams localconfig an, fallback app-id", async () => {
-    mockFindOrphans.mockResolvedValue([
-      { appId: 12345, type: "compatdata", path: "/lib/compatdata/12345", library: "/lib" },
-      { appId: 99999, type: "compatdata", path: "/lib/compatdata/99999", library: "/lib" },
-    ]);
+    mockFindOrphans.mockResolvedValue({
+      orphans: [
+        { appId: 12345, type: "compatdata", path: "/lib/compatdata/12345", library: "/lib" },
+        { appId: 99999, type: "compatdata", path: "/lib/compatdata/99999", library: "/lib" },
+      ],
+      unreadable: [],
+    });
     mockReadLocalConfig.mockResolvedValue(
       '"UserLocalConfigStore"\n{\n\t"Software"\n\t{\n\t\t"Valve"\n\t\t{\n\t\t\t"Steam"\n\t\t\t{\n\t\t\t\t"Apps"\n\t\t\t\t{\n\t\t\t\t\t"12345"\n\t\t\t\t\t{\n\t\t\t\t\t\t"name"\t\t"Test Game"\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n',
     );
@@ -287,9 +305,12 @@ describe("cleanupStore, batch_dir_sizes NotFound-Skip", () => {
   });
 
   it("unlesbare localconfig → keine namen, kein crash", async () => {
-    mockFindOrphans.mockResolvedValue([
-      { appId: 12345, type: "compatdata", path: "/lib/compatdata/12345", library: "/lib" },
-    ]);
+    mockFindOrphans.mockResolvedValue({
+      orphans: [
+        { appId: 12345, type: "compatdata", path: "/lib/compatdata/12345", library: "/lib" },
+      ],
+      unreadable: [],
+    });
     mockReadLocalConfig.mockRejectedValue(new Error("EACCES"));
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);

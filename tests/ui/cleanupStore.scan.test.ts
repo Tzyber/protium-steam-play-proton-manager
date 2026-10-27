@@ -39,10 +39,13 @@ describe("cleanupStore, scan-generationen", () => {
       library: "/lib",
       sizeBytes: 8192,
     };
-    mockFindOrphans.mockResolvedValueOnce([orphan]);
-    mockFindSteamOwnedPrefixes.mockResolvedValueOnce([
-      { appId: 4628710, path: "/lib/compatdata/4628710", library: "/lib", sizeBytes: 4096 },
-    ]);
+    mockFindOrphans.mockResolvedValueOnce({ orphans: [orphan], unreadable: [] });
+    mockFindSteamOwnedPrefixes.mockResolvedValueOnce({
+      prefixes: [
+        { appId: 4628710, path: "/lib/compatdata/4628710", library: "/lib", sizeBytes: 4096 },
+      ],
+      unreadable: [],
+    });
     mockFindIncompleteDeletions.mockResolvedValueOnce({
       entries: [
         {
@@ -108,6 +111,77 @@ describe("cleanupStore, scan-generationen", () => {
     expect(store.error).toContain("scan-ergebnis");
   });
 
+  it("übernimmt unlesbares compatdata trotz frühabbruch und sperrt nur den prefix-bereich", async () => {
+    // Verdrahtung (Befund 1): `findOrphans` liefert den unlesbaren ort typ-genau,
+    // die leere orphan-liste darf den wert nicht verschlucken (der frühabbruch
+    // „keine orphans/prefixes“ kommt danach) und die Sperre muss typ-genau greifen.
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    const unreadableDir = "/lib/steamapps/compatdata";
+    mockFindOrphans.mockResolvedValueOnce({
+      orphans: [],
+      unreadable: [{ path: unreadableDir, type: "compatdata" }],
+    });
+
+    await store.scanOrphans();
+
+    expect(store.orphans).toEqual([]);
+    expect(store.orphanUnreadable).toEqual([{ path: unreadableDir, type: "compatdata" }]);
+    // ein unlesbares compatdata sperrt die prefixes, nicht die shader-caches
+    expect(store.orphanDeleteBlocked("compatdata")).toBe(true);
+    expect(store.prefixUnavailable).toBe(true);
+    expect(store.orphanDeleteBlocked("shadercache")).toBe(false);
+    expect(store.shaderUnavailable).toBe(false);
+  });
+
+  it("übernimmt unlesbares shadercache und sperrt nur den shader-bereich", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    const unreadableDir = "/lib/steamapps/shadercache";
+    mockFindOrphans.mockResolvedValueOnce({
+      orphans: [],
+      unreadable: [{ path: unreadableDir, type: "shadercache" }],
+    });
+
+    await store.scanOrphans();
+
+    expect(store.orphanUnreadable).toEqual([{ path: unreadableDir, type: "shadercache" }]);
+    expect(store.orphanDeleteBlocked("shadercache")).toBe(true);
+    expect(store.shaderUnavailable).toBe(true);
+    // der prefix-bereich erbt die sperre nicht
+    expect(store.orphanDeleteBlocked("compatdata")).toBe(false);
+    expect(store.prefixUnavailable).toBe(false);
+  });
+
+  it("dedupliziert die unlesbaren orte beider scans nach pfad und typ", async () => {
+    // beide scans sehen dieselben compatdata-verzeichnisse; der ort darf nur
+    // einmal gemeldet und deshalb auch nur einmal gesperrt werden.
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    const unreadableDir = "/lib/steamapps/compatdata";
+    mockFindOrphans.mockResolvedValueOnce({
+      orphans: [],
+      unreadable: [{ path: unreadableDir, type: "compatdata" }],
+    });
+    mockFindSteamOwnedPrefixes.mockResolvedValueOnce({
+      prefixes: [],
+      unreadable: [
+        { path: unreadableDir, type: "compatdata" },
+        { path: "/lib/steamapps/shadercache", type: "shadercache" },
+      ],
+    });
+
+    await store.scanOrphans();
+
+    expect(store.orphanUnreadable).toEqual([
+      { path: unreadableDir, type: "compatdata" },
+      { path: "/lib/steamapps/shadercache", type: "shadercache" },
+    ]);
+  });
+
   it("verwirft stale orphan-ergebnisse samt catch und finally", async () => {
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
@@ -125,7 +199,9 @@ describe("cleanupStore, scan-generationen", () => {
       path: "/new/shadercache/730",
       library: "/new",
     };
-    mockFindOrphans.mockImplementationOnce(() => first.promise).mockResolvedValueOnce([newOrphan]);
+    mockFindOrphans
+      .mockImplementationOnce(() => first.promise)
+      .mockResolvedValueOnce({ orphans: [newOrphan], unreadable: [] });
 
     const oldScan = store.scanOrphans();
     await vi.waitFor(() => expect(mockFindOrphans).toHaveBeenCalledTimes(1));
@@ -134,7 +210,7 @@ describe("cleanupStore, scan-generationen", () => {
     expect(store.orphans).toEqual([newOrphan]);
     expect(store.scanning).toBe(false);
 
-    first.resolve([oldOrphan]);
+    first.resolve({ orphans: [oldOrphan], unreadable: [] });
     await oldScan;
     expect(store.orphans).toEqual([newOrphan]);
     expect(store.scanning).toBe(false);
@@ -225,7 +301,7 @@ describe("cleanupStore, scan-generationen", () => {
     store.scanning = false;
     store.trashScanning = false;
 
-    orphanRead.resolve([staleOrphan]);
+    orphanRead.resolve({ orphans: [staleOrphan], unreadable: [] });
     trashRead.reject(new Error("stale trash-fehler"));
     await Promise.all([orphanScan, trashScan]);
 
@@ -259,7 +335,7 @@ describe("cleanupStore, scan-generationen", () => {
     const orphanScan = store.scanOrphans();
     await vi.waitFor(() => expect(mockFindOrphans).toHaveBeenCalledTimes(1));
     await store.scanTrash();
-    orphanResult.resolve([orphan]);
+    orphanResult.resolve({ orphans: [orphan], unreadable: [] });
     await orphanScan;
 
     expect(store.orphans).toEqual([orphan]);

@@ -77,6 +77,69 @@ describe("CleanupView incomplete deletions", () => {
     expect(wrapper.get("#cv-panel-trash").text()).toContain(t("cleanup.trashEmptyState"));
   });
 
+  it("unlesbares compatdata zeigt im prefix-tab cleanup.unavailable statt leer", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    store.orphanUnreadable = [{ path: "/steam/steamapps/compatdata", type: "compatdata" }];
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+    await wrapper.get("#cv-tab-prefixes").trigger("click");
+
+    const panel = wrapper.get("#cv-panel-prefixes").text();
+    expect(panel).not.toContain(t("cleanup.empty"));
+    expect(panel).toContain(t("cleanup.unavailable"));
+    // typ-genau (Befund 1): der shadercache-bereich bleibt lesbar und leer
+    const shaderPanel = wrapper.get("#cv-panel-shaders").text();
+    expect(shaderPanel).not.toContain(t("cleanup.unavailable"));
+    expect(shaderPanel).toContain(t("cleanup.empty"));
+  });
+
+  it("gemischter fall: lesbarer orphan plus unlesbares verzeichnis zeigt die scan-notice", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    const unreadableDir = "/steam/steamapps/shadercache";
+    const orphan = makeOrphan(4711, "compatdata");
+    store.orphans = [orphan];
+    store.orphanUnreadable = [{ path: unreadableDir, type: "shadercache" }];
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+
+    // der lesbare eintrag bleibt sichtbar …
+    expect(wrapper.get("#cv-panel-shaders").text()).not.toContain(t("cleanup.empty"));
+    // … und der unlesbare ort wird zusätzlich zur liste gemeldet (INV-2).
+    expect(wrapper.text()).toContain(t("cleanup.unreadableDirs", { paths: unreadableDir }));
+    // kein library-scan-fehler für verzeichnisse mehr (eigener key, Befund 2)
+    expect(wrapper.text()).not.toContain(t("errors.scanIncomplete", { paths: unreadableDir }));
+    await wrapper.get("#cv-tab-prefixes").trigger("click");
+    expect(wrapper.get("#cv-panel-prefixes").text()).toContain(orphan.path);
+  });
+
+  it("papierkorb-tab: die notice der unlesbaren orphan-ordner bleibt sichtbar (akzeptierte doppelmeldung)", async () => {
+    // Befund 11: die notices stehen ÜBER den drei panels, sind also nicht
+    // tab-gebunden. Ein Tab-Prop müsste in CleanupView.vue verdrahtet werden;
+    // die Datei liegt außerhalb dieses Korrekturauftrags. Der rein unlesbare
+    // Fall zeigt deshalb die notice und zusätzlich den generischen
+    // panel-zustand "ergebnis nicht verfügbar" – bewusst festgehalten, damit
+    // ein späterer Umbau die Doppelmeldung nicht unbemerkt einführt/entfernt.
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    const unreadableDir = "/steam/steamapps/compatdata";
+    store.orphanUnreadable = [{ path: unreadableDir, type: "compatdata" }];
+    store.trashError = t("cleanup.trashUnreadable", { paths: "/lib" });
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+    await wrapper.get("#cv-tab-trash").trigger("click");
+
+    expect(wrapper.text()).toContain(t("cleanup.unreadableDirs", { paths: unreadableDir }));
+    expect(wrapper.get("#cv-panel-trash").text()).toContain(t("cleanup.unavailable"));
+  });
+
   it("blockiert den trash-leerzustand bei unbekannten einträgen", async () => {
     const store = useCleanupStore();
     vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);

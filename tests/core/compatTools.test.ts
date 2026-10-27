@@ -196,6 +196,101 @@ describe("parseCompatToolMapping (case-insensitive traversal)", () => {
   });
 });
 
+// F5.4: Steam legt die zuordnung in zwei layouts ab. Der lesepfad liest beide
+// und ist first-wins; der löschpfad (delete_usage.rs:404-413) vereinigt beide
+// layouts und kann deshalb mehr apps nennen.
+describe("parseCompatToolMapping liest beide mapping-layouts", () => {
+  const klassisch = (inner: string): string => `"InstallConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"CompatToolMapping"
+				{
+${inner}
+				}
+			}
+		}
+	}
+}`;
+
+  const flach = (inner: string): string => `"Software"
+{
+	"Valve"
+	{
+		"Steam"
+		{
+			"CompatToolMapping"
+			{
+${inner}
+			}
+		}
+	}
+}`;
+
+  it("liest das flache Software-layout", () => {
+    const cfg = flach(`					"730"
+					{
+						"name"		"proton_experimental"
+					}`);
+    const map = parseCompatToolMapping(cfg);
+    expect(map.get(730)).toBe("proton_experimental");
+    expect(map.size).toBe(1);
+  });
+
+  it("liest beide layouts aus einem dokument", () => {
+    const cfg = `${klassisch(`					"620"
+					{
+						"name"		"GE-Proton9-27"
+					}`)}
+${flach(`					"730"
+					{
+						"name"		"proton_experimental"
+					}`)}`;
+    const map = parseCompatToolMapping(cfg);
+    expect(map.get(620)).toBe("GE-Proton9-27");
+    expect(map.get(730)).toBe("proton_experimental");
+    expect(map.size).toBe(2);
+  });
+
+  it("erste zuordnung je AppID gewinnt bei doppelten einträgen", () => {
+    const cfg = `${klassisch(`					"620"
+					{
+						"name"		"GE-Proton9-27"
+					}`)}
+${flach(`					"620"
+					{
+						"name"		"proton_experimental"
+					}
+					"730"
+					{
+						"name"		"proton-cachyos-slr"
+					}`)}`;
+    const map = parseCompatToolMapping(cfg);
+    expect(map.get(620)).toBe("GE-Proton9-27");
+    // der nicht-konflikt-eintrag des zweiten layouts bleibt sichtbar
+    expect(map.get(730)).toBe("proton-cachyos-slr");
+    expect(map.size).toBe(2);
+  });
+
+  it('behält "0" aus dem ersten layout als globalen default', () => {
+    const cfg = `${klassisch(`					"0"
+					{
+						"name"		"proton-cachyos-slr"
+					}`)}
+${flach(`					"0"
+					{
+						"name"		"proton_experimental"
+					}`)}`;
+    const map = parseCompatToolMapping(cfg);
+    expect(map.get(0)).toBe("proton-cachyos-slr");
+    expect(map.size).toBe(1);
+  });
+});
+
 describe("readToolVdf", () => {
   it('entschärft \\" und \\\\ in display_name', () => {
     const tool = readToolVdf(
@@ -239,9 +334,12 @@ describe("readToolVdf", () => {
 });
 
 // vertragstest S-03: die datei ist der byte-genaue output von
-// extract_vdf_block (src-tauri/src/commands/vdf_patch_tests.rs,
+// extract_vdf_block für das klassische layout
+// (src-tauri/src/commands/vdf_patch_tests.rs,
 // cross_parser_mapping_ist_echter_rust_output). So kommt config.vdf im
-// frontend an: nur das mapping, ohne login-tokens.
+// frontend an: nur das mapping, ohne login-tokens. Seit F5.4 liefert der
+// produktive pfad (reduce_compat_config) zusätzlich das flache layout; die
+// mehrfach-wurzel-form ist im block "beide mapping-layouts" oben gepinnt.
 describe("parseCompatToolMapping liest das reduzierte config.vdf", () => {
   const RUST_OUTPUT = readFileSync(
     resolve(import.meta.dirname, "../fixtures/cross-parser-mapping-expected.vdf"),
@@ -261,5 +359,48 @@ describe("parseCompatToolMapping liest das reduzierte config.vdf", () => {
     for (const secret of ["ConnectCache", "geheim", "Accounts", "SentryFile"]) {
       expect(RUST_OUTPUT).not.toContain(secret);
     }
+  });
+});
+
+// Cross-parser-vertrag für beide layouts: die datei ist der byte-genaue output
+// von reduce_compat_config für einen text mit klassischem UND flachem layout
+// (src-tauri/src/commands/fs_ops_tests.rs,
+// reduce_compat_config_beide_layouts_ist_byte_gleich_der_fixture).
+describe("parseCompatToolMapping liest das reduzierte config.vdf mit beiden layouts", () => {
+  const RUST_OUTPUT = readFileSync(
+    resolve(import.meta.dirname, "../fixtures/cross-parser-mapping-both-layouts.vdf"),
+    "utf8",
+  );
+
+  it("sieht die AppIDs aus beiden layouts", () => {
+    const mapping = parseCompatToolMapping(RUST_OUTPUT);
+    expect(mapping.get(620)).toBe("GE-Proton9-1");
+    expect(mapping.get(730)).toBe("proton_experimental");
+    expect(mapping.size).toBe(2);
+  });
+
+  it("enthält keine login-daten", () => {
+    for (const secret of ["ConnectCache", "geheim", "Accounts", "SentryFile"]) {
+      expect(RUST_OUTPUT).not.toContain(secret);
+    }
+  });
+});
+
+// Gegenprobe zum selben vertrag: liegt nur das klassische layout vor, besteht
+// das reduzierte dokument aus dem klassischen block plus dem leeren gerüst des
+// flachen layouts als zweitem root-knoten. Die gerüst-form ist in
+// reduce_compat_config_klassisch_ohne_flach_haelt_leeres_geruest gepinnt.
+describe("parseCompatToolMapping liest das reduzierte config.vdf ohne flaches layout", () => {
+  const KLASSISCH_ONLY = readFileSync(
+    resolve(import.meta.dirname, "../fixtures/cross-parser-mapping-expected.vdf"),
+    "utf8",
+  );
+  const LEERES_GERUEST = '"Software"\n{\n"Valve"\n{\n"Steam"\n{\n\n}\n}\n}';
+
+  it("liefert nur die klassischen AppIDs", () => {
+    const mapping = parseCompatToolMapping(`${KLASSISCH_ONLY}\n${LEERES_GERUEST}`);
+    expect(mapping.get(0)).toBe("proton_experimental");
+    expect(mapping.get(620)).toBe("GE-Proton9-1");
+    expect(mapping.size).toBe(2);
   });
 });

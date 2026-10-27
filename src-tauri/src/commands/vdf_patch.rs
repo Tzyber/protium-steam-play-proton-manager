@@ -459,33 +459,74 @@ pub fn get_vdf_value(text: &str, path: &[&str]) -> Result<Option<String>, String
     Ok(None)
 }
 
+/// Liefert für jeden Pfad in `paths` den Block unter diesem Pfad, eingebettet
+/// in die Vorfahren-Keys, und verbindet die Ergebnisse mit `\n`. Alles andere
+/// fällt weg (S-03: `config.vdf` trägt neben dem Mapping auch Login-Tokens).
+/// Fehlt ein Block, bleibt für ihn nur das leere Gerüst.
+///
+/// Der Text wird genau **einmal** tokenisiert: seit F5.4 liest der Aufrufer
+/// mehrere Mapping-Layouts aus derselben `config.vdf`. Die Blöcke folgen in der
+/// Reihenfolge von `paths`; jeder ist ein eigenständiger Root-Knoten, das
+/// verbundene Dokument hat also mehrere Wurzeln (der TS-Parser liest sie
+/// entsprechend).
+///
+/// Eine leere Pfadliste ist ein Aufruferfehler und wird mit `INVALID_ID`
+/// abgelehnt: ein vergessener Layout-Pfad soll nicht still als leerer Erfolg
+/// (`""`) durchgehen und damit als „kein Mapping vorhanden" gelesen werden.
+pub fn extract_vdf_blocks(text: &str, paths: &[&[&str]]) -> Result<String, String> {
+    /// Bisherige Verschachtelungslogik für genau einen Pfad; `tokens` ist der
+    /// gemeinsame Tokenstrom des ganzen Textes.
+    fn one(text: &str, tokens: &[Token], path: &[&str]) -> Result<String, String> {
+        let Some((_, ancestors)) = path.split_last() else {
+            return Err(errcode::with_detail(errcode::INVALID_ID, "empty path"));
+        };
+        let (mut from, mut to) = (0, tokens.len());
+        let mut block = String::new();
+        for (depth, &key) in path.iter().enumerate() {
+            let Some(Entry {
+                key: key_token,
+                block: Some((sub_from, sub_to)),
+                ..
+            }) = find_entry(tokens, from, to, key)?
+            else {
+                break;
+            };
+            if depth == ancestors.len() {
+                block = text[key_token.start..tokens[sub_to].end].to_string();
+            }
+            (from, to) = (sub_from, sub_to);
+        }
+        Ok(ancestors.iter().rev().fold(block, |inner, key| {
+            format!("{}\n{{\n{inner}\n}}", quote(key))
+        }))
+    }
+
+    if paths.is_empty() {
+        return Err(errcode::with_detail(errcode::INVALID_ID, "empty path list"));
+    }
+
+    let tokens = tokenize(text)?;
+    let mut blocks = Vec::with_capacity(paths.len());
+    for path in paths {
+        blocks.push(one(text, &tokens, path)?);
+    }
+    Ok(blocks.join("\n"))
+}
+
 /// Liefert nur den Block unter `path`, eingebettet in die Vorfahren-Keys.
 /// Alles andere fällt weg (S-03: `config.vdf` trägt neben dem Mapping auch
 /// Login-Tokens). Fehlt der Block, bleibt nur das leere Gerüst.
-pub fn extract_vdf_block(text: &str, path: &[&str]) -> Result<String, String> {
-    let Some((_, ancestors)) = path.split_last() else {
-        return Err(errcode::with_detail(errcode::INVALID_ID, "empty path"));
-    };
-    let tokens = tokenize(text)?;
-    let (mut from, mut to) = (0, tokens.len());
-    let mut block = String::new();
-    for (depth, &key) in path.iter().enumerate() {
-        let Some(Entry {
-            key: key_token,
-            block: Some((sub_from, sub_to)),
-            ..
-        }) = find_entry(&tokens, from, to, key)?
-        else {
-            break;
-        };
-        if depth == ancestors.len() {
-            block = text[key_token.start..tokens[sub_to].end].to_string();
-        }
-        (from, to) = (sub_from, sub_to);
-    }
-    Ok(ancestors.iter().rev().fold(block, |inner, key| {
-        format!("{}\n{{\n{inner}\n}}", quote(key))
-    }))
+///
+/// Wrapper um [`extract_vdf_blocks`] für genau einen Pfad; seit F5.4 liest der
+/// produktive Pfad (`fs_ops::reduce_compat_config`) mehrere Layouts, deshalb
+/// lebt der Einzelpfad-Einstieg nur noch für die Vertragstests
+/// (`extract_vdf_block_*`, `cross_parser_mapping_ist_echter_rust_output`).
+/// Bewusst ohne `pub`: außerhalb der Testmodule (`mod tests` und
+/// `fs_ops::tests`) gibt es keinen Aufrufer, und ein exportierter Einzelpfad-
+/// Einstieg würde den Mehr-Layout-Vertrag wieder aufweichen.
+#[cfg(test)]
+fn extract_vdf_block(text: &str, path: &[&str]) -> Result<String, String> {
+    extract_vdf_blocks(text, &[path])
 }
 
 pub fn set_vdf_value(text: &str, path: &[&str], value: &str) -> Result<String, String> {
@@ -520,6 +561,8 @@ pub fn remove_vdf_entry(text: &str, path: &[&str]) -> Result<String, String> {
     remove_in_scope(text, &tokens, 0, tokens.len(), path)
 }
 
+// `pub(crate)`, damit `fs_ops::tests` den geteilten Layout-Testtext
+// (`tests::BEIDE_LAYOUTS`) mitbenutzt, statt ihn zu duplizieren (Befund 12).
 #[cfg(test)]
 #[path = "vdf_patch_tests.rs"]
-mod tests;
+pub(crate) mod tests;

@@ -10,24 +10,47 @@ import { unescapeVdfRaw } from "./vdfTokenizer.js";
 /** appId → compat-tool-name (interner name, wie in config.vdf). */
 export type CompatToolMapping = Map<number, string>;
 
-// Ein fehlender Teilbaum ergibt eine leere Map; ungültiges VDF wirft.
+/** Beide layouts, in denen Steam die zuordnung ablegt, in fester reihenfolge:
+ *  das klassische `InstallConfigStore`-dokument und ein flaches `Software`-
+ *  dokument. Die reihenfolge ist teil des vertrags, weil der erste treffer je
+ *  AppID gewinnt. */
+const MAPPING_ROOTS = [
+  ["InstallConfigStore", "Software", "Valve", "Steam", "CompatToolMapping"],
+  ["Software", "Valve", "Steam", "CompatToolMapping"],
+] as const;
+
+// Ein fehlender teilbaum ergibt eine leere Map; ungültiges VDF wirft.
 export function parseCompatToolMapping(configVdfText: string): CompatToolMapping {
   const root = parseVdf(configVdfText);
-  const mappingNode = asNode(
-    getPath(root, "InstallConfigStore", "Software", "Valve", "Steam", "CompatToolMapping"),
-  );
   const out: CompatToolMapping = new Map();
-  if (!mappingNode) return out;
+  // Beide layout-pfade werden gelesen, in der reihenfolge von MAPPING_ROOTS.
+  // Lesepfad ist first-wins: `out.has(appId)` hält die erste zuordnung je
+  // AppID fest. Der löschpfad (delete_usage.rs:404-413) vereinigt beide layouts
+  // und kann deshalb mehr apps nennen als diese anzeige zeigt; die divergence
+  // ist bewusst (P2/5.4).
+  //
+  // Dritte divergence: der schreibpfad (steam.rs `save_compat_tool`) kennt
+  // weiterhin nur das klassische layout. Eine zuordnung, die ausschließlich im
+  // flachen `Software`-dokument steht, wird hier also angezeigt, bleibt beim
+  // speichern/entfernen dort aber unberührt: `remove_vdf_entry` findet den
+  // klassischen pfad nicht und ist ein no-op, `set_vdf_value` patcht den
+  // klassischen pfad (und legt ihn bei bedarf an), das flache dokument bleibt
+  // unverändert. Auch diese divergence ist bewusst und hier nur dokumentiert,
+  // nicht repariert (P2/5.4).
+  for (const path of MAPPING_ROOTS) {
+    const mappingNode = asNode(getPath(root, ...path));
+    if (!mappingNode) continue;
 
-  for (const key of Object.keys(mappingNode)) {
-    // "0" ist die globale standard-zuordnung in Steam (scan/tools.ts liest
-    // mapping.get(0)). Alle übrigen keys müssen sichere steam-app-ids sein:
-    // eine reine ziffernprüfung hat keine obergrenze (400 ziffern ergeben in
-    // Number() Infinity), parseSafeAppId prüft 1 <= id <= u32::MAX.
-    const appId = key === "0" ? 0 : parseSafeAppId(key);
-    if (appId === null) continue;
-    const name = asString(getPath(mappingNode, key, "name"));
-    if (name && name.trim() !== "") out.set(appId, name);
+    for (const key of Object.keys(mappingNode)) {
+      // "0" ist die globale standard-zuordnung in Steam (scan/tools.ts liest
+      // mapping.get(0)). Alle übrigen keys müssen sichere steam-app-ids sein:
+      // eine reine ziffernprüfung hat keine obergrenze (400 ziffern ergeben in
+      // Number() Infinity), parseSafeAppId prüft 1 <= id <= u32::MAX.
+      const appId = key === "0" ? 0 : parseSafeAppId(key);
+      if (appId === null) continue;
+      const name = asString(getPath(mappingNode, key, "name"));
+      if (name && name.trim() !== "" && !out.has(appId)) out.set(appId, name);
+    }
   }
   return out;
 }

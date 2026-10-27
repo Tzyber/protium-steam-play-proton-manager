@@ -25,6 +25,15 @@ const shortcutBlockedItems = computed(() =>
     t("cleanup.blockedItem", { path, class: formatErrorKind("unreadable") }),
   ),
 );
+
+/** typ-genaue Meldung der unlesbaren Basisverzeichnisse. Der Text nennt die
+ *  Pfade ohne Typ; welche Sperre daran hängt, zeigt der jeweilige Panel-Zustand
+ *  ("ergebnis nicht verfügbar"). */
+const unreadableOrphanDirs = computed(() => {
+  if (!cleanup.orphanUnreadable.length) return null;
+  const paths = [...new Set(cleanup.orphanUnreadable.map((entry) => entry.path))];
+  return t("cleanup.unreadableDirs", { paths: paths.join(", ") });
+});
 </script>
 
 <template>
@@ -35,6 +44,10 @@ const shortcutBlockedItems = computed(() =>
     :items="blockedItems"
     :guarantee="t('cleanup.guaranteeScope')"
   />
+
+  <div v-if="unreadableOrphanDirs" class="blocked" role="alert">
+    {{ unreadableOrphanDirs }}
+  </div>
 
   <div v-if="cleanup.pathMissingLibs.length" class="pathmissing">
     <p class="pm-title">{{ t("cleanup.pathMissingTitle") }}</p>

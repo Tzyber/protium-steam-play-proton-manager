@@ -303,7 +303,9 @@ describe("cleanupStore, S-02: Pfadbasierte Keys (A-04)", () => {
     expect(store.trashUnavailable).toBe(false);
 
     store.blockedBySkipped = false;
-    store.orphanError = "orphan-scan failed";
+    // ein scan-fehler belegt beide felder (M2: die anzeige-getter lesen die
+    // scan-basis, ein reiner lösch-text in `orphanError` sperrt sie nicht mehr).
+    store.setOrphanScanError("orphan-scan failed");
     expect(store.shaderUnavailable).toBe(true);
     expect(store.prefixUnavailable).toBe(true);
     expect(store.trashUnavailable).toBe(false);
@@ -329,7 +331,7 @@ describe("cleanupStore, S-02: Pfadbasierte Keys (A-04)", () => {
     store.orphans = [entry1, entry2];
 
     // Mock findOrphans beim rescan so, dass nur noch entry2 existiert
-    mockFindOrphans.mockResolvedValue([entry2]);
+    mockFindOrphans.mockResolvedValue({ orphans: [entry2], unreadable: [] });
 
     await store.deleteOrphans([entry1]);
     await useConfirmStore().confirm();
@@ -358,7 +360,7 @@ describe("cleanupStore, orphan-scanfehler beim löschen", () => {
   const prepareFailure = new Error("path-missing");
 
   async function scanWithSizeFailure() {
-    mockFindOrphans.mockResolvedValue([kept, failing]);
+    mockFindOrphans.mockResolvedValue({ orphans: [kept, failing], unreadable: [] });
     mockBatchDirSizes.mockRejectedValueOnce(sizeFailure);
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
@@ -394,7 +396,7 @@ describe("cleanupStore, orphan-scanfehler beim löschen", () => {
   });
 
   it("ein löschfehler sperrt den nächsten versuch nicht und staut nicht auf", async () => {
-    mockFindOrphans.mockResolvedValue([kept, failing]);
+    mockFindOrphans.mockResolvedValue({ orphans: [kept, failing], unreadable: [] });
     useScanStore().result = fakeScan([]);
     const store = useCleanupStore();
     await store.scanOrphans();
