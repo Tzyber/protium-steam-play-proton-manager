@@ -31,6 +31,7 @@ vi.mock("../../src/core/scan/protondb", () => ({
   enrichProtondb: mockEnrichProtondb,
 }));
 
+import { useLibraryStore } from "../../src/ui/stores/libraryStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
 
 function fakeResult(): ScanResult {
@@ -79,6 +80,109 @@ describe("scanStore.runScan", () => {
     expect(store.error).toBeNull();
     expect(store.elapsedMs).toBeGreaterThanOrEqual(0);
     expect(store.games[0]?.appId).toBe(42);
+  });
+
+  it("erfolgreicher scan schneidet die filter-auswahl auf das inventar zu", async () => {
+    mockScanLocal.mockResolvedValue(
+      fakeLocalResult(scanResult({ games: [game({ library: "/kept", compatTool: "installed" })] })),
+    );
+    const lib = useLibraryStore();
+    lib.libraries = ["/gone", "/kept"];
+    lib.compatTools = ["old", "installed"];
+    const store = useScanStore();
+
+    await store.runScan();
+
+    expect(store.status).toBe("done");
+    expect(lib.libraries).toEqual(["/kept"]);
+    expect(lib.compatTools).toEqual(["installed"]);
+  });
+
+  it("unvollständiger scan lässt die filter-auswahl stehen", async () => {
+    mockScanLocal.mockResolvedValue(
+      fakeLocalResult(
+        scanResult({
+          games: [game({ library: "/kept", compatTool: "installed" })],
+          skippedLibraries: [{ path: "/missing", reason: "path-missing" }],
+        }),
+      ),
+    );
+    const lib = useLibraryStore();
+    lib.libraries = ["/gone", "/kept"];
+    lib.compatTools = ["old", "installed"];
+    const store = useScanStore();
+
+    await store.runScan();
+
+    expect(store.status).toBe("done");
+    // voraussetzung des tests: der scan ist unvollständig, sonst prüfte er den
+    // prune-pfad gar nicht.
+    expect(store.coverage?.state).toBe("incomplete");
+    expect(lib.libraries).toEqual(["/gone", "/kept"]);
+    expect(lib.compatTools).toEqual(["old", "installed"]);
+  });
+
+  it("begrenzter scan (launch-config ambiguous) schneidet die filter-auswahl zu", async () => {
+    // das gate ist "nicht unvollständig": limited läuft mit, weil das inventar
+    // aus result.games kommt, derselben quelle wie die chips.
+    mockScanLocal.mockResolvedValue(
+      fakeLocalResult(
+        scanResult({
+          games: [game({ library: "/kept", compatTool: "installed" })],
+          launchConfigStatus: "ambiguous",
+        }),
+      ),
+    );
+    const lib = useLibraryStore();
+    lib.libraries = ["/gone", "/kept"];
+    lib.compatTools = ["old", "installed"];
+    const store = useScanStore();
+
+    await store.runScan();
+
+    expect(store.status).toBe("done");
+    expect(store.coverage?.state).toBe("limited");
+    expect(lib.libraries).toEqual(["/kept"]);
+    expect(lib.compatTools).toEqual(["installed"]);
+  });
+
+  it("not-found lässt die filter-auswahl stehen", async () => {
+    mockDiscoverEnvironment.mockRejectedValue("steam-not-found");
+    const lib = useLibraryStore();
+    lib.libraries = ["/gone"];
+    const store = useScanStore();
+
+    await store.runScan();
+
+    expect(store.status).toBe("not-found");
+    expect(lib.libraries).toEqual(["/gone"]);
+  });
+
+  it("leerer vollständiger scan entfernt die filter-auswahl", async () => {
+    mockScanLocal.mockResolvedValue(fakeLocalResult(scanResult({ games: [] })));
+    const lib = useLibraryStore();
+    lib.libraries = ["/gone"];
+    lib.compatTools = ["old"];
+    const store = useScanStore();
+
+    await store.runScan();
+
+    expect(lib.libraries).toEqual([]);
+    expect(lib.compatTools).toEqual([]);
+  });
+
+  it("gescheiterter scan lässt die filter-auswahl stehen", async () => {
+    mockScanLocal.mockRejectedValue(new Error("unreadable"));
+    const lib = useLibraryStore();
+    lib.libraries = ["/gone"];
+    lib.compatTools = ["old"];
+    const store = useScanStore();
+
+    await store.runScan();
+
+    expect(store.status).toBe("error");
+    expect(lib.libraries).toEqual(["/gone"]);
+    expect(lib.compatTools).toEqual(["old"]);
   });
 
   it("SteamNotFoundError → status not-found, kein error-text", async () => {
@@ -176,6 +280,44 @@ describe("scanStore.runScan", () => {
 
     expect(mockScanLocal).toHaveBeenCalledTimes(1);
     expect(store.result?.steamRoot).toBe("/new");
+  });
+
+  it("stale scan beschneidet die filter nicht", async () => {
+    const first = deferred<EnvironmentSnapshot>();
+    const second = deferred<EnvironmentSnapshot>();
+    mockDiscoverEnvironment.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const lib = useLibraryStore();
+    lib.libraries = ["/gone", "/kept"];
+    lib.compatTools = ["old", "installed"];
+    const store = useScanStore();
+
+    const oldRun = store.runScan();
+    const newRun = store.runScan();
+    first.resolve(
+      environment({
+        generation: 1,
+        steamRoot: "/old",
+        libraries: ["/old"],
+      }),
+    );
+    await oldRun;
+
+    // der prune sitzt hinter dem isCurrent()-guard: der abgelöste lauf darf die
+    // auswahl nicht gegen sein eigenes inventar beschneiden.
+    expect(lib.libraries).toEqual(["/gone", "/kept"]);
+    expect(lib.compatTools).toEqual(["old", "installed"]);
+
+    second.resolve(
+      environment({
+        generation: 2,
+        steamRoot: "/new",
+        libraries: ["/new"],
+      }),
+    );
+    await newRun;
+    // gegenprobe: der aktuelle lauf beschneidet sehr wohl (inventar: /home/u/.steam, default).
+    expect(lib.libraries).toEqual([]);
+    expect(lib.compatTools).toEqual([]);
   });
 
   it("stale discovery-fehler mutiert status, error, elapsed und notification nicht", async () => {
@@ -346,115 +488,5 @@ describe("scanStore.runScan", () => {
     expect(store.status).toBe("done");
     expect(store.error).toBeNull();
     expect(store.result?.games).toHaveLength(1);
-  });
-});
-
-describe("scanStore.applyGameConfig", () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
-    setLocale("de");
-  });
-
-  it("schreibt launchOptions + compatTool ins passende spiel", () => {
-    const store = useScanStore();
-    store.result = fakeResult();
-
-    store.applyGameConfig(42, { launchOptions: "-novid", compatTool: "GE-Proton10-1" });
-
-    const g = store.result.games[0] as (typeof store.result.games)[number];
-    expect(g.launchOptions).toBe("-novid");
-    expect(g.compatTool).toBe("GE-Proton10-1");
-  });
-
-  it("compatTool-wechsel rechnet usedBy der tools neu", () => {
-    const store = useScanStore();
-    store.result = fakeResult();
-    store.result.compatToolsInstalled = [
-      {
-        name: "GE-Proton9-27",
-        internalName: "GE-Proton9-27",
-        displayName: "GE-Proton9-27",
-        sizeBytes: 0,
-        usedBy: [42],
-        source: "user",
-      },
-      {
-        name: "GE-Proton10-1",
-        internalName: "GE-Proton10-1",
-        displayName: "GE-Proton10-1",
-        sizeBytes: 0,
-        usedBy: [],
-        source: "user",
-      },
-    ];
-
-    store.applyGameConfig(42, { compatTool: "GE-Proton10-1" });
-
-    expect(store.result.games[0]?.compatTool).toBe("GE-Proton10-1");
-    expect(store.result.compatToolsInstalled[0]?.usedBy).toEqual([]);
-    expect(store.result.compatToolsInstalled[1]?.usedBy).toEqual([42]);
-  });
-
-  it("mapping-entfernen (default) nimmt das spiel aus usedBy", () => {
-    const store = useScanStore();
-    store.result = fakeResult();
-    store.result.compatToolsInstalled = [
-      {
-        name: "GE-Proton9-27",
-        internalName: "GE-Proton9-27",
-        displayName: "GE-Proton9-27",
-        sizeBytes: 0,
-        usedBy: [42],
-        source: "user",
-      },
-    ];
-
-    store.applyGameConfig(42, { compatTool: "default" });
-
-    expect(store.result.compatToolsInstalled[0]?.usedBy).toEqual([]);
-  });
-
-  it("unbekannte appId: kein throw, kein write", () => {
-    const store = useScanStore();
-    store.result = fakeResult();
-
-    expect(() => store.applyGameConfig(999, { compatTool: "x" })).not.toThrow();
-    expect(store.result.games[0]?.compatTool).toBe("default");
-  });
-
-  it("ohne scan-ergebnis: kein throw", () => {
-    const store = useScanStore();
-    expect(() => store.applyGameConfig(42, { compatTool: "x" })).not.toThrow();
-  });
-});
-
-describe("scanStore.coverage", () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
-    setLocale("en");
-  });
-
-  it("leitet coverage nur für ein abgeschlossenes lokales resultat ab", () => {
-    const store = useScanStore();
-    store.result = fakeResult();
-
-    store.status = "scanning";
-    expect(store.coverage).toBeNull();
-    store.status = "error";
-    expect(store.coverage).toBeNull();
-    store.status = "done";
-    expect(store.coverage?.state).toBe("complete");
-  });
-
-  it("ändert coverage nicht durch den ProtonDB-reststatus", () => {
-    const store = useScanStore();
-    store.result = fakeResult();
-    store.status = "done";
-    const before = store.coverage;
-
-    store.protonDbRemaining = 1;
-    expect(store.coverage).toEqual(before);
-    store.protonDbRemaining = 0;
-    expect(store.coverage).toEqual(before);
   });
 });

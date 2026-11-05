@@ -116,6 +116,45 @@ describe("libraryStore", () => {
     expect(lib.librarySet.size).toBe(0);
   });
 
+  it("pruneFilters entfernt tote library- und tool-werte und erhält die reihenfolge der auswahl", () => {
+    const lib = useLibraryStore();
+    lib.libraries = ["/gone", "/kept", "/also-gone", "/kept-2"];
+    lib.compatTools = ["old", "installed", "weg", "installed-2"];
+    expect(lib.activeFilterCount).toBe(8);
+
+    // inventar-reihenfolge weicht bewusst ab: die auswahl behält ihre eigene
+    lib.pruneFilters({
+      libraries: ["/kept-2", "/kept"],
+      compatTools: ["installed-2", "installed"],
+    });
+
+    expect(lib.libraries).toEqual(["/kept", "/kept-2"]);
+    expect(lib.compatTools).toEqual(["installed", "installed-2"]);
+    expect(lib.activeFilterCount).toBe(4);
+  });
+
+  it("pruneFilters lässt tiers, compatSource, protonCheck, search und sortierung unverändert", () => {
+    const lib = useLibraryStore();
+    lib.search = "witcher";
+    lib.setSort("tier");
+    lib.toggle("tiers", "gold");
+    lib.cycleCompatSource();
+    lib.protonCheck = true;
+    lib.libraries = ["/gone"];
+    lib.compatTools = ["old"];
+
+    lib.pruneFilters({ libraries: [], compatTools: [] });
+
+    expect(lib.libraries).toEqual([]);
+    expect(lib.compatTools).toEqual([]);
+    expect(lib.tiers).toEqual(["gold"]);
+    expect(lib.compatSource).toBe("unavailable");
+    expect(lib.protonCheck).toBe(true);
+    expect(lib.search).toBe("witcher");
+    expect(lib.sortKey).toBe("tier");
+    expect(lib.sortDir).toBe("desc");
+  });
+
   it("reset leert suche + filter, lässt die sortierung unangetastet", () => {
     const lib = useLibraryStore();
     lib.search = "witcher";

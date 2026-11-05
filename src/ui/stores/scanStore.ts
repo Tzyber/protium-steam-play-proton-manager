@@ -10,6 +10,7 @@ import type { ScanResult } from "../../core/types";
 import { logError, logEvent } from "../diagnostics";
 import { formatError } from "../formatError";
 import { t } from "../i18n";
+import { useLibraryStore } from "./libraryStore";
 import { useUiStore } from "./uiStore";
 
 type Status = "idle" | "scanning" | "done" | "not-found" | "error";
@@ -71,6 +72,17 @@ export const useScanStore = defineStore("scan", {
         if (!isCurrent()) return;
         this.result = { steamRoot: environment.steamRoot, ...local };
         const result = this.result;
+        // gate ist "nicht unvollständig", nicht "vollständig": auch limited
+        // (launch-config ambiguous/missing, compat-config missing) beschneidet,
+        // weil das inventar aus result.games kommt, derselben quelle wie die
+        // chips. incomplete (fehlende library, manifest-/config-fehler) darf
+        // filter nicht löschen.
+        if (deriveScanCoverage(result).state !== "incomplete") {
+          useLibraryStore().pruneFilters({
+            libraries: result.games.map((g) => g.library),
+            compatTools: result.games.map((g) => g.compatTool),
+          });
+        }
         this.status = "done";
         this.statusText = t("status.ready");
         logEvent(

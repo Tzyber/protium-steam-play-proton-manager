@@ -79,14 +79,25 @@ export function useGameConfigSave(game: Readonly<Ref<Game | null>>, config: Game
   const launchDirty = computed(() => launchInput.value !== (game.value?.launchOptions ?? ""));
   const launchRequest = useLatestRequest(() => game.value);
 
-  const compatSelected = ref("__default__");
+  /** Backend-wert als auswahl-wert: kein eintrag oder "default" steht für den
+   *  leeren platzhalter der SelectBox. */
+  function backendCompatTool(): string {
+    const tool = game.value?.compatTool;
+    return tool && tool !== "default" ? tool : "__default__";
+  }
+
+  // `null` heißt kein entwurf: dann folgt das feld dem backend und eine externe
+  // änderung bei gleicher appId kommt an (Audit 1.1).
+  const compatChoice = ref<string | null>(null);
+  const compatSelected = computed<string>({
+    get: () => compatChoice.value ?? backendCompatTool(),
+    set: (value) => {
+      compatChoice.value = value === backendCompatTool() ? null : value;
+    },
+  });
   const compatState = ref<SaveState>({ kind: "idle" });
   const compatRequest = useLatestRequest(() => game.value);
-  const compatDirty = computed(() => {
-    const current = game.value?.compatTool ?? "default";
-    const expected = current === "default" ? "__default__" : current;
-    return compatSelected.value !== expected;
-  });
+  const compatDirty = computed(() => compatChoice.value !== null);
 
   // Ein echter Spielwechsel (andere appId) verwirft den Entwurf. Ein Rescan
   // tauscht dagegen das Spiel-Objekt bei gleicher appId aus; dann gehört der
@@ -106,14 +117,22 @@ export function useGameConfigSave(game: Readonly<Ref<Game | null>>, config: Game
   watch(
     () => game.value?.appId ?? null,
     () => {
-      const tool = game.value?.compatTool;
-      compatSelected.value = tool && tool !== "default" ? tool : "__default__";
+      compatChoice.value = null;
       compatState.value = { kind: "idle" };
     },
     { immediate: true },
   );
   watch(compatSelected, () => {
     if (compatState.value.kind === "saved") compatState.value = { kind: "idle" };
+  });
+  // zieht das backend extern auf den entwurfswert nach (rescan, steam,
+  // protonmanager), ist der entwurf erledigt: sonst bliebe der knopf aktiv und
+  // der nächste klick schriebe denselben wert erneut durchs write-gate. ein
+  // abweichender externer wert lässt den entwurf stehen (U-15).
+  watch(backendCompatTool, () => {
+    if (compatChoice.value !== null && compatChoice.value === backendCompatTool()) {
+      compatChoice.value = null;
+    }
   });
 
   async function saveLaunch(): Promise<void> {
@@ -134,13 +153,18 @@ export function useGameConfigSave(game: Readonly<Ref<Game | null>>, config: Game
   async function saveCompat(): Promise<void> {
     const g = game.value;
     if (!g || compatState.value.kind === "saving" || !compatDirty.value) return;
+    const submitted = compatSelected.value;
     await runSave({
       state: compatState,
       request: compatRequest,
       draft: () => compatSelected.value,
-      write: (submitted) =>
-        config.saveCompatTool(g.appId, submitted === "__default__" ? null : submitted),
+      write: (value) => config.saveCompatTool(g.appId, value === "__default__" ? null : value),
     });
+    // erst wenn der snapshot den geschriebenen wert trägt, ist der backend-stand
+    // erreicht; sonst bliebe die anzeige auf dem alten wert (Audit 1.1).
+    if (compatState.value.kind === "saved" && backendCompatTool() === submitted) {
+      compatChoice.value = null;
+    }
   }
 
   return {

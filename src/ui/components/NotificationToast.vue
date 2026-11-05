@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { onBeforeUnmount, ref, watch } from "vue";
 import { t } from "../i18n";
 import { useUiStore } from "../stores/uiStore";
 
@@ -15,6 +15,9 @@ const COPY_CONFIRM_MS = 2000;
 // timer und bleibt bis zur nächsten meldung oder einem erfolgreichen kopieren
 // stehen, damit ein fehlschlag nicht unbemerkt verschwindet (U-14).
 let copiedTimer: ReturnType<typeof setTimeout> | null = null;
+// ein laufender clipboard-write darf nach dem unmount keinen timer mehr
+// anlegen: den räumte niemand mehr ab (audit 4.3).
+let unmounted = false;
 
 async function copyError() {
   if (!ui.notification) return;
@@ -25,12 +28,14 @@ async function copyError() {
   }
   try {
     await clipboard.writeText(ui.notification.message);
+    if (unmounted) return;
     copyState.value = "copied";
     if (copiedTimer) clearTimeout(copiedTimer);
     copiedTimer = setTimeout(() => {
       copyState.value = "idle";
     }, COPY_CONFIRM_MS);
   } catch {
+    if (unmounted) return;
     // clipboard gesperrt (unsicherer kontext, fehlende berechtigung): sichtbar
     // melden statt den klick stumm zu verwerfen.
     copyState.value = "failed";
@@ -44,6 +49,16 @@ watch(
     copyState.value = "idle";
   },
 );
+
+// der timer hängt an dieser komponente: ohne aufräumen feuert er nach dem
+// unmount weiter und hält den scope am leben (audit 4.3).
+onBeforeUnmount(() => {
+  unmounted = true;
+  if (copiedTimer) {
+    clearTimeout(copiedTimer);
+    copiedTimer = null;
+  }
+});
 </script>
 
 <template>

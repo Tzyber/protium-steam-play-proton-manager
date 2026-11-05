@@ -2,6 +2,7 @@
 
 import { mount } from "@vue/test-utils";
 import { afterEach, describe, expect, it } from "vitest";
+import { nextTick } from "vue";
 import SelectBox from "../../src/ui/components/SelectBox.vue";
 
 const options = [
@@ -108,6 +109,35 @@ describe("SelectBox", () => {
       expect(event.defaultPrevented).toBe(false);
       expect(wrapper.find('[role="listbox"]').exists()).toBe(false);
       wrapper.unmount();
+    }
+  });
+
+  it("gibt bei Tab und Shift+Tab auf einer option den fokus an den trigger zurück", async () => {
+    for (const shiftKey of [false, true]) {
+      const wrapper = mount(SelectBox, {
+        props: { modelValue: "one", options },
+        attachTo: document.body,
+      });
+      const trigger = wrapper.find("button");
+      await trigger.trigger("click");
+
+      const option = wrapper.find('[role="option"]');
+      const optionElement = option.element;
+      if (!(optionElement instanceof HTMLElement)) throw new Error("option ist kein HTMLElement");
+      optionElement.focus();
+      expect(document.activeElement).toBe(optionElement);
+
+      const event = tabEvent(shiftKey);
+      optionElement.dispatchEvent(event);
+      await nextTick();
+      await nextTick();
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(wrapper.find('[role="listbox"]').exists()).toBe(false);
+      expect(document.activeElement).toBe(trigger.element);
+
+      wrapper.unmount();
+      document.body.innerHTML = "";
     }
   });
 });

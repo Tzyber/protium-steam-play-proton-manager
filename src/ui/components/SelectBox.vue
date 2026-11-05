@@ -63,7 +63,10 @@ function focusItem(i: number) {
 function onListKeydown(e: KeyboardEvent) {
   const n = props.options.length;
   if (e.key === "Tab") {
+    // die fokussierte option wird unmountet; ohne rücktransport landet der
+    // fokus auf <body> und die fokusfalle des drawers greift nicht mehr (audit 4.1).
     open.value = false;
+    nextTick(() => btnRef.value?.focus());
   } else if (e.key === "ArrowDown") {
     e.preventDefault();
     highlightIndex.value = (highlightIndex.value + 1) % n;

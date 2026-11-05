@@ -72,5 +72,15 @@ export const useLibraryStore = defineStore("library", {
       this.compatSource = null;
       this.protonCheck = false;
     },
+    /** nach einem erfolgreichen scan gegen das inventar beschneiden: die chips
+     *  der filterleiste entstehen aus dem scan, ein toter wert wäre sonst
+     *  aktiv, aber nicht mehr abwählbar. */
+    pruneFilters(available: { libraries: readonly string[]; compatTools: readonly string[] }) {
+      const libraries = new Set(available.libraries);
+      const compatTools = new Set(available.compatTools);
+      // filter erhält die reihenfolge der auswahl, alles andere bleibt unberührt.
+      this.libraries = this.libraries.filter((value) => libraries.has(value));
+      this.compatTools = this.compatTools.filter((value) => compatTools.has(value));
+    },
   },
 });

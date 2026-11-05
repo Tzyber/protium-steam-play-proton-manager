@@ -23,12 +23,14 @@ export function useSelection<T extends { path: string }>(
     toggleInSet(picked, path);
   }
   function selectAll() {
-    const list = selectable();
-    const clear = allSelected.value;
-    for (const entry of list) {
-      if (clear) picked.delete(entry.path);
-      else picked.add(entry.path);
+    // abwählen muss über alle sichtbaren zeilen laufen: ein manuell gewählter,
+    // nicht wählbarer eintrag bliebe sonst ausgewählt, während der knopf schon
+    // „auswählen" meldet (audit 4.2). hinzufügen bleibt auf die kandidaten begrenzt.
+    if (allSelected.value) {
+      for (const entry of entries()) picked.delete(entry.path);
+      return;
     }
+    for (const entry of selectable()) picked.add(entry.path);
   }
   return reactive({ selected: picked, allSelected, selectedEntries, toggle, selectAll });
 }

@@ -332,6 +332,8 @@ describe("GameDetailDrawer Speicherstatus", () => {
   });
 
   it("zeigt nach einem geschriebenen Compat-Save den gespeichert-Status", async () => {
+    // der mock lässt den snapshot unverändert: der status muss trotzdem stehen
+    // bleiben, sonst verliert die anzeige den belegten write (Review P2-1).
     const wrapper = mountDrawer(compatScanResult());
 
     await selectCompatTool(wrapper, "Tool B");
