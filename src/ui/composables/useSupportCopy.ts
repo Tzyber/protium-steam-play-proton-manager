@@ -9,6 +9,7 @@ import type { GameFootprint } from "../../core/footprint";
 import { projectSupportFacts } from "../../core/support";
 import type { Game, ScanResult } from "../../core/types";
 import { sameContext, watchContext } from "../sameContext";
+import type { ScanStatus } from "../stores/scanStore";
 import { formatSupportFacts } from "../supportText";
 import { useLatestRequest } from "./useLatestRequest";
 
@@ -36,7 +37,7 @@ interface CleanupSource {
 
 export function useSupportCopy(
   game: Readonly<Ref<Game | null>>,
-  scan: { result: ScanResult | null; scanGeneration: number; status: string },
+  scan: { result: ScanResult | null; scanGeneration: number; status: ScanStatus },
   footprint: Readonly<Ref<GameFootprint | null>>,
   cleanup: CleanupSource,
   isSaving: Readonly<Ref<boolean>>,

@@ -79,6 +79,29 @@ describe("ProtonDbClient", () => {
     expect(await c.getSummary(620)).toBeNull();
   });
 
+  it("JSON-array als antwort → null (Nicht-Objekt zählt wie defekte daten, INV-3)", async () => {
+    const c = new ProtonDbClient(
+      fakeHttp({
+        [url(620)]: {
+          status: 200,
+          ok: true,
+          text: JSON.stringify([{ tier: "gold" }]),
+          headers: {},
+        },
+      }),
+      memCache(),
+    );
+    expect(await c.getSummary(620)).toBeNull();
+  });
+
+  it("JSON-zahl als antwort → null (Nicht-Objekt zählt wie defekte daten, INV-3)", async () => {
+    const c = new ProtonDbClient(
+      fakeHttp({ [url(620)]: { status: 200, ok: true, text: "42", headers: {} } }),
+      memCache(),
+    );
+    expect(await c.getSummary(620)).toBeNull();
+  });
+
   it("nicht-string confidence → unknown", async () => {
     const c = new ProtonDbClient(
       fakeHttp({

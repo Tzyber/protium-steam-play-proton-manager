@@ -12,8 +12,14 @@ import ExplainInfo from "./ExplainInfo.vue";
 const props = defineProps<{
   kind: "shader" | "prefix";
   entries: OrphanEntry[];
-  selection: ReturnType<typeof useSelection<OrphanEntry>>;
+  // das panel liest nur `selected` und `allSelected`; der rest der
+  // selection-fassade (toggle/selectAll) gehört der view.
+  selection: Pick<ReturnType<typeof useSelection<OrphanEntry>>, "selected" | "allSelected">;
 }>();
+
+// FR-4: das panel liest die auswahl nur. mutiert wird ausschließlich in der
+// CleanupView, sonst schreibt jedes panel in denselben fremden state.
+const emit = defineEmits<{ toggle: [path: string]; "select-all": [] }>();
 
 const cleanup = useCleanupStore();
 
@@ -46,7 +52,7 @@ function orphanLabel(o: OrphanEntry): string {
       :class="{ warn: kind === 'prefix' }"
       type="button"
       :aria-pressed="selection.allSelected"
-      @click="selection.selectAll()"
+      @click="emit('select-all')"
     >
       {{ t("cleanup.selectAll") }}
     </button>
@@ -84,7 +90,7 @@ function orphanLabel(o: OrphanEntry): string {
         :warning="
           kind === 'prefix' && o.potentialShortcut ? t('cleanup.potentialShortcutTooltip') : undefined
         "
-        @toggle="selection.toggle(o.path)"
+        @toggle="emit('toggle', o.path)"
       />
     </li>
   </ul>

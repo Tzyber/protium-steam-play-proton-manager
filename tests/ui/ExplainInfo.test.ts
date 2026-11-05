@@ -87,7 +87,8 @@ describe("ExplainInfo", () => {
       t("explain.open", { topic: t("explain.topics.compatTool.title") }),
     );
     expect(trigger.attributes("aria-expanded")).toBe("false");
-    expect(trigger.attributes("aria-controls")).toMatch(/^explain-dialog-/);
+    // geschlossen gibt es kein ziel: aria-controls darf erst mit dem dialog erscheinen
+    expect(trigger.attributes("aria-controls")).toBeUndefined();
     expect(dialog()).toBeNull();
   });
 

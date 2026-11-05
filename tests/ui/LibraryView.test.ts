@@ -63,7 +63,6 @@ describe("LibraryView proton-check und ProtonDB-Nachlauf", () => {
     const scan = useScanStore();
     scan.result = result();
     scan.status = "done";
-    scan.statusText = t("status.ready");
     scan.protonDbRemaining = 2;
   });
 
@@ -76,6 +75,9 @@ describe("LibraryView proton-check und ProtonDB-Nachlauf", () => {
     expect(wrapper.findAll(".mock-card")).toHaveLength(2);
     expect(wrapper.find("ul.grid").attributes("aria-busy")).toBeUndefined();
     expect(wrapper.get(".status").text()).toBe(t("library.protonDbRemaining", { n: 2 }));
+    // die live-region bleibt beim basisstatus: der nachlaufzähler ist fortschritt,
+    // kein statuswechsel.
+    expect(wrapper.get(".right .sr-only").text()).toBe(t("status.ready"));
     expect(wrapper.get("button.rescan").attributes("disabled")).toBeUndefined();
 
     scan.protonDbRemaining = 1;
@@ -85,6 +87,51 @@ describe("LibraryView proton-check und ProtonDB-Nachlauf", () => {
     scan.protonDbRemaining = 0;
     await nextTick();
     expect(wrapper.get(".status").text()).toBe(t("status.ready"));
+  });
+
+  it.each([
+    ["done", "bereit"],
+    ["not-found", "keine steam-installation"],
+    ["error", "fehler"],
+  ] as const)("mappt status %s auf den sichtbaren statustext", (status, label) => {
+    const scan = useScanStore();
+    scan.status = status;
+    scan.protonDbRemaining = 0;
+    setLocale("de");
+
+    const wrapper = mount(LibraryView);
+
+    expect(wrapper.get(".status").text()).toBe(label);
+    expect(wrapper.get(".right .sr-only").text()).toBe(label);
+  });
+
+  it.each([
+    ["finding-steam", "suche steam-installation…"],
+    ["scanning-library", "scanne library…"],
+  ] as const)("zeigt während des scans die phase %s", (phase, label) => {
+    const scan = useScanStore();
+    scan.status = "scanning";
+    scan.scanPhase = phase;
+    scan.protonDbRemaining = 0;
+    setLocale("de");
+
+    const wrapper = mount(LibraryView);
+
+    expect(wrapper.get(".status").text()).toBe(label);
+    expect(wrapper.get(".right .sr-only").text()).toBe(label);
+  });
+
+  it("zeigt den status in der sprache beim rendern, nicht in der des scan-zeitpunkts", () => {
+    const scan = useScanStore();
+    // der store entsteht unter en; die anzeige muss trotzdem der beim rendern
+    // aktiven sprache folgen, sonst bleibt der scan-text eingefroren.
+    scan.protonDbRemaining = 0;
+    setLocale("de");
+
+    const wrapper = mount(LibraryView);
+
+    expect(wrapper.get(".status").text()).toBe("bereit");
+    expect(wrapper.get(".right .sr-only").text()).toBe("bereit");
   });
 
   it("zeigt mit aktivem proton-check nur abgeleitete treffer", () => {
@@ -321,7 +368,6 @@ describe("LibraryView Coverage-Erklärung", () => {
     const scan = useScanStore();
     scan.result = result();
     scan.status = "done";
-    scan.statusText = t("status.ready");
   });
 
   afterEach(() => {

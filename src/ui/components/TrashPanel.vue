@@ -11,7 +11,14 @@ import { useCleanupStore } from "../stores/cleanupStore";
 import CleanupRow from "./CleanupRow.vue";
 import ExplainInfo from "./ExplainInfo.vue";
 
-defineProps<{ selection: ReturnType<typeof useSelection<TrashEntry>> }>();
+// das panel liest nur `selected` und `allSelected`; der rest der
+// selection-fassade (toggle/selectAll) gehört der view.
+defineProps<{
+  selection: Pick<ReturnType<typeof useSelection<TrashEntry>>, "selected" | "allSelected">;
+}>();
+
+// FR-4: nur die CleanupView mutiert die auswahl, das panel meldet die absicht.
+const emit = defineEmits<{ toggle: [path: string]; "select-all": [] }>();
 
 const cleanup = useCleanupStore();
 
@@ -33,7 +40,7 @@ const trashTotal = computed(() => formatSizeSummary(cleanup.trash, formatKnownBy
         class="sel-all"
         type="button"
         :aria-pressed="selection.allSelected"
-        @click="selection.selectAll()"
+        @click="emit('select-all')"
       >
         {{ t("cleanup.selectAll") }}
       </button>
@@ -78,7 +85,7 @@ const trashTotal = computed(() => formatSizeSummary(cleanup.trash, formatKnownBy
         :extra-title="t('cleanup.trashTrashedAt', { date: shortDate(entry.trashedAt) })"
         with-date
         :selected="selection.selected.has(entry.path)"
-        @toggle="selection.toggle(entry.path)"
+        @toggle="emit('toggle', entry.path)"
       />
     </li>
   </ul>

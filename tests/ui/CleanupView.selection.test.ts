@@ -286,6 +286,43 @@ describe("CleanupView incomplete deletions", () => {
     expect(selectAll.attributes("aria-pressed")).toBe("false");
   });
 
+  // P5/G3: beide panels teilen sich einen knopf-text ("alle auswählen"). dieser
+  // test isoliert die bindung, damit ein vertauschtes @select-all auffällt: nur
+  // die shader-zeile darf gepresst werden, die prefix-zeile nicht.
+  it("alle auswählen im shader-tab drückt nur shader-zeilen, keine prefixe", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    store.orphans = [makeOrphan(1, "shadercache", 4096), makeOrphan(2, "compatdata", 2048)];
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+    await wrapper.get("#cv-panel-shaders button.sel-all[aria-pressed]").trigger("click");
+
+    expect(pressedRows(wrapper, "#cv-panel-shaders")).toEqual([true]);
+    expect(pressedRows(wrapper, "#cv-panel-prefixes")).toEqual([false]);
+  });
+
+  // gegenstück für den papierkorb: die trash-liste hängt nicht am gemeinsamen
+  // `selected`-set der orphan-tabs, also darf deren knopf keine orphan-zeile
+  // pressen.
+  it("alle auswählen im papierkorb drückt nur die trash-zeile, keine orphan-zeilen", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    store.orphans = [makeOrphan(1, "shadercache", 4096), makeOrphan(2, "compatdata", 2048)];
+    store.trash = [makeTrashEntry({ appId: 7, sizeBytes: 1024 })];
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+    await wrapper.get("#cv-tab-trash").trigger("click");
+    await wrapper.get("#cv-panel-trash button.sel-all[aria-pressed]").trigger("click");
+
+    expect(pressedRows(wrapper, "#cv-panel-trash")).toEqual([true]);
+    expect(pressedRows(wrapper, "#cv-panel-shaders")).toEqual([false]);
+    expect(pressedRows(wrapper, "#cv-panel-prefixes")).toEqual([false]);
+  });
+
   it("wählt orphans mit gleicher app-id in verschiedenen libraries unabhängig aus", async () => {
     const store = useCleanupStore();
     vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);

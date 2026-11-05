@@ -35,17 +35,18 @@ const toolNeedsAttention = computed(
   () => (scan.coverage?.tools.failed ?? 0) > 0 || toolWarnings.value.length > 0,
 );
 
-const attentionGroups = computed(() =>
-  [
+const attentionGroups = computed(() => {
+  const groups: readonly [boolean, Key][] = [
     [libraryNeedsAttention.value, "library.coverageLibraries"],
     [configNeedsAttention.value, "library.coverageConfiguration"],
     [manifestNeedsAttention.value, "library.coverageManifests"],
     [toolNeedsAttention.value, "library.coverageTools"],
-  ]
+  ];
+  return groups
     .filter(([on]) => on)
-    .map(([, key]) => t(key as Key))
-    .join(", "),
-);
+    .map(([, key]) => t(key))
+    .join(", ");
+});
 
 const coverageLabel = computed(() => {
   const coverage = scan.coverage;

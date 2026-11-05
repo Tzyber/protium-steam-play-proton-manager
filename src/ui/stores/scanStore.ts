@@ -13,7 +13,13 @@ import { t } from "../i18n";
 import { useLibraryStore } from "./libraryStore";
 import { useUiStore } from "./uiStore";
 
-type Status = "idle" | "scanning" | "done" | "not-found" | "error";
+export type ScanStatus = "idle" | "scanning" | "done" | "not-found" | "error";
+
+/** zwischenphase eines laufenden scans. der store hält sie getrennt vom status,
+ *  damit die übersetzung erst in der ansicht entsteht (FR-1): ein im store
+ *  abgelegter text bliebe sonst in der sprache des scan-zeitpunkts stehen. */
+type ScanPhase = "idle" | "finding-steam" | "scanning-library";
+
 // K-01: der ProtonDB-Nachlauf läuft bewusst im Store, nicht in einer
 // core-Orchestrierung. Er muss das lokale Resultat sofort anzeigen und den
 // Reststatus (protonDbRemaining, Generations-Guard) führen; ein gemeinsames
@@ -23,8 +29,8 @@ type Status = "idle" | "scanning" | "done" | "not-found" | "error";
 const PROTONDB_DELAY_MS = 150;
 
 interface State {
-  status: Status;
-  statusText: string;
+  status: ScanStatus;
+  scanPhase: ScanPhase;
   error: string | null;
   result: ScanResult | null;
   elapsedMs: number;
@@ -35,7 +41,7 @@ interface State {
 export const useScanStore = defineStore("scan", {
   state: (): State => ({
     status: "idle",
-    statusText: t("status.ready"),
+    scanPhase: "idle",
     error: null,
     result: null,
     elapsedMs: 0,
@@ -57,7 +63,7 @@ export const useScanStore = defineStore("scan", {
       const generation = this.scanGeneration + 1;
       this.scanGeneration = generation;
       this.status = "scanning";
-      this.statusText = t("status.findingSteam");
+      this.scanPhase = "finding-steam";
       this.error = null;
       this.elapsedMs = 0;
       this.protonDbRemaining = 0;
@@ -67,7 +73,7 @@ export const useScanStore = defineStore("scan", {
       try {
         const environment = await tauriPorts.system.discoverSteamEnvironment();
         if (!isCurrent()) return;
-        this.statusText = t("status.scanningLibrary");
+        this.scanPhase = "scanning-library";
         const local = await scanLocal(tauriPorts, environment);
         if (!isCurrent()) return;
         this.result = { steamRoot: environment.steamRoot, ...local };
@@ -84,7 +90,7 @@ export const useScanStore = defineStore("scan", {
           });
         }
         this.status = "done";
-        this.statusText = t("status.ready");
+        this.scanPhase = "idle";
         logEvent(
           "info",
           `Scan abgeschlossen: ${result.games.length} Spiele, ${result.warnings.length} Warnungen`,
@@ -125,11 +131,11 @@ export const useScanStore = defineStore("scan", {
         if (parseError(e).code === "steam-not-found") {
           logEvent("info", "Scan: keine Steam-Installation gefunden");
           this.status = "not-found";
-          this.statusText = t("status.noSteamInstallation");
+          this.scanPhase = "idle";
         } else {
           const msg = formatError(e);
           this.status = "error";
-          this.statusText = t("status.error");
+          this.scanPhase = "idle";
           this.error = msg;
           useUiStore().showNotification(t("status.scanFailed", { error: msg }));
           logError("Scan fehlgeschlagen", e);

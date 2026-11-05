@@ -5,8 +5,10 @@ import FilterBar from "../components/FilterBar.vue";
 import GameCard from "../components/GameCard.vue";
 import GameDetailDrawer from "../components/GameDetailDrawer.vue";
 import ScanCoveragePanel from "../components/ScanCoveragePanel.vue";
+import type { Key } from "../i18n";
 import { t } from "../i18n";
 import { useLibraryStore } from "../stores/libraryStore";
+import type { ScanStatus } from "../stores/scanStore";
 import { useScanStore } from "../stores/scanStore";
 
 const scan = useScanStore();
@@ -25,10 +27,30 @@ const visible = computed(() =>
   }),
 );
 
-const statusText = computed(() =>
+// t() übersetzt beim rendern, der store hält keinen text. status und phase sind
+// exhaustiv auf keys gemappt: ein neuer wert bricht den typecheck.
+const STATUS_KEYS: Record<Exclude<ScanStatus, "scanning">, Key> = {
+  idle: "status.ready",
+  done: "status.ready",
+  "not-found": "status.noSteamInstallation",
+  error: "status.error",
+};
+
+const PHASE_KEYS: Record<"finding-steam" | "scanning-library", Key> = {
+  "finding-steam": "status.findingSteam",
+  "scanning-library": "status.scanningLibrary",
+};
+
+const baseStatusText = computed(() =>
+  scan.status === "scanning"
+    ? t(scan.scanPhase === "idle" ? "status.findingSteam" : PHASE_KEYS[scan.scanPhase])
+    : t(STATUS_KEYS[scan.status]),
+);
+
+const visibleStatusText = computed(() =>
   scan.protonDbRemaining > 0
     ? t("library.protonDbRemaining", { n: scan.protonDbRemaining })
-    : scan.statusText,
+    : baseStatusText.value,
 );
 </script>
 
@@ -44,8 +66,8 @@ const statusText = computed(() =>
       </div>
 
       <div class="right">
-        <span class="status">{{ statusText }}</span>
-        <span class="sr-only" role="status" aria-live="polite" aria-atomic="true">{{ scan.statusText }}</span>
+        <span class="status">{{ visibleStatusText }}</span>
+        <span class="sr-only" role="status" aria-live="polite" aria-atomic="true">{{ baseStatusText }}</span>
         <button class="rescan" type="button" :disabled="scan.status === 'scanning'" @click="scan.runScan()">
           {{ scan.status === "scanning" ? t("library.scanning") : t("library.rescan") }}
         </button>

@@ -74,7 +74,6 @@ function installScanResult(result: Awaited<ReturnType<typeof scanWithDivergentTo
   const full: ScanResult = { steamRoot: "/fake/steam", ...result };
   scan.result = full;
   scan.status = "done";
-  scan.statusText = t("status.ready");
 }
 
 describe("Zuordnungszähler gegen library-filter", () => {

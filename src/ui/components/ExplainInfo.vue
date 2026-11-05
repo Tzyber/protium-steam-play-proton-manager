@@ -78,7 +78,7 @@ watch(
       type="button"
       :aria-label="t('explain.open', { topic: label })"
       :aria-expanded="open"
-      :aria-controls="dialogId"
+      :aria-controls="open ? dialogId : undefined"
       @click="openExplanation"
     >
       ?

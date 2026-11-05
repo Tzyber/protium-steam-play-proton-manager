@@ -82,6 +82,48 @@ describe("scanStore.runScan", () => {
     expect(store.games[0]?.appId).toBe(42);
   });
 
+  it("führt die phase von finding-steam über scanning-library zurück auf idle", async () => {
+    const discovery = deferred<EnvironmentSnapshot>();
+    const local = deferred<Awaited<ReturnType<typeof scanLocal>>>();
+    mockDiscoverEnvironment.mockReturnValueOnce(discovery.promise);
+    mockScanLocal.mockReturnValueOnce(local.promise);
+    const store = useScanStore();
+    expect(store.scanPhase).toBe("idle");
+
+    const run = store.runScan();
+    expect(store.scanPhase).toBe("finding-steam");
+    expect(store.status).toBe("scanning");
+
+    discovery.resolve(environment());
+    await vi.waitFor(() => expect(mockScanLocal).toHaveBeenCalledTimes(1));
+    expect(store.scanPhase).toBe("scanning-library");
+
+    local.resolve(fakeLocalResult());
+    await run;
+    expect(store.status).toBe("done");
+    expect(store.scanPhase).toBe("idle");
+  });
+
+  it("setzt die phase nach not-found auf idle zurück", async () => {
+    mockDiscoverEnvironment.mockRejectedValue("steam-not-found");
+    const store = useScanStore();
+
+    await store.runScan();
+
+    expect(store.status).toBe("not-found");
+    expect(store.scanPhase).toBe("idle");
+  });
+
+  it("setzt die phase nach einem scan-fehler auf idle zurück", async () => {
+    mockScanLocal.mockRejectedValue(new Error("unreadable"));
+    const store = useScanStore();
+
+    await store.runScan();
+
+    expect(store.status).toBe("error");
+    expect(store.scanPhase).toBe("idle");
+  });
+
   it("erfolgreicher scan schneidet die filter-auswahl auf das inventar zu", async () => {
     mockScanLocal.mockResolvedValue(
       fakeLocalResult(scanResult({ games: [game({ library: "/kept", compatTool: "installed" })] })),
@@ -268,6 +310,9 @@ describe("scanStore.runScan", () => {
     );
     await oldRun;
     expect(mockScanLocal).not.toHaveBeenCalled();
+    // der isCurrent-guard sitzt auch vor dem phasenwechsel: der abgelöste lauf
+    // darf die phase des neuen nicht auf scanning-library schieben.
+    expect(store.scanPhase).toBe("finding-steam");
 
     second.resolve(
       environment({
@@ -335,6 +380,8 @@ describe("scanStore.runScan", () => {
     expect(store.status).toBe("scanning");
     expect(store.error).toBeNull();
     expect(store.elapsedMs).toBe(0);
+    // der abgelöste lauf darf die phase des neuen nicht zurücksetzen.
+    expect(store.scanPhase).toBe("finding-steam");
 
     second.resolve(
       environment({

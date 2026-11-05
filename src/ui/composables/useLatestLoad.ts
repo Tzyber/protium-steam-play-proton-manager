@@ -2,11 +2,13 @@
 // jüngste trägt Inhalt, Fehler und Ladezustand ein. Der bisherige Inhalt bleibt
 // bis zur eigenen Antwort stehen, ein Fehler setzt den Leerwert.
 
-import { type Ref, ref } from "vue";
+import { ref, shallowRef } from "vue";
 import { formatError } from "../formatError";
 
+// shallowRef: beide aufrufer (HistoryView) ersetzen den ganzen wert, ein tiefes
+// proxy auf den listen brächte nur overhead und hätte keinen vertrag.
 export function useLatestLoad<T>(empty: T, read: () => Promise<T>) {
-  const data = ref(empty) as Ref<T>;
+  const data = shallowRef<T>(empty);
   const loading = ref(false);
   const error = ref<string | null>(null);
   let request = 0;

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { TIER_ORDER } from "../../core/filter";
+import { computed, nextTick, ref, useId } from "vue";
+import { type SortKey, TIER_ORDER } from "../../core/filter";
 import { pathBasename } from "../format";
 import { t } from "../i18n";
 import { useLibraryStore } from "../stores/libraryStore";
@@ -18,6 +18,35 @@ const SORTS = computed(() => [
   { key: "tier" as const, label: t("filter.sortTier") },
   { key: "lastPlayed" as const, label: t("filter.sortLastPlayed") },
 ]);
+
+const sortGroupRef = ref<HTMLElement | null>(null);
+// der gruppenname der radiogroup kommt aus dem sichtbaren label: eine id pro
+// instanz (useId) statt eines zweiten textes im aria-label, der bei jeder
+// übersetzung doppelt gepflegt werden müsste.
+const sortLabelId = `filter-sort-label-${useId()}`;
+
+function arrowStep(key: string): number | undefined {
+  if (key === "ArrowRight" || key === "ArrowDown") return 1;
+  if (key === "ArrowLeft" || key === "ArrowUp") return -1;
+  return undefined;
+}
+
+// die sortierung ist eine einfache auswahl: pfeiltasten wechseln auswahl und
+// fokus, klick sowie enter/leertaste behalten die sortier-umkehr des klicks.
+// ein wechsel auf den bereits aktiven key darf die richtung nicht umdrehen.
+function onSortKeydown(event: KeyboardEvent, index: number): void {
+  const step = arrowStep(event.key);
+  if (step === undefined) return;
+  event.preventDefault();
+  const keys: SortKey[] = SORTS.value.map((sort) => sort.key);
+  const nextIndex = (index + step + keys.length) % keys.length;
+  const next = keys[nextIndex];
+  if (next === undefined) return;
+  if (next !== lib.sortKey) lib.setSort(next);
+  void nextTick(() => {
+    sortGroupRef.value?.querySelectorAll<HTMLButtonElement>("[role='radio']")[nextIndex]?.focus();
+  });
+}
 
 const compatSourceLabel = computed(() => {
   if (lib.compatSource === "unavailable") return t("filter.compatSourceUnavailable");
@@ -47,16 +76,19 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
       </button>
     </div>
 
-    <div class="group">
-      <span class="label">{{ t("filter.sort") }}</span>
+    <div ref="sortGroupRef" class="group" role="radiogroup" :aria-labelledby="sortLabelId">
+      <span :id="sortLabelId" class="label">{{ t("filter.sort") }}</span>
       <button
-        v-for="s in SORTS"
+        v-for="(s, index) in SORTS"
         :key="s.key"
         class="seg"
         :class="{ on: lib.sortKey === s.key }"
         type="button"
-        :aria-pressed="lib.sortKey === s.key"
+        role="radio"
+        :aria-checked="lib.sortKey === s.key"
+        :tabindex="lib.sortKey === s.key ? 0 : -1"
         @click="lib.setSort(s.key)"
+        @keydown="onSortKeydown($event, index)"
       >
         {{ s.label }}<span v-if="lib.sortKey === s.key" class="arr" aria-hidden="true">{{ arrow }}</span><span v-if="lib.sortKey === s.key" class="sr-only">{{ lib.sortDir === "asc" ? t("filter.sortAsc") : t("filter.sortDesc") }}</span>
       </button>
@@ -176,8 +208,16 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
   font-size: 1rem;
   padding: 8px 0;
 }
-.search input:focus-visible,
-.search .clear:focus-visible { outline: none; }
+/* das eingabefeld bleibt ohne outline: der container zeigt den fokus über
+   :focus-within. der clear-knopf liegt in demselben container und braucht
+   deshalb einen eigenen ring, sonst wäre er nicht als fokussiert erkennbar. */
+.search input:focus-visible { outline: none; }
+.search .clear:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
+  border-radius: var(--r-sm);
+  color: var(--fg-0);
+}
 .search .clear {
   align-self: stretch;
   background: none;

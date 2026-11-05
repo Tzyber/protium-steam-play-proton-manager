@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { version as appVersion } from "../../../package.json";
-import { t } from "../i18n";
+import { type Key, t } from "../i18n";
 import { useScanStore } from "../stores/scanStore";
 import { useUiStore, type ViewId } from "../stores/uiStore";
 import ProtiumLogo from "./ProtiumLogo.vue";
@@ -9,11 +9,13 @@ import ProtiumLogo from "./ProtiumLogo.vue";
 const scan = useScanStore();
 const ui = useUiStore();
 
-const nav: { id: ViewId; label: string }[] = [
-  { id: "library", label: t("app.navLibrary") },
-  { id: "proton", label: t("app.navProton") },
-  { id: "cleanup", label: t("app.navCleanup") },
-  { id: "history", label: t("app.navHistory") },
+// der key statt des übersetzten labels: t() beim aufbau würde die sprache
+// festschreiben, ein setLocale danach käme in der navigation nie an.
+const nav: { id: ViewId; labelKey: Key }[] = [
+  { id: "library", labelKey: "app.navLibrary" },
+  { id: "proton", labelKey: "app.navProton" },
+  { id: "cleanup", labelKey: "app.navCleanup" },
+  { id: "history", labelKey: "app.navHistory" },
 ];
 
 const rootShort = computed(() => {
@@ -42,7 +44,7 @@ const rootShort = computed(() => {
           :aria-current="ui.activeView === item.id ? 'page' : undefined"
           @click="ui.go(item.id)"
         >
-          {{ item.label }}
+          {{ t(item.labelKey) }}
         </button>
       </nav>
 

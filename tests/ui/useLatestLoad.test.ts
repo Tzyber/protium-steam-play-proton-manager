@@ -3,6 +3,7 @@
 // jüngste Lauf schreibt Inhalt, Fehler und Ladezustand.
 
 import { describe, expect, it } from "vitest";
+import { isReactive } from "vue";
 import { useLatestLoad } from "../../src/ui/composables/useLatestLoad";
 import { formatError } from "../../src/ui/formatError";
 import { deferred } from "../support/factories";
@@ -13,14 +14,18 @@ function take<T>(items: readonly T[], index: number): T {
   return item;
 }
 
-function loader() {
-  const gates: ReturnType<typeof deferred<string>>[] = [];
-  const latest = useLatestLoad("leer", () => {
-    const next = deferred<string>();
+function loaderFor<T>(empty: T) {
+  const gates: ReturnType<typeof deferred<T>>[] = [];
+  const latest = useLatestLoad<T>(empty, () => {
+    const next = deferred<T>();
     gates.push(next);
     return next.promise;
   });
   return { gates, latest };
+}
+
+function loader() {
+  return loaderFor("leer");
 }
 
 describe("useLatestLoad", () => {
@@ -94,6 +99,34 @@ describe("useLatestLoad", () => {
     expect(latest.data.value).toBe("neu");
     expect(latest.error.value).toBeNull();
     expect(latest.loading.value).toBe(false);
+  });
+
+  it("ersetzt objekt-payloads ganz und legt sie nicht in einen deep-proxy", async () => {
+    interface Payload {
+      items: { appId: number }[];
+    }
+    const first: Payload = { items: [{ appId: 42 }] };
+    const second: Payload = { items: [{ appId: 73 }] };
+    const { gates, latest } = loaderFor<Payload>({ items: [] });
+
+    const older = latest.load();
+    take(gates, 0).resolve(first);
+    await older;
+
+    // shallowRef: derselbe objekt-verweis, kein reaktiver proxy. mit ref wäre
+    // der wert tief proxied und die identität unten schon verloren.
+    expect(isReactive(latest.data.value)).toBe(false);
+    expect(latest.data.value).toBe(first);
+
+    const newer = latest.load();
+    take(gates, 1).resolve(second);
+    await newer;
+
+    expect(isReactive(latest.data.value)).toBe(false);
+    expect(latest.data.value).toBe(second);
+    expect(latest.data.value.items).toEqual([{ appId: 73 }]);
+    // der alte wert bleibt unangetastet: ersetzt, nicht mutiert.
+    expect(first.items).toEqual([{ appId: 42 }]);
   });
 
   it("eine verspätete erfolgsantwort lässt den jüngeren fehler stehen", async () => {

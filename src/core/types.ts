@@ -21,9 +21,7 @@ export type LaunchConfigStatus = (typeof LAUNCH_CONFIG_STATUSES)[number];
 
 /** prüft einen rohwert gegen eine werteliste; `undefined` = unbekannt. */
 function oneOf<T extends string>(values: readonly T[], raw: unknown): T | undefined {
-  return typeof raw === "string" && (values as readonly string[]).includes(raw)
-    ? (raw as T)
-    : undefined;
+  return values.find((value) => value === raw);
 }
 
 /** protondb-stufe eines rohwerts; unbekanntes wird zu "unknown". */

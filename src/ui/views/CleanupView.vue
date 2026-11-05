@@ -235,7 +235,13 @@ const tabLabel = (id: Tab) =>
         aria-labelledby="cv-tab-shaders"
         tabindex="0"
       >
-        <OrphanPanel kind="shader" :entries="shadercacheOrphans" :selection="shaders" />
+        <OrphanPanel
+          kind="shader"
+          :entries="shadercacheOrphans"
+          :selection="shaders"
+          @toggle="shaders.toggle"
+          @select-all="shaders.selectAll"
+        />
       </div>
 
       <!-- ---- wine-prefixes ---- -->
@@ -248,7 +254,13 @@ const tabLabel = (id: Tab) =>
         aria-labelledby="cv-tab-prefixes"
         tabindex="0"
       >
-        <OrphanPanel kind="prefix" :entries="compatdataOrphans" :selection="prefixes" />
+        <OrphanPanel
+          kind="prefix"
+          :entries="compatdataOrphans"
+          :selection="prefixes"
+          @toggle="prefixes.toggle"
+          @select-all="prefixes.selectAll"
+        />
       </div>
 
       <!-- ---- papierkorb ---- -->
@@ -261,7 +273,11 @@ const tabLabel = (id: Tab) =>
         aria-labelledby="cv-tab-trash"
         tabindex="0"
       >
-        <TrashPanel :selection="trashSelection" />
+        <TrashPanel
+          :selection="trashSelection"
+          @toggle="trashSelection.toggle"
+          @select-all="trashSelection.selectAll"
+        />
       </div>
 
     </div>

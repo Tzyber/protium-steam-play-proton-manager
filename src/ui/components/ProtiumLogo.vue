@@ -3,22 +3,20 @@ import { onBeforeUnmount, onMounted, ref } from "vue";
 
 withDefaults(defineProps<{ size?: number }>(), { size: 22 });
 
-const reduced = ref(
-  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-);
+// query und handler gehören auf die setup-ebene: der mount-hook registriert
+// nur noch, der unmount-hook entfernt nur. ein handler, der erst im mount
+// entsteht, kann bei einem abbruch zwischen setup und mount nie abgemeldet
+// werden.
+const mq =
+  typeof window === "undefined" ? null : window.matchMedia("(prefers-reduced-motion: reduce)");
+const reduced = ref(mq?.matches ?? false);
 
-let mq: MediaQueryList | null = null;
+function onReducedMotionChange(event: MediaQueryListEvent): void {
+  reduced.value = event.matches;
+}
 
-onMounted(() => {
-  mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-  const handler = (e: MediaQueryListEvent) => {
-    reduced.value = e.matches;
-  };
-  mq.addEventListener("change", handler);
-  onBeforeUnmount(() => {
-    mq?.removeEventListener("change", handler);
-  });
-});
+onMounted(() => mq?.addEventListener("change", onReducedMotionChange));
+onBeforeUnmount(() => mq?.removeEventListener("change", onReducedMotionChange));
 </script>
 
 <template>

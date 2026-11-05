@@ -54,7 +54,7 @@ export const useLibraryStore = defineStore("library", {
       }
     },
     toggle(kind: "tiers" | "compatTools" | "libraries", value: string) {
-      const arr = this[kind] as string[];
+      const arr: string[] = this[kind];
       const i = arr.indexOf(value);
       if (i >= 0) arr.splice(i, 1);
       else arr.push(value);

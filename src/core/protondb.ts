@@ -62,7 +62,10 @@ export class ProtonDbClient {
     try {
       const res = await this.http.get(`${PROTONDB_API_BASE}/${appId}.json`);
       if (!res.ok) return null; // insb. 404 = kein report
-      const body = JSON.parse(res.text) as { tier?: unknown; confidence?: unknown };
+      // ein Nicht-Objekt ist kein report, sondern nur JSON dieser form (INV-3);
+      // ohne die prüfung würde aus einer zahl ein report mit tier "unknown".
+      const body: unknown = JSON.parse(res.text);
+      if (!isRecord(body)) return null;
       const result = {
         tier: asTier(body.tier),
         confidence: typeof body.confidence === "string" ? body.confidence : "unknown",
