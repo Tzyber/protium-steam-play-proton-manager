@@ -1,6 +1,7 @@
 use crate::commands::errcode;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 // ---- sicherheits-validierungen (webview-IPC-grenze) ----
 
@@ -62,17 +63,46 @@ pub(super) fn next_existing_ancestor(path: &Path) -> Option<PathBuf> {
 /// nächsten existierenden vorfahren kanonisieren, für ziele, die
 /// (zwangsläufig) noch nicht existieren (download-dest, backup, extract-dest).
 pub(super) fn canonicalize_nearest_ancestor(path: &Path, label: &str) -> Result<PathBuf, String> {
-    let ancestor =
-        next_existing_ancestor(path).ok_or_else(|| format!("no existing ancestor for {label}"))?;
-    fs::canonicalize(&ancestor).map_err(|e| format!("{label} ancestor: {e}"))
+    // n-01-muster: auch dieser pfad endet an der UI-grenze, ein rohtext würde
+    // dort als "unbekannt" erscheinen. ein fehlender vorfahre ist ein
+    // nicht verfügbarer ort, kein not-found des ziels.
+    let ancestor = next_existing_ancestor(path).ok_or_else(|| {
+        errcode::with_detail(
+            errcode::UNAVAILABLE,
+            format!("no existing ancestor for {label}"),
+        )
+    })?;
+    fs::canonicalize(&ancestor).map_err(|e| errcode::with_detail(errcode::code_for_io(&e), e))
+}
+
+/// gemeinsame uhrquelle für delete-tokens und claim-namen. ein rückwärts
+/// laufender oder fehlender uhrwert wird als fehler geführt statt als 0: mit 0
+/// wäre jedes token sofort abgelaufen und jeder zeitstempel-name doppelt.
+pub(super) fn unix_millis() -> Result<u64, String> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .map_err(|error| {
+            errcode::with_detail(errcode::UNAVAILABLE, format!("system clock: {error}"))
+        })
 }
 
 pub(super) fn random_suffix() -> String {
+    // bewusst nanosekunden statt `unix_millis`: der suffix unterscheidet
+    // namen innerhalb desselben aufrufs und derselben millisekunde. ein
+    // uhrfehler liefert 0 statt eines fehlers: der zähler darunter hält den
+    // namen trotzdem eindeutig.
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("{:x}", nanos)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    // der zähler hängt an jedem aufruf, nicht nur im uhrfehlerfall: bei grober
+    // oder virtualisierter uhr (zweimal dieselben nanosekunden) wären zwei
+    // namen sonst identisch. die prozess-id trennt parallel laufende prozesse,
+    // der zähler macht die folge prozessweit eindeutig und monoton.
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let count = COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
+    let pid = std::process::id();
+    format!("{nanos:x}-{pid:x}-{count:x}")
 }
 
 /// prueft, ob `target`, relativ zu `base_dir` aufgeloest, innerhalb der archiv-wurzel bleibt.
@@ -108,7 +138,10 @@ pub(super) fn link_target_stays_inside(base_dir: &Path, target: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{canonicalize_no_symlink, is_descendant_of, is_safe_path, sanitize_path};
+    use super::{
+        canonicalize_nearest_ancestor, canonicalize_no_symlink, is_descendant_of, is_safe_path,
+        random_suffix, sanitize_path, unix_millis,
+    };
     use crate::commands::errcode;
     use std::path::Path;
 
@@ -136,6 +169,37 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 1.11: der fehlende vorfahre trägt `unavailable` am leitfeld, damit die
+    /// oberfläche den grund kategorisiert statt einen rohtext zu zeigen.
+    /// Der fall braucht einen relativen pfad: bei absoluten existiert `/`
+    /// immer und ist damit der nächste vorhandene vorfahre.
+    #[test]
+    fn canonicalize_nearest_ancestor_meldet_fehlenden_vorfahren_codiert() {
+        let fehlend = Path::new("protium-gibt-es-nicht/kind");
+
+        let error = canonicalize_nearest_ancestor(fehlend, "test ziel").unwrap_err();
+
+        assert!(errcode::has_code(&error, errcode::UNAVAILABLE), "{error}");
+        assert!(error.contains("test ziel"), "detail verloren: {error}");
+    }
+
+    #[test]
+    fn random_suffix_ist_nie_null_und_je_aufruf_verschieden() {
+        let first = random_suffix();
+        let second = random_suffix();
+
+        assert_ne!(first, "0");
+        assert_ne!(second, "0");
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn unix_millis_liefert_einen_wert_nach_der_epoche() {
+        // Ein pre-epoch-uhrfehler ist ohne eingriff in SystemTime nicht
+        // simulierbar; der test hält den normalpfad fest.
+        assert!(unix_millis().unwrap() > 0);
     }
 
     #[test]

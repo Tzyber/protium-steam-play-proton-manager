@@ -162,7 +162,9 @@ pub async fn open_prefix_folder(
     #[cfg(target_os = "linux")]
     {
         let state = state.inner().clone();
-        tokio::task::spawn_blocking(move || {
+        // 3.5: derselbe helfer wie die übrigen commands; der JoinError wird
+        // dort zu `unavailable`, ein fachlicher Fehler bleibt sein eigener Code.
+        crate::commands::spawn_blocking_io(move || {
             open_prefix_folder_with(
                 &state,
                 &library,
@@ -170,10 +172,9 @@ pub async fn open_prefix_folder(
                 &mut |_| {},
                 &mut spawn_detached_os,
             )
+            .map_err(str::to_owned)
         })
         .await
-        .map_err(|_| errcode::BLOCKED.to_owned())?
-        .map_err(str::to_owned)
     }
     #[cfg(not(target_os = "linux"))]
     {

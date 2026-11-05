@@ -31,6 +31,10 @@ pub(crate) const SIZE_LIMIT: &str = "size-limit-exceeded";
 
 pub(crate) const NOT_FOUND: &str = "not-found";
 pub(crate) const TOKEN_EXPIRED: &str = "token-expired";
+/// Ein Lösch-Token ist unbekannt oder wurde aus der Registry verdrängt. Klasse
+/// `blocked` wie `token-expired`: die Bestätigung ist nicht mehr gültig, das
+/// Ziel ist es weiterhin. `invalid-id` bleibt den syntaktisch falschen IDs.
+pub(crate) const TOKEN_UNKNOWN: &str = "token-unknown";
 pub(crate) const TARGET_CHANGED: &str = "target-changed";
 pub(crate) const UNSUPPORTED_TARGET: &str = "unsupported-target";
 pub(crate) const NOT_A_DIRECTORY: &str = "not-a-directory";
@@ -93,7 +97,7 @@ pub(crate) fn code_for_io(error: &std::io::Error) -> &'static str {
 /// Alle Codes dieser Datei. Die Liste ist die Vollstaendigkeitsklammer fuer
 /// die Frage "ist das ein bekannter Code?": driftet eine Konstante gegen sie,
 /// faellt das im Test `all_codes_spiegelt_jede_code_konstante_der_datei` auf.
-pub(crate) const ALL_CODES: [&str; 36] = [
+pub(crate) const ALL_CODES: [&str; 37] = [
     INVALID_APPID,
     INVALID_VALUE,
     INVALID_URL,
@@ -112,6 +116,7 @@ pub(crate) const ALL_CODES: [&str; 36] = [
     SIZE_LIMIT,
     NOT_FOUND,
     TOKEN_EXPIRED,
+    TOKEN_UNKNOWN,
     TARGET_CHANGED,
     UNSUPPORTED_TARGET,
     NOT_A_DIRECTORY,

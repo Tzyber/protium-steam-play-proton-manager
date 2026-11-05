@@ -2,11 +2,12 @@
 // Fehlerzusammenfassung und die Basisfrage "gibt es einen Grund, der das
 // Cleanup sperrt". Kein Store-Zustand, kein Pinia, damit einzeln prüfbar.
 
-import type { OrphanUnreadable } from "../../core/cleanup";
+import type { IncompleteDeletion, OrphanUnreadable } from "../../core/cleanup";
 import { ProtiumError } from "../../core/errors";
 import { validNonNegativeInteger } from "../../core/guards";
 import type { DirectorySize } from "../../core/ports";
 import type { ShortcutResult } from "../../core/shortcuts";
+import type { TrashLibraryStatus } from "../../core/trash";
 import type { OrphanEntry, ScanResult } from "../../core/types";
 import type { Key } from "../i18n";
 import { t } from "../i18n";
@@ -124,8 +125,8 @@ export function confirmTitle(singleKey: Key, multiKey: Key, n: number): string {
 export function hasOrphanUnavailableBase(state: {
   orphanError: string | null;
   blockedBySkipped: boolean;
-  pathMissingLibs: string[];
-  incompleteDeletionsUnreadable: string[];
+  pathMissingLibs: readonly string[];
+  incompleteDeletionsUnreadable: readonly string[];
 }): boolean {
   return (
     state.orphanError !== null ||
@@ -142,6 +143,46 @@ export function hasUnreadableOrphanType(
   type: OrphanEntry["type"],
 ): boolean {
   return state.orphanUnreadable.some((entry) => entry.type === type);
+}
+
+/** Die eine Sperrquelle für Coverage und Löschdialog: getrennte Antworten
+ *  widersprechen sich bei „unvollständig". `base` gilt bereichsübergreifend,
+ *  `shader`/`prefix` sind typ-genau, `trash` hängt am Papierkorb-Scan, `any`
+ *  ist die Sperre der Anzeige. */
+export function cleanupBlockedFlags(facts: {
+  orphanScanError: string | null;
+  blockedBySkipped: boolean;
+  pathMissingLibs: readonly string[];
+  incompleteDeletionsUnreadable: readonly string[];
+  shortcutUnreadable: boolean;
+  orphanUnreadable: readonly OrphanUnreadable[];
+  incompleteDeletions: readonly { type: IncompleteDeletion["type"] }[];
+  trashError: string | null;
+  trashUnknown: readonly string[];
+  trashLibraries: readonly TrashLibraryStatus[];
+}): { base: boolean; shader: boolean; prefix: boolean; trash: boolean; any: boolean } {
+  const base = hasOrphanUnavailableBase({
+    orphanError: facts.orphanScanError,
+    blockedBySkipped: facts.blockedBySkipped,
+    pathMissingLibs: facts.pathMissingLibs,
+    incompleteDeletionsUnreadable: facts.incompleteDeletionsUnreadable,
+  });
+  const shader =
+    base ||
+    hasUnreadableOrphanType(facts, "shadercache") ||
+    facts.incompleteDeletions.some((deletion) => deletion.type === "shadercache");
+  const prefix =
+    base ||
+    facts.shortcutUnreadable ||
+    hasUnreadableOrphanType(facts, "compatdata") ||
+    facts.incompleteDeletions.some((deletion) => deletion.type === "compatdata");
+  const trash =
+    facts.trashError !== null ||
+    facts.trashUnknown.length > 0 ||
+    facts.trashLibraries.some((library) => library.error !== undefined) ||
+    facts.incompleteDeletionsUnreadable.length > 0 ||
+    facts.incompleteDeletions.some((deletion) => deletion.type === "trash");
+  return { base, shader, prefix, trash, any: shader || prefix || trash };
 }
 
 /** Führt die typ-genauen Unlesbar-Listen zweier Scans zusammen und dedupliziert

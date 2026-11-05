@@ -5,7 +5,7 @@ import type { TrashEntry, TrashLibraryStatus } from "../../core/trash";
 import type { OrphanEntry, ScanResult } from "../../core/types";
 import { formatDetail } from "../formatError";
 import { t } from "../i18n";
-import { combineErrors, hasOrphanUnavailableBase, hasUnreadableOrphanType } from "./cleanupHelpers";
+import { cleanupBlockedFlags, combineErrors, hasUnreadableOrphanType } from "./cleanupHelpers";
 import { deleteOrphans, readOrphanNames, scanOrphans } from "./cleanupOrphans";
 import { deleteTrashEntries, scanTrash } from "./cleanupTrash";
 
@@ -84,37 +84,42 @@ export const useCleanupStore = defineStore("cleanup", {
         : null;
       return combineErrors([s.orphanError, shortcutError, s.trashError]);
     },
-    /** Anzeige-Sperre des Shader-Bereichs. Die Basis wird wie in
-     *  `orphanDeleteBlocked` mit `_orphanScanError` statt mit `orphanError`
-     *  ausgewertet: `orphanError` trägt auch den Lösch-/Guard-Text des letzten
-     *  Versuchs („nicht lesbar, Anzeige unvollständig: …“, Claim-Titel), ein
-     *  solcher Text ist kein Beleg für einen unvollständigen Scan und darf die
-     *  typ-genaue Anzeige nicht verfälschen. */
+    /** Alle Bereichssperren kommen aus `cleanupBlockedFlags`; sonst widersprechen
+     *  sich Coverage und Löschdialog. Die Basis wird dort mit
+     *  `_orphanScanError` statt mit `orphanError` ausgewertet: `orphanError`
+     *  trägt auch den Lösch-/Guard-Text des letzten Versuchs („nicht lesbar,
+     *  Anzeige unvollständig: …", Claim-Titel), ein solcher Text ist kein Beleg
+     *  für einen unvollständigen Scan und darf die typ-genaue Anzeige nicht
+     *  verfälschen. */
     shaderUnavailable: (s) =>
-      hasOrphanUnavailableBase({ ...s, orphanError: s._orphanScanError }) ||
-      hasUnreadableOrphanType(s, "shadercache") ||
-      s.incompleteDeletions.some((d) => d.type === "shadercache"),
-    /** Löschsperre je Orphan-Bereich: nur Scan-Gründe, Löschreste und der
-     *  unlesbare Basisordner GENAU dieses Bereichs. Ein Löschfehler des letzten
-     *  Versuchs steht auch in `orphanError`, sperrt aber nicht, sonst ginge bis
-     *  zum nächsten Scan nichts mehr (INV-2). */
-    orphanDeleteBlocked: (s) => (type: OrphanEntry["type"]) =>
-      hasOrphanUnavailableBase({ ...s, orphanError: s._orphanScanError }) ||
-      hasUnreadableOrphanType(s, type) ||
-      s.incompleteDeletions.some((d) => d.type === type),
-    /** Anzeige-Sperre des Prefix-Bereichs; die Basis kommt aus demselben
-     *  Scan-Basiswert wie bei `orphanDeleteBlocked` (siehe `shaderUnavailable`). */
+      cleanupBlockedFlags({ ...s, orphanScanError: s._orphanScanError }).shader,
     prefixUnavailable: (s) =>
-      hasOrphanUnavailableBase({ ...s, orphanError: s._orphanScanError }) ||
-      s.shortcutUnreadable ||
-      hasUnreadableOrphanType(s, "compatdata") ||
-      s.incompleteDeletions.some((d) => d.type === "compatdata"),
+      cleanupBlockedFlags({ ...s, orphanScanError: s._orphanScanError }).prefix,
     trashUnavailable: (s) =>
-      s.trashError !== null ||
-      s.trashUnknown.length > 0 ||
-      s.trashLibraries.some((library) => library.error !== undefined) ||
-      s.incompleteDeletionsUnreadable.length > 0 ||
-      s.incompleteDeletions.some((d) => d.type === "trash"),
+      cleanupBlockedFlags({ ...s, orphanScanError: s._orphanScanError }).trash,
+    /** Anzeige-Sperre der Coverage: der Scan kann vollständig sein, die
+     *  Löschvorschau ist es dann trotzdem nicht (INV-2). Die Papierkorb-Basis
+     *  ist der Scan-Fakt `_trashScanError`, nicht `trashError`: dort steht auch
+     *  der Text eines Löschversuchs, und ein Löschfehler belegt keinen
+     *  unvollständigen Scan (P2-3). Die Anzeige-Getter `trashUnavailable`
+     *  bleiben bewusst bei `trashError`. */
+    coverageBlocked: (s) =>
+      cleanupBlockedFlags({
+        ...s,
+        orphanScanError: s._orphanScanError,
+        trashError: s._trashScanError,
+      }).any,
+    /** Löschsperre je Orphan-Bereich: die gemeinsame Basis plus der typ-genaue
+     *  Beleg. Bewusst nicht über `shader`/`prefix`: `prefix` trägt zusätzlich den
+     *  shortcut-Lesefehler, der die Anzeige sperrt, das Löschen aber nicht. */
+    orphanDeleteBlocked: (s) => (type: OrphanEntry["type"]) => {
+      const flags = cleanupBlockedFlags({ ...s, orphanScanError: s._orphanScanError });
+      return (
+        flags.base ||
+        hasUnreadableOrphanType(s, type) ||
+        s.incompleteDeletions.some((deletion) => deletion.type === type)
+      );
+    },
   },
   actions: {
     setOrphanError(message: string | null) {

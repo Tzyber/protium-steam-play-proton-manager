@@ -5,15 +5,23 @@ import { filterWarningsByType } from "../coverageFilter";
 import { formatConfigStatus, formatLibraryReason, formatWarning } from "../coverageText";
 import type { Key } from "../i18n";
 import { t } from "../i18n";
+import { useCleanupStore } from "../stores/cleanupStore";
 import { useScanStore } from "../stores/scanStore";
 import ExplainInfo from "./ExplainInfo.vue";
 
 const scan = useScanStore();
+const cleanup = useCleanupStore();
 
 const showWarnings = ref(false);
 const coverageDetailsId = "library-coverage-details";
 const coverageTitleId = "library-coverage-title";
-const coverageState = computed(() => scan.coverage?.state ?? "");
+/** Ein vollständiger Scan belegt nur die Bestandsaufnahme, nicht die
+ *  Löschvorschau: ist das Cleanup gesperrt, ist die Coverage eingeschränkt,
+ *  sonst widersprechen sich Panel und Löschdialog (INV-2). */
+const coverageState = computed(() => {
+  const state = scan.coverage?.state ?? "";
+  return state === "complete" && cleanup.coverageBlocked ? "limited" : state;
+});
 const coverageNeedsAttention = computed(
   () => coverageState.value === "limited" || coverageState.value === "incomplete",
 );
@@ -41,6 +49,7 @@ const attentionGroups = computed(() => {
     [configNeedsAttention.value, "library.coverageConfiguration"],
     [manifestNeedsAttention.value, "library.coverageManifests"],
     [toolNeedsAttention.value, "library.coverageTools"],
+    [cleanup.coverageBlocked, "library.coverageCleanup"],
   ];
   return groups
     .filter(([on]) => on)
@@ -51,13 +60,13 @@ const attentionGroups = computed(() => {
 const coverageLabel = computed(() => {
   const coverage = scan.coverage;
   if (!coverage) return "";
-  if (coverage.state === "complete") {
+  if (coverageState.value === "complete") {
     return t("library.coverageComplete", {
       libraries: coverage.libraries.total,
       games: scan.games.length,
     });
   }
-  return coverage.state === "limited"
+  return coverageState.value === "limited"
     ? t("library.coverageLimited", { groups: attentionGroups.value })
     : t("library.coverageIncomplete", { groups: attentionGroups.value });
 });

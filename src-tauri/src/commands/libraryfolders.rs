@@ -224,12 +224,13 @@ where
 /// übersprungen.
 fn canonical_library(path: &Path) -> Result<PathBuf, (LibraryUnavailableReason, String)> {
     let raw = path.to_string_lossy();
-    sanitize_path(&raw, "library path").map_err(|message| {
-        (
-            LibraryUnavailableReason::ScopeFailed,
-            format!("library path rejected: {message}"),
-        )
-    })?;
+    // `sanitize_path` liefert seinen code bereits selbst (`blocked-location: ...`).
+    // ein eigenes präfix würde ihn aus dem leitfeld drängen, `root_error` könnte
+    // ihn nicht mehr über `has_known_code` erkennen und verpackte den text ein
+    // zweites mal. der grund bleibt `ScopeFailed`, das detail wird in der
+    // per-library-liste ohnehin verworfen.
+    sanitize_path(&raw, "library path")
+        .map_err(|message| (LibraryUnavailableReason::ScopeFailed, message))?;
     // Ein Pfad, den die Blocklist ablehnt, darf nie in `libraries` landen: die
     // liste ist das scope-gate für lese- und löschpfade, und `canonicalize_safe`
     // würde ihn ablehnen, ohne dass der aufrufer den grund sehen könnte.
@@ -301,6 +302,21 @@ pub(super) fn read_library_folders_with_failures(
     read_library_folders_with_hook(steam_root, &mut || {})
 }
 
+/// 3.6: der harte Root-Fehler trägt den Grund seines `canonical_library`-laufs
+/// als Code; das Detail (pfad/io-text) bleibt unverändert daneben stehen. Ein
+/// bereits kodiertes Detail (blocklist-ablehnung) wird nicht doppelt verpackt.
+fn root_error(reason: LibraryUnavailableReason, detail: String) -> String {
+    if errcode::has_known_code(&detail) {
+        return detail;
+    }
+    let code = match reason {
+        LibraryUnavailableReason::PathMissing => errcode::NOT_FOUND,
+        LibraryUnavailableReason::ReadFailed => errcode::UNREADABLE,
+        LibraryUnavailableReason::ScopeFailed => errcode::BLOCKED_LOCATION,
+    };
+    errcode::with_detail(code, detail)
+}
+
 /// Hook-Variante für die Tausch-Regression: der Hook läuft nach der
 /// Pfad-Vorprüfung und vor dem Deskriptor-Open, also in der TOCTOU-Lücke von
 /// S-2. Produktionsaufrufer nutzen `read_library_folders_with_failures` ohne Hook.
@@ -311,7 +327,8 @@ fn read_library_folders_with_hook<F>(
 where
     F: FnMut(),
 {
-    let mut libraries = vec![canonical_library(steam_root).map_err(|(_, message)| message)?];
+    let mut libraries =
+        vec![canonical_library(steam_root).map_err(|(reason, detail)| root_error(reason, detail))?];
     let mut unavailable = Vec::new();
     for path in read_library_paths_with_hook(steam_root, hook)? {
         match canonical_library(&path) {

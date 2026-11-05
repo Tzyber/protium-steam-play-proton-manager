@@ -51,6 +51,79 @@ fn defekte_libraryfolders_tragen_unreadable() {
     }
 }
 
+/// 1.11/3.6: der harte Root-Fehler trägt seinen Grund als Code. Ohne ihn
+/// landet ein fehlender Steam-Root als Rohtext an der UI-Grenze und wird dort
+/// als "unbekannt" angezeigt statt als "nicht gefunden".
+#[test]
+fn fehlender_steam_root_traegt_not_found() {
+    let root = wsg_fixture("lf-root-missing");
+    let fehlend = root.join("kein-steam");
+
+    let error = read_library_folders(&fehlend).unwrap_err();
+    assert!(errcode::has_code(&error, errcode::NOT_FOUND), "{error}");
+    assert!(error.contains("library path"), "detail verloren: {error}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 3.6: ein Root ohne Lesbarkeit (hier: eine Datei statt eines Verzeichnisses)
+/// ist `unreadable`, nicht `not-found`: belegte abwesenheit darf nicht
+/// vorgetäuscht werden.
+#[test]
+fn steam_root_als_datei_traegt_unreadable() {
+    let root = wsg_fixture("lf-root-file");
+    let datei = root.join("kein-verzeichnis");
+    std::fs::write(&datei, b"").unwrap();
+
+    let error = read_library_folders(&datei).unwrap_err();
+    assert!(errcode::has_code(&error, errcode::UNREADABLE), "{error}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Regressionsschutz zur Kodierung: die Blocklist-Ablehnung trägt ihren Code
+/// bereits im Detail; ein zweites `with_detail` dürfte ihn nicht verdoppeln.
+#[test]
+fn blocklist_ablehnung_des_roots_bleibt_einfach_kodiert() {
+    let error = read_library_folders(Path::new("/")).unwrap_err();
+    assert!(
+        errcode::has_code(&error, errcode::BLOCKED_LOCATION),
+        "{error}"
+    );
+    assert_eq!(
+        error.matches(errcode::BLOCKED_LOCATION).count(),
+        1,
+        "doppelt kodiert: {error}"
+    );
+}
+
+/// P2-1: `sanitize_path` liefert seinen code bereits selbst
+/// (`blocked-location: library path: ...`). Setzte der aufrufer ein eigenes
+/// präfix davor, stünde der code nicht mehr im leitfeld, `root_error` würde den
+/// text ein zweites mal kodieren und die oberfläche sähe
+/// "blocked-location: blocked-location".
+#[test]
+fn relativer_root_traegt_blocked_location_genau_einmal() {
+    let error = read_library_folders(Path::new("protium-relativer-root/steam")).unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::BLOCKED_LOCATION),
+        "{error}"
+    );
+    assert!(
+        !error.contains("blocked-location: blocked-location"),
+        "doppelt kodiert: {error}"
+    );
+    assert!(
+        !error.contains("library path rejected"),
+        "präfix ist zurück: {error}"
+    );
+    assert!(
+        error.contains("path must be absolute"),
+        "detail verloren: {error}"
+    );
+}
+
 #[test]
 fn read_library_folders_lehnt_symlink_und_nicht_regulaere_datei_ab() {
     let root = wsg_fixture("lf-delete-hardening-file-types");

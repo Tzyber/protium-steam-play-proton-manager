@@ -464,15 +464,9 @@ fn cancel_nach_sha_vor_extract_raeumt_datei_und_registry_auf() {
     );
     assert_eq!(fs::read(&path).unwrap(), b"attacker path");
 
-    let mut map = registry.0.lock().unwrap();
-    let same = map
-        .get("post-sha")
-        .map(|registered| Arc::ptr_eq(registered, &cancel))
-        .unwrap_or(false);
-    assert!(same);
-    map.remove("post-sha");
+    crate::commands::download::clear_registered_download(&registry, "post-sha");
     assert!(
-        map.is_empty(),
+        registry.0.lock().unwrap().is_empty(),
         "registry muss nach dem install-wrapper leer sein"
     );
     let _ = fs::remove_dir_all(root);

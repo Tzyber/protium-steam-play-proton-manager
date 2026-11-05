@@ -39,6 +39,18 @@ describe("errtext und parseError (B1)", () => {
     expect(parsed.detail).toBe('game "Portal" (400) is currently installed');
   });
 
+  it("token-unknown ist blockiert, invalid-id bleibt unknown (5.8)", () => {
+    // Ein unbekanntes oder verdrängtes Lösch-Token ist eine Blockade; ein
+    // syntaktisch falsches Token bleibt dagegen unklar.
+    expect(parseError("token-unknown").kind).toBe("blocked");
+    expect(parseError("token-unknown").code).toBe("token-unknown");
+
+    const parsed = parseError("token-unknown: verdrängt");
+    expect(parsed.kind).toBe("blocked");
+    expect(parsed.detail).toBe("verdrängt");
+    expect(parseError("invalid-id").kind).toBe("unknown");
+  });
+
   it("unbekannte Texte bleiben unknown, ohne zu raten", () => {
     // Ein alter englischer Satz ist kein Code und wird nicht klassifiziert.
     const parsed = parseError("steam is running, write refused");

@@ -374,7 +374,7 @@ pub async fn log_diagnostic(
     let data_dir = app
         .path()
         .app_local_data_dir()
-        .map_err(|e| format!("unavailable: {e}"))?;
+        .map_err(|error| errcode::with_detail(errcode::UNAVAILABLE, error))?;
     let log_dir = prepare_app_dir(&data_dir.join("logs"), &data_dir, "app logs")?;
     spawn_blocking_io(move || append_log_entry(&log_dir, &level, &message)).await
 }
@@ -384,7 +384,7 @@ pub async fn open_logs_folder(app: tauri::AppHandle) -> Result<(), String> {
     let data_dir = app
         .path()
         .app_local_data_dir()
-        .map_err(|e| format!("unavailable: {e}"))?;
+        .map_err(|error| errcode::with_detail(errcode::UNAVAILABLE, error))?;
     let log_dir = prepare_app_dir(&data_dir.join("logs"), &data_dir, "app logs")?;
     #[cfg(target_os = "linux")]
     {

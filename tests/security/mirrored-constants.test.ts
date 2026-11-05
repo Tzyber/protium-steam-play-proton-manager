@@ -188,6 +188,7 @@ describe("TypeScript-/Rust-Spiegelwerte", () => {
       "size-limit-exceeded": "incomplete",
       "not-found": "not-found",
       "token-expired": "blocked",
+      "token-unknown": "blocked",
       "target-changed": "blocked",
       "unsupported-target": "blocked",
       "not-a-directory": "unreadable",

@@ -1,5 +1,5 @@
 import type { EnvironmentSnapshot } from "../ports.js";
-import type { ScanWarning, SkippedLibrary } from "../types.js";
+import { asSkipReason, type ScanWarning, type SkippedLibrary } from "../types.js";
 
 /** übersetzt den backend-snapshot: fehlgeschlagene discovery bleibt sichtbar.
  *  `path-missing` ist belegte abwesenheit, `scope-failed`/`read-failed` sind
@@ -37,12 +37,16 @@ export function readLibraryList(environment: EnvironmentSnapshot): {
     // discovery-einträge erzeugen genau eine warnung.
     if (read.has(unavailable.path) || seen.has(unavailable.path)) continue;
     seen.add(unavailable.path);
-    skippedLibraries.push({ path: unavailable.path, reason: unavailable.reason });
+    // der typ verspricht einen bekannten grund, das wire-format garantiert ihn
+    // nicht: ein fremder wert wird `unverified` und blockiert das cleanup,
+    // statt im coverage-panel zu werfen.
+    const reason = asSkipReason(unavailable.reason);
+    skippedLibraries.push({ path: unavailable.path, reason });
     warnings.push({
       type: "library",
       path: unavailable.path,
-      reason: unavailable.reason,
-      detail: `library "${unavailable.path}" unavailable during discovery: ${unavailable.reason}`,
+      reason,
+      detail: `library "${unavailable.path}" unavailable during discovery: ${reason}`,
     });
   }
   return { libraries, warnings, skippedLibraries };

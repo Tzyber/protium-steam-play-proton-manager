@@ -32,6 +32,122 @@ fn registry_erlaubt_nur_einen_aktiven_download() {
     );
 }
 
+// ---- cancel-registry: unbekannte ID, bekannter eintrag, poison ----
+
+/// vergiftet die registry echt: ein panik unter gehaltenem lock hinterlässt
+/// den poison-zustand, den `catch_unwind` hier einsammelt.
+fn poison_registry(registry: &CancelRegistry) {
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _guard = registry.0.lock().unwrap();
+        panic!("registry-poison für den test");
+    }));
+    assert!(panicked.is_err(), "der test muss die registry vergiften");
+    assert!(registry.0.lock().is_err(), "registry muss vergiftet sein");
+}
+
+#[test]
+fn cancel_unbekannte_id_ist_not_found() {
+    let registry = CancelRegistry::default();
+    assert_eq!(
+        cancel_registered_download(&registry, "nie-registriert").unwrap_err(),
+        "not-found"
+    );
+}
+
+#[test]
+fn cancel_bekannter_eintrag_setzt_flag_und_gibt_ok() {
+    let registry = CancelRegistry::default();
+    let signal = register_download(&registry, "cancel-bekannt").unwrap();
+    assert!(!signal.is_cancelled());
+
+    assert_eq!(
+        cancel_registered_download(&registry, "cancel-bekannt"),
+        Ok(())
+    );
+    assert!(
+        signal.is_cancelled(),
+        "ein bekannter eintrag muss abgebrochen werden"
+    );
+}
+
+#[test]
+fn register_nach_poison_verwirft_den_stehengebliebenen_eintrag() {
+    let registry = CancelRegistry::default();
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut map = registry.0.lock().unwrap();
+        map.insert("alt".to_string(), Arc::new(CancelSignal::new()));
+        panic!("registry-poison mit stehengebliebenem eintrag");
+    }));
+    assert!(panicked.is_err(), "der test muss die registry vergiften");
+    assert!(registry.0.lock().is_err(), "registry muss vergiftet sein");
+
+    // der unzuverlässige inhalt darf den nächsten lauf nicht als belegung sperren
+    let signal = register_download(&registry, "nach-poison")
+        .expect("poison mit altem eintrag darf keinen neuen download blockieren");
+    assert!(!signal.is_cancelled());
+
+    let map = registry
+        .0
+        .lock()
+        .expect("register_download muss den poison geheilt haben");
+    assert_eq!(
+        map.len(),
+        1,
+        "nur der neue eintrag darf nach dem poison übrig sein"
+    );
+    assert!(
+        map.get("nach-poison")
+            .is_some_and(|entry| Arc::ptr_eq(entry, &signal)),
+        "der übrige eintrag muss der neue mit frischem flag sein"
+    );
+    assert!(
+        !map.contains_key("alt"),
+        "der stehengebliebene eintrag muss verworfen sein"
+    );
+}
+
+#[test]
+fn cancel_bei_poison_ist_unavailable_und_registry_bleibt_benutzbar() {
+    let registry = CancelRegistry::default();
+    poison_registry(&registry);
+
+    let error = cancel_registered_download(&registry, "egal").unwrap_err();
+    assert!(
+        errcode::has_code(&error, errcode::UNAVAILABLE),
+        "poison muss unavailable tragen: {error}"
+    );
+    assert!(registry.0.lock().is_ok(), "poison muss geheilt sein");
+
+    // der poison darf den nächsten lauf nicht dauerhaft sperren
+    let signal = register_download(&registry, "nach-poison").unwrap();
+    assert!(
+        !signal.is_cancelled(),
+        "neues flag darf nicht vorbelastet sein"
+    );
+    assert_eq!(cancel_registered_download(&registry, "nach-poison"), Ok(()));
+    assert!(signal.is_cancelled());
+}
+
+#[test]
+fn clear_entfernt_eintrag_auch_bei_poison() {
+    let registry = CancelRegistry::default();
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut map = registry.0.lock().unwrap();
+        map.insert("poison-clear".to_string(), Arc::new(CancelSignal::new()));
+        panic!("registry-poison für den test");
+    }));
+    assert!(panicked.is_err(), "der test muss die registry vergiften");
+
+    clear_registered_download(&registry, "poison-clear");
+    assert!(registry.0.lock().is_ok(), "poison muss geheilt sein");
+
+    let map = registry
+        .0
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    assert!(map.is_empty(), "eintrag muss auch bei poison entfernt sein");
+}
+
 #[test]
 fn download_url_rejects_http() {
     assert!(validate_download_url(
@@ -497,67 +613,36 @@ async fn cancel_weckt_blockierten_sha_future_aktiv_auf() {
     assert_eq!(result, Sha512FetchError::Cancelled);
 }
 
-// ---- cancel-registry stale-signal tests (Arc + ptr_eq) ----
+// ---- cancel-registry: freigabe nach clear ----
 
 #[test]
-fn cancel_registry_ptr_eq_entfernt_nur_eigenes_flag() {
+fn cancel_registry_clear_gibt_neue_registrierung_ohne_stale_flag_frei() {
     let registry = CancelRegistry::default();
 
-    // erstes Arc registrieren (simuliert download_file-start)
-    let flag1 = Arc::new(CancelSignal::new());
-    registry
-        .0
-        .lock()
-        .unwrap()
-        .insert("x".into(), Arc::clone(&flag1));
-
-    // ptr_eq muss für eigenes Arc zutreffen
+    // erster lauf: registrieren und wie der install-wrapper wieder abräumen
+    let first = register_download(&registry, "x").unwrap();
+    first.cancel();
+    clear_registered_download(&registry, "x");
     assert!(
-        registry
-            .0
-            .lock()
-            .unwrap()
-            .get("x")
-            .map(|r| Arc::ptr_eq(r, &flag1))
-            .unwrap_or(false),
-        "eigenes Arc muss per ptr_eq matchen"
+        registry.0.lock().unwrap().is_empty(),
+        "clear muss den eintrag des ersten laufs entfernen"
     );
 
-    // cleanup: entfernen weil ptr_eq matched
-    {
-        let mut map = registry.0.lock().unwrap();
-        let keep = map
-            .get("x")
-            .map(|r| Arc::ptr_eq(r, &flag1))
-            .unwrap_or(false);
-        if keep {
-            map.remove("x");
-        }
-    }
-    assert!(registry.0.lock().unwrap().is_empty());
-
-    // zweiter download: neues Arc (simuliert re-download)
-    let flag2 = Arc::new(CancelSignal::new());
-    registry
-        .0
-        .lock()
-        .unwrap()
-        .insert("x".into(), Arc::clone(&flag2));
-
-    // altes flag1 darf NICHT mit dem neuen eintrag ptr_eq matchen
-    let mismatch = registry
-        .0
-        .lock()
-        .unwrap()
-        .get("x")
-        .map(|r| !Arc::ptr_eq(r, &flag1))
-        .unwrap_or(false);
-    assert!(mismatch, "altes Arc darf nicht auf neuen eintrag matchen");
-
-    // neues flag muss frisch (false) sein, kein stale cancel
+    // zweiter lauf: frisches flag, kein stale cancel vom ersten lauf
+    let second = register_download(&registry, "x").unwrap();
     assert!(
-        !flag2.is_cancelled(),
+        !second.is_cancelled(),
         "neues flag darf nicht vorbelastet sein"
+    );
+    assert_eq!(cancel_registered_download(&registry, "x"), Ok(()));
+    assert!(
+        second.is_cancelled(),
+        "cancel muss das flag des zweiten laufs treffen"
+    );
+    clear_registered_download(&registry, "x");
+    assert!(
+        registry.0.lock().unwrap().is_empty(),
+        "registry muss nach dem zweiten lauf leer sein"
     );
 }
 

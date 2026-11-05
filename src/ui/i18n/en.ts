@@ -72,6 +72,7 @@ export const en = {
     coverageLibraryRead: "read: {path}",
     coverageLibraryUnavailable: "unavailable: {path}",
     coverageConfiguration: "steam configuration",
+    coverageCleanup: "cleanup lock",
     coverageCompatConfig: "compatibility mapping",
     coverageLaunchConfig: "launch configuration",
     coverageLaunchAccount: "selected account: {id}",
@@ -512,6 +513,7 @@ export const en = {
       notADirectory: "Not a regular directory.",
       symlinkRejected: "A symbolic link was rejected.",
       tokenExpired: "The confirmation expired. Please start again.",
+      tokenUnknown: "The confirmation is unknown or superseded. Please start again.",
       targetChanged: "The target changed since confirmation. Nothing was changed.",
       unsupportedTarget: "This target type is not supported.",
       notAnOrphan:

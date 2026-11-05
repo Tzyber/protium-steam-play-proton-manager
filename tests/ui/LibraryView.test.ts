@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 import type { ScanResult } from "../../src/core/types";
 import { setLocale, t } from "../../src/ui/i18n";
+import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useLibraryStore } from "../../src/ui/stores/libraryStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
 import { game, scanResult } from "../support/factories";
@@ -178,6 +179,22 @@ describe("LibraryView proton-check und ProtonDB-Nachlauf", () => {
     expect(wrapper.get(".coverage-toggle").attributes("aria-controls")).toBe(
       "library-coverage-details",
     );
+  });
+
+  it("zeigt vollständige coverage bei blockiertem cleanup als eingeschränkt", async () => {
+    // der scan selbst ist vollständig, aber der cleanup gesperrt: coverage und
+    // löschdialog dürfen sich nicht widersprechen, deshalb limited.
+    useCleanupStore().shortcutUnreadable = true;
+    const wrapper = mount(LibraryView);
+    const label = t("library.coverageLimited", { groups: t("library.coverageCleanup") });
+
+    expect(wrapper.get(".coverage").classes()).toContain("coverage--limited");
+    expect(wrapper.get(".coverage-summary").text()).toBe(label);
+    expect(wrapper.get('.coverage [role="status"]').text()).toContain(label);
+
+    await wrapper.get(".coverage-toggle").trigger("click");
+    // die sperre ist eine aufmerksamkeitsgruppe, keine fünfte karte
+    expect(wrapper.findAll(".coverage-card")).toHaveLength(4);
   });
 
   it("zeigt eine mehrdeutige accountauswahl als eingeschränkt statt vollständig", async () => {

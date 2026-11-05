@@ -10,6 +10,7 @@ import {
   MOCK_TOKEN_TTL_MS,
   mockExecuteDelete,
   mockFindOrphans,
+  mockFindTrashEntries,
   mockIsSteamRunning,
   mockPrepareDelete,
   mockReadAllShortcutAppIds,
@@ -116,7 +117,39 @@ describe("cleanupStore, S-05 + shortcuts", () => {
     expect(store.trashError).toBeNull();
     expect(store.trashUnavailable).toBe(false);
     expect(store.prefixUnavailable).toBe(true);
+    // der shortcut-lesefehler sperrt die anzeige, aber nicht das löschen (P2-2)
+    expect(store.orphanDeleteBlocked("compatdata")).toBe(false);
+    expect(store.coverageBlocked).toBe(true);
     expect(store.error).toContain(t("errors.shortcutsUnreadable"));
+  });
+
+  it("löschfehler im papierkorb sperrt die coverage nicht (P2-3)", () => {
+    const store = useCleanupStore();
+    const deleteFailure = t("cleanup.trashExecuteError", { n: 1, errors: "EACCES" });
+    store.trashError = deleteFailure;
+
+    // die anzeige meldet den papierkorb als nicht verfügbar …
+    expect(store.trashUnavailable).toBe(true);
+    // … die coverage bleibt aber vollständig, weil der scan selbst nicht scheiterte
+    expect(store.coverageBlocked).toBe(false);
+
+    // erst der scan-fakt sperrt die coverage; der anzeigetext bleibt der löschfehler
+    store._trashScanError = t("cleanup.trashUnreadable", { paths: "/lib" });
+    expect(store.coverageBlocked).toBe(true);
+    expect(store.trashError).toBe(deleteFailure);
+  });
+
+  it("ein papierkorb-scanfehler sperrt die coverage (P2-3)", async () => {
+    mockFindTrashEntries.mockRejectedValueOnce(new Error("EACCES: permission denied"));
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+
+    await store.scanTrash();
+
+    expect(store._trashScanError).not.toBeNull();
+    expect(store.trashUnavailable).toBe(true);
+    expect(store.coverageBlocked).toBe(true);
   });
 
   it("Policy: unlesbares shortcuts.vdf → compatdata fail-closed, shadercache regenerierbar", async () => {

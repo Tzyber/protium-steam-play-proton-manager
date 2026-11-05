@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
+import type { IncompleteDeletion, OrphanUnreadable } from "../../src/core/cleanup";
 import type { DirectorySize } from "../../src/core/ports";
 import type { ShortcutResult } from "../../src/core/shortcuts";
+import type { TrashLibraryStatus } from "../../src/core/trash";
 import type { ScanResult } from "../../src/core/types";
 import { setLocale, t } from "../../src/ui/i18n";
 import {
   attachSizes,
+  cleanupBlockedFlags,
   collectInstalledAppIds,
   combineErrors,
   formatTrashErrors,
@@ -198,6 +201,127 @@ describe("hasUnreadableOrphanType", () => {
     };
     expect(hasUnreadableOrphanType(onlyShader, "compatdata")).toBe(false);
     expect(hasUnreadableOrphanType({ orphanUnreadable: [] }, "compatdata")).toBe(false);
+  });
+});
+
+describe("cleanupBlockedFlags", () => {
+  const facts = {
+    orphanScanError: null as string | null,
+    blockedBySkipped: false,
+    pathMissingLibs: [] as string[],
+    incompleteDeletionsUnreadable: [] as string[],
+    shortcutUnreadable: false,
+    orphanUnreadable: [] as OrphanUnreadable[],
+    incompleteDeletions: [] as { type: IncompleteDeletion["type"] }[],
+    trashError: null as string | null,
+    trashUnknown: [] as string[],
+    trashLibraries: [] as TrashLibraryStatus[],
+  };
+
+  it("sperrt ohne grund nichts", () => {
+    expect(cleanupBlockedFlags(facts)).toEqual({
+      base: false,
+      shader: false,
+      prefix: false,
+      trash: false,
+      any: false,
+    });
+  });
+
+  it("jeder basisgrund sperrt shader und prefix", () => {
+    const reasons = [
+      { orphanScanError: "scan unlesbar" },
+      { blockedBySkipped: true },
+      { pathMissingLibs: ["/gone"] },
+    ];
+    for (const reason of reasons) {
+      const flags = cleanupBlockedFlags({ ...facts, ...reason });
+      expect(flags.base).toBe(true);
+      expect(flags.shader).toBe(true);
+      expect(flags.prefix).toBe(true);
+      expect(flags.any).toBe(true);
+      // der papierkorb bleibt bei diesen gründen handlungsfähig
+      expect(flags.trash).toBe(false);
+    }
+  });
+
+  it("unlesbare claim-parents sperren basis, shader, prefix und papierkorb", () => {
+    const flags = cleanupBlockedFlags({ ...facts, incompleteDeletionsUnreadable: ["/x"] });
+
+    expect(flags).toEqual({ base: true, shader: true, prefix: true, trash: true, any: true });
+  });
+
+  it("die unlesbaren orphan-ordner sperren typ-genau, nicht die basis", () => {
+    const shader = cleanupBlockedFlags({
+      ...facts,
+      orphanUnreadable: [{ path: "/lib/steamapps/shadercache", type: "shadercache" }],
+    });
+    expect(shader).toEqual({ base: false, shader: true, prefix: false, trash: false, any: true });
+
+    const prefix = cleanupBlockedFlags({
+      ...facts,
+      orphanUnreadable: [{ path: "/lib/steamapps/compatdata", type: "compatdata" }],
+    });
+    expect(prefix).toEqual({ base: false, shader: false, prefix: true, trash: false, any: true });
+  });
+
+  it("der shortcut-lesefehler sperrt nur den prefix-bereich", () => {
+    expect(cleanupBlockedFlags({ ...facts, shortcutUnreadable: true })).toEqual({
+      base: false,
+      shader: false,
+      prefix: true,
+      trash: false,
+      any: true,
+    });
+  });
+
+  it("liegengebliebene claims sperren typ-genau, nicht die basis", () => {
+    expect(
+      cleanupBlockedFlags({ ...facts, incompleteDeletions: [{ type: "shadercache" }] }),
+    ).toEqual({ base: false, shader: true, prefix: false, trash: false, any: true });
+    expect(
+      cleanupBlockedFlags({ ...facts, incompleteDeletions: [{ type: "compatdata" }] }),
+    ).toEqual({ base: false, shader: false, prefix: true, trash: false, any: true });
+    expect(cleanupBlockedFlags({ ...facts, incompleteDeletions: [{ type: "trash" }] })).toEqual({
+      base: false,
+      shader: false,
+      prefix: false,
+      trash: true,
+      any: true,
+    });
+    // compat-tool-reste sperren keinen der bereiche
+    expect(
+      cleanupBlockedFlags({ ...facts, incompleteDeletions: [{ type: "compat-tool" }] }),
+    ).toEqual({ base: false, shader: false, prefix: false, trash: false, any: false });
+  });
+
+  it("der papierkorb sperrt nur sich selbst", () => {
+    const reasons = [
+      { trashError: "kaputt" },
+      { trashUnknown: ["/lib/unknown"] },
+      {
+        trashLibraries: [
+          { library: "/lib", dir: "/lib/trash", present: true, count: 0, error: "unreadable" },
+        ],
+      },
+    ];
+    for (const reason of reasons) {
+      expect(cleanupBlockedFlags({ ...facts, ...reason })).toEqual({
+        base: false,
+        shader: false,
+        prefix: false,
+        trash: true,
+        any: true,
+      });
+    }
+
+    // ein lesbarer, leerer papierkorb sperrt nicht
+    expect(
+      cleanupBlockedFlags({
+        ...facts,
+        trashLibraries: [{ library: "/lib", dir: "/lib/trash", present: false, count: 0 }],
+      }).trash,
+    ).toBe(false);
   });
 });
 

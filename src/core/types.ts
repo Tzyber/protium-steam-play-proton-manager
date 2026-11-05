@@ -183,7 +183,16 @@ export interface ScanResult {
 /** `unverified` = das backend hat keinen grund geliefert (z. b. snapshot ohne
  *  das feld); der zustand ist unbekannt und blockiert das cleanup wie ein
  *  zugriffsfehler. */
-export type SkipReason = "path-missing" | "scope-failed" | "read-failed" | "unverified";
+export const SKIP_REASONS = ["path-missing", "scope-failed", "read-failed", "unverified"] as const;
+
+export type SkipReason = (typeof SKIP_REASONS)[number];
+
+/** discovery-grund aus einem rohwert der backend-grenze; ein fremder wert
+ *  (wire-drift) ist kein belegter ausfall und fällt auf `unverified`, damit
+ *  weder coverage noch cleanup einen unbekannten grund weiterreichen. */
+export function asSkipReason(raw: unknown): SkipReason {
+  return oneOf(SKIP_REASONS, raw) ?? "unverified";
+}
 
 export interface SkippedLibrary {
   path: string;

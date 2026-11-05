@@ -35,6 +35,9 @@ const CODE_KINDS: Record<string, ProtiumErrorKind> = {
   "not-a-directory": "unreadable",
   "symlink-rejected": "blocked",
   "token-expired": "blocked",
+  // 5.8: ein unbekanntes oder verdrängtes Lösch-Token ist eine Blockade wie
+  // das abgelaufene; invalid-id bleibt unknown (syntaktisch falsche ID).
+  "token-unknown": "blocked",
   "target-changed": "blocked",
   "unsupported-target": "blocked",
   "not-an-orphan": "blocked",

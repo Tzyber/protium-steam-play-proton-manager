@@ -31,12 +31,34 @@ pub(crate) mod write_gate;
 /// spawn_blocking + join-handle-fehler → String. die sync-commands laufen
 /// bei tauri v2 auf dem main-thread, blockierende IO gehört in den
 /// blocking-pool (batch C1).
+///
+/// 3.5: ein JoinError ist ein ausgefallener pool (panic/abbruch), kein
+/// fachlicher Fehler des commands; er trägt deshalb `unavailable` mit dem
+/// JoinError als detail statt eines rohtextes.
 pub(crate) async fn spawn_blocking_io<T: Send + 'static>(
     f: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
     tokio::task::spawn_blocking(f)
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|error| errcode::with_detail(errcode::UNAVAILABLE, error))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::spawn_blocking_io;
+    use crate::commands::errcode;
+
+    /// 3.5: ein JoinError ist ein ausgefallener blocking-pool, kein fachlicher
+    /// fehler des commands. Ohne die abbildung landet sein display-text als
+    /// rohfehler in der oberfläche.
+    #[tokio::test(flavor = "current_thread")]
+    async fn join_error_traegt_unavailable() {
+        let error = spawn_blocking_io(|| -> Result<(), String> { panic!("pool kaputt") })
+            .await
+            .unwrap_err();
+
+        assert!(errcode::has_code(&error, errcode::UNAVAILABLE), "{error}");
+    }
 }
 
 #[cfg(test)]

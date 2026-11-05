@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readLibraryList } from "../../../src/core/scan/libraries.js";
+import type { SkippedLibrary } from "../../../src/core/types.js";
 import { buildFakeSteam } from "../../support/fakeSteam";
 
 describe("readLibraryList", () => {
@@ -80,6 +81,30 @@ describe("readLibraryList", () => {
 
     expect(result.skippedLibraries).toEqual([{ path: "/mnt/doppelt", reason: "read-failed" }]);
     expect(result.warnings).toHaveLength(1);
+  });
+
+  it("normalisiert einen fremden reason aus dem wire zu unverified", () => {
+    // wire-drift: das backend schickt einen grund, den der TS-typ nicht kennt.
+    // der cast simuliert genau diese lücke an einer stelle; der typ selbst
+    // bleibt unangetastet.
+    const drifted = [{ path: "/mnt/fremd", reason: "bogus" }] as unknown as SkippedLibrary[];
+    const result = readLibraryList({
+      generation: 1,
+      steamRoot: "/tmp/steam",
+      libraries: ["/tmp/steam"],
+      unavailableLibraries: drifted,
+      systemCompatDirs: [],
+    });
+
+    expect(result.skippedLibraries).toEqual([{ path: "/mnt/fremd", reason: "unverified" }]);
+    expect(result.warnings).toEqual([
+      {
+        type: "library",
+        path: "/mnt/fremd",
+        reason: "unverified",
+        detail: 'library "/mnt/fremd" unavailable during discovery: unverified',
+      },
+    ]);
   });
 
   it("degradiert sichtbar, wenn der snapshot die discovery-fehler nicht belegt", () => {

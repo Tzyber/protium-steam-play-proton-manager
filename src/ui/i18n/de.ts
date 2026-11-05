@@ -67,6 +67,7 @@ export const de = {
     coverageLibraryRead: "gelesen: {path}",
     coverageLibraryUnavailable: "nicht verfügbar: {path}",
     coverageConfiguration: "steam-konfiguration",
+    coverageCleanup: "cleanup-sperre",
     coverageCompatConfig: "kompatibilitätszuordnung",
     coverageLaunchConfig: "startkonfiguration",
     coverageLaunchAccount: "gewählter account: {id}",
@@ -513,6 +514,7 @@ export const de = {
       notADirectory: "Kein reguläres Verzeichnis.",
       symlinkRejected: "Ein symbolischer Link wurde abgelehnt.",
       tokenExpired: "Die Bestätigung ist abgelaufen. Bitte erneut starten.",
+      tokenUnknown: "Die Bestätigung ist unbekannt oder verdrängt. Bitte erneut starten.",
       targetChanged: "Das Ziel hat sich seit der Bestätigung geändert. Nichts wurde verändert.",
       unsupportedTarget: "Dieser Zieltyp wird nicht unterstützt.",
       notAnOrphan:

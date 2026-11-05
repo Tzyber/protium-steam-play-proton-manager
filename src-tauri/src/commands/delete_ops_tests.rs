@@ -1,6 +1,7 @@
 use super::*;
 use crate::commands::test_util::{production_source, wsg_fixture};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn orphan_fixture(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     let root = wsg_fixture(tag);
@@ -346,12 +347,35 @@ fn prepare_und_execute_happy_path_und_replay_schutz() {
         "unerwarteter papierkorbeintrag: {trash_entries:?}"
     );
 
-    // 3. Execute 2nd time (Replay) -> Fails with invalid token
+    // 3. Execute 2nd time (Replay): das Token ist verdrängt, nicht syntaktisch
+    // falsch. Ein unbekanntes Token ist eine Blockade, kein "unbekannt".
     let res_replay = execute_delete_pipeline(&registry, &info.token, &|_| true, || Ok(false));
-    assert!(res_replay.is_err());
-    assert!(res_replay.unwrap_err().contains("invalid-id"));
+    let error = res_replay.unwrap_err();
+    // 5.8: der code steht im leitfeld, nicht nur irgendwo im text; und ein
+    // verdrängtes token ist keine syntaktisch falsche ID.
+    assert!(
+        errcode::has_code(&error, errcode::TOKEN_UNKNOWN),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(
+        !errcode::has_code(&error, errcode::INVALID_ID),
+        "replay darf nicht als invalid-id gelten: {error}"
+    );
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn unbekanntes_token_traegt_token_unknown() {
+    let registry = PendingDeleteRegistry::default();
+
+    let error =
+        execute_delete_pipeline(&registry, "gibt-es-nicht", &|_| true, || Ok(false)).unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::TOKEN_UNKNOWN),
+        "unerwarteter fehler: {error}"
+    );
 }
 
 #[test]

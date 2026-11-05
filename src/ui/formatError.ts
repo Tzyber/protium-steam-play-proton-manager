@@ -26,6 +26,7 @@ const CODE_KEYS: Record<string, Key> = {
   "not-a-directory": "errors.codes.notADirectory",
   "symlink-rejected": "errors.codes.symlinkRejected",
   "token-expired": "errors.codes.tokenExpired",
+  "token-unknown": "errors.codes.tokenUnknown",
   "target-changed": "errors.codes.targetChanged",
   "unsupported-target": "errors.codes.unsupportedTarget",
   "not-an-orphan": "errors.codes.notAnOrphan",

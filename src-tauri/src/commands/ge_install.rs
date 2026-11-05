@@ -9,9 +9,9 @@ use sha2::{Digest, Sha512};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::commands::download::{
-    fetch_sha512_text, validate_download_id, validate_download_url, validate_redirect_url,
-    CancelRegistry, CancelSignal, DownloadDirectoryBinding, DownloadStorage, Sha512FetchError,
-    MAX_DOWNLOAD_BYTES,
+    clear_registered_download, fetch_sha512_text, validate_download_id, validate_download_url,
+    validate_redirect_url, CancelRegistry, CancelSignal, DownloadDirectoryBinding, DownloadStorage,
+    Sha512FetchError, MAX_DOWNLOAD_BYTES,
 };
 use crate::commands::errcode;
 #[cfg(test)]
@@ -891,15 +891,9 @@ pub async fn install_ge_proton(
     )
     .await;
 
-    if let Ok(mut map) = state.0.lock() {
-        let keep = map
-            .get(&download_id)
-            .map(|registered| Arc::ptr_eq(registered, &cancel_flag))
-            .unwrap_or(false);
-        if keep {
-            map.remove(&download_id);
-        }
-    }
+    // der eintrag muss auch nach einem poison weg: sonst bleibt DOWNLOAD_ACTIVE
+    // bis zum neustart stehen und der nächste download scheitert dauerhaft.
+    clear_registered_download(&state, &download_id);
 
     res
 }

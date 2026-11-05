@@ -150,6 +150,28 @@ impl CancelSignal {
 #[derive(Default)]
 pub struct CancelRegistry(pub Mutex<HashMap<String, Arc<CancelSignal>>>);
 
+type RegistryMap = HashMap<String, Arc<CancelSignal>>;
+
+impl CancelRegistry {
+    /// poison heilen statt aufgeben: ein panik eines anderen threads darf die
+    /// registry nicht bis zum neustart unbenutzbar machen. `into_inner` allein
+    /// liesse den flag stehen, deshalb `clear_poison`; unter dem lock laufen nur
+    /// map-operationen (`insert`/`remove`) und das `notify_one` an ein bereits
+    /// registriertes signal, aber kein nutzercode. ein vom panik mitten im
+    /// map-schritt abgebrochener zustand ist trotzdem unzuverlässig, deshalb
+    /// verwirft `register_download` den inhalt bei erkanntem poison. der zweite
+    /// wert nennt den poison, damit der aufrufer ihn melden kann.
+    fn lock_healing(&self) -> (std::sync::MutexGuard<'_, RegistryMap>, bool) {
+        match self.0.lock() {
+            Ok(map) => (map, false),
+            Err(poisoned) => {
+                self.0.clear_poison();
+                (poisoned.into_inner(), true)
+            }
+        }
+    }
+}
+
 /// maximale download-grösse (GE-tarballs ~1 GB, 8 GiB ist reichlich luft).
 pub const MAX_DOWNLOAD_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 
@@ -179,10 +201,13 @@ pub(super) fn register_download(
     download_id: &str,
 ) -> Result<Arc<CancelSignal>, String> {
     validate_download_id(download_id)?;
-    let mut map = registry
-        .0
-        .lock()
-        .map_err(|e| errcode::with_detail(errcode::UNAVAILABLE, e))?;
+    let (mut map, poisoned) = registry.lock_healing();
+    if poisoned {
+        // der inhalt stammt aus einem abgebrochenen lauf und ist unzuverlässig.
+        // ohne clear bliebe ein stehengebliebener eintrag zurück und die
+        // leer-prüfung würde dauerhaft DOWNLOAD_ACTIVE melden.
+        map.clear();
+    }
     if !map.is_empty() {
         return Err(errcode::DOWNLOAD_ACTIVE.into());
     }
@@ -444,14 +469,41 @@ pub(super) fn metadata_identity(metadata: &fs::Metadata) -> (u64, u64) {
     (metadata.len(), 0)
 }
 
+/// räumt den eintrag nach einem install-lauf ab. auch ein poison-zustand wird
+/// dabei geheilt, sonst bliebe der lauf als belegung bis zum neustart stehen.
+pub(super) fn clear_registered_download(registry: &CancelRegistry, download_id: &str) {
+    let (mut map, _) = registry.lock_healing();
+    map.remove(download_id);
+}
+
+/// abbruch ohne tauri-typen (`cargo test`-bar). eine unbekannte ID ist ein
+/// fehler und kein stiller erfolg: die oberfläche soll veraltete downloads
+/// sehen statt einen abbruch zu glauben, der keinen laufenden download traf.
+pub(super) fn cancel_registered_download(
+    registry: &CancelRegistry,
+    download_id: &str,
+) -> Result<(), String> {
+    let (map, poisoned) = registry.lock_healing();
+    if poisoned {
+        return Err(errcode::with_detail(
+            errcode::UNAVAILABLE,
+            "download registry poisoned",
+        ));
+    }
+    let Some(flag) = map.get(download_id) else {
+        return Err(errcode::NOT_FOUND.into());
+    };
+    flag.cancel();
+    Ok(())
+}
+
 /// markiert einen download zum abbruch; setzt das flag im aktuell registrierten Arc.
 #[tauri::command]
-pub fn cancel_download(state: tauri::State<'_, CancelRegistry>, download_id: String) {
-    if let Ok(map) = state.0.lock() {
-        if let Some(flag) = map.get(&download_id) {
-            flag.cancel();
-        }
-    }
+pub fn cancel_download(
+    state: tauri::State<'_, CancelRegistry>,
+    download_id: String,
+) -> Result<(), String> {
+    cancel_registered_download(&state, &download_id)
 }
 
 #[derive(Debug, PartialEq, Eq)]

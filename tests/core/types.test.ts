@@ -9,7 +9,10 @@ import {
   asCompatConfigStatus,
   asCompatToolSource,
   asLaunchConfigStatus,
+  asSkipReason,
   asTier,
+  SKIP_REASONS,
+  type SkipReason,
 } from "../../src/core/types.js";
 
 /** Rohwerte, die ein Feld annehmen kann, das kein String ist. */
@@ -58,6 +61,32 @@ describe("asCompatToolSource", () => {
 
   it("gibt einen gültigen string unverändert zurück", () => {
     expect(asCompatToolSource("explicit")).toBe("explicit");
+  });
+});
+
+describe("asSkipReason", () => {
+  it.each(NON_STRING_RAW)("$fall ergibt unverified", ({ raw }) => {
+    expect(asSkipReason(raw)).toBe("unverified");
+  });
+
+  it("macht einen fremden string zu unverified", () => {
+    expect(asSkipReason("bogus")).toBe("unverified");
+  });
+
+  it.each(SKIP_REASONS)("gibt den gültigen wert %s unverändert zurück", (reason) => {
+    expect(asSkipReason(reason)).toBe(reason);
+  });
+
+  it("kennt jeden SkipReason-wert", () => {
+    // die werteliste ist die wahrheit: ein neuer grund ohne eintrag fällt hier
+    // auf, bevor die UI ihn als unbekannt ausgibt.
+    const alle: Record<SkipReason, true> = {
+      "path-missing": true,
+      "scope-failed": true,
+      "read-failed": true,
+      unverified: true,
+    };
+    expect([...SKIP_REASONS].sort()).toEqual(Object.keys(alle).sort());
   });
 });
 

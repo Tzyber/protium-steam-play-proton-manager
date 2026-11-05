@@ -4,7 +4,6 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -18,11 +17,10 @@ use crate::commands::scope::{EnvironmentSnapshot, EnvironmentState};
 
 pub const DELETE_TOKEN_TTL_SECS: u64 = 300;
 
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
+/// 3.2: der uhrfehler wird geführt, nicht verschluckt. Mit 0 als "jetzt" wäre
+/// jedes frisch ausgegebene Token sofort abgelaufen.
+fn now_ms() -> Result<u64, String> {
+    crate::commands::path::unix_millis()
 }
 
 /// renameat2-flag: kein überschreiben des ziels (RENAME_NOREPLACE).
@@ -82,7 +80,14 @@ pub struct PendingDeleteRegistry(pub Arc<Mutex<HashMap<String, PendingDelete>>>)
 
 pub(super) fn generate_os_random_128() -> Result<String, String> {
     let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).map_err(|e| format!("cannot read OS CSPRNG: {e}"))?;
+    // 3.2: ohne CSPRNG gibt es kein eindeutiges, nicht ratbares Token; der
+    // ausfall ist ein nicht verfügbarer dienst, kein rohtext.
+    getrandom::fill(&mut bytes).map_err(|error| {
+        errcode::with_detail(
+            errcode::UNAVAILABLE,
+            format!("cannot read OS CSPRNG: {error}"),
+        )
+    })?;
     Ok(crate::commands::fd::hex_lower(&bytes))
 }
 
@@ -95,7 +100,12 @@ fn open_delete_target_handle(path: &Path) -> Result<fs::File, String> {
     let handle = fs::File::from(fd);
     if !handle
         .metadata()
-        .map_err(|e| format!("cannot stat bound delete target: {e}"))?
+        .map_err(|error| {
+            errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot stat bound delete target: {error}"),
+            )
+        })?
         .is_dir()
     {
         return Err(errcode::NOT_A_DIRECTORY.into());
@@ -160,9 +170,12 @@ where
 
 #[cfg(target_os = "linux")]
 fn delete_handle_identity(handle: &fs::File) -> Result<FdIdentity, String> {
-    let metadata = handle
-        .metadata()
-        .map_err(|e| format!("cannot stat bound delete target: {e}"))?;
+    let metadata = handle.metadata().map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("cannot stat bound delete target: {error}"),
+        )
+    })?;
     if !metadata.is_dir() {
         return Err(errcode::NOT_A_DIRECTORY.into());
     }
@@ -174,8 +187,12 @@ fn open_delete_child_handle(parent: &fs::File, name: &OsStr) -> Result<fs::File,
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     use std::os::unix::ffi::OsStrExt;
 
-    let name = std::ffi::CString::new(name.as_bytes())
-        .map_err(|_| "delete target name contains NUL".to_string())?;
+    // ein NUL ist in einem POSIX-namen unmöglich; der name kann dann keinen ort
+    // bezeichnen. blocked-location statt invalid-value, weil letzteres einen
+    // syntaktisch falschen eingabewert meint, nicht einen defekten bindungsnamen.
+    let name = std::ffi::CString::new(name.as_bytes()).map_err(|_| {
+        errcode::with_detail(errcode::BLOCKED_LOCATION, "delete target name contains NUL")
+    })?;
     let raw = unsafe {
         libc::openat(
             parent.as_raw_fd(),
@@ -272,14 +289,18 @@ fn claim_delete_target(pending: &PendingDelete) -> Result<ClaimedDeleteTarget, S
     use std::os::fd::AsRawFd;
 
     let parent = bound_parent(pending)?;
-    let source_name = pending
-        .target_name
-        .as_ref()
-        .ok_or_else(|| "pending delete has no bound target name".to_string())?;
-    let expected = pending
-        .target_handle
-        .as_ref()
-        .ok_or_else(|| "pending delete has no bound target identity".to_string())?;
+    let source_name = pending.target_name.as_ref().ok_or_else(|| {
+        errcode::with_detail(
+            errcode::UNREADABLE,
+            "pending delete has no bound target name",
+        )
+    })?;
+    let expected = pending.target_handle.as_ref().ok_or_else(|| {
+        errcode::with_detail(
+            errcode::UNREADABLE,
+            "pending delete has no bound target identity",
+        )
+    })?;
     let expected_identity = delete_handle_identity(expected)?;
 
     for _ in 0..CLAIM_NAME_ATTEMPTS {
@@ -441,11 +462,13 @@ fn prepare_delete_with_inspection(
     let canonical_path = PathBuf::from(&inspection.canonical_path);
     let target_name = canonical_path
         .file_name()
-        .ok_or_else(|| "delete target has no directory name".to_string())?
+        .ok_or_else(|| {
+            errcode::with_detail(errcode::UNREADABLE, "delete target has no directory name")
+        })?
         .to_os_string();
-    let parent_path = canonical_path
-        .parent()
-        .ok_or_else(|| "delete target has no parent directory".to_string())?;
+    let parent_path = canonical_path.parent().ok_or_else(|| {
+        errcode::with_detail(errcode::UNREADABLE, "delete target has no parent directory")
+    })?;
     let parent_handle = open_delete_target_handle(parent_path)?;
     let target_handle = open_delete_child_handle(&parent_handle, &target_name)?;
     #[cfg(target_os = "linux")]
@@ -460,7 +483,7 @@ fn prepare_delete_with_inspection(
 
     let token = generate_os_random_128()?;
 
-    let now_ms = now_ms();
+    let now_ms = now_ms()?;
     let expires_at = now_ms + DELETE_TOKEN_TTL_SECS * 1000;
 
     let pending = PendingDelete {
@@ -478,10 +501,9 @@ fn prepare_delete_with_inspection(
         consequences: inspection.consequences.clone(),
     };
 
-    let mut map = registry
-        .0
-        .lock()
-        .map_err(|e| format!("mutex lock error: {e}"))?;
+    let mut map = registry.0.lock().map_err(|error| {
+        errcode::with_detail(errcode::UNAVAILABLE, format!("mutex lock error: {error}"))
+    })?;
 
     map.retain(|_, v| v.expires_at > now_ms);
 
@@ -494,7 +516,12 @@ fn prepare_delete_with_inspection(
                     .then_with(|| token_a.cmp(token_b))
             })
             .map(|(token, _)| token.clone())
-            .ok_or_else(|| "pending deletion registry is unexpectedly empty".to_string())?;
+            .ok_or_else(|| {
+                errcode::with_detail(
+                    errcode::UNAVAILABLE,
+                    "pending deletion registry is unexpectedly empty",
+                )
+            })?;
         map.remove(&oldest_token);
     }
 
@@ -553,15 +580,16 @@ fn execute_delete_pipeline_inner(
     after_claim_fn: impl FnOnce(),
 ) -> Result<DeleteResult, String> {
     let pending = {
-        let mut map = registry
-            .0
-            .lock()
-            .map_err(|e| format!("mutex lock error: {e}"))?;
+        let mut map = registry.0.lock().map_err(|error| {
+            errcode::with_detail(errcode::UNAVAILABLE, format!("mutex lock error: {error}"))
+        })?;
+        // 5.8: ein unbekanntes oder verdrängtes Token ist eine Blockade, kein
+        // syntaktisch falsches ID-format (invalid-id bleibt dort).
         map.remove(token)
-            .ok_or_else(|| errcode::INVALID_ID.to_string())?
+            .ok_or_else(|| errcode::TOKEN_UNKNOWN.to_string())?
     };
 
-    let now_ms = now_ms();
+    let now_ms = now_ms()?;
     if now_ms > pending.expires_at {
         return Err(errcode::TOKEN_EXPIRED.into());
     }
@@ -575,10 +603,12 @@ fn execute_delete_pipeline_inner(
     // dem Claim ziehen, damit zwischen claim_delete_target und der
     // Guard-Armierung kein fallibler Schritt den Claim stranden lassen kann.
     let claim_parent = bound_parent(&pending)?;
-    let original_name = pending
-        .target_name
-        .as_deref()
-        .ok_or_else(|| "pending delete has no bound target name".to_string())?;
+    let original_name = pending.target_name.as_deref().ok_or_else(|| {
+        errcode::with_detail(
+            errcode::UNREADABLE,
+            "pending delete has no bound target name",
+        )
+    })?;
 
     // Letzte Zustandsprüfung unmittelbar vor dem Claim: zwischen Token-Ausgabe
     // und hier kann sich alles geändert haben. Die Inspection (VDF-Parsing)
@@ -628,14 +658,17 @@ fn inspect_pending_target(
     pending: &PendingDelete,
     scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
 ) -> Result<(), String> {
-    let target_handle = pending
-        .target_handle
-        .as_ref()
-        .ok_or_else(|| "pending delete has no bound target identity".to_string())?;
-    let steam_root = pending
-        .steam_root
-        .to_str()
-        .ok_or_else(|| "steam root is not valid UTF-8".to_string())?;
+    let target_handle = pending.target_handle.as_ref().ok_or_else(|| {
+        errcode::with_detail(
+            errcode::UNREADABLE,
+            "pending delete has no bound target identity",
+        )
+    })?;
+    // ein nicht-UTF8-root kann die VDF-/pfad-inspektion nicht ausdrücken; das
+    // ist ein bindungszustand, den nur ein neues prepare heilt.
+    let steam_root = pending.steam_root.to_str().ok_or_else(|| {
+        errcode::with_detail(errcode::UNREADABLE, "steam root is not valid UTF-8")
+    })?;
     let inspection = crate::commands::delete_inspect::inspect_deletion_target(
         steam_root,
         &pending.target_type,
