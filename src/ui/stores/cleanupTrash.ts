@@ -5,6 +5,7 @@
 // `vi.spyOn`-Spies der Tests weiter greifen.
 
 import { tauriPorts } from "../../core/adapters/tauri";
+import { parseError } from "../../core/errtext.js";
 import { findTrashEntries, type TrashEntry, type TrashLibraryStatus } from "../../core/trash";
 import { localizeConsequences } from "../consequences";
 import { logError } from "../diagnostics";
@@ -34,12 +35,18 @@ export interface TrashStore {
   trashLibraries: TrashLibraryStatus[];
   trashScanning: boolean;
   trashError: string | null;
+  /** null, wenn der Papierkorb gelöscht werden darf; sonst der sichtbare Grund
+   *  der Sperre (Scanfehler oder Löschrest, FR-4). */
+  trashDeleteBlockedText: string | null;
   _trashScanError: string | null;
   _trashScanGeneration: number;
   clearTrashState(): void;
   setTrashError(message: string | null): void;
   setTrashScanError(message: string): void;
   scanTrash(): Promise<void>;
+  /** Nach einem fehlgeschlagenen Execute kann ein Claim-Rest entstanden sein;
+   *  der Orphan-Scan macht ihn sichtbar und sperrt den Papierkorb (FR-4). */
+  scanOrphans(): Promise<void>;
 }
 
 export async function scanTrash(store: TrashStore): Promise<void> {
@@ -106,6 +113,14 @@ export async function deleteTrashEntries(
         batchTooLargeText(entries.length, MAX_PENDING_DELETES),
       ]),
     );
+    return;
+  }
+  // Position wie deleteOrphans: das 32er-Gate bleibt zuerst, danach die Sperre.
+  // Ein Scanfehler oder ein Löschrest macht die Vorschau unvollständig; ein
+  // Löschversuch würde nur einen Teil der Ziele sehen (FR-4). Der vorhandene
+  // Fehlertext wird dabei nicht überschrieben, sondern ergänzt.
+  if (store.trashDeleteBlockedText !== null) {
+    store.setTrashError(combineErrors([store._trashScanError, store.trashDeleteBlockedText]));
     return;
   }
   const { result, isCurrent } = cleanupTurn(
@@ -202,6 +217,7 @@ export async function deleteTrashEntries(
         // wie in deleteOrphans; an prepare gescheiterte standen nicht im dialog.
         onConfirmed?.(prepared.map((p) => p.path));
         let deleted = false;
+        let mayHaveClaimRest = false;
         for (const p of prepared) {
           try {
             await tauriPorts.system.executeDelete(p.token);
@@ -210,10 +226,37 @@ export async function deleteTrashEntries(
               deleted = true;
             }
           } catch (e) {
+            // Das Protokoll ist der rohe, lokale Diagnosestand; die Oberfläche
+            // zeigt nur die Fehlerklasse (FR-5, Audit 5.1).
+            logError(`Papierkorb-Eintrag löschen fehlgeschlagen (${p.name})`, e);
+            if (parseError(e).code === "write-may-have-applied") mayHaveClaimRest = true;
             if (isCurrent()) executeErrors.push(`${p.name}: ${formatError(e)}`);
           }
         }
         if (!isCurrent()) return;
+        // Nur eine unsichere Mutation kann einen Claim-Rest hinterlassen. Ohne
+        // Refresh bliebe er unsichtbar; bei laufendem Steam würde der
+        // Orphan-Scan dagegen fälschlich den Steam-Fehler in die Orphan-Panels
+        // schreiben, deshalb bleibt er dann aus (TRASH darf ohne Steam laufen).
+        if (mayHaveClaimRest) {
+          // P8: der check ist hier nur die vorstufe des refresh, kein lösch-gate
+          // (der papierkorb ist von der sperre ausgenommen). Ein reject
+          // (`steam-check-unavailable`) darf deshalb weder den trash-rescan
+          // darunter überspringen noch als löschfehler erscheinen. Der startwert
+          // ist die fail-closed-antwort: ohne belegbaren status bleibt nur der
+          // orphan-refresh aus.
+          let steamRunning = true;
+          try {
+            steamRunning = await tauriPorts.system.isSteamRunning();
+          } catch (e) {
+            logError("Steam-Status nach Papierkorb-Löschung nicht prüfbar", e);
+          }
+          if (!isCurrent()) return;
+          if (!steamRunning) {
+            await store.scanOrphans();
+            if (!isCurrent()) return;
+          }
+        }
         // A-06: der stand je library (einträge im papierkorb) wird nach der
         // mutation neu gelesen; sonst bleibt der zähler von vor dem löschen
         // stehen. scanTrash setzt trashError zurück; ein anschließendes

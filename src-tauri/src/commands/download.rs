@@ -159,14 +159,18 @@ impl CancelRegistry {
     /// map-operationen (`insert`/`remove`) und das `notify_one` an ein bereits
     /// registriertes signal, aber kein nutzercode. ein vom panik mitten im
     /// map-schritt abgebrochener zustand ist trotzdem unzuverlässig, deshalb
-    /// verwirft `register_download` den inhalt bei erkanntem poison. der zweite
-    /// wert nennt den poison, damit der aufrufer ihn melden kann.
+    /// verwirft `lock_healing` den inhalt direkt beim heilen, unabhängig davon,
+    /// ob zuerst `register_download`, `cancel_registered_download` oder
+    /// `clear_registered_download` einläuft. der zweite wert nennt den poison,
+    /// damit der aufrufer ihn melden kann.
     fn lock_healing(&self) -> (std::sync::MutexGuard<'_, RegistryMap>, bool) {
         match self.0.lock() {
             Ok(map) => (map, false),
             Err(poisoned) => {
+                let mut map = poisoned.into_inner();
+                map.clear();
                 self.0.clear_poison();
-                (poisoned.into_inner(), true)
+                (map, true)
             }
         }
     }
@@ -201,13 +205,7 @@ pub(super) fn register_download(
     download_id: &str,
 ) -> Result<Arc<CancelSignal>, String> {
     validate_download_id(download_id)?;
-    let (mut map, poisoned) = registry.lock_healing();
-    if poisoned {
-        // der inhalt stammt aus einem abgebrochenen lauf und ist unzuverlässig.
-        // ohne clear bliebe ein stehengebliebener eintrag zurück und die
-        // leer-prüfung würde dauerhaft DOWNLOAD_ACTIVE melden.
-        map.clear();
-    }
+    let (mut map, _) = registry.lock_healing();
     if !map.is_empty() {
         return Err(errcode::DOWNLOAD_ACTIVE.into());
     }

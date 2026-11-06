@@ -19,10 +19,18 @@ let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 // anlegen: den räumte niemand mehr ab (audit 4.3).
 let unmounted = false;
 
+function clearCopiedTimer() {
+  if (copiedTimer) {
+    clearTimeout(copiedTimer);
+    copiedTimer = null;
+  }
+}
+
 async function copyError() {
   if (!ui.notification) return;
   const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard;
   if (!clipboard || typeof clipboard.writeText !== "function") {
+    clearCopiedTimer();
     copyState.value = "failed";
     return;
   }
@@ -30,14 +38,16 @@ async function copyError() {
     await clipboard.writeText(ui.notification.message);
     if (unmounted) return;
     copyState.value = "copied";
-    if (copiedTimer) clearTimeout(copiedTimer);
+    clearCopiedTimer();
     copiedTimer = setTimeout(() => {
+      copiedTimer = null;
       copyState.value = "idle";
     }, COPY_CONFIRM_MS);
   } catch {
     if (unmounted) return;
     // clipboard gesperrt (unsicherer kontext, fehlende berechtigung): sichtbar
     // melden statt den klick stumm zu verwerfen.
+    clearCopiedTimer();
     copyState.value = "failed";
   }
 }
@@ -46,6 +56,7 @@ async function copyError() {
 watch(
   () => ui.notification,
   () => {
+    clearCopiedTimer();
     copyState.value = "idle";
   },
 );
@@ -54,10 +65,7 @@ watch(
 // unmount weiter und hält den scope am leben (audit 4.3).
 onBeforeUnmount(() => {
   unmounted = true;
-  if (copiedTimer) {
-    clearTimeout(copiedTimer);
-    copiedTimer = null;
-  }
+  clearCopiedTimer();
 });
 </script>
 

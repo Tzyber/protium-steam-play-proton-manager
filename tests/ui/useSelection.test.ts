@@ -50,6 +50,26 @@ describe("useSelection, selectAll", () => {
     expect(sel.selected.size).toBe(0);
     expect(sel.selectedEntries).toEqual([]);
   });
+
+  it("wählt manuell gewählte einträge ab, wenn keine kandidaten existieren", () => {
+    const sel = useSelection<Row>(() => rows, {
+      candidates: () => [],
+    });
+
+    expect(sel.allSelected).toBe(false);
+    sel.selectAll();
+    expect(sel.selected.size).toBe(0);
+
+    sel.toggle("/c");
+    expect(sel.selectedEntries.map((entry) => entry.path)).toEqual(["/c"]);
+    expect(sel.allSelected).toBe(true);
+
+    sel.selectAll();
+
+    expect(sel.selected.size).toBe(0);
+    expect(sel.selectedEntries).toEqual([]);
+    expect(sel.allSelected).toBe(false);
+  });
 });
 
 describe("useSelection, selectedEntries", () => {

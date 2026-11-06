@@ -120,4 +120,32 @@ describe("NotificationToast kopier-timer", () => {
     const copyTimerCalls = setTimeoutSpy.mock.calls.filter(([, ms]) => ms === COPY_CONFIRM_MS);
     expect(copyTimerCalls).toHaveLength(0);
   });
+
+  it("ein späterer kopierfehler räumt einen laufenden kopier-timer und bleibt sichtbar", async () => {
+    const ui = useUiStore();
+    ui.showNotification("x");
+    const writeText = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("clipboard denied"));
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    const wrapper = mount(NotificationToast);
+
+    await wrapper.get(".note-copy").trigger("click");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(wrapper.get(".note-copy").text()).toBe("✓");
+
+    await wrapper.get(".note-copy").trigger("click");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(wrapper.get(".note-copy").text()).toBe("⚠");
+
+    await vi.advanceTimersByTimeAsync(COPY_CONFIRM_MS);
+    expect(wrapper.get(".note-copy").text()).toBe("⚠");
+
+    wrapper.unmount();
+  });
 });

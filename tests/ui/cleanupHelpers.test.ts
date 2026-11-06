@@ -213,7 +213,7 @@ describe("cleanupBlockedFlags", () => {
     shortcutUnreadable: false,
     orphanUnreadable: [] as OrphanUnreadable[],
     incompleteDeletions: [] as { type: IncompleteDeletion["type"] }[],
-    trashError: null as string | null,
+    trashScanError: null as string | null,
     trashUnknown: [] as string[],
     trashLibraries: [] as TrashLibraryStatus[],
   };
@@ -224,6 +224,7 @@ describe("cleanupBlockedFlags", () => {
       shader: false,
       prefix: false,
       trash: false,
+      trashDelete: false,
       any: false,
     });
   });
@@ -242,13 +243,21 @@ describe("cleanupBlockedFlags", () => {
       expect(flags.any).toBe(true);
       // der papierkorb bleibt bei diesen gründen handlungsfähig
       expect(flags.trash).toBe(false);
+      expect(flags.trashDelete).toBe(false);
     }
   });
 
   it("unlesbare claim-parents sperren basis, shader, prefix und papierkorb", () => {
     const flags = cleanupBlockedFlags({ ...facts, incompleteDeletionsUnreadable: ["/x"] });
 
-    expect(flags).toEqual({ base: true, shader: true, prefix: true, trash: true, any: true });
+    expect(flags).toEqual({
+      base: true,
+      shader: true,
+      prefix: true,
+      trash: true,
+      trashDelete: true,
+      any: true,
+    });
   });
 
   it("die unlesbaren orphan-ordner sperren typ-genau, nicht die basis", () => {
@@ -256,13 +265,27 @@ describe("cleanupBlockedFlags", () => {
       ...facts,
       orphanUnreadable: [{ path: "/lib/steamapps/shadercache", type: "shadercache" }],
     });
-    expect(shader).toEqual({ base: false, shader: true, prefix: false, trash: false, any: true });
+    expect(shader).toEqual({
+      base: false,
+      shader: true,
+      prefix: false,
+      trash: false,
+      trashDelete: false,
+      any: true,
+    });
 
     const prefix = cleanupBlockedFlags({
       ...facts,
       orphanUnreadable: [{ path: "/lib/steamapps/compatdata", type: "compatdata" }],
     });
-    expect(prefix).toEqual({ base: false, shader: false, prefix: true, trash: false, any: true });
+    expect(prefix).toEqual({
+      base: false,
+      shader: false,
+      prefix: true,
+      trash: false,
+      trashDelete: false,
+      any: true,
+    });
   });
 
   it("der shortcut-lesefehler sperrt nur den prefix-bereich", () => {
@@ -271,6 +294,7 @@ describe("cleanupBlockedFlags", () => {
       shader: false,
       prefix: true,
       trash: false,
+      trashDelete: false,
       any: true,
     });
   });
@@ -278,39 +302,65 @@ describe("cleanupBlockedFlags", () => {
   it("liegengebliebene claims sperren typ-genau, nicht die basis", () => {
     expect(
       cleanupBlockedFlags({ ...facts, incompleteDeletions: [{ type: "shadercache" }] }),
-    ).toEqual({ base: false, shader: true, prefix: false, trash: false, any: true });
+    ).toEqual({
+      base: false,
+      shader: true,
+      prefix: false,
+      trash: false,
+      trashDelete: false,
+      any: true,
+    });
     expect(
       cleanupBlockedFlags({ ...facts, incompleteDeletions: [{ type: "compatdata" }] }),
-    ).toEqual({ base: false, shader: false, prefix: true, trash: false, any: true });
+    ).toEqual({
+      base: false,
+      shader: false,
+      prefix: true,
+      trash: false,
+      trashDelete: false,
+      any: true,
+    });
     expect(cleanupBlockedFlags({ ...facts, incompleteDeletions: [{ type: "trash" }] })).toEqual({
       base: false,
       shader: false,
       prefix: false,
       trash: true,
+      trashDelete: true,
       any: true,
     });
     // compat-tool-reste sperren keinen der bereiche
     expect(
       cleanupBlockedFlags({ ...facts, incompleteDeletions: [{ type: "compat-tool" }] }),
-    ).toEqual({ base: false, shader: false, prefix: false, trash: false, any: false });
+    ).toEqual({
+      base: false,
+      shader: false,
+      prefix: false,
+      trash: false,
+      trashDelete: false,
+      any: false,
+    });
   });
 
   it("der papierkorb sperrt nur sich selbst", () => {
     const reasons = [
-      { trashError: "kaputt" },
-      { trashUnknown: ["/lib/unknown"] },
+      { facts: { trashScanError: "kaputt" }, trashDelete: true },
+      { facts: { trashUnknown: ["/lib/unknown"] }, trashDelete: false },
       {
-        trashLibraries: [
-          { library: "/lib", dir: "/lib/trash", present: true, count: 0, error: "unreadable" },
-        ],
+        facts: {
+          trashLibraries: [
+            { library: "/lib", dir: "/lib/trash", present: true, count: 0, error: "unreadable" },
+          ],
+        },
+        trashDelete: true,
       },
     ];
     for (const reason of reasons) {
-      expect(cleanupBlockedFlags({ ...facts, ...reason })).toEqual({
+      expect(cleanupBlockedFlags({ ...facts, ...reason.facts })).toEqual({
         base: false,
         shader: false,
         prefix: false,
         trash: true,
+        trashDelete: reason.trashDelete,
         any: true,
       });
     }
@@ -322,6 +372,33 @@ describe("cleanupBlockedFlags", () => {
         trashLibraries: [{ library: "/lib", dir: "/lib/trash", present: false, count: 0 }],
       }).trash,
     ).toBe(false);
+  });
+
+  it("trashDelete sperrt ohne trashUnknown, aber mit jedem scan- und rest-beleg", () => {
+    // ein unbekannter papierkorb-eintrag ist ein anzeigeproblem (er wird nicht
+    // angeboten), kein beleg für einen unvollständigen scan: das löschen der
+    // erkannten einträge bleibt möglich (FR-4).
+    const unknown = cleanupBlockedFlags({ ...facts, trashUnknown: ["/lib/unknown"] });
+    expect(unknown.trash).toBe(true);
+    expect(unknown.trashDelete).toBe(false);
+
+    const blocking = [
+      { trashScanError: "papierkorb-scan fehlgeschlagen" },
+      {
+        trashLibraries: [
+          { library: "/lib", dir: "/lib/trash", present: true, count: 0, error: "unreadable" },
+        ],
+      },
+      { incompleteDeletionsUnreadable: ["/lib/steamapps"] },
+      { incompleteDeletions: [{ type: "trash" as const }] },
+    ];
+    for (const reason of blocking) {
+      const flags = cleanupBlockedFlags({ ...facts, ...reason });
+      expect(flags.trash).toBe(true);
+      expect(flags.trashDelete).toBe(true);
+    }
+
+    expect(cleanupBlockedFlags(facts).trashDelete).toBe(false);
   });
 });
 

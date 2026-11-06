@@ -409,6 +409,9 @@ export async function deleteOrphans(
               if (p.type === "compatdata") trashedCompatdata = true;
             }
           } catch (e) {
+            // Das Protokoll ist der rohe, lokale Diagnosestand; die Oberfläche
+            // zeigt nur die Fehlerklasse (FR-5, Audit 5.1).
+            logError(`Löschen fehlgeschlagen (${p.type}/${p.path})`, e);
             if (isCurrent()) errors.push(`${p.type}/${p.path}: ${formatError(e)}`);
           } finally {
             store.deleting.delete(p.path);

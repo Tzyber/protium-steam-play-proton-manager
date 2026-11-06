@@ -90,30 +90,58 @@ export const useCleanupStore = defineStore("cleanup", {
      *  trägt auch den Lösch-/Guard-Text des letzten Versuchs („nicht lesbar,
      *  Anzeige unvollständig: …", Claim-Titel), ein solcher Text ist kein Beleg
      *  für einen unvollständigen Scan und darf die typ-genaue Anzeige nicht
-     *  verfälschen. */
+     *  verfälschen. Dasselbe gilt für den Papierkorb: die Scan-Fakten sind
+     *  `_orphanScanError` und `_trashScanError`; `trashError` trägt zusätzlich
+     *  den Text eines Löschversuchs (P2-3, FR-4). */
     shaderUnavailable: (s) =>
-      cleanupBlockedFlags({ ...s, orphanScanError: s._orphanScanError }).shader,
+      cleanupBlockedFlags({
+        ...s,
+        orphanScanError: s._orphanScanError,
+        trashScanError: s._trashScanError,
+      }).shader,
     prefixUnavailable: (s) =>
-      cleanupBlockedFlags({ ...s, orphanScanError: s._orphanScanError }).prefix,
+      cleanupBlockedFlags({
+        ...s,
+        orphanScanError: s._orphanScanError,
+        trashScanError: s._trashScanError,
+      }).prefix,
+    /** Anzeige-Sperre des Papierkorbs: hängt am Scan-Fakt `_trashScanError`,
+     *  nicht am Löschfehler in `trashError` — ein reiner Löschfehler belegt
+     *  keinen unvollständigen Scan. */
     trashUnavailable: (s) =>
-      cleanupBlockedFlags({ ...s, orphanScanError: s._orphanScanError }).trash,
+      cleanupBlockedFlags({
+        ...s,
+        orphanScanError: s._orphanScanError,
+        trashScanError: s._trashScanError,
+      }).trash,
+    /** Grund, warum der Papierkorb nicht gelöscht werden darf, oder null. Trägt
+     *  den Text bis in die View (Knopf-Titel und Hinweis), damit die Sperre
+     *  sichtbar ist statt nur zu wirken (FR-4). */
+    trashDeleteBlockedText: (s): string | null =>
+      cleanupBlockedFlags({
+        ...s,
+        orphanScanError: s._orphanScanError,
+        trashScanError: s._trashScanError,
+      }).trashDelete
+        ? t("cleanup.trashDeleteBlocked")
+        : null,
     /** Anzeige-Sperre der Coverage: der Scan kann vollständig sein, die
-     *  Löschvorschau ist es dann trotzdem nicht (INV-2). Die Papierkorb-Basis
-     *  ist der Scan-Fakt `_trashScanError`, nicht `trashError`: dort steht auch
-     *  der Text eines Löschversuchs, und ein Löschfehler belegt keinen
-     *  unvollständigen Scan (P2-3). Die Anzeige-Getter `trashUnavailable`
-     *  bleiben bewusst bei `trashError`. */
+     *  Löschvorschau ist es dann trotzdem nicht (INV-2). */
     coverageBlocked: (s) =>
       cleanupBlockedFlags({
         ...s,
         orphanScanError: s._orphanScanError,
-        trashError: s._trashScanError,
+        trashScanError: s._trashScanError,
       }).any,
     /** Löschsperre je Orphan-Bereich: die gemeinsame Basis plus der typ-genaue
      *  Beleg. Bewusst nicht über `shader`/`prefix`: `prefix` trägt zusätzlich den
      *  shortcut-Lesefehler, der die Anzeige sperrt, das Löschen aber nicht. */
     orphanDeleteBlocked: (s) => (type: OrphanEntry["type"]) => {
-      const flags = cleanupBlockedFlags({ ...s, orphanScanError: s._orphanScanError });
+      const flags = cleanupBlockedFlags({
+        ...s,
+        orphanScanError: s._orphanScanError,
+        trashScanError: s._trashScanError,
+      });
       return (
         flags.base ||
         hasUnreadableOrphanType(s, type) ||

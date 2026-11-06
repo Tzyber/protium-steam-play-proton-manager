@@ -1,6 +1,7 @@
 use super::*;
 use crate::commands::test_util::{production_source, wsg_fixture};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn orphan_fixture(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
@@ -67,6 +68,7 @@ fn execute_delete_after_inspection(
     scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
     is_steam_running_fn: impl Fn() -> Result<bool, String>,
     before_claim_fn: impl FnOnce(),
+    remove_dir_all_fn: &mut dyn FnMut(&Path) -> std::io::Result<()>,
 ) -> Result<DeleteResult, String> {
     execute_delete_pipeline_inner(
         registry,
@@ -75,6 +77,7 @@ fn execute_delete_after_inspection(
         is_steam_running_fn,
         before_claim_fn,
         || {},
+        remove_dir_all_fn,
     )
 }
 
@@ -84,6 +87,7 @@ fn execute_delete_after_claim(
     registry: &PendingDeleteRegistry,
     token: &str,
     after_claim_fn: impl FnOnce(),
+    remove_dir_all_fn: &mut dyn FnMut(&Path) -> std::io::Result<()>,
 ) -> Result<DeleteResult, String> {
     execute_delete_pipeline_inner(
         registry,
@@ -92,7 +96,77 @@ fn execute_delete_after_claim(
         || Ok(false),
         || {},
         after_claim_fn,
+        remove_dir_all_fn,
     )
+}
+
+/// Standard-Remove für Tests, die keinen Fehler injizieren.
+fn standard_remove(path: &Path) -> std::io::Result<()> {
+    std::fs::remove_dir_all(path)
+}
+
+/// Fehlerinjektion für den Remove-Haken: der Abbau hat begonnen (ein Kind ist
+/// weg) und bricht dann mit EIO ab.
+fn teilweiser_remove(path: &Path) -> std::io::Result<()> {
+    let kind = std::fs::read_dir(path)?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|candidate| candidate.is_dir())
+        .ok_or_else(|| std::io::Error::from_raw_os_error(libc::EIO))?;
+    std::fs::remove_dir_all(&kind)?;
+    Err(std::io::Error::from_raw_os_error(libc::EIO))
+}
+
+/// Fehlerinjektion: das Ziel ist beim Remove bereits verschwunden.
+fn fehlendes_remove(_path: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+}
+
+/// Steam-Check-Reader mit fester Antwortfolge. Ein Aufruf mehr als geplant
+/// panikt, damit ein zusätzlicher Check nicht stillschweigend durchgeht.
+fn steam_checks(states: Vec<Result<bool, String>>) -> impl Fn() -> Result<bool, String> {
+    let states = std::cell::RefCell::new(states.into_iter());
+    move || {
+        states
+            .borrow_mut()
+            .next()
+            .expect("steam-check wurde öfter gerufen als geplant")
+    }
+}
+
+/// Fixture für ein orphan-Ziel unter `relative`; die Wurzel ist als einzige
+/// Library gelistet und das Ziel ist kein installiertes Spiel.
+fn orphan_fixture_mit_ziel(
+    tag: &str,
+    relative: &str,
+) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+    let (root, steam) = orphan_fixture(tag);
+    let target = steam.join(relative);
+    std::fs::create_dir_all(&target).unwrap();
+    (root, steam, target)
+}
+
+fn ziel_request(steam: &Path, target_type: &str, target: &Path) -> PrepareDeleteRequest {
+    PrepareDeleteRequest {
+        target_type: target_type.to_string(),
+        path: target.to_string_lossy().into_owned(),
+        steam_root: steam.to_string_lossy().into_owned(),
+    }
+}
+
+/// Pfad des einzigen Claim-Verzeichnisses unter `dir`.
+fn claim_pfad(dir: &Path) -> std::path::PathBuf {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .find(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name.starts_with(".protium-delete-claim-"))
+        })
+        .expect("claim-verzeichnis fehlt")
+        .path()
 }
 
 fn write_shortcuts_fixture(path: &std::path::Path, app_id: u32) {
@@ -438,6 +512,436 @@ fn steam_laeuft_zwischen_prepare_und_execute_blockiert_loeschung() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Audit 5.5 / FR-4: ein nicht prüfbarer Steam-Status ist keine Freigabe. Der
+/// Fehler des Checks geht unverändert zurück (der Code bleibt im Leitfeld), das
+/// Ziel wird nicht angefasst und es entsteht kein Token.
+#[test]
+fn prepare_blockiert_bei_nicht_pruefbarem_steam_status_ohne_mutation() {
+    let (root, steam) = orphan_fixture("prepare-steam-check-unavailable");
+    let target = steam.join("steamapps/compatdata/999999");
+    let registry = PendingDeleteRegistry::default();
+
+    let error = prepare_with_snapshot(&registry, &orphan_request(&steam), || {
+        Err(errcode::with_detail(
+            errcode::STEAM_CHECK_UNAVAILABLE,
+            "probe /proc: permission denied",
+        ))
+    })
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::STEAM_CHECK_UNAVAILABLE),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(target.exists(), "das ziel darf nicht angefasst werden");
+    assert!(
+        registry.0.lock().unwrap().is_empty(),
+        "ohne belegten steam-status darf kein token entstehen"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Dieselbe Blockade für den Inspektionspfad mit Haken: der Fehler steht vor
+/// der Inspektion, sie startet gar nicht.
+#[cfg(target_os = "linux")]
+#[test]
+fn prepare_with_hook_blockiert_bei_nicht_pruefbarem_steam_status_ohne_mutation() {
+    let (root, steam) = orphan_fixture("prepare-hook-steam-check-unavailable");
+    let target = steam.join("steamapps/compatdata/999999");
+    let registry = PendingDeleteRegistry::default();
+    let inspection_started = Arc::new(AtomicBool::new(false));
+    let started = Arc::clone(&inspection_started);
+    let mut hook = move |_, _: Option<&mut std::fs::File>| {
+        started.store(true, Ordering::SeqCst);
+    };
+
+    let error = prepare_delete_inner_with_hook(
+        &registry,
+        &orphan_request(&steam),
+        &|_| true,
+        || {
+            Err(errcode::with_detail(
+                errcode::STEAM_CHECK_UNAVAILABLE,
+                "probe /proc: permission denied",
+            ))
+        },
+        &mut hook,
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::STEAM_CHECK_UNAVAILABLE),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(target.exists(), "das ziel darf nicht angefasst werden");
+    assert!(
+        registry.0.lock().unwrap().is_empty(),
+        "ohne belegten steam-status darf kein token entstehen"
+    );
+    assert!(
+        !inspection_started.load(Ordering::SeqCst),
+        "die inspektion darf ohne belegten steam-status nicht starten"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Audit 5.5: der Execute-Pfad prüft zweimal; scheitert schon der erste Check,
+/// bleibt das Ziel unberührt und der Claim ungelegt. Das Token ist wie bei jedem
+/// Fehler nach `map.remove` verbraucht (Plan P8 Punkt 8).
+#[test]
+fn execute_blockiert_bei_nicht_pruefbarem_steam_status_und_verbraucht_das_token() {
+    let (root, steam) = orphan_fixture("execute-steam-check-unavailable");
+    let target = steam.join("steamapps/compatdata/999999");
+    let registry = PendingDeleteRegistry::default();
+    let info = prepare_with_snapshot(&registry, &orphan_request(&steam), || Ok(false)).unwrap();
+
+    let error = execute_confirmed(&registry, &info.token, || {
+        Err(errcode::with_detail(
+            errcode::STEAM_CHECK_UNAVAILABLE,
+            "probe /proc: permission denied",
+        ))
+    })
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::STEAM_CHECK_UNAVAILABLE),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(target.exists(), "das ziel darf nicht angefasst werden");
+    assert!(
+        !claim_leftovers(target.parent().unwrap()),
+        "vor dem claim darf kein claim-rest entstehen"
+    );
+
+    let replay = execute_confirmed(&registry, &info.token, || Ok(false)).unwrap_err();
+    assert!(
+        errcode::has_code(&replay, errcode::TOKEN_UNKNOWN),
+        "das token muss verbraucht sein: {replay}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Audit 5.5: der execute-Pfad prüft zweimal. Scheitert der zweite Check (nach
+/// der ersten Inspektion), ist das ebenfalls eine Blockade: kein Claim, keine
+/// Mutation, das Token ist wie nach jedem Fehler verbraucht.
+#[test]
+fn execute_zweiter_check_blockiert_bei_nicht_pruefbarem_steam_status() {
+    let (root, steam, target) = orphan_fixture_mit_ziel(
+        "delete-exec-second-check-unavailable",
+        "compatibilitytools.d/GE-Proton9-27",
+    );
+    let registry = PendingDeleteRegistry::default();
+    let info = prepare_with_snapshot(
+        &registry,
+        &ziel_request(&steam, "compatTool", &target),
+        || Ok(false),
+    )
+    .unwrap();
+
+    let claim_reached = std::cell::Cell::new(false);
+    let error = execute_delete_after_inspection(
+        &registry,
+        &info.token,
+        &|_| true,
+        steam_checks(vec![
+            Ok(false),
+            Err(errcode::with_detail(
+                errcode::STEAM_CHECK_UNAVAILABLE,
+                "/proc",
+            )),
+        ]),
+        || claim_reached.set(true),
+        &mut standard_remove,
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::STEAM_CHECK_UNAVAILABLE),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(
+        error.starts_with("steam-check-unavailable: "),
+        "detail fehlt: {error}"
+    );
+    assert!(target.exists(), "das ziel darf nicht angefasst werden");
+    assert!(
+        !claim_leftovers(target.parent().unwrap()),
+        "vor dem claim darf kein claim-rest entstehen"
+    );
+    assert!(
+        !claim_reached.get(),
+        "ohne belegten steam-status darf der claim nicht erreicht werden"
+    );
+
+    let replay = execute_confirmed(&registry, &info.token, || Ok(false)).unwrap_err();
+    assert!(
+        errcode::has_code(&replay, errcode::TOKEN_UNKNOWN),
+        "das token muss verbraucht sein: {replay}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Derselbe Vertrag für den shadercache-zweig: der Check steht vor der
+/// Inspektion, das Ziel bleibt unberührt und es entsteht kein Token.
+#[test]
+fn prepare_blockiert_shadercache_bei_nicht_pruefbarem_steam_status() {
+    let (root, steam, target) = orphan_fixture_mit_ziel(
+        "prepare-shadercache-unavailable",
+        "steamapps/shadercache/999999",
+    );
+    let registry = PendingDeleteRegistry::default();
+
+    let error = prepare_with_snapshot(&registry, &ziel_request(&steam, "orphan", &target), || {
+        Err(errcode::with_detail(
+            errcode::STEAM_CHECK_UNAVAILABLE,
+            "/proc",
+        ))
+    })
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::STEAM_CHECK_UNAVAILABLE),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(
+        error.starts_with("steam-check-unavailable: "),
+        "detail fehlt: {error}"
+    );
+    assert!(target.exists(), "das ziel darf nicht angefasst werden");
+    assert!(
+        registry.0.lock().unwrap().is_empty(),
+        "ohne belegten steam-status darf kein token entstehen"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Derselbe Vertrag für den compatTool-zweig.
+#[test]
+fn prepare_blockiert_compat_tool_bei_nicht_pruefbarem_steam_status() {
+    let (root, steam, target) = orphan_fixture_mit_ziel(
+        "prepare-compat-tool-unavailable",
+        "compatibilitytools.d/GE-Proton9-27",
+    );
+    let registry = PendingDeleteRegistry::default();
+
+    let error = prepare_with_snapshot(
+        &registry,
+        &ziel_request(&steam, "compatTool", &target),
+        || {
+            Err(errcode::with_detail(
+                errcode::STEAM_CHECK_UNAVAILABLE,
+                "/proc",
+            ))
+        },
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::STEAM_CHECK_UNAVAILABLE),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(
+        error.starts_with("steam-check-unavailable: "),
+        "detail fehlt: {error}"
+    );
+    assert!(target.exists(), "das ziel darf nicht angefasst werden");
+    assert!(
+        registry.0.lock().unwrap().is_empty(),
+        "ohne belegten steam-status darf kein token entstehen"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Auch der Inspektionspfad mit Haken blockiert vor der Inspektion: der Haken
+/// läuft nicht, das Ziel bleibt unberührt, kein Token.
+#[cfg(target_os = "linux")]
+#[test]
+fn prepare_with_hook_blockiert_shadercache_bei_nicht_pruefbarem_steam_status() {
+    let (root, steam, target) = orphan_fixture_mit_ziel(
+        "prepare-hook-shadercache-unavailable",
+        "steamapps/shadercache/999999",
+    );
+    let registry = PendingDeleteRegistry::default();
+    let hook_calls = std::cell::Cell::new(0u32);
+    let mut hook = |_, _: Option<&mut std::fs::File>| {
+        hook_calls.set(hook_calls.get() + 1);
+    };
+
+    let error = prepare_delete_inner_with_hook(
+        &registry,
+        &ziel_request(&steam, "orphan", &target),
+        &|_| true,
+        || {
+            Err(errcode::with_detail(
+                errcode::STEAM_CHECK_UNAVAILABLE,
+                "/proc",
+            ))
+        },
+        &mut hook,
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::STEAM_CHECK_UNAVAILABLE),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(
+        error.starts_with("steam-check-unavailable: "),
+        "detail fehlt: {error}"
+    );
+    assert!(target.exists(), "das ziel darf nicht angefasst werden");
+    assert_eq!(
+        hook_calls.get(),
+        0,
+        "die inspektion darf ohne belegten steam-status nicht starten"
+    );
+    assert!(
+        registry.0.lock().unwrap().is_empty(),
+        "ohne belegten steam-status darf kein token entstehen"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Derselbe Vertrag für den compatTool-zweig im Inspektionspfad.
+#[cfg(target_os = "linux")]
+#[test]
+fn prepare_with_hook_blockiert_compat_tool_bei_nicht_pruefbarem_steam_status() {
+    let (root, steam, target) = orphan_fixture_mit_ziel(
+        "prepare-hook-compat-tool-unavailable",
+        "compatibilitytools.d/GE-Proton9-27",
+    );
+    let registry = PendingDeleteRegistry::default();
+    let hook_calls = std::cell::Cell::new(0u32);
+    let mut hook = |_, _: Option<&mut std::fs::File>| {
+        hook_calls.set(hook_calls.get() + 1);
+    };
+
+    let error = prepare_delete_inner_with_hook(
+        &registry,
+        &ziel_request(&steam, "compatTool", &target),
+        &|_| true,
+        || {
+            Err(errcode::with_detail(
+                errcode::STEAM_CHECK_UNAVAILABLE,
+                "/proc",
+            ))
+        },
+        &mut hook,
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::STEAM_CHECK_UNAVAILABLE),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(
+        error.starts_with("steam-check-unavailable: "),
+        "detail fehlt: {error}"
+    );
+    assert!(target.exists(), "das ziel darf nicht angefasst werden");
+    assert_eq!(
+        hook_calls.get(),
+        0,
+        "die inspektion darf ohne belegten steam-status nicht starten"
+    );
+    assert!(
+        registry.0.lock().unwrap().is_empty(),
+        "ohne belegten steam-status darf kein token entstehen"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Und der execute-Pfad beim ersten Check: shadercache-ziel, Blockade vor jeder
+/// Mutation, kein claim-rest.
+#[test]
+fn execute_erster_check_blockiert_shadercache_bei_nicht_pruefbarem_steam_status() {
+    let (root, steam, target) = orphan_fixture_mit_ziel(
+        "execute-shadercache-unavailable",
+        "steamapps/shadercache/999999",
+    );
+    let registry = PendingDeleteRegistry::default();
+    let info = prepare_with_snapshot(&registry, &ziel_request(&steam, "orphan", &target), || {
+        Ok(false)
+    })
+    .unwrap();
+
+    let error = execute_confirmed(&registry, &info.token, || {
+        Err(errcode::with_detail(
+            errcode::STEAM_CHECK_UNAVAILABLE,
+            "/proc",
+        ))
+    })
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::STEAM_CHECK_UNAVAILABLE),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(
+        error.starts_with("steam-check-unavailable: "),
+        "detail fehlt: {error}"
+    );
+    assert!(target.exists(), "das ziel darf nicht angefasst werden");
+    assert!(
+        !claim_leftovers(target.parent().unwrap()),
+        "vor dem claim darf kein claim-rest entstehen"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// FR-4: für `trash` darf der Check gar nicht laufen, sonst blockierte ein
+/// nicht prüfbarer Status den Papierkorb. Die panikende Closure belegt den
+/// Nicht-Aufruf an beiden Stellen (prepare und execute).
+#[cfg(target_os = "linux")]
+#[test]
+fn papierkorb_loescht_trotz_nicht_pruefbarem_steam_status() {
+    let root = wsg_fixture("delete-trash-steam-check-unavailable");
+    let steam = root.join("steam");
+    let trash = steam.join("steamapps/.protium-trash");
+    let target = trash.join("compatdata_999999_1700000000000");
+    std::fs::create_dir_all(target.join("pfx/drive_c")).unwrap();
+
+    let registry = PendingDeleteRegistry::default();
+    // auch die vierte lazy Stelle (Inspektionspfad mit Haken) ruft den Check
+    // für `trash` nicht auf
+    let hooked = prepare_delete_inner_with_hook(
+        &registry,
+        &ziel_request(&steam, "trash", &target),
+        &|_| true,
+        || -> Result<bool, String> { panic!("steam-check darf für trash nicht laufen") },
+        &mut |_, _: Option<&mut std::fs::File>| {},
+    )
+    .unwrap();
+    assert_eq!(hooked.target_type, "trash");
+
+    let info = prepare_with_snapshot(
+        &registry,
+        &ziel_request(&steam, "trash", &target),
+        || -> Result<bool, String> { panic!("steam-check darf für trash nicht laufen") },
+    )
+    .unwrap();
+
+    let result = execute_confirmed(&registry, &info.token, || -> Result<bool, String> {
+        panic!("steam-check darf für trash nicht laufen")
+    })
+    .unwrap();
+
+    assert_eq!(result.deleted_path, target.to_string_lossy());
+    assert!(!target.exists(), "der papierkorb-eintrag muss weg sein");
+    assert!(!claim_leftovers(&trash), "kein claim-rest nach erfolg");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
 #[test]
 fn registry_groesse_bleibt_auf_32_und_verdrängt_aeltesten() {
     let root = wsg_fixture("delete-ops-limit");
@@ -584,6 +1088,7 @@ fn replacement_nach_letzter_inspektion_wird_vor_mutation_geclaimt_und_nicht_gelo
             std::fs::create_dir_all(&target).unwrap();
             std::fs::write(target.join("replacement-marker"), b"must survive").unwrap();
         },
+        &mut standard_remove,
     );
 
     let error = result.unwrap_err();
@@ -642,6 +1147,7 @@ fn trash_revalidierung_lehnt_verschachteltes_ziel_vor_claim_ab() {
         move || {
             claim_called_for_hook.store(true, Ordering::SeqCst);
         },
+        &mut standard_remove,
     );
     let error = result.unwrap_err();
     // A-04: die ablehnung eines verschachtelten ziels trägt jetzt ihren code
@@ -1060,13 +1566,16 @@ fn live_aenderung_zwischen_checks_wird_unmittelbar_vor_mutation_erkannt() {
     let _ = std::fs::remove_dir_all(root);
 }
 
-/// Regression: Scheitert die Mutation NACH dem Claim, muss das Ziel unter
-/// seinem Originalnamen zurückkommen. Fehlerinjektion ohne Rechtetricks
-/// (läuft damit auch als root): `.protium-trash` liegt als reguläre Datei
-/// im Weg, `create_dir_all` scheitert deterministisch.
+/// Regression: Scheitert die Mutation VOR dem destruktiven Aufruf, muss das
+/// Ziel unter seinem Originalnamen zurückkommen. Fehlerinjektion ohne
+/// Rechtetricks (läuft damit auch als root): `.protium-trash` liegt als
+/// reguläre Datei im Weg, `create_dir_all` scheitert deterministisch.
+///
+/// Audit 5.1: ein Fehler vor begonnener Mutation ist kein unsicherer Zustand;
+/// gemeldet wird der ursprüngliche Code, nicht `write-may-have-applied`.
 #[cfg(target_os = "linux")]
 #[test]
-fn fehlgeschlagene_mutation_stellt_originalnamen_wieder_her() {
+fn fehler_vor_der_mutation_stellt_originalnamen_wieder_her() {
     let (root, steam) = orphan_fixture("delete-ops-restore-after-failure");
     let target = steam.join("steamapps/compatdata/999999");
     std::fs::write(target.join("savegame-marker"), b"must survive").unwrap();
@@ -1078,6 +1587,15 @@ fn fehlgeschlagene_mutation_stellt_originalnamen_wieder_her() {
     let error =
         execute_delete_pipeline(&registry, &info.token, &|_| true, || Ok(false)).unwrap_err();
     assert!(error.contains("cannot create trash dir"), "error: {error}");
+    // ohne begonnene Mutation bleibt der bisherige Code stehen.
+    assert!(
+        errcode::has_code(&error, errcode::UNREADABLE),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(
+        !errcode::has_code(&error, errcode::WRITE_UNCERTAIN),
+        "vor der mutation darf nichts unsicher sein: {error}"
+    );
 
     assert!(
         target.exists(),
@@ -1092,9 +1610,385 @@ fn fehlgeschlagene_mutation_stellt_originalnamen_wieder_her() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// Audit 5.1: ein begonnener `remove_dir_all` ist keine unlesbare Abwesenheit.
+/// Der Claim bleibt liegen, der Originalname ist leer, gemeldet wird
+/// `write-may-have-applied` mit dem ursprünglichen Fehler im Detail.
+#[cfg(target_os = "linux")]
+#[test]
+fn shadercache_teilweiser_remove_meldet_write_uncertain() {
+    let (root, steam, target) =
+        orphan_fixture_mit_ziel("delete-partial-shadercache", "steamapps/shadercache/999999");
+    std::fs::create_dir_all(target.join("shader-cache")).unwrap();
+    std::fs::write(target.join("rest-marker"), b"rest").unwrap();
+
+    let registry = PendingDeleteRegistry::default();
+    let info = prepare_with_snapshot(&registry, &ziel_request(&steam, "orphan", &target), || {
+        Ok(false)
+    })
+    .unwrap();
+
+    let error = execute_delete_after_inspection(
+        &registry,
+        &info.token,
+        &|_| true,
+        || Ok(false),
+        || {},
+        &mut teilweiser_remove,
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::WRITE_UNCERTAIN),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(
+        error.contains("claim may be gone or partial: shadercache:"),
+        "{error}"
+    );
+    assert!(error.contains("os error 5"), "{error}");
+    assert!(
+        !target.exists(),
+        "der Originalname bleibt nach begonnener Mutation leer"
+    );
+    let claim = claim_pfad(target.parent().unwrap());
+    assert!(
+        !claim.join("shader-cache").exists(),
+        "der abgebrochene remove hat ein kind bereits entfernt"
+    );
+    assert!(
+        claim.join("rest-marker").exists(),
+        "der rest bleibt unter dem claim sichtbar"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Audit 5.1, Papierkorb-Zweig: derselbe Vertrag wie beim Shadercache.
+#[cfg(target_os = "linux")]
+#[test]
+fn papierkorb_teilweiser_remove_meldet_write_uncertain() {
+    let root = wsg_fixture("delete-partial-trash");
+    let steam = root.join("steam");
+    let target = steam.join("steamapps/.protium-trash/compatdata_999999_1700000000000");
+    std::fs::create_dir_all(target.join("pfx/drive_c")).unwrap();
+    std::fs::write(target.join("rest-marker"), b"rest").unwrap();
+
+    let registry = PendingDeleteRegistry::default();
+    let info = prepare_with_snapshot(&registry, &ziel_request(&steam, "trash", &target), || {
+        Ok(false)
+    })
+    .unwrap();
+
+    let error = execute_delete_after_inspection(
+        &registry,
+        &info.token,
+        &|_| true,
+        || Ok(false),
+        || {},
+        &mut teilweiser_remove,
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::WRITE_UNCERTAIN),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(
+        error.contains("claim may be gone or partial: trash item:"),
+        "{error}"
+    );
+    assert!(
+        !target.exists(),
+        "der Originalname bleibt nach begonnener Mutation leer"
+    );
+    let claim = claim_pfad(target.parent().unwrap());
+    assert!(
+        claim.join("rest-marker").exists(),
+        "der rest bleibt unter dem claim sichtbar"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Erfolgsfall über die Produktionspipeline: der Standard-Haken ist
+/// `std::fs::remove_dir_all`, der Eintrag ist danach weg und kein Claim bleibt
+/// liegen.
+#[cfg(target_os = "linux")]
+#[test]
+fn papierkorb_loeschung_ueber_die_produktionspipeline_entfernt_den_eintrag() {
+    let root = wsg_fixture("delete-trash-happy-path");
+    let steam = root.join("steam");
+    let trash = steam.join("steamapps/.protium-trash");
+    let target = trash.join("compatdata_999999_1700000000000");
+    std::fs::create_dir_all(target.join("pfx/drive_c")).unwrap();
+
+    let registry = PendingDeleteRegistry::default();
+    let info = prepare_with_snapshot(&registry, &ziel_request(&steam, "trash", &target), || {
+        Ok(false)
+    })
+    .unwrap();
+
+    let result = execute_confirmed(&registry, &info.token, || Ok(false)).unwrap();
+
+    assert_eq!(result.deleted_path, target.to_string_lossy());
+    assert!(!target.exists(), "der papierkorb-eintrag muss weg sein");
+    assert!(!claim_leftovers(&trash), "kein claim-rest nach erfolg");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Audit 5.1, Compat-Tool-Zweig: derselbe Vertrag wie beim Shadercache.
+#[cfg(target_os = "linux")]
+#[test]
+fn compat_tool_teilweiser_remove_meldet_write_uncertain() {
+    let (root, steam, target) = orphan_fixture_mit_ziel(
+        "delete-partial-compat-tool",
+        "compatibilitytools.d/GE-Proton9-27",
+    );
+    std::fs::create_dir_all(target.join("files/lib")).unwrap();
+    std::fs::write(target.join("rest-marker"), b"rest").unwrap();
+
+    let registry = PendingDeleteRegistry::default();
+    let info = prepare_with_snapshot(
+        &registry,
+        &ziel_request(&steam, "compatTool", &target),
+        || Ok(false),
+    )
+    .unwrap();
+
+    let error = execute_delete_after_inspection(
+        &registry,
+        &info.token,
+        &|_| true,
+        || Ok(false),
+        || {},
+        &mut teilweiser_remove,
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::WRITE_UNCERTAIN),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(
+        error.contains("claim may be gone or partial: compat tool:"),
+        "{error}"
+    );
+    assert!(
+        !target.exists(),
+        "der Originalname bleibt nach begonnener Mutation leer"
+    );
+    let claim = claim_pfad(target.parent().unwrap());
+    assert!(
+        claim.join("rest-marker").exists(),
+        "der rest bleibt unter dem claim sichtbar"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Audit 5.1: `NotFound` beim Remove ist kein Erfolg. Das Kind kann mitten im
+/// Abbau verschwunden sein oder eine zweite Instanz hat den Claim
+/// zurückbenannt; beides ist eine Unsicherheitsaussage, kein `Ok`.
+#[cfg(target_os = "linux")]
+#[test]
+fn fehlendes_ziel_beim_remove_meldet_write_uncertain() {
+    let (root, steam, target) =
+        orphan_fixture_mit_ziel("delete-partial-notfound", "steamapps/shadercache/999999");
+    std::fs::create_dir_all(target.join("shader-cache")).unwrap();
+
+    let registry = PendingDeleteRegistry::default();
+    let info = prepare_with_snapshot(&registry, &ziel_request(&steam, "orphan", &target), || {
+        Ok(false)
+    })
+    .unwrap();
+
+    let error = execute_delete_after_inspection(
+        &registry,
+        &info.token,
+        &|_| true,
+        || Ok(false),
+        || {},
+        &mut fehlendes_remove,
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::WRITE_UNCERTAIN),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(
+        !errcode::has_code(&error, errcode::NOT_FOUND),
+        "belegte Abwesenheit darf hier kein Erfolg sein: {error}"
+    );
+    assert!(
+        error.contains("claim may be gone or partial: shadercache:"),
+        "{error}"
+    );
+    assert!(
+        claim_leftovers(target.parent().unwrap()),
+        "der Claim muss liegen bleiben"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Audit 5.1: bleibt der Originalname beim Rückweg belegt, kommt das Ziel nicht
+/// zurück; der Claim-Rest bleibt liegen. Der Fehler nach dem Claim ist dann
+/// keine „unlesbare Abwesenheit" mehr, sondern eine Unsicherheitsaussage mit
+/// dem ursprünglichen Fehler im Detail.
+#[cfg(target_os = "linux")]
+#[test]
+fn restore_fehlschlag_nach_claim_meldet_write_uncertain() {
+    let (root, steam) = orphan_fixture("delete-ops-restore-fails");
+    let target = steam.join("steamapps/compatdata/999999");
+    std::fs::write(target.join("savegame-marker"), b"must survive").unwrap();
+    // scheitert die papierkorb-anlage (reguläre datei im weg), bricht die
+    // mutation VOR dem remove ab: der rückweg ist der einzige ausweg.
+    std::fs::write(steam.join("steamapps/.protium-trash"), b"blockiert").unwrap();
+
+    let registry = PendingDeleteRegistry::default();
+    let info = prepare_with_snapshot(&registry, &orphan_request(&steam), || Ok(false)).unwrap();
+
+    // der Originalname wird im Fenster nach dem Claim belegt: NOREPLACE kann
+    // nicht zurückbenennen.
+    let occupied = target.clone();
+    let error = execute_delete_after_claim(
+        &registry,
+        &info.token,
+        move || {
+            std::fs::create_dir_all(&occupied).unwrap();
+            std::fs::write(occupied.join("belegt-marker"), b"belegt").unwrap();
+        },
+        &mut standard_remove,
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::WRITE_UNCERTAIN),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(error.contains("claim restore failed"), "{error}");
+    assert!(error.contains("cannot create trash dir"), "{error}");
+    assert!(
+        claim_leftovers(target.parent().unwrap()),
+        "der claim-rest muss liegen bleiben"
+    );
+    assert!(
+        target.join("belegt-marker").exists(),
+        "der belegte Originalname darf unberührt bleiben"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Audit 5.1: scheitert das Öffnen des Claim-Namens (hier: der Claim-Name ist
+/// eine reguläre Datei, `O_DIRECTORY` schlägt fehl), ist das ein Fehler VOR der
+/// Mutation. Gelingt der Rückweg, bleibt der bisherige Code (`unreadable`)
+/// stehen; nur ein gescheiterter Rückweg wäre unsicher.
+#[cfg(target_os = "linux")]
+#[test]
+fn claim_handle_fehler_nach_claim_bleibt_unreadable() {
+    let (root, steam) = orphan_fixture("delete-ops-claim-handle-error");
+    let target = steam.join("steamapps/compatdata/999999");
+    std::fs::write(target.join("savegame-marker"), b"must survive").unwrap();
+    let parent = target.parent().unwrap().to_path_buf();
+
+    let registry = PendingDeleteRegistry::default();
+    let info = prepare_with_snapshot(&registry, &orphan_request(&steam), || Ok(false)).unwrap();
+
+    let swap_parent = parent.clone();
+    let error = execute_delete_after_claim(
+        &registry,
+        &info.token,
+        move || {
+            let claim = claim_pfad(&swap_parent);
+            std::fs::rename(&claim, swap_parent.join("beiseite")).unwrap();
+            std::fs::write(&claim, b"fremd").unwrap();
+        },
+        &mut standard_remove,
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::UNREADABLE),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(
+        !errcode::has_code(&error, errcode::WRITE_UNCERTAIN),
+        "gelungener Rückweg ist kein unsicherer Zustand: {error}"
+    );
+    assert!(
+        !claim_leftovers(&parent),
+        "der Rückweg benennt den Eintrag auf den Originalnamen zurück"
+    );
+    assert!(
+        parent.join("beiseite").join("savegame-marker").exists(),
+        "das echte ziel muss erhalten bleiben"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Audit 5.1: scheitert der Rückweg selbst (hier: Claim-Name als reguläre Datei
+/// plus belegter Originalname), bleibt der Claim liegen und der ursprüngliche
+/// Fehler wird zur Unsicherheitsaussage statt zu `unreadable`.
+#[cfg(target_os = "linux")]
+#[test]
+fn claim_handle_und_restore_fehler_melden_write_uncertain() {
+    let (root, steam) = orphan_fixture("delete-ops-claim-restore-both-fail");
+    let target = steam.join("steamapps/compatdata/999999");
+    std::fs::write(target.join("savegame-marker"), b"must survive").unwrap();
+    let parent = target.parent().unwrap().to_path_buf();
+
+    let registry = PendingDeleteRegistry::default();
+    let info = prepare_with_snapshot(&registry, &orphan_request(&steam), || Ok(false)).unwrap();
+
+    let swap_parent = parent.clone();
+    let occupied = target.clone();
+    let error = execute_delete_after_claim(
+        &registry,
+        &info.token,
+        move || {
+            let claim = claim_pfad(&swap_parent);
+            std::fs::rename(&claim, swap_parent.join("beiseite")).unwrap();
+            std::fs::write(&claim, b"fremd").unwrap();
+            std::fs::create_dir_all(&occupied).unwrap();
+            std::fs::write(occupied.join("belegt-marker"), b"belegt").unwrap();
+        },
+        &mut standard_remove,
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::WRITE_UNCERTAIN),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(error.contains("claim restore failed"), "{error}");
+    assert!(
+        parent.join("beiseite").join("savegame-marker").exists(),
+        "das echte ziel muss erhalten bleiben"
+    );
+    assert!(
+        target.join("belegt-marker").exists(),
+        "der belegte Originalname darf unberührt bleiben"
+    );
+    assert!(
+        claim_leftovers(&parent),
+        "der gescheiterte Rückweg lässt den Claim liegen"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// Review C: der Claim-Name ist im Verzeichnis sichtbar. Wird er zwischen
 /// Claim und Mutation durch ein gleichnamiges Fremdverzeichnis ersetzt, muss
 /// die Identitaetspruefung fail-closed enden, der Ersatz bleibt erhalten.
+///
+/// Audit 5.1: der Fehler liegt VOR der Mutation; der Rückweg gelingt und
+/// benennt den Ersatz auf den Originalnamen zurück, deshalb bleibt es bei
+/// `target-changed` (mit ausgewiesenem Rückweg), nicht bei einer
+/// Unsicherheitsaussage.
 #[cfg(target_os = "linux")]
 #[test]
 fn claim_identitaet_wird_unmittelbar_vor_der_mutation_geprueft() {
@@ -1109,48 +2003,36 @@ fn claim_identitaet_wird_unmittelbar_vor_der_mutation_geprueft() {
     // im fenster nach dem claim: das geclaimte verzeichnis beiseite schieben und
     // ein gleichnamiges fremdverzeichnis an seine stelle setzen
     let swap_parent = parent.clone();
-    let claim_path = Arc::new(Mutex::new(None));
-    let claim_path_for_hook = Arc::clone(&claim_path);
-    let result = execute_delete_after_claim(&registry, &info.token, move || {
-        let entry = std::fs::read_dir(&swap_parent)
-            .unwrap()
-            .map(|entry| entry.unwrap())
-            .find(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(".protium-delete-claim-")
-            })
-            .expect("claim-verzeichnis fehlt");
-        let path = entry.path();
-        *claim_path_for_hook.lock().unwrap() = Some(path.clone());
-        std::fs::rename(&path, swap_parent.join("beiseite")).unwrap();
-        std::fs::create_dir(&path).unwrap();
-        std::fs::write(path.join("fremd-marker"), b"fremd").unwrap();
-    });
+    let error = execute_delete_after_claim(
+        &registry,
+        &info.token,
+        move || {
+            let claim = claim_pfad(&swap_parent);
+            std::fs::rename(&claim, swap_parent.join("beiseite")).unwrap();
+            std::fs::create_dir(&claim).unwrap();
+            std::fs::write(claim.join("fremd-marker"), b"fremd").unwrap();
+        },
+        &mut standard_remove,
+    )
+    .unwrap_err();
 
     assert!(
-        result.unwrap_err().contains("target-changed"),
-        "der ersetzte claim muss abgelehnt werden"
+        errcode::has_code(&error, errcode::TARGET_CHANGED),
+        "der ersetzte claim muss abgelehnt werden: {error}"
     );
+    assert!(error.contains("claim restored"), "{error}");
 
-    // nichts wurde geloescht: der fremde marker liegt noch da, entweder unter
-    // dem claim-namen oder unter dem originalnamen (der restore-guard benennt
-    // best effort zurueck und ueberschreibt dabei nichts)
-    let original_path = parent.join("999999");
-    let foreign_marker = claim_path
-        .lock()
-        .unwrap()
-        .clone()
-        .expect("claim-pfad wurde nicht gesehen");
+    // nichts wurde geloescht: der fremde marker liegt unter dem originalnamen,
+    // das echte ziel unberührt daneben, kein claim-rest.
     assert!(
-        foreign_marker.join("fremd-marker").exists() || original_path.join("fremd-marker").exists(),
-        "der fremde ersatz darf nicht geloescht werden"
+        target.join("fremd-marker").exists(),
+        "der fremde ersatz darf nicht geloescht werden: {error}"
     );
     assert!(
         parent.join("beiseite").join("savegame-marker").exists(),
         "das echte ziel muss erhalten bleiben"
     );
+    assert!(!claim_leftovers(&parent), "kein claim-rest");
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -1235,6 +2117,7 @@ fn claim_mismatch_benennt_replacement_zurueck() {
             std::fs::create_dir_all(&target).unwrap();
             std::fs::write(target.join("replacement-marker"), b"must survive").unwrap();
         },
+        &mut standard_remove,
     )
     .unwrap_err();
 
@@ -1333,49 +2216,163 @@ fn rename_mutationen_synchronisieren_quell_und_zielverzeichnis() {
         "zielverzeichnis muss vor dem quellverzeichnis synchronisiert werden"
     );
 
+    // Prüflücke: "Rename ok, fsync fehlgeschlagen" ist ohne Injektionshaken
+    // nicht beobachtbar. Der Rückweg liegt deshalb als eine Funktion vor:
+    // Rename und fsync in `restore`, `Drop` nur als best-effort-Aufrufer ohne
+    // zweiten Rename.
     let restore = production
-        .find("impl Drop for ClaimRestoreGuard")
-        .expect("claim-restore muss vorhanden sein");
-    let drop_body = &production[restore..];
-    let drop_end = drop_body
-        .find("\n    }")
+        .find("fn restore(&mut self) -> bool")
+        .expect("claim-restore muss eine eigene funktion sein");
+    let restore_body = &production[restore..];
+    let restore_end = restore_body
+        .find("\n    }\n")
         .expect("claim-restore braucht einen funktionskörper");
     assert!(
-        drop_body[..drop_end].contains("sync_dir_fd(self.parent.as_raw_fd())"),
+        restore_body[..restore_end].contains("sync_dir_fd(self.parent.as_raw_fd())"),
         "claim-restore braucht ein verzeichnis-fsync im rückweg"
     );
+    assert!(
+        restore_body[..restore_end].contains("renameat2_no_replace"),
+        "der rückweg ist ein NOREPLACE-rename"
+    );
+    assert!(
+        restore_body[..restore_end].contains("sync_dir_fd(self.parent.as_raw_fd()).is_err()"),
+        "ein fsync-fehler muss den Rückweg als unsicher melden"
+    );
+    assert!(
+        restore_body[..restore_end].contains("return false;"),
+        "der Rückweg muss seinen Fehlschlag zurückmelden"
+    );
+    // Audit 5.1: auch ein gescheiterter Rename disarmt, sonst versucht der
+    // Drop einen zweiten Rename auf einen möglicherweise fremden Namen.
+    assert_eq!(
+        restore_body[..restore_end]
+            .matches("self.armed = false;")
+            .count(),
+        2,
+        "armed muss im Erfolgs- und im Rename-Fehlerzweig fallen"
+    );
+    // Die Fehlerzuweisung muss im Rename-Fehlerzweig stehen, nicht ein zweites
+    // Mal im Erfolgszweig.
+    let err_branch = restore_body[..restore_end]
+        .find(".is_err()")
+        .expect("restore braucht einen rename-fehlerzweig");
+    let err_return = restore_body[err_branch..]
+        .find("return false;")
+        .map(|offset| err_branch + offset)
+        .expect("rename-fehlerzweig muss false liefern");
+    assert!(
+        restore_body[err_branch..err_return].contains("self.armed = false;"),
+        "der Rename-Fehlerzweig muss disarmen"
+    );
 
-    // r-08: die drei remove_dir_all-zweige (shadercache, trash, compat
-    // tool) synchronisieren nach dem löschen ebenfalls ihren gebundenen
-    // parent; der sync-fehlerpfad jedes zweigs ist eindeutig markiert.
-    let remove_zweige = [
-        (
-            "cannot remove shadercache",
-            "shadercache remove parent sync",
-        ),
-        ("cannot remove trash item", "trash remove parent sync"),
-        (
-            "cannot remove compat tool",
-            "compat tool remove parent sync",
-        ),
-    ];
-    for (index, &(marker, sync_label)) in remove_zweige.iter().enumerate() {
-        let at = production
-            .find(marker)
-            .unwrap_or_else(|| panic!("remove-zweig {marker} muss vorhanden sein"));
-        let next_marker = remove_zweige.get(index + 1).map(|(next, _)| *next);
-        let end = next_marker
-            .and_then(|next| production.find(next))
-            .unwrap_or(production.len());
-        let block = &production[at..end];
-        let label_at = block
-            .find(sync_label)
-            .unwrap_or_else(|| panic!("{marker} braucht den sync-fehlerpfad {sync_label}"));
-        assert!(
-            block[..label_at].contains("sync_deleted_parent("),
-            "{marker} braucht einen verzeichnis-fsync nach dem löschen"
-        );
-    }
+    let drop_start = production
+        .find("impl Drop for ClaimRestoreGuard")
+        .expect("claim-restore muss vorhanden sein");
+    let drop_body = &production[drop_start..];
+    let drop_end = drop_body
+        .find("\n    }\n")
+        .expect("claim-restore braucht einen funktionskörper");
+    assert!(
+        drop_body[..drop_end].contains("self.restore()"),
+        "Drop muss den Rückweg rufen (und damit den fsync)"
+    );
+    assert!(
+        !drop_body[..drop_end].contains("renameat2_no_replace"),
+        "kein zweiter Rename neben dem Rückweg"
+    );
+
+    // Audit 5.1: der remove-helfer synchronisiert genau zweimal (erfolg und
+    // fehler); die mutation selbst enthält keinen eigenen erfolgs-fsync mehr.
+    let helper_start = production
+        .find("fn remove_claimed_dir(")
+        .expect("remove-helfer muss vorhanden sein");
+    let helper_body = &production[helper_start..];
+    let helper_end = helper_body
+        .find("\n}\n")
+        .expect("remove-helfer braucht einen funktionskörper");
+    assert_eq!(
+        helper_body[..helper_end]
+            .matches("sync_deleted_parent(")
+            .count(),
+        2,
+        "der remove-helfer braucht genau einen erfolgs- und einen fehler-fsync"
+    );
+    // Die beiden Syncs müssen in getrennten Armen liegen: wandern beide in
+    // den Fehlerarm, bliebe der Erfolg ohne Durabilität.
+    let ok_arm_start = helper_body
+        .find("Ok(()) =>")
+        .expect("remove-helfer braucht einen erfolgsarm");
+    let err_arm_start = helper_body
+        .find("Err(error) =>")
+        .expect("remove-helfer braucht einen fehlerarm");
+    assert!(
+        ok_arm_start < err_arm_start,
+        "der erfolgsarm steht vor dem fehlerarm"
+    );
+    assert_eq!(
+        helper_body[ok_arm_start..err_arm_start]
+            .matches("sync_deleted_parent(")
+            .count(),
+        1,
+        "der erfolgsarm synchronisiert genau einmal"
+    );
+    assert_eq!(
+        helper_body[err_arm_start..helper_end]
+            .matches("sync_deleted_parent(")
+            .count(),
+        1,
+        "der fehlerarm synchronisiert best effort genau einmal"
+    );
+    assert!(
+        helper_body[err_arm_start..helper_end].contains("WRITE_UNCERTAIN"),
+        "der fehlerarm meldet eine unsichere mutation, keinen lesefehler"
+    );
+
+    let mutation_start = production
+        .find("fn apply_delete_mutation(")
+        .expect("mutation muss vorhanden sein");
+    let mutation_body = &production[mutation_start..];
+    let mutation_end = mutation_body
+        .find("\n}\n")
+        .expect("mutation braucht einen funktionskörper");
+    assert_eq!(
+        mutation_body[..mutation_end]
+            .matches("sync_deleted_parent(")
+            .count(),
+        0,
+        "der parent-fsync gehört in den remove-helfer, nicht in die mutation"
+    );
+
+    // Audit 5.1: auch ein gescheiterter Papierkorb-Move muss den Claim
+    // zurückholen, nicht nur der Rename der drei remove-zweige.
+    let move_marker = production
+        .find("cannot move to trash")
+        .expect("papierkorb-move muss vorhanden sein");
+    let move_start = production[..move_marker]
+        .rfind("renameat2_no_replace(")
+        .expect("papierkorb-move muss ein rename sein");
+    let move_disarm = production[move_start..]
+        .find("restore.disarm()")
+        .map(|offset| move_start + offset)
+        .expect("papierkorb-move muss nach dem rename disarmen");
+    assert!(
+        production[move_start..move_disarm].contains("restore_or_write_uncertain"),
+        "ein move-fehler muss über den restore-vertrag laufen"
+    );
+}
+
+/// FR-5: das Claim-Präfix ist der Vertrag zum TypeScript-Filter
+/// (`DELETE_CLAIM_PREFIX` in `src/core/cleanup.ts`, verwendet in `trash.ts` und
+/// `compat.ts`); es entsteht an genau einer Stelle im Produktionscode.
+#[test]
+fn claim_praefix_literal_bleibt_im_produktionscode() {
+    let production = production_source(include_str!("delete_ops.rs"));
+    assert_eq!(
+        production.matches("\".protium-delete-claim-{}\"").count(),
+        1,
+        "das claim-präfix muss genau einmal als literal im produktionscode stehen"
+    );
 }
 
 /// Verhaltenstest für den r-08-Helfer: fsync auf einem Socket (kein

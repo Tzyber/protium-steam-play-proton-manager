@@ -201,14 +201,16 @@ export const de = {
       "{n} verzeichnisse im papierkorb wurden nicht erkannt und werden nicht angeboten (INV-2):",
     incompleteDeletionsTitle: "unvollständiger löschvorgang erkannt",
     incompleteDeletionsBody:
-      "Protium hat daten eines früheren löschvorgangs gefunden, der nicht vollständig abgeschlossen wurde. aus sicherheitsgründen nimmt Protium daran keine automatische änderung vor.",
+      "Protium hat reste eines abgebrochenen löschvorgangs gefunden oder ein claim-ort war nicht lesbar. der betroffene bereich bleibt gesperrt, bis der zustand behoben ist; automatisch ändert Protium daran nichts.",
     incompleteDeletionsHint:
-      "falls gerade eine zweite Protium-Instanz eine bereinigung ausführt, warte, bis sie abgeschlossen ist, und scanne erneut:",
+      "die pfade stehen in der liste. benenne sie im dateimanager um oder entferne sie und scanne danach erneut:",
     unreadableDirs: "nicht lesbar, Anzeige unvollständig: {paths}",
     steamOwnedHint:
       "{n} prefixes gehören zu steam-eigenen runtimes und proton-builtins ({size}) und werden nicht angeboten: steam legt sie bei bedarf neu an.",
     trashEmpty: "papierkorb leeren",
     trashDeleteEntry: "eintrag löschen",
+    trashDeleteBlocked:
+      "Papierkorb-Löschen ist gesperrt, bis der Scan-Fehler behoben oder der Löschrest manuell entfernt ist.",
     trashDeleteConfirmTitle: "{n} papierkorb-einträge endgültig löschen?",
     trashDeleteConfirmSingle: "{n} eintrag endgültig löschen?",
     trashDeleteWarning:
@@ -492,6 +494,8 @@ export const de = {
     codes: {
       steamRunning: "Steam läuft gerade. Bitte Steam beenden, um Änderungen vorzunehmen.",
       steamNotFound: "Keine Steam-Installation gefunden.",
+      steamCheckUnavailable:
+        "Steam-Status ist nicht prüfbar; Schreiben und Löschen bleiben gesperrt, ausgenommen ist nur der Papierkorb.",
       handlerUnavailable: "Kein passender System-Handler verfügbar.",
       unsupportedPlatform: "Auf diesem System nicht verfügbar.",
       unsupportedArch: "Diese Prozessorarchitektur wird nicht unterstützt.",
@@ -522,7 +526,7 @@ export const de = {
       libraryNotListed: "Die Library steht nicht in libraryfolders.vdf. Nichts wurde verändert.",
       notAManagedTool: "Nur von Protium verwaltete GE-Proton-Versionen können gelöscht werden.",
       writeMayHaveApplied:
-        "Die Änderung wurde möglicherweise geschrieben, der Abschluss ließ sich aber nicht bestätigen.",
+        "Die Änderung wurde möglicherweise angewendet, der Abschluss ließ sich aber nicht bestätigen.",
       unverifiedRejected: "Die Installation ohne Prüfsumme wurde abgelehnt.",
       cancelled: "Der Vorgang wurde abgebrochen.",
       checksumFailed: "Die Prüfsumme konnte nicht geprüft werden.",

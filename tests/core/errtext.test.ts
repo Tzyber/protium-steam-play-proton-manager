@@ -51,6 +51,15 @@ describe("errtext und parseError (B1)", () => {
     expect(parseError("invalid-id").kind).toBe("unknown");
   });
 
+  it("steam-check-unavailable ist nicht prüfbar, nicht blockiert (P8)", () => {
+    // Der Steam-Check darf einen unbekannten Status nie als "läuft" oder
+    // "läuft nicht" ausgeben; er trägt eine eigene klasse.
+    const parsed = parseError("steam-check-unavailable: /proc");
+    expect(parsed.code).toBe("steam-check-unavailable");
+    expect(parsed.kind).toBe("unavailable");
+    expect(parsed.detail).toBe("/proc");
+  });
+
   it("unbekannte Texte bleiben unknown, ohne zu raten", () => {
     // Ein alter englischer Satz ist kein Code und wird nicht klassifiziert.
     const parsed = parseError("steam is running, write refused");

@@ -34,12 +34,14 @@ fn registry_erlaubt_nur_einen_aktiven_download() {
 
 // ---- cancel-registry: unbekannte ID, bekannter eintrag, poison ----
 
-/// vergiftet die registry echt: ein panik unter gehaltenem lock hinterlässt
-/// den poison-zustand, den `catch_unwind` hier einsammelt.
-fn poison_registry(registry: &CancelRegistry) {
+/// vergiftet die registry echt mit einem stehengebliebenen eintrag: ein panik
+/// unter gehaltenem lock hinterlässt den poison-zustand, den `catch_unwind`
+/// hier einsammelt.
+fn poison_registry_with_entry(registry: &CancelRegistry, download_id: &str) {
     let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _guard = registry.0.lock().unwrap();
-        panic!("registry-poison für den test");
+        let mut map = registry.0.lock().unwrap();
+        map.insert(download_id.to_string(), Arc::new(CancelSignal::new()));
+        panic!("registry-poison mit stehengebliebenem eintrag");
     }));
     assert!(panicked.is_err(), "der test muss die registry vergiften");
     assert!(registry.0.lock().is_err(), "registry muss vergiftet sein");
@@ -73,13 +75,7 @@ fn cancel_bekannter_eintrag_setzt_flag_und_gibt_ok() {
 #[test]
 fn register_nach_poison_verwirft_den_stehengebliebenen_eintrag() {
     let registry = CancelRegistry::default();
-    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut map = registry.0.lock().unwrap();
-        map.insert("alt".to_string(), Arc::new(CancelSignal::new()));
-        panic!("registry-poison mit stehengebliebenem eintrag");
-    }));
-    assert!(panicked.is_err(), "der test muss die registry vergiften");
-    assert!(registry.0.lock().is_err(), "registry muss vergiftet sein");
+    poison_registry_with_entry(&registry, "alt");
 
     // der unzuverlässige inhalt darf den nächsten lauf nicht als belegung sperren
     let signal = register_download(&registry, "nach-poison")
@@ -109,16 +105,17 @@ fn register_nach_poison_verwirft_den_stehengebliebenen_eintrag() {
 #[test]
 fn cancel_bei_poison_ist_unavailable_und_registry_bleibt_benutzbar() {
     let registry = CancelRegistry::default();
-    poison_registry(&registry);
+    poison_registry_with_entry(&registry, "alt");
 
-    let error = cancel_registered_download(&registry, "egal").unwrap_err();
+    let error = cancel_registered_download(&registry, "alt").unwrap_err();
     assert!(
         errcode::has_code(&error, errcode::UNAVAILABLE),
         "poison muss unavailable tragen: {error}"
     );
     assert!(registry.0.lock().is_ok(), "poison muss geheilt sein");
 
-    // der poison darf den nächsten lauf nicht dauerhaft sperren
+    // der poison darf auch nach zuerst aufgerufenem cancel den nächsten lauf
+    // nicht mit einem stehengebliebenen eintrag als download-active sperren
     let signal = register_download(&registry, "nach-poison").unwrap();
     assert!(
         !signal.is_cancelled(),
@@ -131,12 +128,7 @@ fn cancel_bei_poison_ist_unavailable_und_registry_bleibt_benutzbar() {
 #[test]
 fn clear_entfernt_eintrag_auch_bei_poison() {
     let registry = CancelRegistry::default();
-    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut map = registry.0.lock().unwrap();
-        map.insert("poison-clear".to_string(), Arc::new(CancelSignal::new()));
-        panic!("registry-poison für den test");
-    }));
-    assert!(panicked.is_err(), "der test muss die registry vergiften");
+    poison_registry_with_entry(&registry, "poison-clear");
 
     clear_registered_download(&registry, "poison-clear");
     assert!(registry.0.lock().is_ok(), "poison muss geheilt sein");

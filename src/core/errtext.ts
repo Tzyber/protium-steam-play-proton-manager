@@ -25,6 +25,9 @@ const CODE_KINDS: Record<string, ProtiumErrorKind> = {
   "unsupported-platform": "unavailable",
   "unsupported-arch": "unavailable",
   "steam-running": "blocked",
+  // P8: ein nicht belegbarer Steam-Status ist weder "läuft" noch "läuft
+  // nicht". Er blockiert schreiben/löschen, trägt aber eine eigene klasse.
+  "steam-check-unavailable": "unavailable",
   "steam-not-found": "not-found",
   "blocked-location": "blocked",
   "not-a-steam-config": "blocked",

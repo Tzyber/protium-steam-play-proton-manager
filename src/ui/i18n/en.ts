@@ -202,14 +202,16 @@ export const en = {
     trashUnknownHint: "{n} directories in trash were not recognized and are not offered (INV-2):",
     incompleteDeletionsTitle: "incomplete deletion detected",
     incompleteDeletionsBody:
-      "protium found data from an earlier deletion that did not complete. for safety, protium will not modify it automatically.",
+      "protium found the remains of an interrupted deletion, or a claim location was not readable. the affected area stays locked until the state is fixed; protium will not change it automatically.",
     incompleteDeletionsHint:
-      "if another protium instance is currently cleaning up data, wait for it to finish and scan again:",
+      "the paths are listed below. rename or remove them in the file manager, then scan again:",
     unreadableDirs: "not readable, display incomplete: {paths}",
     steamOwnedHint:
       "{n} prefixes belong to steam's own runtimes and proton builtins ({size}) and are not offered: steam recreates them when needed.",
     trashEmpty: "empty trash",
     trashDeleteEntry: "delete entry",
+    trashDeleteBlocked:
+      "Trash deletion is locked until the scan error is fixed or the deletion remainder is removed manually.",
     trashDeleteConfirmTitle: "permanently delete {n} trash entries?",
     trashDeleteConfirmSingle: "delete {n} trash entry permanently?",
     trashDeleteWarning:
@@ -491,6 +493,8 @@ export const en = {
     codes: {
       steamRunning: "Steam is currently running. Please close Steam before making changes.",
       steamNotFound: "No Steam installation found.",
+      steamCheckUnavailable:
+        "Steam status cannot be checked; writing and deleting stay locked, except for the trash.",
       handlerUnavailable: "No suitable system handler available.",
       unsupportedPlatform: "Not available on this system.",
       unsupportedArch: "This processor architecture is not supported.",
@@ -521,7 +525,7 @@ export const en = {
       libraryNotListed: "The library is not listed in libraryfolders.vdf. Nothing was changed.",
       notAManagedTool: "Only GE-Proton versions managed by Protium can be deleted.",
       writeMayHaveApplied:
-        "The change may have been written, but completion could not be confirmed.",
+        "The change may have been applied, but completion could not be confirmed.",
       unverifiedRejected: "Installation without a checksum was rejected.",
       cancelled: "The operation was cancelled.",
       checksumFailed: "The checksum could not be verified.",

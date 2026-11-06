@@ -581,6 +581,153 @@ fn save_launch_options_prueft_vor_dem_rename_und_laesst_ziel_unveraendert() {
     let _ = std::fs::remove_dir_all(home.parent().unwrap());
 }
 
+/// Audit 5.5 / FR-4: ein nicht belegbarer Steam-Status ist keine Freigabe. Der
+/// Fehler des Checks ist ein Fehler des Writes, kein `false`: das Ziel bleibt
+/// byteidentisch, kein Backup, keine Temp-Datei.
+#[test]
+fn save_launch_options_nicht_pruefbarer_steam_status_blockiert_ohne_seiteneffekt() {
+    let (home, cache, steam) = wsg_env("launch-steam-check-unavailable");
+    let target = steam.join("userdata/123/config/localconfig.vdf");
+    let before = std::fs::read_to_string(&target).unwrap();
+    let mut reader = || {
+        Err(errcode::with_detail(
+            errcode::STEAM_CHECK_UNAVAILABLE,
+            "probe /proc: permission denied",
+        ))
+    };
+
+    let err = save_launch_options_inner(
+        steam.to_str().unwrap(),
+        "123",
+        620,
+        "-novid",
+        &cache,
+        &steam,
+        &mut reader,
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&err, errcode::STEAM_CHECK_UNAVAILABLE),
+        "unerwarteter fehler: {err}"
+    );
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), before);
+    assert!(!cache.join("backups").exists());
+    let leftovers: Vec<_> = std::fs::read_dir(target.parent().unwrap())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().contains(".tmp"))
+        .collect();
+    assert!(leftovers.is_empty(), "keine temp-datei darf liegenbleiben");
+    let _ = std::fs::remove_dir_all(home.parent().unwrap());
+}
+
+/// Der zweite Check liegt im Write-Gate vor dem Backup. Ein Fehler dort ist
+/// ebenfalls eine Blockade ohne Seiteneffekt: kein Backup, kein Rename.
+#[test]
+fn save_launch_options_nicht_pruefbarer_status_vor_dem_rename_blockiert_vor_backup() {
+    let (home, cache, steam) = wsg_env("launch-steam-check-unavailable-second");
+    let target = steam.join("userdata/123/config/localconfig.vdf");
+    let before = std::fs::read_to_string(&target).unwrap();
+    let mut states = [
+        Ok(false),
+        Err(errcode::with_detail(
+            errcode::STEAM_CHECK_UNAVAILABLE,
+            "probe /proc: permission denied",
+        )),
+    ]
+    .into_iter();
+    let mut reader = || states.next().expect("process reader call");
+
+    let err = save_launch_options_inner(
+        steam.to_str().unwrap(),
+        "123",
+        620,
+        "neu %command%",
+        &cache,
+        &steam,
+        &mut reader,
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&err, errcode::STEAM_CHECK_UNAVAILABLE),
+        "unerwarteter fehler: {err}"
+    );
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), before);
+    assert!(
+        !cache.join("backups").exists(),
+        "der abbruch greift vor dem backup"
+    );
+    assert_eq!(states.next(), None);
+    let mut entries: Vec<String> = std::fs::read_dir(target.parent().unwrap())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    entries.sort();
+    assert_eq!(
+        entries,
+        vec!["localconfig.vdf".to_string()],
+        "nach dem abbruch darf kein temp-rest liegen bleiben"
+    );
+    let _ = std::fs::remove_dir_all(home.parent().unwrap());
+}
+
+/// Der dritte Check liegt im Write-Gate unmittelbar vor dem Rename. Ein Fehler
+/// dort ist ebenfalls eine Blockade: das Ziel bleibt byteidentisch und die
+/// Temp-Datei wird aufgeräumt. Ein Backup, das der zweite Check bereits
+/// angelegt hat, darf liegen bleiben (der Abbruch greift nach dem Backup); es
+/// hält den alten Stand und ist kein Rest des abgebrochenen Writes.
+#[test]
+fn save_launch_options_nicht_pruefbarer_status_unmittelbar_vor_dem_rename() {
+    let (home, cache, steam) = wsg_env("launch-steam-check-unavailable-third");
+    let target = steam.join("userdata/123/config/localconfig.vdf");
+    let before = std::fs::read_to_string(&target).unwrap();
+    let mut states = [
+        Ok(false),
+        Ok(false),
+        Err(errcode::with_detail(
+            errcode::STEAM_CHECK_UNAVAILABLE,
+            "/proc",
+        )),
+    ]
+    .into_iter();
+    let mut reader = || states.next().expect("process reader call");
+
+    let err = save_launch_options_inner(
+        steam.to_str().unwrap(),
+        "123",
+        620,
+        "neu %command%",
+        &cache,
+        &steam,
+        &mut reader,
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&err, errcode::STEAM_CHECK_UNAVAILABLE),
+        "unerwarteter fehler: {err}"
+    );
+    assert!(
+        err.starts_with("steam-check-unavailable: "),
+        "detail fehlt: {err}"
+    );
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), before);
+    assert_eq!(states.next(), None);
+    let mut entries: Vec<String> = std::fs::read_dir(target.parent().unwrap())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    entries.sort();
+    assert_eq!(
+        entries,
+        vec!["localconfig.vdf".to_string()],
+        "nach dem abbruch darf kein temp-rest liegen bleiben"
+    );
+    let _ = std::fs::remove_dir_all(home.parent().unwrap());
+}
+
 #[test]
 fn save_compat_tool_steam_laeuft_abgelehnt() {
     let (home, cache, steam) = wsg_env("compat-running");
@@ -620,6 +767,45 @@ fn save_compat_tool_prueft_prozess_zweimal_und_schreibt_nicht_bei_start_race() {
     assert_eq!(std::fs::read_to_string(&target).unwrap(), before);
     assert!(!cache.join("backups").exists());
     assert_eq!(states.next(), None);
+    let _ = std::fs::remove_dir_all(home.parent().unwrap());
+}
+
+/// Derselbe Vertrag für den zweiten Write-Pfad (INV-1: beide Aufrufer nutzen
+/// das gemeinsame Gate).
+#[test]
+fn save_compat_tool_nicht_pruefbarer_steam_status_blockiert_ohne_seiteneffekt() {
+    let (home, cache, steam) = wsg_env("compat-steam-check-unavailable");
+    let target = steam.join("config/config.vdf");
+    let before = std::fs::read_to_string(&target).unwrap();
+    let mut reader = || {
+        Err(errcode::with_detail(
+            errcode::STEAM_CHECK_UNAVAILABLE,
+            "probe /proc: permission denied",
+        ))
+    };
+
+    let err = save_compat_tool_inner(
+        steam.to_str().unwrap(),
+        620,
+        Some("GE-Proton9-28"),
+        &cache,
+        &steam,
+        &mut reader,
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&err, errcode::STEAM_CHECK_UNAVAILABLE),
+        "unerwarteter fehler: {err}"
+    );
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), before);
+    assert!(!cache.join("backups").exists());
+    let leftovers: Vec<_> = std::fs::read_dir(target.parent().unwrap())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().contains(".tmp"))
+        .collect();
+    assert!(leftovers.is_empty(), "keine temp-datei darf liegenbleiben");
     let _ = std::fs::remove_dir_all(home.parent().unwrap());
 }
 

@@ -17,6 +17,8 @@ use std::fs;
 #[cfg(target_os = "linux")]
 use std::os::unix::io::AsRawFd;
 use std::path::Path;
+// die prozessliste wird nur unter Linux befragt (r-12).
+#[cfg(target_os = "linux")]
 use sysinfo::{ProcessRefreshKind, RefreshKind, System};
 use tauri::State;
 
@@ -363,14 +365,16 @@ pub(crate) struct PathIdentity {
     pub ino: String,
 }
 
-/// Prüft ausschließlich, ob ein Prozessname `steam` enthält.
+/// Belegt zuerst die Lesbarkeit der Prozessliste und meldet dann, ob ein
+/// Prozessname `steam` enthält. „Nicht belegbar" ist ein Fehler, kein `false`
+/// (Audit 5.5): eine verdeckte Liste sieht sonst wie „kein Steam" aus.
 /// Die Webview übergibt keinen Prozessnamen: ein generisches
 /// Process-Enumeration-Werkzeug wäre von dort aus wählbar.
 /// async + spawn_blocking: sync commands laufen bei tauri v2 auf dem main-thread,
 /// und dieser check steht vor JEDEM write-gate.
-pub(super) fn is_steam_running_sync() -> bool {
-    // Substring-Match schließt absichtlich Steam-Helper wie steamwebhelper ein;
-    // false-positive Blockade ist sicherer als false-negative während Writes.
+#[cfg(target_os = "linux")]
+pub(super) fn is_steam_running_sync() -> Result<bool, String> {
+    probe_proc(Path::new("/proc"))?;
     // nur die prozessliste refreshen, new_all() baute eine komplette
     // system-inventur (CPU/RAM/disks/netzwerk) für einen namens-check.
     // name() kommt aus /proc/<pid>/stat und ist auch mit
@@ -378,14 +382,147 @@ pub(super) fn is_steam_running_sync() -> bool {
     let sys = System::new_with_specifics(
         RefreshKind::nothing().with_processes(ProcessRefreshKind::nothing()),
     );
-    sys.processes()
-        .values()
-        .any(|p| p.name().to_string_lossy().to_lowercase().contains("steam"))
+    let own_pid = sysinfo::Pid::from_u32(std::process::id());
+    steam_running_from(
+        sys.processes().contains_key(&own_pid),
+        sys.processes()
+            .values()
+            .map(|process| process.name().to_string_lossy().into_owned()),
+    )
+}
+
+/// Entscheidung über den befund des prozess-scans, ohne sysinfo: eine liste
+/// ohne den eigenen prozess ist nicht belegbar (hidepid, fremde
+/// PID-Namespace), nicht etwa „kein Steam", und bleibt ein Fehler. Der
+/// Substring-Match schließt absichtlich Steam-Helper wie steamwebhelper ein;
+/// eine false-positive Blockade ist sicherer als ein false-negative während
+/// Writes.
+#[cfg(target_os = "linux")]
+fn steam_running_from(
+    own_pid_visible: bool,
+    names: impl IntoIterator<Item = String>,
+) -> Result<bool, String> {
+    if !own_pid_visible {
+        return Err(errcode::with_detail(
+            errcode::STEAM_CHECK_UNAVAILABLE,
+            format!("process list without own pid {}", std::process::id()),
+        ));
+    }
+    Ok(names.into_iter().any(|name| is_steam_process_name(&name)))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(super) fn is_steam_running_sync() -> Result<bool, String> {
+    // r-12: auf anderen plattformen ist die prozessliste nicht belegbar,
+    // deshalb fail-closed statt „kein Steam".
+    Err(errcode::with_detail(
+        errcode::STEAM_CHECK_UNAVAILABLE,
+        "process list not verifiable on this platform",
+    ))
+}
+
+/// Fehlerform jedes nicht belegten Probe-Zustands: Code plus Pfad/Zustand im
+/// Detail, damit das Log den Grund zeigt und die Klasse `unavailable` bleibt.
+#[cfg(target_os = "linux")]
+fn probe_error(path: &Path, state: impl std::fmt::Display) -> String {
+    errcode::with_detail(
+        errcode::STEAM_CHECK_UNAVAILABLE,
+        format!("probe {}: {state}", path.display()),
+    )
+}
+
+/// `comm` trägt ein abschließendes Newline; nur exakt `kthreadd` ist der
+/// belegte Kernel-Thread, jede andere Schreibweise sperrt.
+#[cfg(target_os = "linux")]
+fn comm_is_kthreadd(comm: &str) -> bool {
+    comm.trim_end_matches('\n') == "kthreadd"
+}
+
+/// Belegt, dass die Prozessliste des Kernels lesbar und plausibel ist: PID 2
+/// ist der Kernel-Thread `kthreadd` mit ppid 0 und ohne auflösbaren
+/// `exe`-Link. Ohne diesen Beleg ist „kein Steam sichtbar" nicht von einer
+/// verdeckten Liste zu unterscheiden (hidepid, `ProtectProc`, fremde
+/// PID-Namespace); jeder Zweifel sperrt.
+///
+/// Grenze des Belegs: `read_dir` zeigt nur, dass sich die Liste öffnen und
+/// lesen lässt, nicht dass sie vollständig ist. Die anschließende Auswertung
+/// über sysinfo verwirft einzelne unlesbare Prozesse still; die Probe bleibt
+/// deshalb eine Plausibilitätsprüfung und keine Vollständigkeitsaussage.
+#[cfg(target_os = "linux")]
+fn probe_proc(root: &Path) -> Result<(), String> {
+    fs::read_dir(root).map_err(|error| probe_error(root, error))?;
+
+    let init = root.join("2");
+    let comm_path = init.join("comm");
+    let comm = fs::read_to_string(&comm_path).map_err(|error| probe_error(&comm_path, error))?;
+    if !comm_is_kthreadd(&comm) {
+        let comm = comm.trim_end_matches('\n');
+        return Err(probe_error(
+            &comm_path,
+            format!("comm is {comm:?}, expected \"kthreadd\""),
+        ));
+    }
+
+    let stat_path = init.join("stat");
+    let stat = fs::read_to_string(&stat_path).map_err(|error| probe_error(&stat_path, error))?;
+    match stat_ppid(&stat) {
+        Some(0) => {}
+        other => {
+            return Err(probe_error(
+                &stat_path,
+                format!("ppid is {other:?}, expected 0"),
+            ));
+        }
+    }
+
+    probe_exe_not_resolvable(&init.join("exe"))
+}
+
+/// ppid ist Feld 4 der `stat`-Zeile. Der comm (Feld 2) ist geklammert und kann
+/// selbst Klammern und Leerzeichen enthalten, deshalb beginnt die Zerlegung
+/// erst nach dem LETZTEN `)`.
+#[cfg(target_os = "linux")]
+fn stat_ppid(stat: &str) -> Option<u32> {
+    let rest = stat.get(stat.rfind(')')? + 1..)?;
+    rest.split_whitespace().nth(1)?.parse().ok()
+}
+
+/// Kernel-Threads haben keinen `exe`-Link (ENOENT; mit `hidepid` auch EPERM,
+/// das Rust auf `PermissionDenied` abbildet). Nur diese beiden Fehlerarten sind
+/// belegte Abwesenheit; jedes `Ok` und jeder andere Fehler (etwa `EINVAL` bei
+/// einer regulären Datei) widerspricht dem erwarteten Prozessbild und sperrt.
+#[cfg(target_os = "linux")]
+fn exe_error_is_expected(kind: std::io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+    )
+}
+
+/// Eigenständig prüfbar, weil EACCES über den vollen Probe-Pfad nicht
+/// konstruierbar ist: `comm` und `stat` brauchen denselben durchsuchbaren
+/// Parent wie `exe`. Die Entscheidung selbst liegt deshalb in
+/// `exe_error_is_expected`.
+#[cfg(target_os = "linux")]
+fn probe_exe_not_resolvable(exe: &Path) -> Result<(), String> {
+    match fs::read_link(exe) {
+        Err(error) if exe_error_is_expected(error.kind()) => Ok(()),
+        Err(error) => Err(probe_error(exe, error)),
+        Ok(target) => Err(probe_error(
+            exe,
+            format!("resolves to {}", target.display()),
+        )),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn is_steam_process_name(name: &str) -> bool {
+    name.to_lowercase().contains("steam")
 }
 
 #[tauri::command]
 pub async fn is_steam_running() -> Result<bool, String> {
-    spawn_blocking_io(|| Ok(is_steam_running_sync())).await
+    spawn_blocking_io(is_steam_running_sync).await
 }
 
 /// Berechnet die Größe eines Verzeichnisses.

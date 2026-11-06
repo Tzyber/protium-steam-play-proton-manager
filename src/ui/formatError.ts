@@ -5,6 +5,7 @@ import { type Key, t } from "./i18n";
  *  Uebersetzung ihrer Fehlerklasse zurueck; Rohtext zeigt die UI nie. */
 const CODE_KEYS: Record<string, Key> = {
   "steam-running": "errors.codes.steamRunning",
+  "steam-check-unavailable": "errors.codes.steamCheckUnavailable",
   "steam-not-found": "errors.codes.steamNotFound",
   "handler-unavailable": "errors.codes.handlerUnavailable",
   "unsupported-platform": "errors.codes.unsupportedPlatform",

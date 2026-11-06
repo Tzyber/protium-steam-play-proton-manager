@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DELETE_CLAIM_PREFIX } from "../../src/core/cleanup.js";
 import type { System, TrashListing } from "../../src/core/ports.js";
 import { findTrashEntries } from "../../src/core/trash.js";
 import { fakeSystem as supportSystem } from "../support/fakeSteam";
@@ -249,5 +250,25 @@ describe("findTrashEntries", () => {
 
     expect(r.entries).toHaveLength(0);
     expect(r.unknown).toHaveLength(2);
+  });
+
+  it("claim-reste im papierkorb sind weder eintrag noch unknown (5.1)", async () => {
+    const trashDir = "/lib/steamapps/.protium-trash";
+    const claimName = `${DELETE_CLAIM_PREFIX}compatdata_7_1000`;
+    const sys = fakeSystem(async () =>
+      listing(trashDir, [claimName, "compatdata_7_1000", "shadercache_42_1753372800999"]),
+    );
+
+    const r = await findTrashEntries(["/lib"], sys);
+
+    // der claim-rest gehört zu einer abgebrochenen löschung und wird von
+    // findIncompleteDeletions gemeldet, nicht hier angeboten.
+    expect(r.entries.map((entry) => entry.name)).toEqual([
+      "compatdata_7_1000",
+      "shadercache_42_1753372800999",
+    ]);
+    expect(r.unknown).toEqual([]);
+    expect(r.libraries[0]?.count).toBe(2);
+    expect(r.unreadable).toEqual([]);
   });
 });

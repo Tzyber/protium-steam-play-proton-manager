@@ -313,11 +313,20 @@ const tabLabel = (id: Tab) =>
       <span class="sel-info" aria-live="polite" data-testid="trash-selected-info">
         {{ t("cleanup.selectedInfo", { n: trashSelection.selectedEntries.length, size: trashSelectedSize }) }}
       </span>
+      <span
+        v-if="cleanup.trashDeleteBlockedText"
+        class="hint"
+        role="alert"
+        data-testid="trash-delete-blocked"
+      >
+        {{ cleanup.trashDeleteBlockedText }}
+      </span>
       <div class="actionbar-btns">
         <button
           class="action"
           type="button"
-          :disabled="!trashSelection.selectedEntries.length || trashDeleting || confirm.reserved || confirm.busy"
+          :disabled="!trashSelection.selectedEntries.length || trashDeleting || confirm.reserved || confirm.busy || cleanup.trashDeleteBlockedText !== null"
+          :title="cleanup.trashDeleteBlockedText ?? undefined"
           @click="deleteTrashEntries(false)"
         >
           {{ t("cleanup.trashDeleteEntry") }}
@@ -325,7 +334,8 @@ const tabLabel = (id: Tab) =>
         <button
           class="action danger"
           type="button"
-          :disabled="!cleanup.trash.length || trashDeleting || confirm.reserved || confirm.busy"
+          :disabled="!cleanup.trash.length || trashDeleting || confirm.reserved || confirm.busy || cleanup.trashDeleteBlockedText !== null"
+          :title="cleanup.trashDeleteBlockedText ?? undefined"
           @click="deleteTrashEntries(true)"
         >
           {{ t("cleanup.trashEmpty") }}
@@ -425,6 +435,8 @@ const tabLabel = (id: Tab) =>
   border-top: 1px solid var(--line);
 }
 .sel-info { font-size: 0.875rem; color: var(--fg-1); }
+/* der sperrgrund steht in der leiste, nicht als block über der liste */
+.actionbar .hint { margin-bottom: 0; }
 .actionbar-btns { display: flex; gap: 10px; }
 
 .action {

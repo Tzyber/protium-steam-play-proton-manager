@@ -35,6 +35,10 @@ fn write_gate_bleibt_crash_durable_gesichert() {
         "temp-sync muss vor dem rename laufen"
     );
     assert!(
+        tmp_sync.unwrap() < check.unwrap(),
+        "temp-sync muss vor der letzten prüfung laufen"
+    );
+    assert!(
         check.unwrap() < rename.unwrap(),
         "die letzte prüfung muss unmittelbar vor dem rename laufen"
     );

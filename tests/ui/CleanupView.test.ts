@@ -286,6 +286,31 @@ describe("CleanupView incomplete deletions", () => {
     ).toBe(true);
   });
 
+  it("sperrt die papierkorb-löschknöpfe bei einem scan-fehler und nennt den grund", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    store.trash = [makeTrashEntry({ appId: 2, sizeBytes: 1024 })];
+    store.setTrashScanError(t("cleanup.trashUnreadable", { paths: "/lib" }));
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+    await wrapper.get("#cv-tab-trash").trigger("click");
+    // auswahl setzen: sonst wäre der eintragsknopf schon wegen leerer auswahl gesperrt
+    await wrapper.get("#cv-panel-trash .row").trigger("click");
+
+    const deleteEntry = buttonWithText(wrapper, t("cleanup.trashDeleteEntry"));
+    const emptyTrash = buttonWithText(wrapper, t("cleanup.trashEmpty"));
+    expect(deleteEntry?.attributes("disabled")).toBeDefined();
+    expect(emptyTrash?.attributes("disabled")).toBeDefined();
+    expect(deleteEntry?.attributes("title")).toBe(t("cleanup.trashDeleteBlocked"));
+    expect(emptyTrash?.attributes("title")).toBe(t("cleanup.trashDeleteBlocked"));
+    // der grund steht sichtbar in der aktionsleiste
+    expect(wrapper.get("[data-testid='trash-delete-blocked']").text()).toBe(
+      t("cleanup.trashDeleteBlocked"),
+    );
+  });
+
   it("zeigt titel, erklärung, hinweis und pfade statt internem claim-text", async () => {
     const store = useCleanupStore();
     vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);

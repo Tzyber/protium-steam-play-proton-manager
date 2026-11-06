@@ -34,6 +34,13 @@ const unreadableOrphanDirs = computed(() => {
   const paths = [...new Set(cleanup.orphanUnreadable.map((entry) => entry.path))];
   return t("cleanup.unreadableDirs", { paths: paths.join(", ") });
 });
+
+/** Ohne Papierkorb-Liste gibt es keine Aktionsleiste, an der der Sperrgrund
+ *  sichtbar wäre; dann steht er hier, sonst bliebe die Löschsperre unsichtbar
+ *  (FR-4). */
+const trashDeleteBlocked = computed(() =>
+  cleanup.trash.length === 0 ? cleanup.trashDeleteBlockedText : null,
+);
 </script>
 
 <template>
@@ -47,6 +54,10 @@ const unreadableOrphanDirs = computed(() => {
 
   <div v-if="unreadableOrphanDirs" class="blocked" role="alert">
     {{ unreadableOrphanDirs }}
+  </div>
+
+  <div v-if="trashDeleteBlocked" class="blocked" role="alert" data-testid="trash-delete-blocked-notice">
+    {{ trashDeleteBlocked }}
   </div>
 
   <div v-if="cleanup.pathMissingLibs.length" class="pathmissing">

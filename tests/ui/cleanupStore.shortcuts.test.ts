@@ -123,20 +123,33 @@ describe("cleanupStore, S-05 + shortcuts", () => {
     expect(store.error).toContain(t("errors.shortcutsUnreadable"));
   });
 
-  it("löschfehler im papierkorb sperrt die coverage nicht (P2-3)", () => {
+  it("löschfehler im papierkorb sperrt weder coverage noch anzeige (P2-3)", () => {
     const store = useCleanupStore();
     const deleteFailure = t("cleanup.trashExecuteError", { n: 1, errors: "EACCES" });
-    store.trashError = deleteFailure;
+    store.setTrashError(deleteFailure);
 
-    // die anzeige meldet den papierkorb als nicht verfügbar …
-    expect(store.trashUnavailable).toBe(true);
-    // … die coverage bleibt aber vollständig, weil der scan selbst nicht scheiterte
+    // ein reiner löschfehler ist kein scan-fakt: er steht in `error`, sperrt
+    // aber weder die anzeige noch die coverage und blockiert das löschen nicht
+    expect(store.error).toBe(deleteFailure);
+    expect(store.trashUnavailable).toBe(false);
     expect(store.coverageBlocked).toBe(false);
+    expect(store.trashDeleteBlockedText).toBeNull();
 
-    // erst der scan-fakt sperrt die coverage; der anzeigetext bleibt der löschfehler
-    store._trashScanError = t("cleanup.trashUnreadable", { paths: "/lib" });
+    // erst der scan-fakt sperrt anzeige und coverage
+    store.setTrashScanError(t("cleanup.trashUnreadable", { paths: "/lib" }));
+    expect(store.trashUnavailable).toBe(true);
     expect(store.coverageBlocked).toBe(true);
-    expect(store.trashError).toBe(deleteFailure);
+    expect(store.trashDeleteBlockedText).toBe(t("cleanup.trashDeleteBlocked"));
+  });
+
+  it("unbekannte papierkorb-einträge sperren die anzeige, nicht das löschen", () => {
+    const store = useCleanupStore();
+    store.trashUnknown = ["/lib/steamapps/.protium-trash/fremd"];
+
+    // der unbekannte eintrag belegt keinen unvollständigen scan: er wird nur
+    // nicht angeboten, die erkannten einträge bleiben löschbar (FR-4).
+    expect(store.trashUnavailable).toBe(true);
+    expect(store.trashDeleteBlockedText).toBeNull();
   });
 
   it("ein papierkorb-scanfehler sperrt die coverage (P2-3)", async () => {
@@ -150,6 +163,7 @@ describe("cleanupStore, S-05 + shortcuts", () => {
     expect(store._trashScanError).not.toBeNull();
     expect(store.trashUnavailable).toBe(true);
     expect(store.coverageBlocked).toBe(true);
+    expect(store.trashDeleteBlockedText).toBe(t("cleanup.trashDeleteBlocked"));
   });
 
   it("Policy: unlesbares shortcuts.vdf → compatdata fail-closed, shadercache regenerierbar", async () => {
@@ -438,7 +452,7 @@ describe("cleanupStore, S-05 + shortcuts", () => {
     const scanStore = useScanStore();
     scanStore.result = fakeScan([]);
     const store = useCleanupStore();
-    const failure = new Error("process-check-unavailable");
+    const failure = new Error("steam-check-unavailable: /proc");
     mockIsSteamRunning.mockRejectedValueOnce(failure);
     const logError = vi.spyOn(diagnostics, "logError");
 
@@ -448,7 +462,9 @@ describe("cleanupStore, S-05 + shortcuts", () => {
       ]),
     ).resolves.toBeUndefined();
 
-    expect(store.orphanError).toBe(formatError(failure));
+    // Der nutzer sieht den übersetzten Sperrtext, nie den rohen backend-string.
+    expect(store.orphanError).toBe(t("errors.codes.steamCheckUnavailable"));
+    expect(store.orphanError).not.toContain("/proc");
     expect(logError).toHaveBeenCalledWith(expect.any(String), failure);
     logError.mockRestore();
     expect(store.deleting.size).toBe(0);
@@ -456,6 +472,25 @@ describe("cleanupStore, S-05 + shortcuts", () => {
     expect(useConfirmStore().pending).toBeNull();
     expect(mockReadAllShortcutAppIds).not.toHaveBeenCalled();
     expect(mockPrepareDelete).not.toHaveBeenCalled();
+  });
+
+  it("scanOrphans bricht bei nicht prüfbarem steam-status ab (P8)", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    // P8: der check rejectet mit steam-check-unavailable. Ohne belegbaren
+    // status darf der scan nicht weiterlaufen: er würde steam-eigene orte als
+    // waisen anbieten und die liste wäre unbewiesen.
+    mockIsSteamRunning.mockRejectedValueOnce(new Error("steam-check-unavailable: /proc"));
+    const store = useCleanupStore();
+
+    await expect(store.scanOrphans()).resolves.toBeUndefined();
+
+    expect(store.orphanError).toBe(t("errors.codes.steamCheckUnavailable"));
+    expect(store._orphanScanError).toBe(t("errors.codes.steamCheckUnavailable"));
+    expect(store.scanning).toBe(false);
+    expect(store.orphans).toEqual([]);
+    expect(mockReadAllShortcutAppIds).not.toHaveBeenCalled();
+    expect(mockFindOrphans).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -477,7 +512,7 @@ describe("cleanupStore, S-05 + shortcuts", () => {
       await store.scanOrphans();
       expect(store.orphanError).toBeNull();
 
-      if (fails) steamCheck.reject(new Error("process-check-unavailable"));
+      if (fails) steamCheck.reject(new Error("steam-check-unavailable: /proc"));
       else steamCheck.resolve(true);
       await deletion;
 

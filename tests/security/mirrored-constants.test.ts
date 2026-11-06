@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BLOCKLIST } from "../../src/core/blocklist.js";
+import { DELETE_CLAIM_PREFIX } from "../../src/core/cleanup.js";
 import { EXTRACT_TEMP_PREFIX } from "../../src/core/compat.js";
 import { parseError } from "../../src/core/errtext.js";
 import {
@@ -44,6 +45,13 @@ describe("TypeScript-/Rust-Spiegelwerte", () => {
 
     expect(MAX_BINARY_VDF_DEPTH).toBe(64);
     expect(shortcuts).toContain("const MAX_BINARY_VDF_DEPTH: usize = 64;");
+  });
+
+  it("bindet das Delete-Claim-Präfix an die Rust-Pipeline", () => {
+    const deleteOps = readFileSync(join(repo, "src-tauri/src/commands/delete_ops.rs"), "utf8");
+    const literal = deleteOps.match(/format!\(\s*"(\.protium-delete-claim-)\{\}"/);
+    expect(literal, "delete_ops.rs muss das Claim-Präfix formatieren").not.toBeNull();
+    expect(literal?.[1]).toBe(DELETE_CLAIM_PREFIX);
   });
 
   it("bindet die proton-builtin-paare aus der Blocklist an VALVE_COMPAT_TOOLS", () => {
@@ -179,6 +187,9 @@ describe("TypeScript-/Rust-Spiegelwerte", () => {
       "handler-unavailable": "unavailable",
       "unsupported-platform": "unavailable",
       "steam-running": "blocked",
+      // P8: ein nicht belegbarer Steam-Status blockiert schreiben/löschen,
+      // ist aber keine erkannte blockade und kein "kein steam".
+      "steam-check-unavailable": "unavailable",
       "steam-not-found": "not-found",
       "invalid-account-id": "unknown",
       "blocked-location": "blocked",
@@ -216,9 +227,14 @@ describe("TypeScript-/Rust-Spiegelwerte", () => {
       expect(parseError(code).kind, `Code ${code} hat die falsche Klasse`).toBe(
         expectedKinds[code] ?? "<fehlt>",
       );
+      // Der Fallback von formatError ist der Klassentext, nicht zwingend
+      // "unknown": fuer codes der klasse unavailable oder blocked waere die
+      // ersatzantwort ein anderer satz. Die assertion weist deshalb nur den
+      // unknown-Fallback ab; dass ausgewaehlte codes ihren eigenen
+      // codes-text tragen, pinnt tests/ui/formatError.test.ts.
       expect(
         formatError(code),
-        `Code ${code} hat keinen eigenen Text (Fallback auf unknown)`,
+        `Code ${code} hat keinen eigenen Text (Fallback auf den Klassentext)`,
       ).not.toBe(t("errors.kinds.unknown"));
     }
   });
@@ -243,9 +259,10 @@ describe("TypeScript-/Rust-Spiegelwerte", () => {
       expect(parseError(code).kind, `Code ${code} hat die falsche Klasse`).toBe(kind);
 
       const text = formatError(code);
-      expect(text, `Code ${code} hat keinen eigenen Text (Fallback auf unknown)`).not.toBe(
-        t("errors.kinds.unknown"),
-      );
+      // wie oben: der fallback ist der klassentext, der codes-eigene text ist
+      // hier nicht gepinnt (das leistet formatError.test).
+      const fallbackHint = `Code ${code} hat keinen eigenen Text (Fallback auf den Klassentext)`;
+      expect(text, fallbackHint).not.toBe(t("errors.kinds.unknown"));
 
       // gespeicherter Rohstring, Format "code: detail" wie in den Scan-Warnungen.
       const stored = `${code}: /pfad/zum/manifest.acf`;

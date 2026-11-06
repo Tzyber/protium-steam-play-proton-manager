@@ -18,7 +18,7 @@ describe("CleanupView incomplete deletions", () => {
     const store = useCleanupStore();
     vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
     vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
-    store.trashError = t("cleanup.trashUnreadable", { paths: "/lib" });
+    store.setTrashScanError(t("cleanup.trashUnreadable", { paths: "/lib" }));
 
     const wrapper = mount(CleanupView);
     await wrapper.vm.$nextTick();
@@ -26,6 +26,11 @@ describe("CleanupView incomplete deletions", () => {
 
     expect(wrapper.text()).not.toContain(t("cleanup.trashEmptyState"));
     expect(wrapper.text()).toContain(t("cleanup.unavailable"));
+    // ohne papierkorb-liste gibt es keine aktionsleiste: der sperrgrund steht
+    // in den notices (FR-4).
+    expect(wrapper.get("[data-testid='trash-delete-blocked-notice']").text()).toBe(
+      t("cleanup.trashDeleteBlocked"),
+    );
   });
 
   it("papierkorb-tab zeigt während der suche den ladetext statt eines leeren panels", async () => {
@@ -130,7 +135,7 @@ describe("CleanupView incomplete deletions", () => {
     vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
     const unreadableDir = "/steam/steamapps/compatdata";
     store.orphanUnreadable = [{ path: unreadableDir, type: "compatdata" }];
-    store.trashError = t("cleanup.trashUnreadable", { paths: "/lib" });
+    store.setTrashScanError(t("cleanup.trashUnreadable", { paths: "/lib" }));
 
     const wrapper = mount(CleanupView);
     await wrapper.vm.$nextTick();

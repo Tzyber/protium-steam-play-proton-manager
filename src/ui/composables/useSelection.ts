@@ -14,11 +14,13 @@ export function useSelection<T extends { path: string }>(
 ) {
   const picked = options?.selected ?? reactive(new Set<string>());
   const selectable = () => options?.candidates?.(entries()) ?? entries();
+  const selectedEntries = computed(() => entries().filter((entry) => picked.has(entry.path)));
   const allSelected = computed(() => {
     const list = selectable();
-    return list.length > 0 && list.every((entry) => picked.has(entry.path));
+    return list.length > 0
+      ? list.every((entry) => picked.has(entry.path))
+      : selectedEntries.value.length > 0;
   });
-  const selectedEntries = computed(() => entries().filter((entry) => picked.has(entry.path)));
   function toggle(path: string) {
     toggleInSet(picked, path);
   }

@@ -21,6 +21,9 @@ pub(crate) const HANDLER_UNAVAILABLE: &str = "handler-unavailable";
 pub(crate) const UNSUPPORTED_PLATFORM: &str = "unsupported-platform";
 
 pub(crate) const STEAM_RUNNING: &str = "steam-running";
+/// Der Steam-Status ist nicht belegbar (z. B. `/proc` nicht lesbar): Schreiben
+/// und Löschen bleiben gesperrt, nur der Papierkorb ist ausgenommen.
+pub(crate) const STEAM_CHECK_UNAVAILABLE: &str = "steam-check-unavailable";
 pub(crate) const STEAM_NOT_FOUND: &str = "steam-not-found";
 pub(crate) const INVALID_ACCOUNT_ID: &str = "invalid-account-id";
 pub(crate) const BLOCKED_LOCATION: &str = "blocked-location";
@@ -97,7 +100,7 @@ pub(crate) fn code_for_io(error: &std::io::Error) -> &'static str {
 /// Alle Codes dieser Datei. Die Liste ist die Vollstaendigkeitsklammer fuer
 /// die Frage "ist das ein bekannter Code?": driftet eine Konstante gegen sie,
 /// faellt das im Test `all_codes_spiegelt_jede_code_konstante_der_datei` auf.
-pub(crate) const ALL_CODES: [&str; 37] = [
+pub(crate) const ALL_CODES: [&str; 38] = [
     INVALID_APPID,
     INVALID_VALUE,
     INVALID_URL,
@@ -107,6 +110,7 @@ pub(crate) const ALL_CODES: [&str; 37] = [
     HANDLER_UNAVAILABLE,
     UNSUPPORTED_PLATFORM,
     STEAM_RUNNING,
+    STEAM_CHECK_UNAVAILABLE,
     STEAM_NOT_FOUND,
     INVALID_ACCOUNT_ID,
     BLOCKED_LOCATION,

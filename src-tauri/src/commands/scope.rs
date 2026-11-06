@@ -706,12 +706,15 @@ pub(crate) fn ensure_private_dir(path: &Path) -> std::io::Result<()> {
 /// sonst auch ein fremdes Verzeichnis (`/home`, `/tmp/...`, als root
 /// systemweit) träfe (R2).
 ///
-/// `app_root` selbst laeuft bewusst NICHT durch `reject_symlink_components`
-/// (nur `is_safe_path` nach der Kanonisierung): ein Symlink-Root wird also
-/// verfolgt und als kanonisches Ziel zur Wurzel der Descendant-Pruefung. Der
-/// kanonische Gleichheitscheck unten faengt nur Aliase derselben Komponente ab
-/// (etwa `/pfad/.`), nicht einen Root, der ueber einen Symlink auf ein anderes
-/// Verzeichnis zeigt.
+/// `app_root` selbst laeuft nicht separat durch `reject_symlink_components`
+/// (nur `is_safe_path` nach der Kanonisierung): liegt `path` bereits auf dem
+/// kanonischen Zielpfad eines Symlink-`app_root`, wird `app_root` verfolgt und
+/// als kanonisches Ziel zur Wurzel der Descendant-Pruefung. Liegt `path`
+/// dagegen lexikalisch unter `app_root` (Regelfall der Aufrufer), prueft
+/// `reject_symlink_components(path, true, label)` alle Komponenten ab `/` und
+/// lehnt auch einen Symlink im `app_root`-Praefix mit `symlink-rejected` ab.
+/// Der kanonische Gleichheitscheck unten faengt Aliase derselben Komponente ab
+/// (etwa `/pfad/.`).
 ///
 /// Fuer einen nicht durchquerbaren Vorfahren (Datei als Elternverzeichnis,
 /// `NotADirectory`) bricht `reject_symlink_components` die Komponentenpruefung

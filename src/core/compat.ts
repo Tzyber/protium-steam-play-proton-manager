@@ -1,3 +1,4 @@
+import { DELETE_CLAIM_PREFIX } from "./cleanup.js";
 import type { CompatToolMapping } from "./compatTools.js";
 import { readToolVdf, usedBy } from "./compatTools.js";
 import { errText } from "./errtext.js";
@@ -191,6 +192,9 @@ export async function listCompatTools(
       // warnung. der installer meldet sie als `INCOMPLETE`, hier zählen sie
       // weder in `counts.read` noch als warnung (befund 5.2).
       if (entry.name.startsWith(EXTRACT_TEMP_PREFIX)) continue;
+      // claim-reste einer abgebrochenen löschung sind keine tools; sie meldet
+      // `findIncompleteDeletions` (cleanup.ts) bereits.
+      if (entry.name.startsWith(DELETE_CLAIM_PREFIX)) continue;
 
       const info = await readCompatToolInfo(fs, system, dir, entry, warnings, counts);
       if (info === null) continue;

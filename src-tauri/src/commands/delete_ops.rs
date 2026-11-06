@@ -320,12 +320,22 @@ fn claim_delete_target(pending: &PendingDelete) -> Result<ClaimedDeleteTarget, S
                     original_name: source_name,
                     armed: true,
                 };
-                let handle = open_delete_child_handle(parent, &claim_name)?;
-                if delete_handle_identity(&handle)? != expected_identity {
-                    return Err(errcode::with_detail(
-                        errcode::TARGET_CHANGED,
-                        "target changed before mutation; claim restored to its original name",
-                    ));
+                let handle = open_delete_child_handle(parent, &claim_name)
+                    .map_err(|error| restore_or_write_uncertain(&mut restore, error))?;
+                let observed = delete_handle_identity(&handle)
+                    .map_err(|error| restore_or_write_uncertain(&mut restore, error))?;
+                if observed != expected_identity {
+                    return Err(if restore.restore() {
+                        errcode::with_detail(
+                            errcode::TARGET_CHANGED,
+                            "target changed before mutation; claim restored to its original name",
+                        )
+                    } else {
+                        errcode::with_detail(
+                            errcode::WRITE_UNCERTAIN,
+                            "target changed before mutation; claim restore failed or not durable",
+                        )
+                    });
                 }
                 restore.disarm();
                 drop(restore); // borrow auf claim_name endet vor dem move in das ergebnis
@@ -358,14 +368,20 @@ fn claim_delete_target(_pending: &PendingDelete) -> Result<(), String> {
     ))
 }
 
-/// Rückweg für einen geclaimten, aber nicht abgeschlossenen Löschvorgang.
+/// Rückweg für einen geclaimten, aber noch nicht mutierten Löschvorgang.
 ///
 /// `claim_delete_target` benennt das Ziel vor der Mutation auf einen privaten
-/// Namen um. Scheitert die Mutation danach (EACCES, EBUSY, kein Platz im
-/// Trash-Ziel, Panik), läge das Verzeichnis sonst dauerhaft unter
+/// Namen um. Scheitert ein Schritt VOR dem destruktiven Aufruf (EACCES, EBUSY,
+/// kein Platz im Trash-Ziel, Panik), läge das Verzeichnis sonst dauerhaft unter
 /// `.protium-delete-claim-*`: unsichtbar für Steam UND für Protium, weil
 /// `findOrphans` auf numerische Namen filtert. Bei compatdata bedeutet
 /// unsichtbar = Savegames verloren.
+///
+/// Der Rückweg gilt nur vor begonnener Mutation. Nach einem `remove_dir_all`
+/// ist das Ziel teilweise oder ganz weg; dann bleibt der Claim liegen und der
+/// Aufrufer meldet `write-may-have-applied` (Audit 5.1). Ein `NotFound` beim
+/// Remove ist kein Erfolg: das Kind kann mitten im Abbau verschwunden sein oder
+/// eine zweite Instanz hat den Claim zurückbenannt.
 ///
 /// Der Rückweg ist NOREPLACE: ist am Originalnamen inzwischen etwas Neues
 /// entstanden, bleibt der Claim liegen, statt das Neue zu überschreiben.
@@ -387,29 +403,66 @@ impl ClaimRestoreGuard<'_> {
     fn disarm(&mut self) {
         self.armed = false;
     }
-}
 
-impl Drop for ClaimRestoreGuard<'_> {
-    fn drop(&mut self) {
+    /// Benennt den Claim auf den Originalnamen zurück. `true` nur bei
+    /// erfolgreichem Rename UND Verzeichnis-fsync: ohne fsync ist der Rückweg
+    /// nach einem Absturz nicht belegt, der Zustand bleibt dann unsicher.
+    fn restore(&mut self) -> bool {
         if !self.armed {
-            return;
+            return false;
         }
-        let _ = renameat2_no_replace(
+        if renameat2_no_replace(
             self.parent,
             self.claim_name,
             self.parent,
             self.original_name,
-        );
-        // r-08: der rückweg braucht wie jede rename-mutation ein
-        // verzeichnis-fsync; quelle und ziel liegen im selben verzeichnis, ein
-        // sync genügt. best effort wie der rückweg selbst, der sync-fehler darf
-        // den ursprünglichen fehler nicht verdecken
+        )
+        .is_err()
+        {
+            // Ein zweiter Versuch im `Drop` könnte einen zwischenzeitlich
+            // untergeschobenen Fremdeintrag treffen; pro Guard genau ein
+            // Rückweg, auch wenn er scheitert.
+            self.armed = false;
+            return false;
+        }
+        // `armed` fällt unabhängig vom fsync: der Claim-Name ist weg, ein
+        // zweiter Rename könnte nur noch einen fremden Namen treffen.
+        self.armed = false;
         #[cfg(target_os = "linux")]
         {
             use std::os::fd::AsRawFd;
-            let _ = crate::commands::fd::sync_dir_fd(self.parent.as_raw_fd());
+            if crate::commands::fd::sync_dir_fd(self.parent.as_raw_fd()).is_err() {
+                return false;
+            }
         }
+        // Der Nicht-Linux-Stummel kann nicht umbenennen; dort ist der Zweig oben
+        // unerreichbar und es gibt keinen fsync-Zweig.
+        true
     }
+}
+
+impl Drop for ClaimRestoreGuard<'_> {
+    fn drop(&mut self) {
+        // Best effort wie der Rückweg selbst; der fsync liegt in `restore`,
+        // damit es genau eine Stelle für Rename und Sync gibt.
+        let _ = self.restore();
+    }
+}
+
+/// Nach dem Claim: ein Fehlschlag VOR der destruktiven Mutation ist nur dann
+/// harmlos, wenn der Originalname wieder steht. Gelingt der Rückweg nicht,
+/// bleibt der Claim liegen; dann ist der Zustand unsicher und darf nicht als
+/// der ursprüngliche Fehler (etwa „unlesbar, nichts passiert") zurückgehen
+/// (Audit 5.1).
+#[cfg(target_os = "linux")]
+fn restore_or_write_uncertain(restore: &mut ClaimRestoreGuard<'_>, error: String) -> String {
+    if restore.restore() {
+        return error;
+    }
+    errcode::with_detail(
+        errcode::WRITE_UNCERTAIN,
+        format!("claim restore failed: {error}"),
+    )
 }
 
 /// Bindet den angeforderten Steam-Root an den aktuellen Snapshot (F1): ein
@@ -438,8 +491,9 @@ pub(super) fn prepare_delete_inner(
     snapshot: &EnvironmentSnapshot,
     is_steam_running_fn: impl Fn() -> Result<bool, String>,
 ) -> Result<PendingDeleteInfo, String> {
-    let steam_running = is_steam_running_fn()?;
-    if request.target_type != "trash" && steam_running {
+    // FR-4: für `trash` wird der Check gar nicht aufgerufen, damit ein nicht
+    // prüfbarer Steam-Status den Papierkorb nicht blockiert (Audit 5.5).
+    if request.target_type != "trash" && is_steam_running_fn()? {
         return Err(errcode::STEAM_RUNNING.into());
     }
     ensure_current_steam_root(&request.steam_root, snapshot)?;
@@ -547,8 +601,8 @@ fn prepare_delete_inner_with_hook<F>(
 where
     F: FnMut(crate::commands::delete_inspect::DeleteReadStage, Option<&mut std::fs::File>),
 {
-    let steam_running = is_steam_running_fn()?;
-    if request.target_type != "trash" && steam_running {
+    // FR-4: gleiche lazy Papierkorb-Ausnahme wie in `prepare_delete_inner`.
+    if request.target_type != "trash" && is_steam_running_fn()? {
         return Err(errcode::STEAM_RUNNING.into());
     }
 
@@ -568,7 +622,15 @@ pub(crate) fn execute_delete_pipeline(
     scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
     is_steam_running_fn: impl Fn() -> Result<bool, String>,
 ) -> Result<DeleteResult, String> {
-    execute_delete_pipeline_inner(registry, token, scope_ok, is_steam_running_fn, || {}, || {})
+    execute_delete_pipeline_inner(
+        registry,
+        token,
+        scope_ok,
+        is_steam_running_fn,
+        || {},
+        || {},
+        &mut |path: &Path| fs::remove_dir_all(path),
+    )
 }
 
 fn execute_delete_pipeline_inner(
@@ -578,6 +640,7 @@ fn execute_delete_pipeline_inner(
     is_steam_running_fn: impl Fn() -> Result<bool, String>,
     before_claim_fn: impl FnOnce(),
     after_claim_fn: impl FnOnce(),
+    remove_dir_all_fn: &mut dyn FnMut(&Path) -> std::io::Result<()>,
 ) -> Result<DeleteResult, String> {
     let pending = {
         let mut map = registry.0.lock().map_err(|error| {
@@ -594,8 +657,9 @@ fn execute_delete_pipeline_inner(
         return Err(errcode::TOKEN_EXPIRED.into());
     }
 
-    let steam_running = is_steam_running_fn()?;
-    if pending.target_type != "trash" && steam_running {
+    // FR-4: `trash` bleibt von beiden Checks ausgenommen; ein nicht prüfbarer
+    // Steam-Status darf den Papierkorb nicht blockieren.
+    if pending.target_type != "trash" && is_steam_running_fn()? {
         return Err(errcode::STEAM_RUNNING.into());
     }
 
@@ -617,8 +681,7 @@ fn execute_delete_pipeline_inner(
     // (steam_start_zwischen_den_checks_...,
     // live_aenderung_zwischen_checks_...).
     inspect_pending_target(&pending, scope_ok)?;
-    let steam_running = is_steam_running_fn()?;
-    if pending.target_type != "trash" && steam_running {
+    if pending.target_type != "trash" && is_steam_running_fn()? {
         return Err(errcode::STEAM_RUNNING.into());
     }
     inspect_pending_target(&pending, scope_ok)?;
@@ -636,17 +699,29 @@ fn execute_delete_pipeline_inner(
     after_claim_fn();
     #[cfg(target_os = "linux")]
     {
-        let current = open_delete_child_handle(claim_parent, &claimed.name)?;
-        if delete_handle_identity(&current)? != delete_handle_identity(&claimed.handle)? {
-            return Err(errcode::with_detail(
-                errcode::TARGET_CHANGED,
-                "claim handle mismatch",
-            ));
+        let current = open_delete_child_handle(claim_parent, &claimed.name)
+            .map_err(|error| restore_or_write_uncertain(&mut restore, error))?;
+        let current_identity = delete_handle_identity(&current)
+            .map_err(|error| restore_or_write_uncertain(&mut restore, error))?;
+        let claimed_identity = delete_handle_identity(&claimed.handle)
+            .map_err(|error| restore_or_write_uncertain(&mut restore, error))?;
+        if current_identity != claimed_identity {
+            return Err(if restore.restore() {
+                errcode::with_detail(
+                    errcode::TARGET_CHANGED,
+                    "claim handle mismatch; claim restored to its original name",
+                )
+            } else {
+                errcode::with_detail(
+                    errcode::WRITE_UNCERTAIN,
+                    "claim handle mismatch; claim restore failed or not durable",
+                )
+            });
         }
     }
     let deleted_path = pending.target_path.clone();
 
-    apply_delete_mutation(&pending, &claimed, now_ms)?;
+    apply_delete_mutation(&pending, &claimed, now_ms, &mut restore, remove_dir_all_fn)?;
 
     // Ab hier ist die Mutation abgeschlossen; der Claim-Name ist weg.
     restore.disarm();
@@ -716,43 +791,92 @@ fn sync_deleted_parent(parent: &fs::File, label: &str) -> Result<(), String> {
     })
 }
 
+/// Kapselt jeden `remove_dir_all` der drei Löschzweige (Audit 5.1). Ein
+/// Fehlschlag nach begonnener Mutation, auch `NotFound`, ist keine unlesbare
+/// Abwesenheit: das Kind kann mitten im Abbau verschwunden sein oder eine
+/// zweite Instanz hat den Claim zurückbenannt. Der Claim bleibt deshalb liegen
+/// (Rest, typweit sichtbar), zurückgemeldet wird `write-may-have-applied` mit
+/// dem ursprünglichen Fehler.
+#[cfg(target_os = "linux")]
+fn remove_claimed_dir(
+    path: &Path,
+    parent: &fs::File,
+    restore: &mut ClaimRestoreGuard<'_>,
+    label: &str,
+    remove_dir_all_fn: &mut dyn FnMut(&Path) -> std::io::Result<()>,
+) -> Result<(), String> {
+    let sync_label = format!("{label} remove parent sync");
+    match remove_dir_all_fn(path) {
+        Ok(()) => {
+            restore.disarm();
+            // r-08: nach dem löschen den parent synchronisieren, sonst kann das
+            // verzeichnis nach absturz driftig sichtbar bleiben; ein sync-fehler
+            // meldet die möglich angewandte mutation statt "nichts passiert".
+            sync_deleted_parent(parent, &sync_label)
+        }
+        Err(error) => {
+            restore.disarm();
+            let _ = sync_deleted_parent(parent, &sync_label);
+            Err(errcode::with_detail(
+                errcode::WRITE_UNCERTAIN,
+                format!("claim may be gone or partial: {label}: {error}"),
+            ))
+        }
+    }
+}
+
 /// Führt die eigentliche Mutation des geclaimten Ziels aus (r-10). Genau die
 /// drei Zieltypen der Pipeline, derselbe Papierkorb-Move samt
 /// Verzeichnis-fsync und dieselben Fehler wie zuvor; nur zusammenhängend
 /// verschoben.
+///
+/// Rückweg-Vertrag (Audit 5.1): jeder Fehlschlag VOR dem destruktiven Aufruf
+/// benennt das Ziel über `restore` auf seinen Originalnamen zurück; scheitert
+/// der Rückweg, wird der Fehler zur Unsicherheitsaussage. Nach begonnener
+/// Mutation gibt es keinen Rückweg mehr: der Claim bleibt liegen, damit der
+/// Rest sichtbar bleibt und ein zweiter Lauf ihn nicht als intaktes Ziel
+/// behandelt. Ein `NotFound` beim Remove ist in diesem Sinn kein Erfolg.
 #[cfg(target_os = "linux")]
 fn apply_delete_mutation(
     pending: &PendingDelete,
     claimed: &ClaimedDeleteTarget,
     now_ms: u64,
+    restore: &mut ClaimRestoreGuard<'_>,
+    remove_dir_all_fn: &mut dyn FnMut(&Path) -> std::io::Result<()>,
 ) -> Result<(), String> {
     match pending.target_type.as_str() {
         "orphan" => {
             let canon_str = pending.canonical_path.to_string_lossy();
-            let suffix = crate::commands::scope::suffix_after_steamapps(&canon_str)?;
-            let suffix_pair = suffix.split_once('/').ok_or_else(|| {
-                errcode::with_detail(errcode::INVALID_VALUE, "invalid suffix structure")
-            })?;
-            let (typ, app_id_str) = crate::commands::scope::parse_compat_id(suffix_pair)?;
+            let suffix = crate::commands::scope::suffix_after_steamapps(&canon_str)
+                .map_err(|error| restore_or_write_uncertain(restore, error))?;
+            let suffix_pair = suffix
+                .split_once('/')
+                .ok_or_else(|| {
+                    errcode::with_detail(errcode::INVALID_VALUE, "invalid suffix structure")
+                })
+                .map_err(|error| restore_or_write_uncertain(restore, error))?;
+            let (typ, app_id_str) = crate::commands::scope::parse_compat_id(suffix_pair)
+                .map_err(|error| restore_or_write_uncertain(restore, error))?;
             match typ {
                 "shadercache" => {
-                    fs::remove_dir_all(&claimed.path).map_err(|error| {
-                        errcode::with_detail(
-                            errcode::code_for_io(&error),
-                            format!("cannot remove shadercache: {error}"),
-                        )
-                    })?;
-                    // r-08: nach dem löschen den parent synchronisieren, sonst kann
-                    // das verzeichnis nach absturz driftig sichtbar bleiben; ein
-                    // sync-fehler meldet die möglich angewandte mutation statt "nichts
-                    // passiert".
-                    sync_deleted_parent(bound_parent(pending)?, "shadercache remove parent sync")?;
+                    let parent = bound_parent(pending)
+                        .map_err(|error| restore_or_write_uncertain(restore, error))?;
+                    remove_claimed_dir(
+                        &claimed.path,
+                        parent,
+                        restore,
+                        "shadercache",
+                        remove_dir_all_fn,
+                    )?;
                 }
                 "compatdata" => {
-                    let lib_str = crate::commands::scope::library_of(&canon_str)?;
-                    let trash_parent = open_trash_dir(Path::new(lib_str), &mut || {})?;
+                    let lib_str = crate::commands::scope::library_of(&canon_str)
+                        .map_err(|error| restore_or_write_uncertain(restore, error))?;
+                    let trash_parent = open_trash_dir(Path::new(lib_str), &mut || {})
+                        .map_err(|error| restore_or_write_uncertain(restore, error))?;
                     let trash_name = format!("compatdata_{app_id_str}_{now_ms}");
-                    let source_parent = bound_parent(pending)?;
+                    let source_parent = bound_parent(pending)
+                        .map_err(|error| restore_or_write_uncertain(restore, error))?;
                     renameat2_no_replace(
                         source_parent,
                         &claimed.name,
@@ -760,11 +884,18 @@ fn apply_delete_mutation(
                         OsStr::new(&trash_name),
                     )
                     .map_err(|error| {
-                        errcode::with_detail(
-                            errcode::code_for_io(&error),
-                            format!("cannot move to trash: {error}"),
+                        restore_or_write_uncertain(
+                            restore,
+                            errcode::with_detail(
+                                errcode::code_for_io(&error),
+                                format!("cannot move to trash: {error}"),
+                            ),
                         )
                     })?;
+                    // Nach dem erfolgreichen Verschieben existiert der
+                    // Claim-Name nicht mehr; ein Rückweg könnte nur noch einen
+                    // fremden Papierkorb-Eintrag treffen.
+                    restore.disarm();
                     // r-08: ohne verzeichnis-fsync kann der papierkorb-eintrag
                     // nach absturz driftig sichtbar sein; erst das ziel, dann
                     // die quelle. ein sync-fehler meldet die möglich angewandte
@@ -789,39 +920,40 @@ fn apply_delete_mutation(
                         )?;
                     }
                 }
-                _ => return Err(errcode::UNSUPPORTED_TARGET.into()),
+                _ => {
+                    return Err(restore_or_write_uncertain(
+                        restore,
+                        errcode::UNSUPPORTED_TARGET.into(),
+                    ));
+                }
             }
         }
         "trash" => {
-            fs::remove_dir_all(&claimed.path).map_err(|error| {
-                errcode::with_detail(
-                    errcode::code_for_io(&error),
-                    format!("cannot remove trash item: {error}"),
-                )
-            })?;
-            // r-08: nach dem löschen den parent synchronisieren, sonst kann
-            // das verzeichnis nach absturz driftig sichtbar bleiben; ein
-            // sync-fehler meldet die möglich angewandte mutation statt "nichts
-            // passiert".
-            sync_deleted_parent(bound_parent(pending)?, "trash remove parent sync")?;
+            let parent = bound_parent(pending)
+                .map_err(|error| restore_or_write_uncertain(restore, error))?;
+            remove_claimed_dir(
+                &claimed.path,
+                parent,
+                restore,
+                "trash item",
+                remove_dir_all_fn,
+            )?;
         }
         "compatTool" => {
-            fs::remove_dir_all(&claimed.path).map_err(|error| {
-                errcode::with_detail(
-                    errcode::code_for_io(&error),
-                    format!("cannot remove compat tool: {error}"),
-                )
-            })?;
-            // r-08: nach dem löschen den parent synchronisieren, sonst kann
-            // das verzeichnis nach absturz driftig sichtbar bleiben; ein
-            // sync-fehler meldet die möglich angewandte mutation statt "nichts
-            // passiert".
-            sync_deleted_parent(bound_parent(pending)?, "compat tool remove parent sync")?;
+            let parent = bound_parent(pending)
+                .map_err(|error| restore_or_write_uncertain(restore, error))?;
+            remove_claimed_dir(
+                &claimed.path,
+                parent,
+                restore,
+                "compat tool",
+                remove_dir_all_fn,
+            )?;
         }
         _ => {
-            return Err(errcode::with_detail(
-                errcode::UNSUPPORTED_TARGET,
-                &pending.target_type,
+            return Err(restore_or_write_uncertain(
+                restore,
+                errcode::with_detail(errcode::UNSUPPORTED_TARGET, &pending.target_type),
             ));
         }
     }
@@ -844,7 +976,7 @@ pub async fn prepare_delete(
     crate::commands::spawn_blocking_io(move || {
         let snapshot = env.current()?;
         prepare_delete_inner(&registry, &request, &snapshot, || {
-            Ok(crate::commands::fs_ops::is_steam_running_sync())
+            crate::commands::fs_ops::is_steam_running_sync()
         })
     })
     .await
@@ -861,7 +993,7 @@ pub async fn execute_delete(
     crate::commands::spawn_blocking_io(move || {
         let snapshot = env.current()?;
         execute_delete_pipeline(&registry, &token, &|p| snapshot.authorizes(p), || {
-            Ok(crate::commands::fs_ops::is_steam_running_sync())
+            crate::commands::fs_ops::is_steam_running_sync()
         })
     })
     .await

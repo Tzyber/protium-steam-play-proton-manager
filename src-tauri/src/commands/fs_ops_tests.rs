@@ -1,6 +1,8 @@
 use super::*;
 use crate::commands::scope::{EnvironmentSnapshot, EnvironmentState};
 #[cfg(target_os = "linux")]
+use crate::commands::test_util::production_source;
+#[cfg(target_os = "linux")]
 use crate::commands::vdf_patch::tests::BEIDE_LAYOUTS;
 use serde::ser::{self, Impossible, Serialize, SerializeStruct, Serializer};
 use std::os::unix::fs as unixfs;
@@ -786,6 +788,339 @@ fn environment_read_dir_erkennt_verzeichnis_tausch_vor_open() {
     assert!(result.unwrap_err().contains("changed while opening"));
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&old);
+}
+
+// P8 (Audit 5.5): der Steam-Check ist fail-closed. `probe_proc` belegt, dass
+// die prozessliste des kernels lesbar und plausibel ist; die fixtures ahmen
+// die /proc-struktur nach (PID 2 = kthreadd). Jeder unerwartete zustand muss
+// `steam-check-unavailable` liefern, nie still `false`.
+
+#[cfg(target_os = "linux")]
+fn proc_fixture(name: &str) -> std::path::PathBuf {
+    let root = std::env::temp_dir().join(format!("protium-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("2")).unwrap();
+    root
+}
+
+// plausibler /proc-standard: kthreadd mit ppid 0, kein exe-link.
+#[cfg(target_os = "linux")]
+fn gueltiger_proc_fixture(name: &str) -> std::path::PathBuf {
+    let root = proc_fixture(name);
+    std::fs::write(root.join("2/comm"), "kthreadd\n").unwrap();
+    std::fs::write(root.join("2/stat"), "2 (kthreadd) S 0 2 2 0 -1 0").unwrap();
+    root
+}
+
+#[cfg(target_os = "linux")]
+fn assert_steam_check_unavailable(result: Result<(), String>) {
+    let error = result.expect_err("probe muss sperren");
+    let code = errcode::STEAM_CHECK_UNAVAILABLE;
+    // der code steht im leitfeld; ein `starts_with` auf dem rohen präfix würde
+    // auch "steam-check-unavailable-extra" als treffer lesen.
+    assert!(errcode::has_code(&error, code), "code fehlt: {error}");
+    // das detail bleibt diagnose: es nennt pfad bzw. zustand hinter dem code.
+    assert!(
+        error.starts_with(&format!("{code}: ")),
+        "detail fehlt (pfad/zustand): {error}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn probe_proc_lehnt_fehlendes_und_leeres_proc_verzeichnis_ab() {
+    let fehlend = std::env::temp_dir().join(format!("protium-proc-missing-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&fehlend);
+    assert_steam_check_unavailable(probe_proc(&fehlend));
+
+    // leeres verzeichnis: read_dir gelingt, PID 2 fehlt.
+    let leer = std::env::temp_dir().join(format!("protium-proc-empty-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&leer);
+    std::fs::create_dir_all(&leer).unwrap();
+    assert_steam_check_unavailable(probe_proc(&leer));
+    let _ = std::fs::remove_dir_all(&leer);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn probe_proc_akzeptiert_kthreadd_comm_mit_und_ohne_newline() {
+    for (name, comm) in [
+        ("proc-comm-newline", "kthreadd\n"),
+        ("proc-comm-ohne-newline", "kthreadd"),
+    ] {
+        let root = gueltiger_proc_fixture(name);
+        std::fs::write(root.join("2/comm"), comm).unwrap();
+        let result = probe_proc(&root);
+        assert!(result.is_ok(), "comm {comm:?}: {result:?}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn probe_proc_lehnt_fremden_comm_ab() {
+    let root = gueltiger_proc_fixture("proc-comm-bash");
+    std::fs::write(root.join("2/comm"), "bash\n").unwrap();
+    assert_steam_check_unavailable(probe_proc(&root));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn probe_proc_lehnt_comm_als_verzeichnis_ab() {
+    let root = gueltiger_proc_fixture("proc-comm-dir");
+    std::fs::remove_file(root.join("2/comm")).unwrap();
+    std::fs::create_dir(root.join("2/comm")).unwrap();
+    assert_steam_check_unavailable(probe_proc(&root));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn probe_proc_lehnt_fehlende_stat_ab() {
+    // comm ist belegt, der ppid-beleg fehlt: die liste ist nicht plausibel,
+    // also sperren statt "kein Steam".
+    let root = gueltiger_proc_fixture("proc-stat-fehlt");
+    std::fs::remove_file(root.join("2/stat")).unwrap();
+    assert_steam_check_unavailable(probe_proc(&root));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn probe_proc_akzeptiert_ppid_null_und_lehnt_ppid_eins_ab() {
+    let root = gueltiger_proc_fixture("proc-ppid");
+    std::fs::write(root.join("2/stat"), "2 (kthreadd) S 0 2 2 0 -1 0").unwrap();
+    let result = probe_proc(&root);
+    assert!(result.is_ok(), "ppid 0 muss belegbar sein: {result:?}");
+
+    std::fs::write(root.join("2/stat"), "2 (kthreadd) S 1 2 2 0 -1 0").unwrap();
+    assert_steam_check_unavailable(probe_proc(&root));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn stat_ppid_parst_feld_vier_erst_nach_dem_letzten_klammer_zu() {
+    // comm (feld 2) ist geklammert, kann selbst klammern und leerzeichen
+    // enthalten: der ppid beginnt erst nach dem LETZTEN `)`.
+    assert_eq!(stat_ppid("2 (a) b) S 0 2 2 0 -1 0"), Some(0));
+    assert_eq!(stat_ppid("2 (a b c) S 42 2 3"), Some(42));
+    assert_eq!(stat_ppid("7 (kthreadd) R 1 2 3"), Some(1));
+    // fehlendes oder unlesbares feld bleibt None statt still 0.
+    assert_eq!(stat_ppid("2 (kthreadd) S"), None);
+    assert_eq!(stat_ppid("2 (kthreadd) S x 2"), None);
+    assert_eq!(stat_ppid("kein stat"), None);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn probe_proc_parst_ppid_hinter_klammern_im_comm() {
+    let root = gueltiger_proc_fixture("proc-comm-parens");
+    std::fs::write(root.join("2/stat"), "2 (a) b) S 0 2 2 0 -1 0").unwrap();
+    let result = probe_proc(&root);
+    assert!(result.is_ok(), "ppid hinter dem letzten `)`: {result:?}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn probe_proc_akzeptiert_fehlendes_exe_und_lehnt_aufloesbares_ab() {
+    let root = gueltiger_proc_fixture("proc-exe");
+    // kernel-threads haben keinen exe-link: fehlend ist der erwartete zustand.
+    let result = probe_proc(&root);
+    assert!(result.is_ok(), "fehlendes exe: {result:?}");
+
+    unixfs::symlink("/usr/bin/steam", root.join("2/exe")).unwrap();
+    assert_steam_check_unavailable(probe_proc(&root));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn probe_proc_lehnt_regulaere_exe_datei_ab() {
+    // EINVAL: read_link auf einer regulären datei ist kein belegter
+    // kernel-thread, sondern ein unerwarteter zustand -> sperren.
+    let root = gueltiger_proc_fixture("proc-exe-datei");
+    std::fs::write(root.join("2/exe"), []).unwrap();
+    assert_steam_check_unavailable(probe_proc(&root));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Der reine klassifikator des `exe`-links: nur belegte abwesenheit ist
+/// erwartet. `EINVAL` (reguläre datei) und jeder andere fehler widersprechen
+/// dem bild eines kernel-threads.
+#[cfg(target_os = "linux")]
+#[test]
+fn exe_error_is_expected_nur_bei_notfound_und_permissiondenied() {
+    for (kind, erwartet) in [
+        (std::io::ErrorKind::NotFound, true),
+        (std::io::ErrorKind::PermissionDenied, true),
+        (std::io::ErrorKind::InvalidInput, false),
+        (std::io::ErrorKind::Other, false),
+    ] {
+        assert_eq!(exe_error_is_expected(kind), erwartet, "{kind:?}");
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn probe_exe_akzeptiert_eacces() {
+    // Der volle probe-pfad kann EACCES nicht konstruieren (comm/stat brauchen
+    // denselben durchsuchbaren parent); die entscheidung selbst ist deshalb
+    // separat tabellarisch geprüft (exe_error_is_expected_...). Hier bleibt der
+    // feldtest: als root greift kein chmod-schutz, der fall wird dann sichtbar
+    // übersprungen, nicht still grün.
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("übersprungen: als root ist EACCES auf exe nicht konstruierbar");
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!("protium-proc-exe-eacces-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let gesperrt = root.join("gesperrt");
+    std::fs::create_dir_all(&gesperrt).unwrap();
+    std::fs::set_permissions(&gesperrt, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+    let result = probe_exe_not_resolvable(&gesperrt.join("exe"));
+
+    std::fs::set_permissions(&gesperrt, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(
+        result.is_ok(),
+        "EACCES ist belegte abwesenheit, kein widerspruch: {result:?}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn is_steam_process_name_erkennt_steam_und_helpers() {
+    assert!(is_steam_process_name("steam"));
+    assert!(is_steam_process_name("Steam"));
+    assert!(is_steam_process_name("steamwebhelper"));
+    // der check bleibt beim namens-substring; fremde prozesse sperren nicht.
+    assert!(!is_steam_process_name("proton"));
+    assert!(!is_steam_process_name(""));
+}
+
+/// Der befund des scannens als reine entscheidung: ohne die eigene PID ist die
+/// liste nicht belegbar, und der namens-substring entscheidet wie in der
+/// produktion.
+#[cfg(target_os = "linux")]
+#[test]
+fn steam_running_from_verlangt_sichtbare_eigene_pid_und_steam_namen() {
+    let error = steam_running_from(false, Vec::new()).unwrap_err();
+    assert!(
+        errcode::has_code(&error, errcode::STEAM_CHECK_UNAVAILABLE),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(
+        error.starts_with("steam-check-unavailable: "),
+        "detail fehlt: {error}"
+    );
+
+    for (namen, erwartet) in [
+        (Vec::<String>::new(), false),
+        (vec!["proton".to_string()], false),
+        (vec!["steamwebhelper".to_string()], true),
+    ] {
+        assert_eq!(
+            steam_running_from(true, namen.clone()).unwrap(),
+            erwartet,
+            "{namen:?}"
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn is_steam_running_sync_ist_ok_genau_wenn_probe_und_eigene_pid_belegbar_sind() {
+    // belegt die verdrahtung (probe + Selbst-PID) ohne host-annahme: die
+    // eigene prozessliste wird hier unabhängig von der produktion gebaut.
+    let sys = sysinfo::System::new_with_specifics(
+        sysinfo::RefreshKind::nothing().with_processes(sysinfo::ProcessRefreshKind::nothing()),
+    );
+    let eigene_pid = sysinfo::Pid::from_u32(std::process::id());
+    let erwartet =
+        probe_proc(Path::new("/proc")).is_ok() && sys.processes().contains_key(&eigene_pid);
+
+    assert_eq!(is_steam_running_sync().is_ok(), erwartet);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn probe_bleibt_im_scan_verdrahtet_und_meldet_read_dir_fehler() {
+    // Auf einem echten /proc ist ein entferntes `?` nicht beobachtbar; der pin
+    // hält die verdrahtung fest: der scan zieht die probe selbst, und die probe
+    // bildet den `read_dir`-fehler ab. Ohne das wäre ein unlesbares /proc still
+    // "kein Steam" (Audit 5.5).
+    let production = production_source(include_str!("fs_ops.rs"));
+
+    let scan = production
+        .split("fn is_steam_running_sync()")
+        .nth(1)
+        .expect("is_steam_running_sync muss vorhanden sein")
+        .split("\n}\n")
+        .next()
+        .expect("is_steam_running_sync braucht einen rumpf");
+    assert!(
+        scan.contains("probe_proc(Path::new(\"/proc\"))?"),
+        "der scan muss die probe auf /proc ziehen und ihren fehler weiterreichen"
+    );
+    assert!(
+        scan.contains("steam_running_from(") && scan.contains("contains_key(&own_pid)"),
+        "der scan muss die sichtbare eigene PID prüfen und an steam_running_from reichen"
+    );
+
+    let probe = production
+        .split("fn probe_proc(root: &Path)")
+        .nth(1)
+        .expect("probe_proc muss vorhanden sein")
+        .split("\n}\n")
+        .next()
+        .expect("probe_proc braucht einen rumpf");
+    let statement = probe
+        .split("fs::read_dir(root)")
+        .nth(1)
+        .expect("probe_proc muss /proc öffnen");
+    let statement = &statement[..statement
+        .find(';')
+        .expect("der read_dir-aufruf braucht ein statement-ende")];
+    assert!(
+        statement.contains("map_err") && statement.contains('?'),
+        "read_dir muss den fehler abbilden und weiterreichen: {statement}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn probe_proc_realer_proc_host_smoke_teilt_comm_exe_und_parst_ppid_unabhaengig() {
+    // host-smoke: comm- und exe-prädikat kommen aus der produktion selbst
+    // (`comm_is_kthreadd`, `probe_exe_not_resolvable`), der ppid wird hier
+    // unabhängig geparst (eigene zerlegung, kein `stat_ppid`). Der test erkennt
+    // ÜBER-strenge: lehnt `probe_proc` ein plausibles /proc ab, weicht die
+    // produktion von ihren eigenen prädikaten ab. Entfernte schritte deckt er
+    // NICHT auf — fehlt etwa die comm-prüfung, bleibt die gleichung auf einem
+    // intakten /proc wahr; das leisten die fixtures.
+    let comm_ok = std::fs::read_to_string("/proc/2/comm").is_ok_and(|comm| comm_is_kthreadd(&comm));
+    let exe_ok = probe_exe_not_resolvable(Path::new("/proc/2/exe")).is_ok();
+    let independent_ppid_zero = std::fs::read_to_string("/proc/2/stat")
+        .map(|stat| {
+            let rest = &stat[stat.rfind(')').unwrap_or(0) + 1..];
+            let fields: Vec<&str> = rest
+                .split(|zeichen: char| zeichen.is_ascii_whitespace())
+                .filter(|feld| !feld.is_empty())
+                .collect();
+            fields.get(1).copied() == Some("0")
+        })
+        .unwrap_or(false);
+
+    let shared_comm_exe = comm_ok && exe_ok;
+    assert_eq!(
+        probe_proc(Path::new("/proc")).is_ok(),
+        shared_comm_exe && independent_ppid_zero
+    );
 }
 
 // F5.4: der reduzierte config.vdf-inhalt trägt beide Mapping-layouts und

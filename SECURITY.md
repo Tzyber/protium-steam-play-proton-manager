@@ -152,19 +152,36 @@ autorisierte Ziel. Der Claim ist selbst eine Namespace-Mutation; er macht das
 Ziel für Steam unsichtbar und verhindert, dass eine zwischen Prüfung und
 Mutation eingeschobene Ersetzung gelöscht wird.
 
-Scheitert nach dem eigenen Claim-Rename etwas (die Identitätsprüfung oder
-die nachfolgende Mutation), versucht ein best-effort Restore-Guard, den
-Claim per `RENAME_NOREPLACE` auf den Originalnamen zurückzubenennen. Ist der
+Scheitert nach dem eigenen Claim-Rename etwas **vor** der begonnenen Mutation
+(die Identitätsprüfung, das Öffnen des Claim-Handles, die Vorbereitung des
+Papierkorb-Moves oder der Papierkorb-Move selbst), versucht ein best-effort
+Restore-Guard, den Claim per
+`RENAME_NOREPLACE` auf den Originalnamen zurückzubenennen. Ist der
 Originalname inzwischen wieder belegt, schlägt NOREPLACE fehl und nichts wird
 überschrieben; der Claim-Rest bleibt liegen. Der ursprüngliche Fehler wird
-nie vom Restore verdeckt.
+nie vom Restore verdeckt. Scheitert der Restore selbst, meldet das Backend
+`write-may-have-applied` mit dem ursprünglichen Fehler im Detail, statt einen
+sicheren Zustand zu behaupten.
+
+Nach begonnener Mutation wird nicht mehr zurückbenannt. Jeder Fehler von
+`remove_dir_all`, auch `NotFound`, lässt den Claim liegen und meldet
+`write-may-have-applied`: das Ziel kann teilweise entfernt sein, oder eine
+zweite Instanz hat den Claim bereits zurückbenannt. Ein erfolgreicher Remove
+synchronisiert den gebundenen Parent wie der Papierkorb-Move; ein
+fsync-Fehler ist ebenfalls eine Unsicherheitsaussage. Ein teilweise
+mutiertes Ziel wird damit nie als „unlesbar, nichts passiert" ausgegeben.
 
 Liegengebliebene `.protium-delete-claim-*`-Verzeichnisse werden bei späteren
 Cleanup-Scans als incomplete deletions sichtbar gemacht, in allen vier
 Parent-Locations der Delete-Pipeline: `compatdata`, `shadercache`,
 `.protium-trash` und `compatibilitytools.d`. Sie sind keine normalen Orphans
-und Protium bietet für sie aktuell keine automatische Restore- oder
-Delete-Aktion an.
+und werden weder als Compat-Tool noch als Papierkorb-Eintrag angeboten.
+Protium bietet für sie aktuell keine automatische Restore- oder Delete-Aktion
+an; der Hinweis nennt den manuellen Weg im Dateimanager. Ein
+Papierkorb-Scanfehler oder ein unlesbarer Papierkorb sperrt das
+Papierkorb-Löschen; ein Löschrest im Papierkorb sperrt denselben Bereich, ein
+unlesbarer Claim-Ort (`incompleteDeletionsUnreadable`) sperrt
+bereichsübergreifend fail-closed.
 
 Es gibt kein separates Confirm-Fenster, keine `confirm_window_*`-Commands und
 keine dedizierte Confirm-Capability. `tauri-plugin-dialog` bleibt ausschließlich
@@ -245,6 +262,19 @@ zweiten Check. Zwischen der letzten Prüfung und dem Rename bleibt ein Fenster
 von wenigen Mikrosekunden. Es ist nicht ausgeschlossen, aber durch die dritte
 Prüfung so klein wie technisch möglich; eine Atomizität über den ganzen
 Vorgang behauptet Protium nicht.
+
+Der Prozess-Leser belegt zuerst, dass die Prozessliste des Kernels lesbar und
+plausibel ist: `/proc/2/comm` ist `kthreadd`, die ppid in `/proc/2/stat` ist
+`0`, `/proc/2/exe` ist nicht auflösbar, und die eigene PID steht in der
+Liste. Ist das nicht belegbar, liefert der Check `steam-check-unavailable`
+(Klasse `unavailable`); beide Write-Pfade und jedes Löschen außer dem
+Papierkorb (Orphan und Compat-Tool) blockieren. Der Papierkorb bleibt
+ausgenommen, weil er ohne Steam-Zugriff sicher ist. `hidepid`/`ProtectProc`
+führen damit bewusst zu einer Überblockade; Abhilfe ist `hidepid=0` (Root
+und Remount nötig). Residuen: Steam in einer fremden PID-Namespace bleibt
+unsichtbar; umgekehrt blockiert Protium selbst in einer fremden
+PID-Namespace, weil dort PID 2 nicht `kthreadd` ist. Nicht-Linux blockiert
+fail-closed.
 
 `save_compat_tool` akzeptiert ausschließlich `null`/`default`, einen internen
 Namen aus einer nicht-symlinkenden, backendgelesenen `compatibilitytool.vdf`
@@ -370,6 +400,12 @@ Prüfwege gelten ab dem ersten Release mit `SHA256SUMS`; die Releases bis
 - **File-Locking & TOCTOU Steam-Start:**
   - *Trigger:* Steam startet exakt im Zeitfenster zwischen der letzten Steam-läuft-Prüfung (unmittelbar vor dem `renameat`) und dem Umbenennen selbst.
   - *Wirkung:* Steam überschreibt beim Beenden die von Protium geschriebene Konfiguration. Kein korruptes Dateisystem, da der Schreibvorgang atomar erfolgt (Temp-Datei + Rename) und ein Backup angelegt wurde.
+- **Claim-Rest nach abgebrochener Löschung:**
+  - *Trigger:* SIGKILL oder Stromausfall zwischen Claim und Mutation, oder ein In-Process-Fehler, dessen Rückweg scheitert (Originalname belegt, fsync-Fehler).
+  - *Wirkung:* Das Ziel bleibt unter `.protium-delete-claim-*` sichtbar, wird nicht automatisch gelöscht und sperrt den betroffenen Cleanup-Bereich. Der Rückweg wird pro Guard genau einmal versucht; ein zweiter Rename auf einen zwischenzeitlich untergeschobenen Namen findet nicht statt. Der UI-Hinweis nennt den manuellen Weg im Dateimanager; der ursprüngliche Fehler steht im Backend-Detail und im lokalen Protokoll.
+- **Nicht belegbarer Steam-Status (hidepid/ProtectProc, fremde PID-Namespace):**
+  - *Trigger:* `/proc` ist nicht vollständig lesbar, PID 2 ist nicht `kthreadd` mit ppid 0, `/proc/2/exe` ist auflösbar, oder die eigene PID fehlt in der Prozessliste (hidepid, `ProtectProc`, Container/gVisor, eigene PID-Namespace).
+  - *Wirkung:* Protium blockiert Schreiben und jedes Löschen außer dem Papierkorb mit `steam-check-unavailable` (Überblockade, kein Fail-open). Abhilfe ist `hidepid=0` (Root/Remount) oder der Host-PID-Namespace. Steam in einer fremden PID-Namespace bleibt unsichtbar; umgekehrt blockiert Protium selbst in einer fremden Namespace, weil dort PID 2 nicht `kthreadd` ist.
 - **Prozess-Substring-Matching:**
   - *Trigger:* Ein fremder Prozess enthält `"steam"` im Namen (z. B. `steam-idle` oder Entwicklungswerkzeuge).
   - *Wirkung:* Protium verweigert vorsorglich Schreib- und Löschoperationen (Fail-Closed False Positive), um Race-Conditions mit echten Steam-Helfern (z. B. `steamwebhelper`) sicher auszuschließen.

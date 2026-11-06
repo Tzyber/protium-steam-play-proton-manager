@@ -224,7 +224,7 @@ pub async fn save_launch_options(
     let env = env.inner().clone();
     spawn_blocking_io(move || {
         let allowed_root = env.current()?.steam_root;
-        let mut process_reader = || Ok(is_steam_running_sync());
+        let mut process_reader = || is_steam_running_sync();
         save_launch_options_inner(
             &steam_root,
             &account_id,
@@ -253,7 +253,7 @@ pub async fn save_compat_tool(
     let env = env.inner().clone();
     spawn_blocking_io(move || {
         let allowed_root = env.current()?.steam_root;
-        let mut process_reader = || Ok(is_steam_running_sync());
+        let mut process_reader = || is_steam_running_sync();
         save_compat_tool_inner(
             &steam_root,
             app_id,

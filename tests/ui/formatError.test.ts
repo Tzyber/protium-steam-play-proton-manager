@@ -33,6 +33,27 @@ describe("formatError (B1)", () => {
     expect(formatError("not-an-orphan")).toContain("Not an orphaned entry");
   });
 
+  // P8: ein nicht prüfbarer Steam-Status ist eine Sperre, kein unklarer
+  // einzelfall. Der Text muss die Reichweite nennen (Schreiben/Löschen) und
+  // die einzige ausnahme (Papierkorb), sonst rätselt die oberfläche.
+  it("zeigt den nicht prüfbaren Steam-Status als Sperre (P8)", () => {
+    // exakt gepinnt statt per Substring: der Text ist die einzige stelle, an
+    // der die reichweite (schreiben/löschen) und die ausnahme (papierkorb)
+    // benannt sind. Das Detail ("/proc") darf nicht durchschlagen.
+    setLocale("de");
+    const deText =
+      "Steam-Status ist nicht prüfbar; Schreiben und Löschen bleiben gesperrt, ausgenommen ist nur der Papierkorb.";
+    expect(t("errors.codes.steamCheckUnavailable")).toBe(deText);
+    expect(formatError("steam-check-unavailable")).toBe(deText);
+    expect(formatError(new Error("steam-check-unavailable: /proc"))).toBe(deText);
+
+    setLocale("en");
+    expect(formatError("steam-check-unavailable")).toBe(t("errors.codes.steamCheckUnavailable"));
+    expect(formatError("steam-check-unavailable")).toBe(
+      "Steam status cannot be checked; writing and deleting stay locked, except for the trash.",
+    );
+  });
+
   it("zeigt nie einen rohen Backend-Text", () => {
     setLocale("de");
     const raw = formatError("steam is running, write refused");

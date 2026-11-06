@@ -1,3 +1,4 @@
+import { DELETE_CLAIM_PREFIX } from "./cleanup.js";
 import { parseError } from "./errtext.js";
 import { parseSafeAppId } from "./guards.js";
 import { paths } from "./paths.js";
@@ -127,6 +128,10 @@ export async function findTrashEntries(
 
     let count = 0;
     for (const entry of listing.entries) {
+      // claim-reste einer abgebrochenen löschung sind weder eintrag noch
+      // `unknown`; `findIncompleteDeletions` (cleanup.ts) meldet sie bereits.
+      if (entry.name.startsWith(DELETE_CLAIM_PREFIX)) continue;
+
       // pfad aus dem verzeichnis des backends bauen, nicht selbst joinen, sonst
       // zeigt die UI einen anderen ort als den, der gelesen wurde
       const fullPath = paths.trashEntryIn(listing.dir, entry.name);

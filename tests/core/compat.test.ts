@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DELETE_CLAIM_PREFIX } from "../../src/core/cleanup.js";
 import { EXTRACT_TEMP_PREFIX, listCompatTools } from "../../src/core/compat.js";
 import { recomputeToolUsedBy } from "../../src/core/compatTools.js";
 import type {
@@ -591,6 +592,70 @@ describe("listCompatTools", () => {
         .map(([sizePath]) => sizePath)
         .some((sizePath) => sizePath.includes(EXTRACT_TEMP_PREFIX)),
     ).toBe(false);
+  });
+
+  it("filtert liegengebliebene lösch-claims im tool-verzeichnis (5.1)", async () => {
+    const steamRoot = "/fake/steam";
+    const toolsDir = `${steamRoot}/compatibilitytools.d`;
+    const claimName = `${DELETE_CLAIM_PREFIX}GE-Proton9-27`;
+    const real: DirEntry = { name: "GE-Proton9-27", isDirectory: true, isSymlink: false };
+    const claim: DirEntry = { name: claimName, isDirectory: true, isSymlink: false };
+
+    /** scannt genau die übergebenen einträge im user-verzeichnis. */
+    const scan = async (entries: DirEntry[]) => {
+      const dirSize = vi.fn(async (_dir: string) => ({
+        status: "measured" as const,
+        sizeBytes: 12,
+      }));
+      const fs: FileSystem = {
+        exists: vi.fn(async () => true),
+        readFile: vi.fn(async () => new Uint8Array()),
+        readDir: vi.fn(async () => entries),
+        // der interne name ist der verzeichnisname: ein durchgerutschter
+        // claim wäre damit auch in `tools` sichtbar.
+        readTextFile: vi.fn(async (vdfPath: string) => {
+          const name = vdfPath.split("/").slice(-2, -1)[0] ?? "";
+          return `"compatibilitytools"
+{
+	"compat_tools"
+	{
+		"${name}"
+		{
+			"display_name" "Tool"
+		}
+	}
+}`;
+        }),
+      };
+      const system = {
+        pathIdentity: vi.fn(async () => ({ realpath: toolsDir, dev: "1", ino: "1" })),
+        dirSize,
+      } as unknown as System;
+
+      const result = await listCompatTools(fs, system, steamRoot, new Map(), new Set());
+      return { result, dirSize };
+    };
+
+    const baseline = await scan([real]);
+    const withClaim = await scan([claim, real]);
+
+    // der claim-rest ist kein tool ...
+    expect(baseline.result.tools.map((tool) => tool.name)).toEqual(["GE-Proton9-27"]);
+    expect(withClaim.result.tools.map((tool) => tool.name)).toEqual(["GE-Proton9-27"]);
+    expect(withClaim.result.tools.some((tool) => tool.name === claimName)).toBe(false);
+
+    // ... verschiebt keinen zähler (kein `read`, kein `failed`) ...
+    expect(withClaim.result.counts).toEqual(baseline.result.counts);
+    expect(withClaim.result.counts).toEqual({ read: 1, failed: 0 });
+
+    // ... erzeugt keine warnung und wird nicht vermessen.
+    expect(withClaim.result.warnings).toEqual([]);
+    expect(
+      withClaim.result.warnings.some((w) => w.type === "compat-tool" && w.toolName === claimName),
+    ).toBe(false);
+    expect(withClaim.dirSize.mock.calls.map(([sizePath]) => sizePath)).toEqual([
+      `${toolsDir}/GE-Proton9-27`,
+    ]);
   });
 });
 

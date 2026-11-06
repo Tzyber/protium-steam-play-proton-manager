@@ -148,7 +148,11 @@ export function hasUnreadableOrphanType(
 /** Die eine Sperrquelle für Coverage und Löschdialog: getrennte Antworten
  *  widersprechen sich bei „unvollständig". `base` gilt bereichsübergreifend,
  *  `shader`/`prefix` sind typ-genau, `trash` hängt am Papierkorb-Scan, `any`
- *  ist die Sperre der Anzeige. */
+ *  ist die Sperre der Anzeige. `trashDelete` ist die Löschsperre des
+ *  Papierkorbs: gleiche Terme wie `trash`, aber ohne `trashUnknown`. Ein
+ *  unbekannter Eintrag ist nur nicht angeboten; er belegt keinen
+ *  unvollständigen Scan und darf das Löschen der erkannten Einträge nicht
+ *  verhindern (FR-4). */
 export function cleanupBlockedFlags(facts: {
   orphanScanError: string | null;
   blockedBySkipped: boolean;
@@ -157,10 +161,17 @@ export function cleanupBlockedFlags(facts: {
   shortcutUnreadable: boolean;
   orphanUnreadable: readonly OrphanUnreadable[];
   incompleteDeletions: readonly { type: IncompleteDeletion["type"] }[];
-  trashError: string | null;
+  trashScanError: string | null;
   trashUnknown: readonly string[];
   trashLibraries: readonly TrashLibraryStatus[];
-}): { base: boolean; shader: boolean; prefix: boolean; trash: boolean; any: boolean } {
+}): {
+  base: boolean;
+  shader: boolean;
+  prefix: boolean;
+  trash: boolean;
+  trashDelete: boolean;
+  any: boolean;
+} {
   const base = hasOrphanUnavailableBase({
     orphanError: facts.orphanScanError,
     blockedBySkipped: facts.blockedBySkipped,
@@ -176,13 +187,17 @@ export function cleanupBlockedFlags(facts: {
     facts.shortcutUnreadable ||
     hasUnreadableOrphanType(facts, "compatdata") ||
     facts.incompleteDeletions.some((deletion) => deletion.type === "compatdata");
-  const trash =
-    facts.trashError !== null ||
-    facts.trashUnknown.length > 0 ||
-    facts.trashLibraries.some((library) => library.error !== undefined) ||
+  const hasDeletionRest =
     facts.incompleteDeletionsUnreadable.length > 0 ||
     facts.incompleteDeletions.some((deletion) => deletion.type === "trash");
-  return { base, shader, prefix, trash, any: shader || prefix || trash };
+  const trashLibraryError = facts.trashLibraries.some((library) => library.error !== undefined);
+  const trash =
+    facts.trashScanError !== null ||
+    facts.trashUnknown.length > 0 ||
+    trashLibraryError ||
+    hasDeletionRest;
+  const trashDelete = facts.trashScanError !== null || trashLibraryError || hasDeletionRest;
+  return { base, shader, prefix, trash, trashDelete, any: shader || prefix || trash };
 }
 
 /** Führt die typ-genauen Unlesbar-Listen zweier Scans zusammen und dedupliziert

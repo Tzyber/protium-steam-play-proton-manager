@@ -9,6 +9,7 @@ import type { Game, ScanResult } from "../core/types";
 import type { SaveState } from "./composables/useGameConfigSave";
 import type { ExplainTopic } from "./explain";
 import { t } from "./i18n";
+import type { ScanStatus } from "./stores/scanStore";
 
 export function launchHintText(hint: LaunchHint): string {
   switch (hint) {
@@ -27,7 +28,7 @@ export function launchHints(
   launchInput: string,
   game: Game | null,
   result: ScanResult | null,
-  status: string,
+  status: ScanStatus,
 ): string[] {
   if (!game || !result || status !== "done" || result.launchConfigStatus !== "available") {
     return [];
