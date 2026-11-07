@@ -187,7 +187,7 @@ export const de = {
       "Wine-Prefixes werden in den papierkorb verschoben, speicherplatz wird erst beim leeren des papierkorbs frei.",
     trash: "papierkorb",
     trashUnreadable:
-      "papierkorb konnte nicht gelesen werden (rechte oder fs-scope): {paths}, die anzeige ist deshalb unvollständig.",
+      "papierkorb konnte nicht gelesen werden (fehlende rechte, austausch, umbenennung oder symlink, oder fehlende library bzw. fehlendes steamapps nach einem rescan): {paths}, die anzeige ist deshalb unvollständig. ein fehlender papierkorb ist kein fehler.",
     trashLibNone: "{dir}, kein papierkorb",
     trashLibCount: "{dir}, {n} einträge",
     trashLibError: "{dir}, nicht lesbar: {msg}",

@@ -2094,6 +2094,123 @@ fn open_trash_dir_fehler_tragen_ihren_code() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// P9: das Listing öffnet den Papierkorb gebunden, legt ihn aber nicht an; der
+/// Löschpfad legt weiterhin an.
+#[cfg(target_os = "linux")]
+#[test]
+fn listing_legt_den_papierkorb_nicht_an_und_meldet_present_false() {
+    let root = wsg_fixture("trash-listing-missing");
+    let library = root.join("library");
+    let trash = library.join("steamapps").join(TRASH_DIR_NAME);
+    std::fs::create_dir_all(library.join("steamapps")).unwrap();
+
+    let handle = open_trash_dir_for_listing(&library).unwrap();
+
+    assert!(!handle.present());
+    assert!(handle.entries_path().is_none());
+    assert_eq!(
+        handle.wire_dir(),
+        std::fs::canonicalize(&library)
+            .unwrap()
+            .join("steamapps")
+            .join(TRASH_DIR_NAME)
+            .as_path()
+    );
+    assert_eq!(handle.recheck_after_read(), Ok(()));
+    assert!(
+        !trash.exists(),
+        "das listing darf den papierkorb nicht anlegen"
+    );
+
+    // gegenprobe: der löschpfad legt weiterhin an.
+    open_trash_dir(&library, &mut || {}).unwrap();
+    assert!(trash.is_dir());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// P9: das Listing liest über den geöffneten Deskriptor. Nach einem Rename
+/// liefert der positive Anker den Original-Marker, nicht den Fremd-Marker am
+/// Referenzpfad; die Nachprüfung meldet den Bindungsbruch.
+#[cfg(target_os = "linux")]
+#[test]
+fn listing_liest_das_original_und_die_nachpruefung_meldet_den_rename() {
+    let root = wsg_fixture("trash-listing-anchor");
+    let library = root.join("library");
+    let steamapps = library.join("steamapps");
+    let trash = steamapps.join(TRASH_DIR_NAME);
+    std::fs::create_dir_all(&trash).unwrap();
+    std::fs::write(trash.join("original-marker"), b"original").unwrap();
+    let reference = std::fs::canonicalize(&library)
+        .unwrap()
+        .join("steamapps")
+        .join(TRASH_DIR_NAME);
+
+    let handle = open_trash_dir_for_listing(&library).unwrap();
+    let entries_path = handle
+        .entries_path()
+        .expect("geöffneter papierkorb liefert einen pfad")
+        .to_path_buf();
+    assert!(
+        entries_path.starts_with("/proc/self/fd/"),
+        "gelesen wird der deskriptor-pfad, nicht der referenzpfad: {}",
+        entries_path.display()
+    );
+
+    // rename und fremder ersatz am referenzpfad
+    std::fs::rename(&trash, steamapps.join("trash-weg")).unwrap();
+    std::fs::create_dir(&trash).unwrap();
+    std::fs::write(trash.join("fremd-marker"), b"fremd").unwrap();
+
+    let names: Vec<String> = std::fs::read_dir(&entries_path)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        names.iter().any(|name| name == "original-marker"),
+        "der gebundene deskriptor liest den originalinhalt: {names:?}"
+    );
+    assert!(
+        !names.iter().any(|name| name == "fremd-marker"),
+        "der fremde marker darf nie gelesen werden: {names:?}"
+    );
+
+    assert_eq!(
+        handle.recheck_after_read(),
+        Err(errcode::UNREADABLE.to_string())
+    );
+    assert_eq!(handle.wire_dir(), reference.as_path());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// P9: der Verzeichnis-gegen-Verzeichnis-Tausch im Klassifikationsfenster wird
+/// über die gemerkte Identität erkannt.
+#[cfg(target_os = "linux")]
+#[test]
+fn listing_hook_after_classify_erkennt_den_verzeichnistausch() {
+    let root = wsg_fixture("trash-listing-classify-swap");
+    let library = root.join("library");
+    let trash = library.join("steamapps").join(TRASH_DIR_NAME);
+    std::fs::create_dir_all(&trash).unwrap();
+    let moved = root.join("echter-papierkorb");
+    let foreign = root.join("fremd");
+    std::fs::create_dir_all(&foreign).unwrap();
+
+    let (swap_trash, swap_moved, swap_foreign) = (trash.clone(), moved.clone(), foreign.clone());
+    let mut hook = move |stage: TrashListingStage| {
+        if stage == TrashListingStage::AfterClassify {
+            std::fs::rename(&swap_trash, &swap_moved).unwrap();
+            std::fs::rename(&swap_foreign, &swap_trash).unwrap();
+        }
+    };
+
+    let error = open_trash_dir_for_listing_with_hook(&library, &mut hook).unwrap_err();
+
+    assert_eq!(error, errcode::UNREADABLE, "{error}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// Regression: Wird zwischen letzter Inspektion und Claim ein Replacement
 /// untergeschoben, claimt Protium es und erkennt den Identity-Mismatch.
 /// Der Claim-Restore benennt das Replacement best-effort per NOREPLACE auf

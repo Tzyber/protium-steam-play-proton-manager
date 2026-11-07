@@ -10,12 +10,7 @@ use {
         fd,
         scope::parse_app_id,
     },
-    std::{
-        ffi::OsStr,
-        fs, io,
-        os::{fd::AsRawFd, unix::ffi::OsStrExt},
-        path::Path,
-    },
+    std::{ffi::OsStr, io, os::fd::AsRawFd, path::Path},
 };
 
 #[cfg(target_os = "linux")]
@@ -48,6 +43,18 @@ impl PrefixError {
             Self::HandlerUnavailable => errcode::HANDLER_UNAVAILABLE,
         }
     }
+
+    /// Erhält die Taxonomie für die kanonischen Codes des fd-Pfad-Helfers.
+    /// Unbekannt fällt wie der bisherige io-Catch-all auf `Blocked`.
+    fn from_code(code: &str) -> Self {
+        if errcode::has_code(code, errcode::NOT_FOUND) {
+            Self::NotFound
+        } else if errcode::has_code(code, errcode::UNREADABLE) {
+            Self::Unreadable
+        } else {
+            Self::Blocked
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -73,13 +80,9 @@ impl From<ManifestReadError> for PrefixError {
 
 #[cfg(target_os = "linux")]
 fn validate_handler_path(path: &Path, library: &Path) -> Result<(), PrefixError> {
-    let bytes = path.as_os_str().as_bytes();
-    if !path.is_absolute()
-        || bytes.contains(&0)
-        || bytes.ends_with(b" (deleted)")
-        || !path.starts_with(library)
-        || path == library
-    {
+    // NUL und "(deleted)" besitzt `fd::read_fd_path`; hier bleibt nur die
+    // Frage, ob der aufgelöste Pfad innerhalb der Library liegt.
+    if !path.is_absolute() || !path.starts_with(library) || path == library {
         return Err(PrefixError::Blocked);
     }
     Ok(())
@@ -146,7 +149,7 @@ fn open_authorized_prefix(
     let app = fd::open_dir_at(compatdata.as_raw_fd(), OsStr::new(&app_id.to_string()))?;
     let prefix = fd::open_dir_at(app.as_raw_fd(), OsStr::new("pfx"))?;
     hook(PrefixReadStage::PrefixOpened);
-    let path = fs::read_link(format!("/proc/self/fd/{}", prefix.as_raw_fd()))?;
+    let path = fd::read_fd_path(&prefix).map_err(|error| PrefixError::from_code(&error))?;
     validate_handler_path(&path, library)?;
     // SECURITY: Der Dateimanager löst den Pfad später erneut auf; kein fd-gebundenes Öffnen.
     hook(PrefixReadStage::BeforeHandler);

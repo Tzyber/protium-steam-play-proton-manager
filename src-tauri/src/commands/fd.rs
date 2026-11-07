@@ -12,9 +12,9 @@ use std::ffi::CString;
 use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Read};
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::commands::errcode;
 
@@ -227,6 +227,97 @@ pub(super) fn open_file_at(parent_fd: RawFd, name: &OsStr) -> io::Result<std::fs
     Ok(unsafe { std::fs::File::from_raw_fd(fd) })
 }
 
+/// Öffnet `steamapps` relativ zu einem gebundenen Library-Deskriptor. Der
+/// Fehler geht unverändert zurück; die Aufrufer behalten ihr eigenes Mapping
+/// (Anlege- und Lesepfad bewerten `ENOENT`/`ENOTDIR` verschieden).
+#[cfg(target_os = "linux")]
+pub(super) fn open_steamapps_fd(library_fd: RawFd) -> io::Result<OwnedFd> {
+    open_dir_at(library_fd, OsStr::new("steamapps"))
+}
+
+/// Die drei Einordnungen, die ein Pfad vor dem Öffnen braucht: Verzeichnis
+/// (öffnen), Symlink (ablehnen) und alles andere (kein Verzeichnis).
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DirEntryKind {
+    Directory,
+    Symlink,
+    Other,
+}
+
+/// Klassifikation eines Eintrags samt Identität, gebunden an den geöffneten
+/// Parent. Der Aufrufer vergleicht die Identität nach dem Open: nur so ist ein
+/// Verzeichnis-gegen-Verzeichnis-Tausch zwischen Klassifikation und Open
+/// sichtbar.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct EntrySnapshot {
+    pub kind: DirEntryKind,
+    pub identity: FdIdentity,
+}
+
+/// Klassifiziert `name` unter `parent_fd` über
+/// `fstatat(..., AT_SYMLINK_NOFOLLOW)`: kein Symlink wird verfolgt, nichts wird
+/// geöffnet.
+#[cfg(target_os = "linux")]
+pub(super) fn entry_snapshot_at(parent_fd: RawFd, name: &OsStr) -> io::Result<EntrySnapshot> {
+    let name = component_name(name)?;
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::zeroed();
+    let result = unsafe {
+        libc::fstatat(
+            parent_fd,
+            name.as_ptr(),
+            stat.as_mut_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    };
+    if result < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let stat = unsafe { stat.assume_init() };
+    let kind = match stat.st_mode & libc::S_IFMT {
+        libc::S_IFDIR => DirEntryKind::Directory,
+        libc::S_IFLNK => DirEntryKind::Symlink,
+        _ => DirEntryKind::Other,
+    };
+    Ok(EntrySnapshot {
+        kind,
+        identity: FdIdentity::from_stat(&stat),
+    })
+}
+
+/// Reine Abbildung eines `readlink`-Fehlers auf einen kanonischen Code.
+#[cfg(target_os = "linux")]
+pub(super) fn fd_path_error(error: &io::Error) -> String {
+    match error.kind() {
+        io::ErrorKind::NotFound => errcode::NOT_FOUND,
+        io::ErrorKind::PermissionDenied => errcode::UNREADABLE,
+        _ => errcode::BLOCKED,
+    }
+    .to_string()
+}
+
+/// Prüft die rohen Bytes eines fd-Pfads. Diese Regel lebt allein hier: ein NUL
+/// oder ein `" (deleted)"`-Suffix bedeutet, dass der Deskriptor keinen
+/// benennbaren Ort mehr bezeichnet.
+#[cfg(target_os = "linux")]
+pub(super) fn validate_fd_path_bytes(bytes: &[u8]) -> Result<PathBuf, String> {
+    if bytes.contains(&0) || bytes.ends_with(b" (deleted)") {
+        return Err(errcode::BLOCKED.to_string());
+    }
+    Ok(PathBuf::from(OsStr::from_bytes(bytes)))
+}
+
+/// Pfad eines geöffneten Deskriptors über `/proc/self/fd/<fd>`. Der Pfad ist
+/// nur eine Diagnose des Deskriptors, kein neuer Zugriffspfad: Aufrufer, die
+/// gebunden lesen wollen, lesen über `/proc/self/fd/<fd>` selbst.
+#[cfg(target_os = "linux")]
+pub(super) fn read_fd_path(fd: &impl AsFd) -> Result<PathBuf, String> {
+    let link = Path::new("/proc/self/fd").join(fd.as_fd().as_raw_fd().to_string());
+    let target = fs::read_link(&link).map_err(|error| fd_path_error(&error))?;
+    validate_fd_path_bytes(target.as_os_str().as_bytes())
+}
+
 #[cfg(target_os = "linux")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct FdIdentity {
@@ -245,6 +336,16 @@ impl FdIdentity {
             ino: metadata.ino(),
         }
     }
+
+    /// Dieselbe Paarung aus einem rohen `stat`. Genau eine stat-basierte
+    /// Konstruktionsstelle neben `of`, damit `fd_identity` und
+    /// `entry_snapshot_at` nie auseinanderlaufen.
+    pub(super) fn from_stat(stat: &libc::stat) -> Self {
+        Self {
+            dev: stat.st_dev,
+            ino: stat.st_ino,
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -255,10 +356,7 @@ pub(super) fn fd_identity(fd: RawFd) -> io::Result<FdIdentity> {
         return Err(io::Error::last_os_error());
     }
     let stat = unsafe { stat.assume_init() };
-    Ok(FdIdentity {
-        dev: stat.st_dev,
-        ino: stat.st_ino,
-    })
+    Ok(FdIdentity::from_stat(&stat))
 }
 
 #[cfg(target_os = "linux")]

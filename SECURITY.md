@@ -201,7 +201,12 @@ entlang gebundener Deskriptoren: Die Library wird identitätsgeprüft geöffnet,
 `steamapps` und der Papierkorb folgen relativ dazu mit `O_NOFOLLOW`, und die
 Verschiebung nutzt `renameat2(RENAME_NOREPLACE)` mit dem gebundenen
 Quell-Handle. Ein ausgetauschter Parent kann den Papierkorb damit nicht
-außerhalb der autorisierten Library anlegen.
+außerhalb der autorisierten Library anlegen. Dasselbe gilt für das
+Papierkorb-Listing: Es klassifiziert den Papierkorb per `fstatat` ohne
+Symlink-Folge, öffnet ihn gebunden, prüft Identität und `/proc/self/fd`-Pfad
+gegen den angezeigten Referenzpfad, liest ausschließlich über den Deskriptor
+und prüft den Pfad nach dem Lesen erneut; der Löschpfad validiert weiterhin
+eigenständig über `prepare_delete`.
 
 ### Neubewertung der Bestätigungsgrenze
 

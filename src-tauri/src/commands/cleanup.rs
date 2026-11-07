@@ -6,14 +6,10 @@ use std::path::Path;
 use serde::Serialize;
 use tauri::State;
 
+use crate::commands::delete_ops::TrashListingHandle;
 use crate::commands::errcode;
 use crate::commands::scope::EnvironmentState;
 use crate::commands::spawn_blocking_io;
-
-/// name des papierkorb-verzeichnisses, existiert genau einmal hier, weil der
-/// Backend-Command den Pfad innerhalb des aktuellen Environment-Snapshots
-/// konstruiert.
-pub(crate) const TRASH_DIR_NAME: &str = ".protium-trash";
 
 /// ein verzeichniseintrag im papierkorb. is_symlink kommt aus file_type() des
 /// read_dir-eintrags, folgt also KEINEM symlink.
@@ -30,52 +26,54 @@ pub(crate) struct TrashDirEntry {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TrashListing {
-    /// kanonischer pfad des papierkorbs, den wir wirklich gelesen haben.
-    /// das frontend baut eintragspfade daraus, statt selbst zu joinen
-    /// sonst driftet die anzeige bei symlinks vom echten ort.
+    /// geprüfter referenzpfad des papierkorbs: dorthin zeigt der deskriptor,
+    /// über den gelesen wurde. das frontend baut eintragspfade daraus, statt
+    /// selbst zu joinen, sonst driftet die anzeige vom echten ort.
     pub dir: String,
     pub present: bool,
     pub entries: Vec<TrashDirEntry>,
 }
 
 fn list_trash_entries_at(real: &Path) -> Result<TrashListing, String> {
-    // n-01: die io-restfehler tragen die io-regel als code, nicht nur den
-    // rohen fehlertext.
-    let library_metadata = fs::symlink_metadata(real)
-        .map_err(|error| errcode::with_detail(errcode::code_for_io(&error), error))?;
-    if library_metadata.file_type().is_symlink() || !library_metadata.is_dir() {
-        return Err(errcode::NOT_A_DIRECTORY.into());
-    }
-    let steamapps = real.join("steamapps");
-    let steamapps_metadata = fs::symlink_metadata(&steamapps)
-        .map_err(|error| errcode::with_detail(errcode::code_for_io(&error), error))?;
-    if steamapps_metadata.file_type().is_symlink() || !steamapps_metadata.is_dir() {
-        return Err(errcode::NOT_A_DIRECTORY.into());
-    }
-    let trash_dir = steamapps.join(TRASH_DIR_NAME);
-    let dir = trash_dir.to_string_lossy().into_owned();
+    // dieselbe gebundene kette wie der löschpfad; der papierkorb wird dabei
+    // nicht angelegt.
+    let handle = crate::commands::delete_ops::open_trash_dir_for_listing(real)?;
+    collect_trash_entries(&handle)
+}
 
-    // symlink_metadata: ein symlink an dieser stelle wird nicht verfolgt
-    let md = match fs::symlink_metadata(&trash_dir) {
-        Ok(md) => md,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(TrashListing {
-                dir,
-                present: false,
-                entries: Vec::new(),
-            })
+/// derselbe lesepfad wie die produktion, nur mit mutierbaren prüffenstern.
+#[cfg(test)]
+fn list_trash_entries_at_with_hook(
+    real: &Path,
+    hook: &mut dyn FnMut(crate::commands::delete_ops::TrashListingStage),
+) -> Result<TrashListing, String> {
+    let handle = crate::commands::delete_ops::open_trash_dir_for_listing_with_hook(real, hook)?;
+    collect_trash_entries(&handle)
+}
+
+/// die einzige lesestelle des papierkorbs: über den deskriptor-pfad des
+/// handles, nie über den referenzpfad. danach wird der deskriptor nachgeprüft,
+/// damit `dir` nicht auf einen anderen ort zeigt als die gelesenen einträge.
+fn collect_trash_entries(handle: &TrashListingHandle) -> Result<TrashListing, String> {
+    let dir = handle.wire_dir().to_string_lossy().into_owned();
+    if !handle.present() {
+        // WARUM: das listing legt den papierkorb nicht an. ein halb gefüllter
+        // handle wäre dagegen ein bindungsfehler, kein "nicht vorhanden".
+        if handle.entries_path().is_some() {
+            return Err(errcode::UNREADABLE.to_string());
         }
-        Err(error) => return Err(errcode::with_detail(errcode::code_for_io(&error), error)),
-    };
-    if md.file_type().is_symlink() {
-        return Err(errcode::SYMLINK_REJECTED.into());
-    }
-    if !md.is_dir() {
-        return Err(errcode::NOT_A_DIRECTORY.into());
+        return Ok(TrashListing {
+            dir,
+            present: false,
+            entries: Vec::new(),
+        });
     }
 
+    let entries_path = handle
+        .entries_path()
+        .ok_or_else(|| errcode::UNREADABLE.to_string())?;
     let mut entries = Vec::new();
-    for e in fs::read_dir(&trash_dir)
+    for e in fs::read_dir(entries_path)
         .map_err(|error| errcode::with_detail(errcode::code_for_io(&error), error))?
     {
         let e = e.map_err(|error| errcode::with_detail(errcode::code_for_io(&error), error))?;
@@ -88,6 +86,7 @@ fn list_trash_entries_at(real: &Path) -> Result<TrashListing, String> {
             is_symlink: ft.is_symlink(),
         });
     }
+    handle.recheck_after_read()?;
 
     Ok(TrashListing {
         dir,

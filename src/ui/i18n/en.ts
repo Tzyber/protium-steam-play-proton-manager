@@ -189,7 +189,7 @@ export const en = {
       "Wine-Prefixes are moved to trash, disk space is only freed when the trash is emptied.",
     trash: "trash",
     trashUnreadable:
-      "trash could not be read (permissions or fs scope): {paths}, the listing is therefore incomplete.",
+      "trash could not be read (missing permissions, a swap, rename or symlink, or a library or steamapps missing after a rescan): {paths}, the listing is therefore incomplete. a missing trash is not an error.",
     trashLibNone: "{dir}, no trash",
     trashLibCount: "{dir}, {n} entries",
     trashLibError: "{dir}, unreadable: {msg}",

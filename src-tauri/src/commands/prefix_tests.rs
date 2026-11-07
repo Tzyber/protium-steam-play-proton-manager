@@ -1,6 +1,8 @@
 use super::*;
 use crate::commands::scope::EnvironmentSnapshot;
 use crate::commands::test_util::fixture_dir;
+use std::fs;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::PathBuf;
 
@@ -380,13 +382,6 @@ fn handler_path_rejects_library_root_itself() {
     );
 }
 #[test]
-fn handler_path_rejects_nul() {
-    assert_eq!(
-        validate_handler_path(Path::new("/library/pfx\0"), Path::new("/library")),
-        Err(PrefixError::Blocked)
-    );
-}
-#[test]
 fn handler_path_preserves_non_utf8() {
     let path = Path::new(OsStr::from_bytes(b"/library/\xff/pfx"));
     assert_eq!(validate_handler_path(path, Path::new("/library")), Ok(()));
@@ -397,6 +392,25 @@ fn handler_path_checks_components_not_string_prefix() {
         validate_handler_path(Path::new("/library-other/pfx"), Path::new("/library")),
         Err(PrefixError::Blocked)
     );
+}
+
+#[test]
+fn prefix_error_maps_the_fd_path_codes() {
+    // der fd-pfad-helfer liefert kanonische codes; die taxonomie bleibt, und
+    // ein unbekannter code fällt wie der bisherige io-catch-all auf blocked.
+    assert_eq!(
+        PrefixError::from_code(errcode::BLOCKED),
+        PrefixError::Blocked
+    );
+    assert_eq!(
+        PrefixError::from_code(errcode::NOT_FOUND),
+        PrefixError::NotFound
+    );
+    assert_eq!(
+        PrefixError::from_code(errcode::UNREADABLE),
+        PrefixError::Unreadable
+    );
+    assert_eq!(PrefixError::from_code("unbekannt"), PrefixError::Blocked);
 }
 
 #[test]

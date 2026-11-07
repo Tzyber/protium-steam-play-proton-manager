@@ -295,6 +295,149 @@ fn open_or_create_dir_at_lehnt_eine_vorhandene_datei_ab() {
 }
 
 #[test]
+fn open_steamapps_fd_unterscheidet_fehlend_datei_und_symlink() {
+    let fixture = Fixture::new("steamapps-open");
+    let root_fd = fixture.absolute_fd();
+    let steamapps = fixture.bound_dir().join("steamapps");
+
+    assert_eq!(
+        open_steamapps_fd(root_fd.as_raw_fd()).unwrap_err().kind(),
+        io::ErrorKind::NotFound
+    );
+
+    fs::write(&steamapps, "x").unwrap();
+    assert_eq!(
+        open_steamapps_fd(root_fd.as_raw_fd())
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOTDIR)
+    );
+
+    fs::remove_file(&steamapps).unwrap();
+    let target = fixture.root.join("ziel");
+    fs::create_dir_all(&target).unwrap();
+    symlink(&target, &steamapps).unwrap();
+    // O_DIRECTORY|O_NOFOLLOW: der verweis liefert ENOTDIR, nicht ELOOP.
+    assert_eq!(
+        open_steamapps_fd(root_fd.as_raw_fd())
+            .unwrap_err()
+            .raw_os_error(),
+        Some(libc::ENOTDIR)
+    );
+
+    fs::remove_file(&steamapps).unwrap();
+    fs::create_dir(&steamapps).unwrap();
+    let fd = open_steamapps_fd(root_fd.as_raw_fd()).unwrap();
+    assert_eq!(
+        fd_identity(fd.as_raw_fd()).unwrap(),
+        FdIdentity::of(&fs::metadata(&steamapps).unwrap())
+    );
+}
+
+#[test]
+fn entry_snapshot_at_klassifiziert_und_folgt_keinem_symlink() {
+    let fixture = Fixture::new("entry-snapshot");
+    let root_fd = fixture.absolute_fd();
+    let dir = fixture.bound_dir();
+    fs::create_dir(dir.join("verzeichnis")).unwrap();
+    fs::write(dir.join("datei"), "x").unwrap();
+    let target = fixture.root.join("ziel");
+    fs::create_dir_all(&target).unwrap();
+    symlink(&target, dir.join("verweis")).unwrap();
+
+    let directory = entry_snapshot_at(root_fd.as_raw_fd(), OsStr::new("verzeichnis")).unwrap();
+    let file = entry_snapshot_at(root_fd.as_raw_fd(), OsStr::new("datei")).unwrap();
+    let link = entry_snapshot_at(root_fd.as_raw_fd(), OsStr::new("verweis")).unwrap();
+    let missing = entry_snapshot_at(root_fd.as_raw_fd(), OsStr::new("fehlt")).unwrap_err();
+
+    assert_eq!(directory.kind, DirEntryKind::Directory);
+    assert_eq!(file.kind, DirEntryKind::Other);
+    // der verweis wird nicht verfolgt: sonst stuende hier Directory.
+    assert_eq!(link.kind, DirEntryKind::Symlink);
+    assert_eq!(missing.kind(), io::ErrorKind::NotFound);
+    // die identitaet ist die des klassifizierten, nicht die des ziels.
+    let opened = open_dir_at(root_fd.as_raw_fd(), OsStr::new("verzeichnis")).unwrap();
+    assert_eq!(directory.identity, fd_identity(opened.as_raw_fd()).unwrap());
+}
+
+#[test]
+fn fd_identity_paart_wie_from_stat_und_of() {
+    let fixture = Fixture::new("from-stat");
+    let dir = fixture.bound_dir();
+    let metadata = fs::metadata(&dir).unwrap();
+    let fd = open_absolute_dir(&dir).unwrap();
+
+    assert_eq!(
+        FdIdentity::of(&metadata),
+        fd_identity(fd.as_raw_fd()).unwrap()
+    );
+}
+
+#[test]
+fn fd_identity_konstruiert_ueber_from_stat() {
+    // quelltext-pin: genau eine stat-basierte konstruktionsstelle fuer das paar.
+    let source = include_str!("fd.rs");
+    let start = source
+        .find("fn fd_identity")
+        .expect("fd_identity muss existieren");
+    let rest = &source[start..];
+    let end = rest.find("\n}\n").expect("ende von fd_identity fehlt");
+    assert!(
+        rest[..end].contains("FdIdentity::from_stat(&stat)"),
+        "fd_identity muss ueber FdIdentity::from_stat bauen"
+    );
+}
+
+#[test]
+fn read_fd_path_liefert_den_pfad_auch_nach_einem_rename() {
+    let fixture = Fixture::new("fd-path");
+    let dir = fixture.bound_dir();
+    let fd = open_absolute_dir(&dir).unwrap();
+    assert_eq!(read_fd_path(&fd).unwrap(), fs::canonicalize(&dir).unwrap());
+
+    let renamed = fixture.root.join("umbenannt");
+    fs::rename(&dir, &renamed).unwrap();
+    assert_eq!(
+        read_fd_path(&fd).unwrap(),
+        fs::canonicalize(&renamed).unwrap()
+    );
+}
+
+#[test]
+fn read_fd_path_meldet_ein_geloeschtes_verzeichnis_als_blocked() {
+    let fixture = Fixture::new("fd-path-deleted");
+    let dir = fixture.bound_dir();
+    let fd = open_absolute_dir(&dir).unwrap();
+    fs::remove_dir(&dir).unwrap();
+
+    assert_eq!(read_fd_path(&fd).unwrap_err(), errcode::BLOCKED);
+}
+
+#[test]
+fn validate_fd_path_bytes_lehnt_nul_und_deleted_ab() {
+    assert_eq!(
+        validate_fd_path_bytes(b"/a\0b").unwrap_err(),
+        errcode::BLOCKED
+    );
+    assert_eq!(
+        validate_fd_path_bytes(b"/a (deleted)").unwrap_err(),
+        errcode::BLOCKED
+    );
+    assert_eq!(validate_fd_path_bytes(b"/a").unwrap(), Path::new("/a"));
+}
+
+#[test]
+fn fd_path_error_mappt_not_found_permission_und_sonstige() {
+    for (kind, expected) in [
+        (io::ErrorKind::NotFound, errcode::NOT_FOUND),
+        (io::ErrorKind::PermissionDenied, errcode::UNREADABLE),
+        (io::ErrorKind::BrokenPipe, errcode::BLOCKED),
+    ] {
+        assert_eq!(fd_path_error(&io::Error::from(kind)), expected, "{kind:?}");
+    }
+}
+
+#[test]
 fn open_or_create_dir_at_folgt_keinem_symlink() {
     let fixture = Fixture::new("create-symlink");
     let root_fd = fixture.absolute_fd();

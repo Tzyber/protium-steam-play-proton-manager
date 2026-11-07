@@ -7,15 +7,19 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use crate::commands::cleanup::TRASH_DIR_NAME;
 use crate::commands::delete_inspect::inspect_deletion_target;
 use crate::commands::delete_inspect::{DeleteConsequence, DeletionInspection};
 use crate::commands::errcode;
 #[cfg(target_os = "linux")]
-use crate::commands::fd::{component_name, FdIdentity};
+use crate::commands::fd::{component_name, DirEntryKind, FdIdentity};
 use crate::commands::scope::{EnvironmentSnapshot, EnvironmentState};
 
 pub const DELETE_TOKEN_TTL_SECS: u64 = 300;
+
+/// Name des Papierkorb-Verzeichnisses unterhalb von `steamapps`. Er lebt hier,
+/// weil der gebundene Referenzpfad des Listings hier entsteht; ein zweiter
+/// Aufbau in `cleanup.rs` könnte von diesem abweichen.
+pub(crate) const TRASH_DIR_NAME: &str = ".protium-trash";
 
 /// 3.2: der uhrfehler wird geführt, nicht verschluckt. Mit 0 als "jetzt" wäre
 /// jedes frisch ausgegebene Token sofort abgelaufen.
@@ -136,14 +140,12 @@ where
 
     let library_fd = crate::commands::fd::open_bound_root_fd(library, hook)?;
     let steamapps_fd =
-        crate::commands::fd::open_dir_at(library_fd.as_raw_fd(), OsStr::new("steamapps")).map_err(
-            |error| {
-                errcode::with_detail(
-                    errcode::code_for_io(&error),
-                    format!("cannot open steamapps: {error}"),
-                )
-            },
-        )?;
+        crate::commands::fd::open_steamapps_fd(library_fd.as_raw_fd()).map_err(|error| {
+            errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot open steamapps: {error}"),
+            )
+        })?;
     let trash_fd = crate::commands::fd::open_or_create_dir_at(
         steamapps_fd.as_raw_fd(),
         OsStr::new(TRASH_DIR_NAME),
@@ -165,6 +167,183 @@ where
     Err(errcode::with_detail(
         errcode::UNSUPPORTED_PLATFORM,
         "trash directory binding",
+    ))
+}
+
+/// Die drei Prüffenster des gebundenen Papierkorb-Opens für das Listing; der
+/// Testhaken mutiert genau zwischen Klassifikation, Open und Pfadprüfung.
+// WARUM das gemeinsame Präfix: die Namen bezeichnen die drei Zeitpunkte nach
+// Klassifikation, Open und Pfadprüfung; die Spec führt sie so.
+#[allow(clippy::enum_variant_names)]
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum TrashListingStage {
+    AfterClassify,
+    AfterTrashOpen,
+    AfterCheck,
+}
+
+/// Gebundener Papierkorb für das Listing. `file` hält den Deskriptor offen,
+/// damit `/proc/self/fd/<fd>` (`read_path`) bis nach dem Lesen und der
+/// Nachprüfung auf genau dieses Verzeichnis zeigt; `reference_dir` ist der
+/// geprüfte Wire-Pfad, den die Oberfläche anzeigt.
+#[derive(Debug)]
+pub(super) struct TrashListingHandle {
+    file: Option<fs::File>,
+    read_path: Option<PathBuf>,
+    reference_dir: PathBuf,
+}
+
+impl TrashListingHandle {
+    /// Lesepfad: `/proc/self/fd/<fd>`, nicht das `readlink`-Ergebnis. Ein Pfad
+    /// wäre nach der Prüfung erneut umbiegbar.
+    pub(super) fn entries_path(&self) -> Option<&Path> {
+        self.read_path.as_deref()
+    }
+
+    pub(super) fn wire_dir(&self) -> &Path {
+        &self.reference_dir
+    }
+
+    pub(super) fn present(&self) -> bool {
+        self.file.is_some() && self.read_path.is_some()
+    }
+
+    /// Nachprüfung nach dem Lesen: der Deskriptor muss noch auf den
+    /// Referenzpfad zeigen, sonst nennt `dir` einen anderen Ort als die
+    /// gelesenen Einträge.
+    #[cfg(target_os = "linux")]
+    pub(super) fn recheck_after_read(&self) -> Result<(), String> {
+        let Some(file) = self.file.as_ref() else {
+            return Ok(());
+        };
+        // WARUM blankes unreadable: ein Pfad- oder Identitätswechsel nach dem
+        // Lesen ist ein Bindungsfehler des Deskriptors, kein Policy-Verstoß am
+        // Inhalt.
+        let observed =
+            crate::commands::fd::read_fd_path(file).map_err(|_| errcode::UNREADABLE.to_string())?;
+        if observed != self.reference_dir {
+            return Err(errcode::UNREADABLE.to_string());
+        }
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub(super) fn recheck_after_read(&self) -> Result<(), String> {
+        // Ohne Deskriptor-Read (Stummel) gibt es nichts nachzuprüfen.
+        Ok(())
+    }
+}
+
+/// Belegte Abwesenheit bleibt ein blankes `not-found`; jeder andere io-Fehler
+/// trägt Code und Detail (n-01).
+#[cfg(target_os = "linux")]
+fn listing_io_error(error: std::io::Error) -> String {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        errcode::NOT_FOUND.to_string()
+    } else {
+        errcode::with_detail(errcode::code_for_io(&error), error)
+    }
+}
+
+/// Öffnet den Papierkorb für das Listing entlang derselben gebundenen Kette wie
+/// der Löschpfad, legt ihn aber nicht an: ein fehlender Papierkorb ist
+/// `present:false`, kein Fehler.
+pub(super) fn open_trash_dir_for_listing(library: &Path) -> Result<TrashListingHandle, String> {
+    open_trash_dir_for_listing_with_hook(library, &mut |_| {})
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn open_trash_dir_for_listing_with_hook(
+    library: &Path,
+    hook: &mut dyn FnMut(TrashListingStage),
+) -> Result<TrashListingHandle, String> {
+    use std::os::fd::AsRawFd;
+
+    let metadata = fs::symlink_metadata(library).map_err(listing_io_error)?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(errcode::NOT_A_DIRECTORY.into());
+    }
+    let reference_dir = fs::canonicalize(library)
+        .map_err(|error| errcode::with_detail(errcode::code_for_io(&error), error))?
+        .join("steamapps")
+        .join(TRASH_DIR_NAME);
+
+    let library_fd = crate::commands::fd::open_bound_root_fd(library, &mut || {})?;
+    let steamapps_fd = crate::commands::fd::open_steamapps_fd(library_fd.as_raw_fd()).map_err(
+        |error| match error.raw_os_error() {
+            // Nur der Listing-Pfad unterscheidet hier: der Löschpfad legt an
+            // und meldet beides als io-Fehler.
+            Some(libc::ENOTDIR) => errcode::NOT_A_DIRECTORY.to_string(),
+            Some(libc::ENOENT) => errcode::NOT_FOUND.to_string(),
+            _ => errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot open steamapps: {error}"),
+            ),
+        },
+    )?;
+    let trash = match crate::commands::fd::entry_snapshot_at(
+        steamapps_fd.as_raw_fd(),
+        OsStr::new(TRASH_DIR_NAME),
+    ) {
+        Ok(trash) => trash,
+        // Das Listing legt den Papierkorb nicht an.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(TrashListingHandle {
+                file: None,
+                read_path: None,
+                reference_dir,
+            })
+        }
+        Err(error) => return Err(errcode::with_detail(errcode::code_for_io(&error), error)),
+    };
+    match trash.kind {
+        DirEntryKind::Symlink => return Err(errcode::SYMLINK_REJECTED.into()),
+        DirEntryKind::Other => return Err(errcode::NOT_A_DIRECTORY.into()),
+        DirEntryKind::Directory => {}
+    }
+    hook(TrashListingStage::AfterClassify);
+
+    let trash_fd =
+        crate::commands::fd::open_dir_at(steamapps_fd.as_raw_fd(), OsStr::new(TRASH_DIR_NAME))
+            .map_err(|error| match error.raw_os_error() {
+                Some(libc::ENOTDIR) => errcode::NOT_A_DIRECTORY.to_string(),
+                _ => errcode::with_detail(
+                    errcode::code_for_io(&error),
+                    format!("cannot open trash dir: {error}"),
+                ),
+            })?;
+    // Ab hier ist der Deskriptor offen: jeder weitere Fehler ist ein
+    // Bindungsfehler und wird auf blankes `unreadable` normalisiert. WARUM: ein
+    // Pfad- oder Identitätswechsel ist kein Policy-Verstoß am Inhalt.
+    let opened = crate::commands::fd::fd_identity(trash_fd.as_raw_fd())
+        .map_err(|_| errcode::UNREADABLE.to_string())?;
+    if opened != trash.identity {
+        return Err(errcode::UNREADABLE.to_string());
+    }
+    hook(TrashListingStage::AfterTrashOpen);
+    let observed = crate::commands::fd::read_fd_path(&trash_fd)
+        .map_err(|_| errcode::UNREADABLE.to_string())?;
+    if observed != reference_dir {
+        return Err(errcode::UNREADABLE.to_string());
+    }
+    hook(TrashListingStage::AfterCheck);
+
+    let read_path = Path::new("/proc/self/fd").join(trash_fd.as_raw_fd().to_string());
+    Ok(TrashListingHandle {
+        file: Some(fs::File::from(trash_fd)),
+        read_path: Some(read_path),
+        reference_dir,
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(super) fn open_trash_dir_for_listing_with_hook(
+    _library: &Path,
+    _hook: &mut dyn FnMut(TrashListingStage),
+) -> Result<TrashListingHandle, String> {
+    Err(errcode::with_detail(
+        errcode::UNSUPPORTED_PLATFORM,
+        "trash listing binding",
     ))
 }
 
