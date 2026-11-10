@@ -5,6 +5,7 @@ use tauri::Manager;
 
 use crate::commands::errcode;
 use crate::commands::external::{open_directory_with_handler, spawn_detached_os};
+use crate::commands::path::unix_seconds;
 #[cfg(unix)]
 use crate::commands::scope::owner_only_mode;
 use crate::commands::scope::{ensure_private_dir, prepare_app_dir};
@@ -283,10 +284,7 @@ fn write_log_line(log_dir: &Path, level: &str, message: &str, rotate: bool) -> R
     }
     restrict_log_file_to_owner(&file);
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let now = unix_seconds(std::time::SystemTime::now())?;
 
     let clean_level = match level.to_ascii_lowercase().as_str() {
         "warn" | "warning" => "WARN",
@@ -362,8 +360,13 @@ pub async fn read_log_tail(app: tauri::AppHandle) -> Result<String, String> {
         .path()
         .app_local_data_dir()
         .map_err(|error| errcode::with_detail(errcode::UNAVAILABLE, error))?;
-    let log_dir = prepare_app_dir(&data_dir.join("logs"), &data_dir, "app logs")?;
-    spawn_blocking_io(move || read_log_tail_from_dir(&log_dir)).await
+    spawn_blocking_io(move || {
+        // FR-7: anlegen und verengen sind blockierende io und laufen deshalb im
+        // blocking-pool statt auf dem Tokio-Worker.
+        let log_dir = prepare_app_dir(&data_dir.join("logs"), &data_dir, "app logs")?;
+        read_log_tail_from_dir(&log_dir)
+    })
+    .await
 }
 
 /// Panic-Hook: schreibt in dieselbe rotierende Datei, aber nie blockierend
@@ -385,8 +388,11 @@ pub async fn log_diagnostic(
         .path()
         .app_local_data_dir()
         .map_err(|error| errcode::with_detail(errcode::UNAVAILABLE, error))?;
-    let log_dir = prepare_app_dir(&data_dir.join("logs"), &data_dir, "app logs")?;
-    spawn_blocking_io(move || append_log_entry(&log_dir, &level, &message)).await
+    spawn_blocking_io(move || {
+        let log_dir = prepare_app_dir(&data_dir.join("logs"), &data_dir, "app logs")?;
+        append_log_entry(&log_dir, &level, &message)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -395,15 +401,17 @@ pub async fn open_logs_folder(app: tauri::AppHandle) -> Result<(), String> {
         .path()
         .app_local_data_dir()
         .map_err(|error| errcode::with_detail(errcode::UNAVAILABLE, error))?;
-    let log_dir = prepare_app_dir(&data_dir.join("logs"), &data_dir, "app logs")?;
     #[cfg(target_os = "linux")]
     {
-        spawn_blocking_io(move || open_directory_with_handler(&mut spawn_detached_os, &log_dir))
-            .await
+        spawn_blocking_io(move || {
+            let log_dir = prepare_app_dir(&data_dir.join("logs"), &data_dir, "app logs")?;
+            open_directory_with_handler(&mut spawn_detached_os, &log_dir)
+        })
+        .await
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = log_dir;
+        let _ = data_dir;
         Err(errcode::UNSUPPORTED_PLATFORM.into())
     }
 }

@@ -197,7 +197,10 @@ fn libraryfolders_contents_with_hook<F>(
 where
     F: FnMut(),
 {
-    Err("libraryfolders.vdf requires Linux no-follow descriptors".into())
+    Err(errcode::with_detail(
+        errcode::UNSUPPORTED_PLATFORM,
+        "libraryfolders.vdf requires Linux no-follow descriptors",
+    ))
 }
 
 fn read_library_paths_with_hook<F>(steam_root: &Path, hook: &mut F) -> Result<Vec<PathBuf>, String>

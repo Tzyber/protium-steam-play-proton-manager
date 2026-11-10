@@ -4,7 +4,6 @@
 // die feste Valve-Tabelle. Geteilt von steam.rs (save_compat_tool) und
 // delete_inspect.rs (GE-Tool-Identität); die fd-Helfer liegen in fd.rs.
 
-#[cfg(target_os = "linux")]
 use crate::commands::errcode;
 // fd-Items gibt es nur unter Linux (fd.rs ist leer gekappt); jeder Aufrufer
 // liegt in einem linux-Zweig, deshalb ist der Import bedingt (r-12).
@@ -256,7 +255,10 @@ pub(super) fn compat_root_contains_name_linux_with_hook<F>(
 where
     F: FnMut(CompatAuthStage),
 {
-    Err("compat tool authority requires Linux no-follow descriptors".into())
+    Err(errcode::with_detail(
+        errcode::UNSUPPORTED_PLATFORM,
+        "compat tool authority requires Linux no-follow descriptors",
+    ))
 }
 
 #[cfg(target_os = "linux")]
@@ -587,7 +589,10 @@ where
         #[cfg(target_os = "linux")]
         return Ok(false);
         #[cfg(not(target_os = "linux"))]
-        return Err("Valve compat tool authority requires Linux no-follow descriptors".into());
+        return Err(errcode::with_detail(
+            errcode::UNSUPPORTED_PLATFORM,
+            "Valve compat tool authority requires Linux no-follow descriptors",
+        ));
     }
 
     #[cfg(target_os = "linux")]

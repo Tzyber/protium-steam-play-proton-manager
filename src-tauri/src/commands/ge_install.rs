@@ -17,7 +17,7 @@ use crate::commands::errcode;
 #[cfg(test)]
 use crate::commands::extract::extract_blocking_with_tag;
 use crate::commands::extract::{extract_blocking_with_tag_with_hook, MAX_ARCHIVE_ENTRIES};
-use crate::commands::path::{is_descendant_of, sanitize_path};
+use crate::commands::path::{exists_without_following, is_descendant_of, sanitize_path};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -583,6 +583,17 @@ fn extract_in_authorized_environment(
 // Die Phasen von `install_ge_proton_inner`: je ein zusammenhängender Block aus
 // demselben Code mit denselben Rückgaben und derselben Fehlerreihenfolge (r-10).
 
+fn leftover_name(entry: std::io::Result<fs::DirEntry>) -> Result<Option<String>, String> {
+    let entry = entry.map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("read compatibilitytools.d entry: {error}"),
+        )
+    })?;
+    let name = entry.file_name().to_string_lossy().into_owned();
+    Ok(name.starts_with(".protium-extract-").then_some(name))
+}
+
 /// Phase „Ziele": validiert Release-Identität und Scope, prüft Crash-Reste und
 /// den Zielkonflikt und legt Root und Tool-Verzeichnis fest.
 fn resolve_ge_install_targets(
@@ -611,27 +622,37 @@ fn resolve_ge_install_targets(
     // crash-reste früherer extraktionen (SIGKILL/Stromausfall zwischen temp
     // und rename): sichtbar melden statt automatisch löschen. eigentum und
     // zustand sind ohne denselben strengebeweis wie bei delete nicht belegt.
-    if let Ok(entries) = fs::read_dir(&tools_dir) {
-        let leftovers: Vec<String> = entries
-            .filter_map(|entry| entry.ok())
-            .filter_map(|entry| {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                name.starts_with(".protium-extract-").then_some(name)
-            })
-            .collect();
-        if !leftovers.is_empty() {
+    // FR-5: nur ein belegtes NotFound heisst "keine reste"; eintragsfehler
+    // werden kodiert statt geschluckt.
+    match fs::read_dir(&tools_dir) {
+        Ok(entries) => {
+            let mut leftovers: Vec<String> = Vec::new();
+            for entry in entries {
+                if let Some(name) = leftover_name(entry)? {
+                    leftovers.push(name);
+                }
+            }
+            if !leftovers.is_empty() {
+                return Err(errcode::with_detail(
+                    errcode::INCOMPLETE,
+                    format!(
+                        "incomplete extraction leftovers found: {}; remove them manually",
+                        leftovers.join(", ")
+                    ),
+                ));
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
             return Err(errcode::with_detail(
-                errcode::INCOMPLETE,
-                format!(
-                    "incomplete extraction leftovers found: {}; remove them manually",
-                    leftovers.join(", ")
-                ),
-            ));
+                errcode::code_for_io(&error),
+                format!("read compatibilitytools.d: {error}"),
+            ))
         }
     }
 
     let final_target = tools_dir.join(&identity.install_name);
-    if final_target.exists() {
+    if exists_without_following(&final_target)? {
         return Err(errcode::with_detail(
             errcode::TOOL_EXISTS,
             "target directory",

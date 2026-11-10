@@ -254,6 +254,39 @@ fn prepare_lehnt_einen_nicht_aufloesbaren_steam_root_ab() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// FR-2: nur ein belegtes NotFound heisst "root weg". Ein Zwischenpfad, der
+/// eine Datei ist, scheitert mit ENOTDIR und ist ein lesefehler (`unreadable`),
+/// keine abwesenheit.
+#[test]
+fn prepare_meldet_enotdir_des_steam_roots_als_unreadable() {
+    let root = wsg_fixture("prepare-root-enotdir");
+    std::fs::write(root.join("datei"), b"x").unwrap();
+    let snapshot = snapshot_for(&root);
+    let request = PrepareDeleteRequest {
+        target_type: "orphan".to_string(),
+        path: root
+            .join("steamapps/compatdata/999999")
+            .to_string_lossy()
+            .into_owned(),
+        steam_root: root.join("datei/kind").to_string_lossy().into_owned(),
+    };
+
+    let error = prepare_delete_inner(
+        &PendingDeleteRegistry::default(),
+        &request,
+        &snapshot,
+        || Ok(false),
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::UNREADABLE),
+        "unexpected error: {error}"
+    );
+    assert!(error.contains("steam root"), "detail verloren: {error}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
 #[test]
 fn token_generierung_ist_128_bit_hex() {
     let token1 = generate_os_random_128().unwrap();

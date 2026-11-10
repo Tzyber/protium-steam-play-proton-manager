@@ -56,25 +56,15 @@ fn read_config_text_bounded(path: &Path, label: &str) -> Result<String, String> 
     read_fd_text(&mut file, label, MAX_CONFIG_VDF_BYTES)
 }
 
+/// Nicht-Linux baut nicht (Linux-only-App); der frühere funktionale Pfad-Read
+/// ist bewusst entfallen (FR-3): ein Read ohne die no-follow-Deskriptorkette
+/// wäre ein zweiter, ungehärteter Schreibpfad.
 #[cfg(not(target_os = "linux"))]
-fn read_config_text_bounded(path: &Path, label: &str) -> Result<String, String> {
-    use std::io::Read;
-    let mut file = std::fs::File::open(path).map_err(|error| format!("{label}: {error}"))?;
-    let length = file
-        .metadata()
-        .map_err(|error| format!("{label}: {error}"))?
-        .len();
-    if length > MAX_CONFIG_VDF_BYTES {
-        return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
-    }
-    let mut text = String::new();
-    file.take(MAX_CONFIG_VDF_BYTES + 1)
-        .read_to_string(&mut text)
-        .map_err(|error| format!("cannot read {label}: {error}"))?;
-    if text.len() as u64 > MAX_CONFIG_VDF_BYTES {
-        return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
-    }
-    Ok(text)
+fn read_config_text_bounded(_path: &Path, _label: &str) -> Result<String, String> {
+    Err(errcode::with_detail(
+        errcode::UNSUPPORTED_PLATFORM,
+        "steam config read requires Linux no-follow descriptors",
+    ))
 }
 
 /// Erlaubt nur `config/config.vdf` und `userdata/<digits>/config/localconfig.vdf`
@@ -103,6 +93,10 @@ fn is_steam_config_path(file: &Path, steam_root: &Path) -> bool {
 /// wie `delete_ops::ensure_current_steam_root`. Der gespeicherte Root wird
 /// nicht noch einmal aufgelöst: sonst folgt das Gate einem Symlink, der den
 /// Snapshot-Ordner nach der Discovery ersetzt hat.
+///
+/// Bewusste Divergenz zu `delete_ops`: dort bildet `code_for_io` den
+/// canonicalize-fehler ab (ENOTDIR ist `unreadable`), hier bleibt er pauschal
+/// `not-found` (FR-2, benanntes Restrisiko).
 pub(super) fn canonical_allowed_steam_root(
     steam_root: &str,
     allowed_steam_root: &Path,
@@ -452,6 +446,10 @@ fn next_backup_timestamp() -> u128 {
         .try_update(Ordering::SeqCst, Ordering::SeqCst, |last| {
             Some(now.max(last.saturating_add(1)))
         })
+        // FR-4: `try_update` wiederholt den CAS intern; die closure liefert
+        // immer `Some` und kann nicht scheitern, der `Err`-zweig ist damit
+        // unerreichbar. `unwrap_or(0)` bleibt als toter zweig stehen
+        // (Audit 3.1 erledigt, keine Codeänderung).
         .unwrap_or(0);
     u128::from(now.max(previous.saturating_add(1)))
 }

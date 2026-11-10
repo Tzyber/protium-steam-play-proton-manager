@@ -1,8 +1,8 @@
 use crate::commands::download::CancelSignal;
 use crate::commands::errcode;
 use crate::commands::path::{
-    canonicalize_nearest_ancestor, is_descendant_of, is_safe_path, link_target_stays_inside,
-    random_suffix,
+    canonicalize_nearest_ancestor, exists_without_following, is_descendant_of, is_safe_path,
+    link_target_stays_inside, random_suffix,
 };
 use std::fs;
 use std::io::{Seek, SeekFrom};
@@ -70,10 +70,6 @@ fn is_archive_metadata(entry_type: tar::EntryType) -> bool {
         || entry_type == tar::EntryType::XGlobalHeader
         || entry_type == tar::EntryType::GNULongName
         || entry_type == tar::EntryType::GNULongLink
-}
-
-fn path_exists_without_following(path: &Path) -> bool {
-    fs::symlink_metadata(path).is_ok()
 }
 
 /// a-09: `link_target_stays_inside` ist lexikalisch und sieht die kette
@@ -362,7 +358,7 @@ pub(super) fn extract_blocking_with_tag_with_hook(
         return Err(errcode::INVALID_ID.into());
     }
     let target = dest_canon.join(expected_tag);
-    if path_exists_without_following(&target) {
+    if exists_without_following(&target)? {
         return Err(errcode::with_detail(errcode::TOOL_EXISTS, "extract target"));
     }
 
@@ -480,7 +476,7 @@ fn extract_archive_into_bound_parent(
             return Err(errcode::INCOMPLETE.into());
         }
         ensure_extracted_symlinks_stay_inside(&unpacked)?;
-        if path_exists_without_following(&dest_canon.join(expected_tag)) {
+        if exists_without_following(&dest_canon.join(expected_tag))? {
             return Err(errcode::TOOL_EXISTS.into());
         }
         let mut relative_source = PathBuf::from(&temp_name);

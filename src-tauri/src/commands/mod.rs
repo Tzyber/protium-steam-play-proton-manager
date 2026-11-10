@@ -59,6 +59,125 @@ mod tests {
 
         assert!(errcode::has_code(&error, errcode::UNAVAILABLE), "{error}");
     }
+
+    // ---- B1-Pins: nur im Quelltext prüfbare Zweige und Platzierungen ----
+
+    const CFG_NOT_LINUX: &str = "#[cfg(not(target_os = \"linux\"))]";
+
+    /// Je `cfg(not(target_os = "linux"))` der Stub-Block bis zum nächsten
+    /// `#[cfg(`. Die Zweige kompilieren auf Linux nicht, deshalb ist der
+    /// Quelltext ihr einziger Beleg.
+    fn cfg_not_linux_blocks(source: &str) -> Vec<&str> {
+        let mut blocks = Vec::new();
+        let mut rest = source;
+        while let Some(start) = rest.find(CFG_NOT_LINUX) {
+            let after = &rest[start + CFG_NOT_LINUX.len()..];
+            let end = [after.find("\n#[cfg("), after.find("\n}")]
+                .into_iter()
+                .flatten()
+                .min()
+                .unwrap_or(after.len());
+            blocks.push(&after[..end]);
+            rest = &after[end..];
+        }
+        blocks
+    }
+
+    fn pinned_block<'a>(source: &'a str, needle: &str) -> &'a str {
+        let mut matches = cfg_not_linux_blocks(source)
+            .into_iter()
+            .filter(|block| block.contains(needle));
+        let block = matches
+            .next()
+            .unwrap_or_else(|| panic!("stub fehlt: {needle}"));
+        assert!(matches.next().is_none(), "stub mehrdeutig: {needle}");
+        block
+    }
+
+    /// FR-3: die fünf nicht-linux-stummel tragen den plattformcode mit detail
+    /// statt eines rohtextes (der als "unbekannt" in der oberfläche landet).
+    #[test]
+    fn nicht_linux_stummel_tragen_unsupported_platform() {
+        let sites: [(&str, &str); 5] = [
+            (
+                include_str!("libraryfolders.rs"),
+                "fn libraryfolders_contents_with_hook<F>(",
+            ),
+            (
+                include_str!("delete_inspect.rs"),
+                "fn delete_inspection_unsupported",
+            ),
+            (include_str!("write_gate.rs"), "fn read_config_text_bounded"),
+            (
+                include_str!("compat_auth.rs"),
+                "fn compat_root_contains_name_linux_with_hook<F>(",
+            ),
+            (
+                include_str!("compat_auth.rs"),
+                "Valve compat tool authority",
+            ),
+        ];
+        for (source, needle) in sites {
+            let block = pinned_block(source, needle);
+            assert!(
+                block.contains("errcode::UNSUPPORTED_PLATFORM"),
+                "{needle} muss with_detail(UNSUPPORTED_PLATFORM, ...) liefern: {block}"
+            );
+        }
+    }
+
+    /// FR-7: `prepare_app_dir` ist blockierende io und gehört in den
+    /// blocking-pool. Der Pin schlägt an, wenn der Aufruf vor
+    /// `spawn_blocking_io(` oder nach dem `.await` steht.
+    #[test]
+    fn prepare_app_dir_laeuft_im_blocking_pool() {
+        for (source, command) in [
+            (
+                include_str!("diagnostics.rs"),
+                "pub async fn read_log_tail(",
+            ),
+            (
+                include_str!("diagnostics.rs"),
+                "pub async fn log_diagnostic(",
+            ),
+            (
+                include_str!("diagnostics.rs"),
+                "pub async fn open_logs_folder(",
+            ),
+            (
+                include_str!("steam.rs"),
+                "pub async fn open_backups_folder(",
+            ),
+        ] {
+            let start = source
+                .find(command)
+                .unwrap_or_else(|| panic!("command fehlt: {command}"));
+            let rest = &source[start..];
+            let end = rest
+                .find("\n}")
+                .unwrap_or_else(|| panic!("ende fehlt: {command}"));
+            let body = &rest[..end];
+            let spawn = body
+                .find("spawn_blocking_io(")
+                .unwrap_or_else(|| panic!("kein spawn_blocking_io: {command}"));
+            let prepare = body
+                .find("prepare_app_dir(")
+                .unwrap_or_else(|| panic!("kein prepare_app_dir: {command}"));
+            let awaited = spawn
+                + body[spawn..]
+                    .find(".await")
+                    .unwrap_or_else(|| panic!("kein .await: {command}"));
+            assert!(
+                spawn < prepare && prepare < awaited,
+                "prepare_app_dir liegt nicht im blocking-pool: {command}"
+            );
+            assert_eq!(
+                body.matches("prepare_app_dir(").count(),
+                1,
+                "prepare_app_dir mehrfach in {command}"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

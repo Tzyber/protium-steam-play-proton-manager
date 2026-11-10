@@ -87,6 +87,29 @@ pub(super) fn unix_millis() -> Result<u64, String> {
         })
 }
 
+/// Sekundenstempel für Logzeilen. Derselbe Uhrvertrag wie `unix_millis`: ein
+/// rückwärts laufender uhrwert ist ein fehler, keine 0 (die stünde sonst als
+/// 1.1.1970 im log).
+pub(super) fn unix_seconds(now: SystemTime) -> Result<u64, String> {
+    now.duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .map_err(|error| {
+            errcode::with_detail(errcode::UNAVAILABLE, format!("system clock: {error}"))
+        })
+}
+
+/// Existenzprüfung ohne Symlink-Verfolgung (INV-2): nur ein belegtes NotFound
+/// heisst "nicht vorhanden", jeder andere io-fehler ist ein fehler und keine
+/// abwesenheit. Ein toter Symlink zählt als vorhanden, weil der rename ihn
+/// verdrängen würde.
+pub(super) fn exists_without_following(path: &Path) -> Result<bool, String> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(errcode::with_detail(errcode::code_for_io(&error), error)),
+    }
+}
+
 pub(super) fn random_suffix() -> String {
     // bewusst nanosekunden statt `unix_millis`: der suffix unterscheidet
     // namen innerhalb desselben aufrufs und derselben millisekunde. ein
@@ -139,11 +162,12 @@ pub(super) fn link_target_stays_inside(base_dir: &Path, target: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        canonicalize_nearest_ancestor, canonicalize_no_symlink, is_descendant_of, is_safe_path,
-        random_suffix, sanitize_path, unix_millis,
+        canonicalize_nearest_ancestor, canonicalize_no_symlink, exists_without_following,
+        is_descendant_of, is_safe_path, random_suffix, sanitize_path, unix_millis, unix_seconds,
     };
     use crate::commands::errcode;
     use std::path::Path;
+    use std::time::{Duration, UNIX_EPOCH};
 
     // ---- sicherheits-validierung ----
 
@@ -200,6 +224,41 @@ mod tests {
         // Ein pre-epoch-uhrfehler ist ohne eingriff in SystemTime nicht
         // simulierbar; der test hält den normalpfad fest.
         assert!(unix_millis().unwrap() > 0);
+    }
+
+    #[test]
+    fn unix_seconds_liefert_sekunden_seit_der_epoche() {
+        assert_eq!(unix_seconds(UNIX_EPOCH).unwrap(), 0);
+        assert_eq!(
+            unix_seconds(UNIX_EPOCH + Duration::from_secs(5)).unwrap(),
+            5
+        );
+    }
+
+    /// FR-1: ein rückwärts laufender uhrwert ist ein fehler, keine 0. Mit 0
+    /// stünde jede log-zeile auf dem 1.1.1970.
+    #[test]
+    fn unix_seconds_vor_der_epoche_meldet_unavailable() {
+        let error = unix_seconds(UNIX_EPOCH - Duration::from_secs(1)).unwrap_err();
+
+        assert!(errcode::has_code(&error, errcode::UNAVAILABLE), "{error}");
+        assert!(error.contains("system clock"), "detail verloren: {error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exists_without_following_nur_belegtes_notfound_ist_abwesenheit() {
+        let root = std::env::temp_dir().join(format!("protium-path-exists-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("datei"), b"x").unwrap();
+        std::os::unix::fs::symlink(root.join("fehlt"), root.join("verweis")).unwrap();
+
+        assert!(exists_without_following(&root.join("datei")).unwrap());
+        // ein toter symlink ist vorhanden: der rename würde ihn verdrängen.
+        assert!(exists_without_following(&root.join("verweis")).unwrap());
+        assert!(!exists_without_following(&root.join("fehlt")).unwrap());
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

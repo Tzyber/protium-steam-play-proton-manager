@@ -56,7 +56,10 @@ pub struct DeletionInspection {
 
 #[cfg(not(target_os = "linux"))]
 pub(super) fn delete_inspection_unsupported() -> String {
-    "delete inspection requires Linux no-follow descriptors".into()
+    errcode::with_detail(
+        errcode::UNSUPPORTED_PLATFORM,
+        "delete inspection requires Linux no-follow descriptors",
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -285,6 +288,9 @@ fn inspect_trash_target(context: &DeleteTargetContext<'_>) -> Result<DeletionIns
         context
             .canonical
             .file_name()
+            // FR-6: `validate_trash_target` garantiert einen nicht-leeren
+            // Basename des Papierkorb-Eintrags, der zweig ist unerreichbar
+            // (Audit 3.23 nicht reproduzierbar, keine Codeänderung).
             .unwrap_or_default()
             .to_string_lossy()
     );

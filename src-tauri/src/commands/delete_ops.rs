@@ -653,7 +653,10 @@ fn ensure_current_steam_root(
     snapshot: &EnvironmentSnapshot,
 ) -> Result<(), String> {
     let canonical = fs::canonicalize(steam_root).map_err(|error| {
-        errcode::with_detail(errcode::NOT_FOUND, format!("steam root: {error}"))
+        // FR-2: nur ein belegtes NotFound heisst "root weg". ENOTDIR oder
+        // EACCES sind lesefehler des angeforderten pfads und tragen deshalb die
+        // io-regel als code (vorher pauschal NOT_FOUND).
+        errcode::with_detail(errcode::code_for_io(&error), format!("steam root: {error}"))
     })?;
     if canonical != snapshot.steam_root {
         return Err(errcode::with_detail(

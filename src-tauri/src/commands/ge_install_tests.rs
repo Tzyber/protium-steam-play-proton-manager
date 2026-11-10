@@ -761,3 +761,96 @@ async fn install_ge_proton_lehnt_unscoped_steam_root_ab() {
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+// ---- FR-5: existenzprüfung ohne symlink-verfolgung ----
+
+const GE_RELEASE_URL: &str = "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton11-5/GE-Proton11-5-x86_64.tar.gz";
+
+fn ge_resolve(root: &Path) -> Result<GeInstallTargets, String> {
+    resolve_ge_install_targets(
+        root.to_str().unwrap(),
+        TargetArch::X86_64,
+        "GE-Proton11-5",
+        GE_RELEASE_URL,
+        "dl-1",
+        &|_: &Path| true,
+    )
+}
+
+/// `.exists()` folgt dem symlink und sah ein totes ziel als frei; der rename
+/// hätte es verdrängt. Ein vorhandener eintrag bleibt ein vorhandener eintrag.
+#[cfg(unix)]
+#[test]
+fn resolve_zaehlt_einen_toten_symlink_als_belegtes_ziel() {
+    let root = std::env::temp_dir().join(format!("test-ge-dangling-{}", random_suffix()));
+    let tools = root.join("compatibilitytools.d");
+    fs::create_dir_all(&tools).unwrap();
+    std::os::unix::fs::symlink(tools.join("fehlt"), tools.join(GE_NAME)).unwrap();
+
+    let error = ge_resolve(&root).err().expect("fehler erwartet");
+
+    assert!(errcode::has_code(&error, errcode::TOOL_EXISTS), "{error}");
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// EACCES beim stat des ziels ist keine abwesenheit. `0o400` lässt `read_dir`
+/// zu und den stat des kindes scheitern, damit genau die zielprüfung greift.
+#[cfg(unix)]
+#[test]
+fn resolve_meldet_eacces_des_zielpfads_als_unreadable() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("test-ge-target-eacces-{}", random_suffix()));
+    let tools = root.join("compatibilitytools.d");
+    fs::create_dir_all(&tools).unwrap();
+    fs::set_permissions(&tools, fs::Permissions::from_mode(0o400)).unwrap();
+    let unreadable = fs::symlink_metadata(tools.join(GE_NAME)).is_err();
+
+    let result = ge_resolve(&root);
+
+    fs::set_permissions(&tools, fs::Permissions::from_mode(0o700)).unwrap();
+    let _ = fs::remove_dir_all(&root);
+    if !unreadable {
+        // root umgeht den rechtecheck des kernels; der EACCES-fall ist dann
+        // nicht herstellbar (derselbe guard wie in libraryfolders_tests).
+        return;
+    }
+    let error = result.err().expect("fehler erwartet");
+    assert!(errcode::has_code(&error, errcode::UNREADABLE), "{error}");
+}
+
+/// Ein unlesbares `compatibilitytools.d` ist ein fehler, nicht "keine reste".
+/// Unter root macht ein selbstreferenz-symlink aus dem fall ein belegtes ELOOP.
+#[cfg(unix)]
+#[test]
+fn resolve_meldet_eacces_des_toolverzeichnisses_als_unreadable() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("test-ge-tools-eacces-{}", random_suffix()));
+    let tools = root.join("compatibilitytools.d");
+    fs::create_dir_all(&tools).unwrap();
+    fs::set_permissions(&tools, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_dir(&tools).is_ok() {
+        fs::set_permissions(&tools, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::remove_dir(&tools).unwrap();
+        std::os::unix::fs::symlink(&tools, &tools).unwrap();
+    }
+
+    let error = ge_resolve(&root).err().expect("fehler erwartet");
+
+    assert!(errcode::has_code(&error, errcode::UNREADABLE), "{error}");
+    assert!(
+        error.contains("read compatibilitytools.d"),
+        "read_dir-zweig nicht getroffen: {error}"
+    );
+    let _ = fs::set_permissions(&tools, fs::Permissions::from_mode(0o700));
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn eintragsfehler_im_toolverzeichnis_wird_kodiert() {
+    let error = leftover_name(Err(std::io::Error::from(
+        std::io::ErrorKind::PermissionDenied,
+    )))
+    .unwrap_err();
+
+    assert!(errcode::has_code(&error, errcode::UNREADABLE), "{error}");
+}

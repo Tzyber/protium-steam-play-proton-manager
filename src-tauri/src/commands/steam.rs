@@ -350,23 +350,25 @@ pub async fn open_backups_folder(app: tauri::AppHandle) -> Result<(), String> {
         .path()
         .app_cache_dir()
         .map_err(|e| errcode::with_detail(errcode::UNAVAILABLE, e))?;
-    // WARUM prepare_app_dir und nicht der Environment-Snapshot: die Backups
-    // gehoeren der App, die Anzeige muss auch ohne Steam-Installation
-    // funktionieren. prepare_app_dir bringt dieselbe Haertung (keine
-    // Symlink-Komponenten, regulaeres Verzeichnis, kanonischer Pfad, 0700).
-    // keine Wurzel heisst: der plattformpfad ist unbrauchbar (interne
-    // Invariante), kein Nutzerfehler.
-    let cache_root = cache_dir
-        .parent()
-        .ok_or_else(|| errcode::with_detail(errcode::UNAVAILABLE, "app cache: no parent root"))?;
-    let backup_dir = crate::commands::scope::prepare_app_dir(
-        &cache_dir.join("backups"),
-        cache_root,
-        "app backups",
-    )?;
     #[cfg(target_os = "linux")]
     {
+        // FR-7: anlegen und verengen sind blockierende io und laufen deshalb im
+        // blocking-pool, nicht auf dem Tokio-Worker.
         spawn_blocking_io(move || {
+            // WARUM prepare_app_dir und nicht der Environment-Snapshot: die
+            // Backups gehoeren der App, die Anzeige muss auch ohne
+            // Steam-Installation funktionieren. prepare_app_dir bringt dieselbe
+            // Haertung (keine Symlink-Komponenten, regulaeres Verzeichnis,
+            // kanonischer Pfad, 0700). keine Wurzel heisst: der plattformpfad
+            // ist unbrauchbar (interne Invariante), kein Nutzerfehler.
+            let cache_root = cache_dir.parent().ok_or_else(|| {
+                errcode::with_detail(errcode::UNAVAILABLE, "app cache: no parent root")
+            })?;
+            let backup_dir = crate::commands::scope::prepare_app_dir(
+                &cache_dir.join("backups"),
+                cache_root,
+                "app backups",
+            )?;
             crate::commands::external::open_directory_with_handler(
                 &mut crate::commands::external::spawn_detached_os,
                 &backup_dir,
@@ -376,7 +378,7 @@ pub async fn open_backups_folder(app: tauri::AppHandle) -> Result<(), String> {
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = backup_dir;
+        let _ = cache_dir;
         Err(errcode::UNSUPPORTED_PLATFORM.into())
     }
 }
