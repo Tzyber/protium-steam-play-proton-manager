@@ -3,6 +3,7 @@
 // der Webview. Hier liegen URL, Header, Redirect-Verbot, Timeout und Größe fest.
 use crate::commands::errcode;
 use serde::Serialize;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 // Spiegel zu RELEASES_URL (geproton.ts), LATEST_RELEASE_URL (update.ts) und
@@ -14,6 +15,27 @@ const PROTIUM_LATEST_URL: &str =
 const PROTONDB_SUMMARY_PREFIX: &str = "https://www.protondb.com/api/v1/reports/summaries/";
 const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(30);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const USER_AGENT: &str = concat!("protium/", env!("CARGO_PKG_VERSION"));
+
+/// Ein client für alle Abfragen: der builder pro `fetch` (Befund 3.19) legte
+/// bei jedem Aufruf Verbindungspool, TLS-Setup und DNS-Cache neu an. Der
+/// per-aufruf-timeout hängt bewusst am Request, nicht am Client; die
+/// Redirect-Policy bleibt `none` und gilt damit für jeden Request.
+fn shared_client() -> Result<&'static reqwest::Client, &'static str> {
+    static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .connect_timeout(CONNECT_TIMEOUT)
+                .user_agent(USER_AGENT)
+                .build()
+                .map_err(|error| errcode::with_detail(errcode::UNAVAILABLE, error))
+        })
+        .as_ref()
+        .map_err(String::as_str)
+}
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -39,14 +61,8 @@ async fn fetch(
     timeout: Duration,
 ) -> Result<HttpGetResponse, String> {
     let unavailable = |error: reqwest::Error| errcode::with_detail(errcode::UNAVAILABLE, error);
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(timeout)
-        .user_agent(concat!("protium/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .map_err(unavailable)?;
-    let mut request = client.get(url);
+    let client = shared_client().map_err(str::to_owned)?;
+    let mut request = client.get(url).timeout(timeout);
     if url.starts_with("https://api.github.com/") {
         request = request.header(reqwest::header::ACCEPT, "application/vnd.github+json");
     }
@@ -85,9 +101,33 @@ pub async fn http_get(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::test_util::production_source;
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::mpsc;
+
+    /// FR-1: der client wird einmal gebaut und geteilt; der timeout bleibt pro
+    /// Aufruf am Request. Ein eigener builder pro `fetch` ist der Befund 3.19,
+    /// ein clientweiter timeout würde den parameter des aufrufers ignorieren.
+    /// Beides ist nur am Quelltext prüfbar, weil ein zweiter client und ein
+    /// clientweiter timeout im verhalten nicht auffallen.
+    #[test]
+    fn client_wird_geteilt_und_timeout_bleibt_am_request() {
+        let production = production_source(include_str!("http_get.rs"));
+        let fetch = production
+            .split("async fn fetch(")
+            .nth(1)
+            .expect("fetch muss vorhanden sein");
+        let fetch = &fetch[..fetch.find("\n}\n").expect("fetch braucht einen rumpf")];
+        assert!(
+            !fetch.contains("Client::builder()"),
+            "der client gehört in einen geteilten OnceLock, nicht in fetch: {fetch}"
+        );
+        assert!(
+            fetch.contains(".timeout(timeout)"),
+            "der per-aufruf-timeout muss am RequestBuilder hängen: {fetch}"
+        );
+    }
 
     #[test]
     fn erlaubt_genau_die_drei_url_formen() {

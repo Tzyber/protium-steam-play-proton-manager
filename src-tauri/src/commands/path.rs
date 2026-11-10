@@ -25,11 +25,17 @@ pub(super) fn sanitize_path(p: &str, label: &str) -> Result<(), String> {
 }
 
 /// canonicalisierte pfade, die NIE in den scope aufgenommen werden dürfen.
+/// Gesperrt ist der Ort selbst und alles unter `b/`; ein bloßer präfix ohne
+/// trenner (`/etcfoo`) ist ein anderer Ort und bleibt erlaubt. Der vergleich
+/// allokiert nicht: `is_safe_path` steht vor jedem write-gate.
 pub(super) fn is_safe_path(canonical: &str) -> bool {
     let blocked: &[&str] = &["/", "/etc", "/proc", "/sys", "/dev"];
-    !blocked
-        .iter()
-        .any(|b| canonical == *b || canonical.starts_with(&format!("{b}/")))
+    !blocked.iter().any(|b| {
+        canonical == *b
+            || canonical
+                .strip_prefix(b)
+                .is_some_and(|rest| rest.starts_with('/'))
+    })
 }
 
 /// canonicalize eines pfads, dessen roh-input kein symlink sein darf.
@@ -279,6 +285,44 @@ mod tests {
         assert!(sanitize_path("/home/user/.steam", "test").is_ok());
         assert!(sanitize_path("/mnt/games", "test").is_ok());
         assert!(sanitize_path("/run/media/user/SteamLibrary", "test").is_ok());
+    }
+
+    /// FR-2-grenzen: nur `b` selbst und `b` + `/` sperren. `/etcfoo` ist ein
+    /// anderer ort als `/etc` und bleibt deshalb erlaubt; ein präfix-vergleich
+    /// ohne trenner würde es fälschlich sperren.
+    #[test]
+    fn safe_path_grenzen_sperren_nur_den_ort_selbst_und_seine_kinder() {
+        for (pfad, erwartet_erlaubt) in [
+            ("/", false),
+            ("/etc", false),
+            ("/etcfoo", true),
+            ("/etc/passwd", false),
+            ("/etc/", false),
+            ("/etc.", true),
+        ] {
+            assert_eq!(is_safe_path(pfad), erwartet_erlaubt, "{pfad}");
+        }
+    }
+
+    /// FR-2: der blocklist-vergleich vergleicht ohne allokation. Ein
+    /// `format!("{b}/")` pro eintrag und aufruf (Befund 3.20) prüft dasselbe,
+    /// allokiert aber bei jedem `is_safe_path` (es steht vor jedem write-gate).
+    #[test]
+    fn safe_path_vergleicht_ohne_allokation() {
+        let production = crate::commands::test_util::production_source(include_str!("path.rs"));
+        let body = production
+            .split("fn is_safe_path(canonical: &str) -> bool {")
+            .nth(1)
+            .expect("is_safe_path muss vorhanden sein");
+        let body = &body[..body
+            .find("\n}\n")
+            .expect("is_safe_path braucht einen rumpf")];
+        for verboten in ["format!", "to_string", "to_owned", "String"] {
+            assert!(
+                !body.contains(verboten),
+                "is_safe_path allokiert (`{verboten}`): {body}"
+            );
+        }
     }
 
     #[test]

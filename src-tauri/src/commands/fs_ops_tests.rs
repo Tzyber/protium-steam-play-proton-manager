@@ -6,6 +6,7 @@ use crate::commands::test_util::{WireSerializer, WireValue};
 #[cfg(target_os = "linux")]
 use crate::commands::vdf_patch::tests::BEIDE_LAYOUTS;
 use serde::ser::Serialize;
+use std::ffi::OsStr;
 use std::os::unix::fs as unixfs;
 use std::path::Path;
 
@@ -764,15 +765,75 @@ fn probe_exe_akzeptiert_eacces() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Der namensvergleich nimmt `&OsStr` entgegen und ignoriert die schreibweise
+/// ohne umweg über einen String (Befund 3.21).
 #[cfg(target_os = "linux")]
 #[test]
 fn is_steam_process_name_erkennt_steam_und_helpers() {
-    assert!(is_steam_process_name("steam"));
-    assert!(is_steam_process_name("Steam"));
-    assert!(is_steam_process_name("steamwebhelper"));
-    // der check bleibt beim namens-substring; fremde prozesse sperren nicht.
-    assert!(!is_steam_process_name("proton"));
-    assert!(!is_steam_process_name(""));
+    for (name, erwartet) in [
+        ("steam", true),
+        ("Steam", true),
+        ("STEAM", true),
+        ("StEaMwEbHeLpEr", true),
+        // der check bleibt beim namens-substring; fremde prozesse sperren nicht.
+        ("proton", false),
+        ("", false),
+        // kürzer als "steam": `windows(5)` liefert kein fenster.
+        ("Ste", false),
+    ] {
+        assert_eq!(
+            is_steam_process_name(OsStr::new(name)),
+            erwartet,
+            "{name:?}"
+        );
+    }
+}
+
+/// FR-3: kein `to_lowercase`/`into_owned` pro prozess und kein Sammel-Vec.
+/// Am verhalten ist das nicht sichtbar (beide formen matchen dieselben namen),
+/// deshalb pinnt der quelltext den weg über `&OsStr`.
+#[cfg(target_os = "linux")]
+#[test]
+fn prozessscan_prueft_namen_ohne_string_allokation() {
+    let production = production_source(include_str!("fs_ops.rs"));
+
+    let scan = production
+        .split("fn is_steam_running_sync()")
+        .nth(1)
+        .expect("is_steam_running_sync muss vorhanden sein");
+    let scan = &scan[..scan.find("\n}\n").expect("scan braucht einen rumpf")];
+    assert!(
+        scan.contains(".values().map(|process| process.name())"),
+        "der scan muss den namen als &OsStr weiterreichen: {scan}"
+    );
+    for verboten in ["to_string_lossy", "into_owned", "collect"] {
+        assert!(
+            !scan.contains(verboten),
+            "scan allokiert (`{verboten}`): {scan}"
+        );
+    }
+
+    let matcher = production
+        .split("fn is_steam_process_name(name: &OsStr) -> bool {")
+        .nth(1)
+        .expect("is_steam_process_name muss &OsStr nehmen");
+    let matcher = &matcher[..matcher.find("\n}\n").expect("matcher braucht einen rumpf")];
+    for erwartet in [
+        "as_bytes()",
+        "windows(5)",
+        "eq_ignore_ascii_case(b\"steam\")",
+    ] {
+        assert!(
+            matcher.contains(erwartet),
+            "matcher ohne {erwartet}: {matcher}"
+        );
+    }
+    for verboten in ["to_lowercase", "to_string", "into_owned", "collect"] {
+        assert!(
+            !matcher.contains(verboten),
+            "matcher allokiert (`{verboten}`): {matcher}"
+        );
+    }
 }
 
 /// Der befund des scannens als reine entscheidung: ohne die eigene PID ist die
@@ -781,7 +842,7 @@ fn is_steam_process_name_erkennt_steam_und_helpers() {
 #[cfg(target_os = "linux")]
 #[test]
 fn steam_running_from_verlangt_sichtbare_eigene_pid_und_steam_namen() {
-    let error = steam_running_from(false, Vec::new()).unwrap_err();
+    let error = steam_running_from(false, std::iter::empty::<&OsStr>()).unwrap_err();
     assert!(
         errcode::has_code(&error, errcode::STEAM_CHECK_UNAVAILABLE),
         "unerwarteter fehler: {error}"
@@ -792,9 +853,11 @@ fn steam_running_from_verlangt_sichtbare_eigene_pid_und_steam_namen() {
     );
 
     for (namen, erwartet) in [
-        (Vec::<String>::new(), false),
-        (vec!["proton".to_string()], false),
-        (vec!["steamwebhelper".to_string()], true),
+        (Vec::<&OsStr>::new(), false),
+        (vec![OsStr::new("proton")], false),
+        (vec![OsStr::new("steamwebhelper")], true),
+        (vec![OsStr::new("Steam")], true),
+        (vec![OsStr::new("STEAM")], true),
     ] {
         assert_eq!(
             steam_running_from(true, namen.clone()).unwrap(),

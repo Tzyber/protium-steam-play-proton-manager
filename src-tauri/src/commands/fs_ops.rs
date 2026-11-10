@@ -15,7 +15,11 @@ use crate::commands::steam_layout;
 use crate::commands::vdf_patch;
 use serde::Serialize;
 use std::collections::HashMap;
+#[cfg(target_os = "linux")]
+use std::ffi::OsStr;
 use std::fs;
+#[cfg(target_os = "linux")]
+use std::os::unix::ffi::OsStrExt;
 #[cfg(target_os = "linux")]
 use std::os::unix::io::AsRawFd;
 use std::path::Path;
@@ -371,9 +375,7 @@ pub(super) fn is_steam_running_sync() -> Result<bool, String> {
     let own_pid = sysinfo::Pid::from_u32(std::process::id());
     steam_running_from(
         sys.processes().contains_key(&own_pid),
-        sys.processes()
-            .values()
-            .map(|process| process.name().to_string_lossy().into_owned()),
+        sys.processes().values().map(|process| process.name()),
     )
 }
 
@@ -382,11 +384,11 @@ pub(super) fn is_steam_running_sync() -> Result<bool, String> {
 /// PID-Namespace), nicht etwa „kein Steam", und bleibt ein Fehler. Der
 /// Substring-Match schließt absichtlich Steam-Helper wie steamwebhelper ein;
 /// eine false-positive Blockade ist sicherer als ein false-negative während
-/// Writes.
+/// Writes. Die namen laufen als `&OsStr` durch: kein String pro prozess.
 #[cfg(target_os = "linux")]
-fn steam_running_from(
+fn steam_running_from<'a>(
     own_pid_visible: bool,
-    names: impl IntoIterator<Item = String>,
+    names: impl IntoIterator<Item = &'a OsStr>,
 ) -> Result<bool, String> {
     if !own_pid_visible {
         return Err(errcode::with_detail(
@@ -394,7 +396,7 @@ fn steam_running_from(
             format!("process list without own pid {}", std::process::id()),
         ));
     }
-    Ok(names.into_iter().any(|name| is_steam_process_name(&name)))
+    Ok(names.into_iter().any(is_steam_process_name))
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -501,9 +503,14 @@ fn probe_exe_not_resolvable(exe: &Path) -> Result<(), String> {
     }
 }
 
+/// Namensvergleich auf den rohbytes: `steam` in beliebiger schreibweise,
+/// ohne String-kopie und ohne lowercase-puffer pro prozess. Prozessnamen
+/// können nicht-UTF-8 sein; `as_bytes()` liest sie verlustfrei.
 #[cfg(target_os = "linux")]
-fn is_steam_process_name(name: &str) -> bool {
-    name.to_lowercase().contains("steam")
+fn is_steam_process_name(name: &OsStr) -> bool {
+    name.as_bytes()
+        .windows(5)
+        .any(|window| window.eq_ignore_ascii_case(b"steam"))
 }
 
 #[tauri::command]
