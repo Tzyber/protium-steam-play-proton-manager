@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, reactive, ref, watch } from "vue";
 import CleanupNotices from "../components/CleanupNotices.vue";
 import OrphanPanel from "../components/OrphanPanel.vue";
 import TrashPanel from "../components/TrashPanel.vue";
@@ -43,6 +43,21 @@ function onTabKeydown(e: KeyboardEvent, i: number) {
   nextTick(() => tabEls.value[next]?.focus());
 }
 
+// ---- verwaiste daten ----
+
+const shadercacheOrphans = computed(() => [...cleanup.shadercacheOrphans].sort(bySizeDesc));
+const compatdataOrphans = computed(() => [...cleanup.compatdataOrphans].sort(bySizeDesc));
+
+const selected = reactive(new Set<string>());
+const shaders = useSelection(() => shadercacheOrphans.value, { selected });
+const prefixes = useSelection(() => compatdataOrphans.value, {
+  selected,
+  candidates: (entries) => entries.filter((entry) => !entry.potentialShortcut),
+});
+const trashSelection = useSelection(() => cleanup.trash);
+
+// ---- ladepfad ----
+
 /** quelle des aktuell angezeigten cleanup-snapshots. ein neuer library-scan
  *  verwirft den alten stand sofort und lädt nach seinem erfolgreichen ende
  *  genau einmal nach. */
@@ -60,21 +75,15 @@ function resetCleanupForLibraryScan() {
   cleanup.resetForLibraryScan();
 }
 
-onMounted(async () => {
-  if (scan.status !== "done" || scan.result === null) {
-    if (scan.status !== "idle") resetCleanupForLibraryScan();
-    return;
-  }
+/** true, wenn die liste des aktuell gezeigten tabs nichts anzuzeigen hat. */
+function currentTabIsEmpty(): boolean {
+  if (tab.value === "shaders") return shadercacheOrphans.value.length === 0;
+  if (tab.value === "prefixes") return compatdataOrphans.value.length === 0;
+  return cleanup.trash.length === 0;
+}
 
-  cleanupScanGeneration = scan.scanGeneration;
-  await refreshCleanupForScan(cleanupScanGeneration);
-  // nicht auf einem leeren tab landen
-  if (!shadercacheOrphans.value.length) {
-    if (compatdataOrphans.value.length) tab.value = "prefixes";
-    else if (cleanup.trash.length) tab.value = "trash";
-  }
-});
-
+/** der EINZIGE ladepfad: mount, fortschritt und ergebnis laufen hier durch,
+ *  damit kein zweiter pfad denselben zustand anders setzt (FR-1). */
 watch(
   () => [scan.status, scan.scanGeneration, scan.result] as const,
   async ([status, generation, result]) => {
@@ -83,24 +92,21 @@ watch(
       resetCleanupForLibraryScan();
       return;
     }
-    if (status !== "done" || result === null || cleanupScanGeneration === generation) return;
+    if (status !== "done" || result === null) {
+      if (status !== "idle") resetCleanupForLibraryScan();
+      return;
+    }
+    if (cleanupScanGeneration === generation) return;
     cleanupScanGeneration = generation;
     await refreshCleanupForScan(generation);
+    // nicht auf einem leeren tab landen; ein tab, den der nutzer bewusst
+    // gewählt hat und der inhalt hat, bleibt stehen (FR-2).
+    if (shadercacheOrphans.value.length || !currentTabIsEmpty()) return;
+    if (compatdataOrphans.value.length) tab.value = "prefixes";
+    else if (cleanup.trash.length) tab.value = "trash";
   },
+  { immediate: true },
 );
-
-// ---- verwaiste daten ----
-
-const shadercacheOrphans = computed(() => [...cleanup.shadercacheOrphans].sort(bySizeDesc));
-const compatdataOrphans = computed(() => [...cleanup.compatdataOrphans].sort(bySizeDesc));
-
-const selected = reactive(new Set<string>());
-const shaders = useSelection(() => shadercacheOrphans.value, { selected });
-const prefixes = useSelection(() => compatdataOrphans.value, {
-  selected,
-  candidates: (entries) => entries.filter((entry) => !entry.potentialShortcut),
-});
-const trashSelection = useSelection(() => cleanup.trash);
 
 function displaySize(entries: readonly { sizeBytes?: number }[]): string {
   return formatSizeSummary(entries, formatKnownBytes);

@@ -461,4 +461,143 @@ describe("CleanupView incomplete deletions", () => {
     await settleView();
     expect(calls).toEqual(["orphans", "trash", "orphans", "trash"]);
   });
+
+  it.each([
+    {
+      name: "prefixes, wenn der shadercache leer ist und compatdata einträge hat",
+      orphans: [makeOrphan(1, "compatdata")],
+      trash: [] as TrashEntry[],
+      expected: "prefixes",
+    },
+    {
+      name: "trash, wenn shadercache und compatdata leer sind",
+      orphans: [] as OrphanEntry[],
+      trash: [makeTrashEntry({ appId: 2, sizeBytes: 1024 })],
+      expected: "trash",
+    },
+    {
+      name: "shaders, wenn alle listen leer sind",
+      orphans: [] as OrphanEntry[],
+      trash: [] as TrashEntry[],
+      expected: "shaders",
+    },
+  ])("wählt beim mount vor: $name", async ({ orphans, trash, expected }) => {
+    const store = useCleanupStore();
+    const scan = useScanStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    scan.status = "done";
+    scan.scanGeneration = 1;
+    scan.result = scanResult({ steamRoot: "/lib", libraries: ["/lib"] });
+    store.orphans = orphans;
+    store.trash = trash;
+
+    const wrapper = mount(CleanupView);
+    await settleView();
+
+    expect(wrapper.get(`#cv-tab-${expected}`).attributes("aria-selected")).toBe("true");
+  });
+
+  it("wechselt nach einem rescan auf den prefix-tab, wenn der shadercache leer wird", async () => {
+    const store = useCleanupStore();
+    const scan = useScanStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    scan.status = "done";
+    scan.scanGeneration = 1;
+    scan.result = scanResult({ steamRoot: "/lib", libraries: ["/lib"] });
+    store.orphans = [makeOrphan(1, "shadercache"), makeOrphan(2, "compatdata")];
+
+    const wrapper = mount(CleanupView);
+    await settleView();
+    // der mount-scan findet shader-caches: der shadertab bleibt stehen
+    expect(wrapper.get("#cv-tab-shaders").attributes("aria-selected")).toBe("true");
+
+    // rescan: der shadercache ist danach leer, compatdata bleibt bestehen
+    scan.scanGeneration = 2;
+    scan.status = "scanning";
+    await settleView();
+    store.orphans = [makeOrphan(2, "compatdata")];
+    scan.result = scanResult({ steamRoot: "/lib", libraries: ["/lib"] });
+    scan.status = "done";
+
+    await vi.waitFor(() =>
+      expect(wrapper.get("#cv-tab-prefixes").attributes("aria-selected")).toBe("true"),
+    );
+  });
+
+  it("wechselt vom leeren prefix-tab auf trash, wenn nach dem rescan nur trash gefüllt ist", async () => {
+    const store = useCleanupStore();
+    const scan = useScanStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    scan.status = "done";
+    scan.scanGeneration = 1;
+    scan.result = scanResult({ steamRoot: "/lib", libraries: ["/lib"] });
+    store.orphans = [makeOrphan(1, "compatdata")];
+    store.trash = [makeTrashEntry({ appId: 2, sizeBytes: 1024 })];
+
+    const wrapper = mount(CleanupView);
+    await settleView();
+    expect(wrapper.get("#cv-tab-prefixes").attributes("aria-selected")).toBe("true");
+
+    scan.scanGeneration = 2;
+    scan.status = "scanning";
+    await settleView();
+    store.orphans = [];
+    store.trash = [makeTrashEntry({ appId: 3, sizeBytes: 2048 })];
+    scan.result = scanResult({ steamRoot: "/lib", libraries: ["/lib"] });
+    scan.status = "done";
+
+    await vi.waitFor(() =>
+      expect(wrapper.get("#cv-tab-trash").attributes("aria-selected")).toBe("true"),
+    );
+  });
+
+  it("leert den cleanup-stand bei einem fehlerstatus", async () => {
+    const store = useCleanupStore();
+    const scan = useScanStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    scan.status = "error";
+    store.orphans = [makeOrphan(1, "shadercache")];
+    store.trash = [makeTrashEntry({ appId: 2, sizeBytes: 1024 })];
+
+    mount(CleanupView);
+    await settleView();
+
+    expect(store.orphans).toEqual([]);
+    expect(store.trash).toEqual([]);
+  });
+
+  it("lässt einen vom nutzer gewählten, nicht-leeren tab nach dem rescan stehen", async () => {
+    const store = useCleanupStore();
+    const scan = useScanStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    const calls: string[] = [];
+    vi.spyOn(store, "scanTrash").mockImplementation(async () => {
+      calls.push("trash");
+    });
+    scan.status = "done";
+    scan.scanGeneration = 1;
+    scan.result = scanResult({ steamRoot: "/lib", libraries: ["/lib"] });
+    store.orphans = [makeOrphan(1, "compatdata")];
+    store.trash = [makeTrashEntry({ appId: 2, sizeBytes: 1024 })];
+
+    const wrapper = mount(CleanupView);
+    await settleView();
+    expect(wrapper.get("#cv-tab-prefixes").attributes("aria-selected")).toBe("true");
+    await wrapper.get("#cv-tab-trash").trigger("click");
+
+    scan.scanGeneration = 2;
+    scan.status = "scanning";
+    await settleView();
+    store.orphans = [makeOrphan(1, "compatdata")];
+    store.trash = [makeTrashEntry({ appId: 2, sizeBytes: 1024 })];
+    scan.result = scanResult({ steamRoot: "/lib", libraries: ["/lib"] });
+    scan.status = "done";
+
+    await vi.waitFor(() => expect(calls).toEqual(["trash", "trash"]));
+    await settleView();
+    expect(wrapper.get("#cv-tab-trash").attributes("aria-selected")).toBe("true");
+  });
 });
