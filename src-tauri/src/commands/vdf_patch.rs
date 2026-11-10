@@ -16,6 +16,20 @@ pub struct Token {
     pub end: usize,
 }
 
+/// P12a: tiefen-cap des Block-Scans. Steam-Dateien liegen bei wenigen Ebenen.
+const MAX_DEPTH: usize = 256;
+
+/// Haengt einen Token an und meldet `SIZE_LIMIT`, sobald der Strom den Cap
+/// ueberschreitet. Der Cap selbst gehoert in den Aufrufer, weil er von der
+/// Textlaenge abhaengt.
+fn push_capped(tokens: &mut Vec<Token>, token: Token, max_tokens: usize) -> Result<(), String> {
+    tokens.push(token);
+    if tokens.len() > max_tokens {
+        return Err(errcode::with_detail(errcode::SIZE_LIMIT, "vdf token limit"));
+    }
+    Ok(())
+}
+
 fn unescape_raw(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     let mut chars = raw.chars().peekable();
@@ -43,6 +57,10 @@ fn quote(v: &str) -> String {
 }
 
 pub fn tokenize(text: &str) -> Result<Vec<Token>, String> {
+    // P12a: ein token braucht mindestens ein byte, deshalb liegt der cap bei
+    // der halben textlaenge plus kopfraum. er deckelt die speicherlast eines
+    // token-dichten stroms ("{}"), ohne legitime dateien zu treffen.
+    let max_tokens = text.len() / 2 + 16;
     let mut tokens = Vec::new();
     let bytes = text.as_bytes();
     let len = bytes.len();
@@ -77,11 +95,15 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, String> {
             } else {
                 TokenKind::Close
             };
-            tokens.push(Token {
-                kind,
-                start: i,
-                end: i + 1,
-            });
+            push_capped(
+                &mut tokens,
+                Token {
+                    kind,
+                    start: i,
+                    end: i + 1,
+                },
+                max_tokens,
+            )?;
             i += 1;
             continue;
         }
@@ -112,11 +134,15 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, String> {
                 ));
             }
             i += 1; // closing quote
-            tokens.push(Token {
-                kind: TokenKind::String(unescape_raw(&raw)),
-                start,
-                end: i,
-            });
+            push_capped(
+                &mut tokens,
+                Token {
+                    kind: TokenKind::String(unescape_raw(&raw)),
+                    start,
+                    end: i,
+                },
+                max_tokens,
+            )?;
             continue;
         }
 
@@ -131,11 +157,15 @@ pub fn tokenize(text: &str) -> Result<Vec<Token>, String> {
                 format!("invalid UTF-8 in bare token: {e}"),
             )
         })?;
-        tokens.push(Token {
-            kind: TokenKind::String(bare_str.to_string()),
-            start,
-            end: i,
-        });
+        push_capped(
+            &mut tokens,
+            Token {
+                kind: TokenKind::String(bare_str.to_string()),
+                start,
+                end: i,
+            },
+            max_tokens,
+        )?;
     }
 
     Ok(tokens)
@@ -148,18 +178,21 @@ pub(crate) struct Entry<'a> {
     pub(crate) block: Option<(usize, usize)>, // token index range (from, to)
 }
 
-pub(crate) fn scan_entries<'a>(
+/// Ein gemeinsamer Entry-Walker (P12a): liest ab `*index` den naechsten
+/// Eintrag und schiebt `*index` hinter ihn; `None` am Ende des Range. Alle
+/// Strukturbruch-Meldungen (unerwarteter Token, Key ohne Wert, unbalancierte
+/// Klammern, Tiefe) entstehen genau hier, damit `scan_entries` und
+/// `find_entry` bei kaputten Eingaben gleich abbrechen.
+fn next_entry<'a>(
     tokens: &'a [Token],
-    from: usize,
+    index: &mut usize,
     to: usize,
-) -> Result<Vec<Entry<'a>>, String> {
-    let mut entries = Vec::new();
-    let mut i = from;
-    while i < to {
+) -> Result<Option<Entry<'a>>, String> {
+    while *index < to {
+        let i = *index;
         let t = &tokens[i];
-        // r-17: das let-else belegt den String hart. der frueher redundante
-        // matches!-check plus die if-let-schale waren toter code; im
-        // nicht-fall waere der aufruf in tokens[i + 1] gelaufen (index-panik).
+        // r-17: das let-else belegt den String hart. im nicht-fall waere der
+        // aufruf in tokens[i + 1] gelaufen (index-panik).
         let TokenKind::String(key) = &t.kind else {
             return Err(errcode::with_detail(
                 errcode::UNREADABLE,
@@ -167,12 +200,11 @@ pub(crate) fn scan_entries<'a>(
             ));
         };
         if key.starts_with('[') {
-            i += 1;
+            *index = i + 1;
             continue;
         }
         if i + 1 >= to {
-            // kein folge-token: der key hat keinen wert. kein zugriff auf
-            // tokens[i + 1]; der alte if-let-zweig traf hier immer zu.
+            // kein folge-token: der key hat keinen wert.
             return Err(errcode::with_detail(
                 errcode::UNREADABLE,
                 format!("key \"{key}\" has no value"),
@@ -181,50 +213,67 @@ pub(crate) fn scan_entries<'a>(
         let next = &tokens[i + 1];
         match next.kind {
             TokenKind::Open => {
-                let mut depth = 1;
+                let mut depth = 1usize;
                 let mut j = i + 2;
                 while j < to && depth > 0 {
                     match tokens[j].kind {
-                        TokenKind::Open => depth += 1,
+                        TokenKind::Open => {
+                            depth += 1;
+                            if depth > MAX_DEPTH {
+                                return Err(errcode::with_detail(
+                                    errcode::SIZE_LIMIT,
+                                    "vdf depth limit",
+                                ));
+                            }
+                        }
                         TokenKind::Close => depth -= 1,
                         _ => {}
                     }
                     j += 1;
                 }
                 if depth != 0 {
-                    // der key ist durch das let-else oben bereits belegt; der
-                    // alte if-let-zweig war immer wahr und toter code.
                     return Err(errcode::with_detail(
                         errcode::UNREADABLE,
                         format!("unbalanced braces in \"{key}\""),
                     ));
                 }
-                entries.push(Entry {
+                *index = j;
+                return Ok(Some(Entry {
                     key: t,
                     value: next,
                     block: Some((i + 2, j - 1)),
-                });
-                i = j;
+                }));
             }
             TokenKind::Close => {
-                // r-17: hartes return statt durchfallen. der key ist durch das
-                // let-else oben belegt, ein nicht-String kann hier nicht mehr
-                // auftreten; ohne return liefe die schleife mit unveraendertem
-                // i endlos.
+                // r-17: hartes return statt durchfallen; ohne return liefe die
+                // schleife mit unveraendertem i endlos.
                 return Err(errcode::with_detail(
                     errcode::UNREADABLE,
                     format!("key \"{key}\" has no value"),
                 ));
             }
             TokenKind::String(_) => {
-                entries.push(Entry {
+                *index = i + 2;
+                return Ok(Some(Entry {
                     key: t,
                     value: next,
                     block: None,
-                });
-                i += 2;
+                }));
             }
         }
+    }
+    Ok(None)
+}
+
+pub(crate) fn scan_entries<'a>(
+    tokens: &'a [Token],
+    from: usize,
+    to: usize,
+) -> Result<Vec<Entry<'a>>, String> {
+    let mut entries = Vec::new();
+    let mut index = from;
+    while let Some(entry) = next_entry(tokens, &mut index, to)? {
+        entries.push(entry);
     }
     Ok(entries)
 }
@@ -235,11 +284,11 @@ pub(crate) fn find_entry<'a>(
     to: usize,
     key: &str,
 ) -> Result<Option<Entry<'a>>, String> {
-    let entries = scan_entries(tokens, from, to)?;
-    for e in entries {
-        if let TokenKind::String(k) = &e.key.kind {
+    let mut index = from;
+    while let Some(entry) = next_entry(tokens, &mut index, to)? {
+        if let TokenKind::String(k) = &entry.key.kind {
             if k.eq_ignore_ascii_case(key) {
-                return Ok(Some(e));
+                return Ok(Some(entry));
             }
         }
     }

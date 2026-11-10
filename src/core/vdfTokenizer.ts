@@ -28,7 +28,14 @@ interface VdfTokenizeResult {
   /** gesetzt, wenn der text mitten in einem token endet (offener string oder
    *  offenes blockkommentar). die betroffene restfolge fehlt in `tokens`. */
   unterminated: "string" | "block-comment" | undefined;
+  /** gesetzt, wenn der text den token- oder tiefen-cap überschreitet (P12a).
+   *  der betroffene rest fehlt in `tokens`; die aufrufer behandeln das wie
+   *  `unterminated` (rest roh) oder brechen mit `vdf-limit` ab. */
+  limitExceeded: "tokens" | "depth" | undefined;
 }
+
+/** P12a: tiefen-cap. Steam-Dateien liegen bei wenigen Ebenen. */
+const MAX_DEPTH = 256;
 
 /** Gemeinsamer Text-VDF-Tokenizer (K-02): ersetzt die drei zuvor unabhängigen
  *  lexer im früheren `vdfpatch.ts`, in `manifest.ts` und `vdf.ts`. bewusst nicht-werfend,
@@ -37,11 +44,24 @@ interface VdfTokenizeResult {
  *  die entscheidungen bei den zuvor abweichenden fällen stehen jeweils an der
  *  stelle. */
 export function tokenizeVdf(text: string): VdfTokenizeResult {
+  // P12a: ein token braucht mindestens ein zeichen, deshalb liegt der cap bei
+  // der halben textlänge plus kopfraum. er deckelt die arbeit eines
+  // token-dichten stroms ("{}"), ohne legitime dateien zu treffen.
+  const maxTokens = Math.floor(text.length / 2) + 16;
   const tokens: VdfToken[] = [];
   let unterminated: VdfTokenizeResult["unterminated"];
+  let limitExceeded: VdfTokenizeResult["limitExceeded"];
+  let depth = 0;
   let cursor = 0;
 
-  while (cursor < text.length) {
+  const pushToken = (token: VdfToken): void => {
+    tokens.push(token);
+    if (tokens.length > maxTokens) limitExceeded = "tokens";
+  };
+
+  // die bedingung beendet den walk, sobald ein cap greift; der rest des textes
+  // bleibt damit roh (wie bei `unterminated`).
+  while (cursor < text.length && limitExceeded === undefined) {
     const character = text[cursor];
 
     if (isVdfWhitespace(character)) {
@@ -67,7 +87,12 @@ export function tokenizeVdf(text: string): VdfTokenizeResult {
     }
 
     if (character === "{") {
-      tokens.push({
+      depth += 1;
+      if (depth > MAX_DEPTH) {
+        limitExceeded = "depth";
+        break;
+      }
+      pushToken({
         kind: "open",
         raw: "{",
         value: "{",
@@ -80,7 +105,10 @@ export function tokenizeVdf(text: string): VdfTokenizeResult {
     }
 
     if (character === "}") {
-      tokens.push({
+      // ein `}` ohne offene klammer zählt nicht negativ: die tiefe ist eine
+      // schranke gegen verschachtelung, keine bilanzprüfung.
+      depth = Math.max(0, depth - 1);
+      pushToken({
         kind: "close",
         raw: "}",
         value: "}",
@@ -113,7 +141,7 @@ export function tokenizeVdf(text: string): VdfTokenizeResult {
       }
       if (text[end] === "]") end += 1;
       const raw = text.slice(cursor, end);
-      tokens.push({ kind: "conditional", raw, value: raw, start: cursor, end, quoted: false });
+      pushToken({ kind: "conditional", raw, value: raw, start: cursor, end, quoted: false });
       cursor = end;
       continue;
     }
@@ -141,7 +169,7 @@ export function tokenizeVdf(text: string): VdfTokenizeResult {
         break;
       }
       const raw = text.slice(contentStart, cursor);
-      tokens.push({
+      pushToken({
         kind: "string",
         raw,
         value: unescapeVdfRaw(raw),
@@ -173,7 +201,7 @@ export function tokenizeVdf(text: string): VdfTokenizeResult {
       cursor += 1;
     }
     const raw = text.slice(start, cursor);
-    tokens.push({ kind: "string", raw, value: raw, start, end: cursor, quoted: false });
+    pushToken({ kind: "string", raw, value: raw, start, end: cursor, quoted: false });
     // ein `/*` mitten im bare-token ist wertmüll, kein blockkommentar: der wert
     // bricht wie bei `http://x` → `http:` am kommentaranfang ab und der tote
     // rest endet am zeilenende, auch ohne `*/`. sonst würde ein unterminierter
@@ -186,7 +214,7 @@ export function tokenizeVdf(text: string): VdfTokenizeResult {
     }
   }
 
-  return { tokens, unterminated };
+  return { tokens, unterminated, limitExceeded };
 }
 
 // valve-whitespace ist mehr als ` \t\r\n`: die lib nutzt `trim`, deshalb gilt

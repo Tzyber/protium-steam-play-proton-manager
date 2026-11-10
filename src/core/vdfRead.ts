@@ -1,6 +1,7 @@
 // bytegenauer VDF-leser für den string-patch-pfad (getVdfValue; das patchen
 // selbst lebt in rust, vdf_patch.rs). der tokenizer liegt in vdfTokenizer.ts.
 
+import { ProtiumError } from "./errors.js";
 import { errText } from "./errtext.js";
 import { tokenizeVdf, type VdfToken } from "./vdfTokenizer.js";
 
@@ -21,9 +22,20 @@ interface Entry {
 }
 
 // vdfRead ist der bytegenaue leser und meldet einen unterminierten string
-// bzw. blockkommentar als fehler, statt wie manifest/vdf roh abzubrechen.
+// bzw. blockkommentar als fehler, statt wie manifest/vdf roh abzubrechen. ein
+// überschrittenes token-/tiefen-cap (P12a) bricht mit dem kanonischen code ab;
+// die meldung trägt wie bei `SteamRunningError` nur den code, das detail die
+// diagnostik (K-09).
 function tokenize(text: string): VdfToken[] {
-  const { tokens, unterminated } = tokenizeVdf(text);
+  const { tokens, unterminated, limitExceeded } = tokenizeVdf(text);
+  if (limitExceeded !== undefined) {
+    throw new ProtiumError(
+      "unreadable",
+      "vdf-limit",
+      "vdf-limit",
+      limitExceeded === "tokens" ? "vdf token limit" : "vdf depth limit",
+    );
+  }
   if (unterminated === "string") throw new VdfPatchError("unterminierter string");
   if (unterminated === "block-comment") throw new VdfPatchError("unterminierter block-kommentar");
   return tokens;

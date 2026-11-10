@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { parseManifest } from "../../src/core/manifest.js";
 import { getPath, parseVdf } from "../../src/core/vdf.js";
@@ -266,5 +268,38 @@ describe("skalierung des tokenizers (A-01)", () => {
     // Die grenze bleibt `]`-oder-zeilenende: ein `]` hinter dem umbruch gehört
     // nicht mehr zum marker, der rest wird zum bare-token.
     expect(spans("[a\nb]")).toEqual(["[a", "b]"]);
+  });
+});
+
+describe("token- und tiefen-cap (P12a)", () => {
+  // P12a: ein token braucht mindestens ein byte; der cap liegt bei der halben
+  // textlänge plus kopfraum, die tiefe bei 256 ebenen.
+  const GOLDEN = readFileSync(
+    resolve(import.meta.dirname, "../fixtures/text-vdf-golden.vdf"),
+    "utf8",
+  );
+  /** `depth` verschachtelungsebenen als eine wurzelkette. */
+  const nested = (depth: number): string =>
+    Array.from({ length: depth }, (_, level) => `"L${level}"\n{\n`).join("") +
+    '\t"Blatt"\t\t"x"\n' +
+    "}\n".repeat(depth);
+
+  it("lässt die größte legitime fixture unter dem cap", () => {
+    const { tokens, limitExceeded } = tokenizeVdf(GOLDEN);
+    expect(limitExceeded).toBeUndefined();
+    expect(tokens).toHaveLength(39);
+  });
+
+  it("meldet eine überschrittene tokenmenge", () => {
+    // "{}" liefert ein token je zeichen: 16 paare liegen exakt am cap, 17
+    // überschreiten ihn.
+    expect(tokenizeVdf("{}".repeat(16)).limitExceeded).toBeUndefined();
+    expect(tokenizeVdf("{}".repeat(17)).limitExceeded).toBe("tokens");
+  });
+
+  it("meldet eine überschrittene tiefe", () => {
+    const flach = tokenizeVdf(nested(256));
+    expect(flach.limitExceeded).toBeUndefined();
+    expect(tokenizeVdf(nested(257)).limitExceeded).toBe("depth");
   });
 });

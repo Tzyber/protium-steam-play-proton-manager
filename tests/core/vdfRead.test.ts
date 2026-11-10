@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { ProtiumError } from "../../src/core/errors.js";
 import { getVdfChildFieldValues, getVdfValue, VdfPatchError } from "../../src/core/vdfRead.js";
 
 const LOCALCONFIG = `"UserLocalConfigStore"
@@ -231,6 +232,20 @@ describe("VDF-parser-fehler", () => {
   it("meldet unbalancierte klammern", () => {
     const text = `"Root"\n{\n\t"Key"\t\t"value"\n`;
     expect(() => getVdfValue(text, ["Root", "Key"])).toThrow(VdfPatchError);
+  });
+
+  it("meldet ein überschrittenes token-cap als vdf-limit", () => {
+    // P12a: der cap bricht als unreadable/vdf-limit ab und nicht als
+    // VdfPatchError; der code ist der vertrag zur oberfläche.
+    const text = `"Root"\n{\n\t"Key"\t\t"value"\n}\n${"{}".repeat(128)}`;
+    let caught: unknown;
+    try {
+      getVdfValue(text, ["Root", "Key"]);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ProtiumError);
+    expect(caught).toMatchObject({ kind: "unreadable", code: "vdf-limit" });
   });
 });
 

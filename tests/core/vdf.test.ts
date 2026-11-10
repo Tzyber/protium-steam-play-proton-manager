@@ -2,7 +2,14 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parse } from "@node-steam/vdf";
 import { describe, expect, it } from "vitest";
-import { asNode, getPath, parseVdf, type VdfNode, type VdfValue } from "../../src/core/vdf.js";
+import {
+  asNode,
+  getPath,
+  parseVdf,
+  rawVdfField,
+  type VdfNode,
+  type VdfValue,
+} from "../../src/core/vdf.js";
 import { getVdfValue } from "../../src/core/vdfRead.js";
 
 describe("parseVdf prototype-safety", () => {
@@ -427,5 +434,24 @@ describe("parseVdf lehnt offene werte linear ab (S-01)", () => {
     expect(getPath(parsed, "a", "b")).toBe("C:\\\\");
     expect(getPath(parsed, "a", "c")).toBe('x \\"y\\"');
     expect(getPath(parsed, "a", "d")).toBeUndefined();
+  });
+});
+
+// P12a: der token-cap bricht bei vdf.ts wie ein unterminierter token ab (die
+// gelesenen tokens bleiben nutzbar, der rest geht roh in den pre-pass) und
+// rawVdfField liefert undefined statt eines teilstroms.
+describe("token-cap im pre-pass und in rawVdfField (P12a)", () => {
+  const PRAEFIX = '"AppState"\n{\n\t"appid"\t\t"620"\n\t"name"\t\t"Portal 2"\n}\n';
+  const UEBER_CAP = "{}".repeat(128);
+
+  it("lässt den pre-pass weiterlaufen und den rest roh", () => {
+    expect(getPath(parseVdf(PRAEFIX + UEBER_CAP), "AppState", "appid")).toBe(620);
+    // positiver gegenhalt: derselbe wert ohne den überlangen rest
+    expect(getPath(parseVdf(PRAEFIX), "AppState", "name")).toBe("Portal 2");
+  });
+
+  it("liefert für rawVdfField undefined statt eines teilstroms", () => {
+    expect(rawVdfField(PRAEFIX, ["AppState", "name"])).toBe("Portal 2");
+    expect(rawVdfField(PRAEFIX + UEBER_CAP, ["AppState", "name"])).toBeUndefined();
   });
 });

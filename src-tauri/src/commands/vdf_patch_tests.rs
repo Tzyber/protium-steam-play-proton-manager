@@ -892,6 +892,98 @@ fn extract_vdf_blocks_lehnt_kaputte_datei_ab() {
     );
 }
 
+// P12a: token- und tiefen-cap. ein token braucht mindestens ein byte, deshalb
+// liegt der token-cap bei der halben textlänge plus kopfraum für dateien, in
+// denen trennzeichen und token gleich viele bytes belegen.
+const GROESSTE_FIXTURE: &str = include_str!("../../../tests/fixtures/text-vdf-golden.vdf");
+
+#[test]
+fn tokenize_laesst_die_groesste_fixture_unter_dem_cap() {
+    let tokens = tokenize(GROESSTE_FIXTURE).unwrap();
+    assert_eq!(tokens.len(), 39);
+    assert!(tokens.len() < GROESSTE_FIXTURE.len() / 2 + 16);
+}
+
+#[test]
+fn tokenize_deckelt_die_tokenmenge() {
+    // "{}" liefert ein token je byte: 16 paare liegen exakt am cap, 17
+    // überschreiten ihn.
+    assert!(tokenize(&"{}".repeat(16)).is_ok());
+    assert_eq!(
+        tokenize(&"{}".repeat(17)).unwrap_err(),
+        errcode::with_detail(errcode::SIZE_LIMIT, "vdf token limit")
+    );
+    // der dichteste legitime strom (zwei ein-byte-tokens je vier bytes) bleibt
+    // durch den kopfraum unter dem cap.
+    let dicht = "a b ".repeat(64);
+    assert_eq!(tokenize(&dicht).unwrap().len(), 128);
+    assert!(dicht.len() / 2 + 16 > 128);
+}
+
+/// `depth` verschachtelungsebenen als eine wurzelkette.
+fn verschachtelt(depth: usize) -> String {
+    let mut text = String::new();
+    for level in 0..depth {
+        text.push_str(&format!("\"L{level}\"\n{{\n"));
+    }
+    text.push_str("\t\"Blatt\"\t\t\"x\"\n");
+    for _ in 0..depth {
+        text.push_str("}\n");
+    }
+    text
+}
+
+#[test]
+fn scan_entries_deckelt_die_tiefe() {
+    let flach = verschachtelt(MAX_DEPTH);
+    let tokens = tokenize(&flach).unwrap();
+    assert!(
+        scan_entries(&tokens, 0, tokens.len()).is_ok(),
+        "MAX_DEPTH ebenen sind erlaubt"
+    );
+
+    let tief = verschachtelt(MAX_DEPTH + 1);
+    let tokens = tokenize(&tief).unwrap();
+    let limit = errcode::with_detail(errcode::SIZE_LIMIT, "vdf depth limit");
+    assert_eq!(scan_entries(&tokens, 0, tokens.len()).unwrap_err(), limit);
+    // der gemeinsame walker meldet denselben abbruch für find_entry
+    assert_eq!(
+        find_entry(&tokens, 0, tokens.len(), "NichtDa").unwrap_err(),
+        limit
+    );
+}
+
+#[test]
+fn scan_und_find_brechen_bei_kaputten_eingaben_gleich_ab() {
+    // ein walker für beide leser: derselbe strukturbruch ergibt dieselbe
+    // meldung, egal ob gesammelt oder gesucht wird.
+    for text in [
+        "\"A\"\t\t\"1\"\n\"Kaputt\"\n",
+        "\"A\"\n{\n\t\"B\"\t\t\"1\"\n",
+        "{ \"A\"\t\t\"1\" }",
+        "\"A\" }",
+    ] {
+        let tokens = tokenize(text).unwrap();
+        let scan = scan_entries(&tokens, 0, tokens.len()).unwrap_err();
+        let find = find_entry(&tokens, 0, tokens.len(), "NichtDa").unwrap_err();
+        assert_eq!(find, scan, "kaputte eingabe {text:?}");
+    }
+}
+
+#[test]
+fn find_entry_bricht_beim_treffer_ab() {
+    // der treffer steht vor dem defekt: wer sucht, hört beim treffer auf; wer
+    // sammelt, läuft weiter und meldet.
+    let text = "\"A\"\t\t\"1\"\n\"Kaputt\"\n";
+    let tokens = tokenize(text).unwrap();
+    assert_eq!(
+        scan_entries(&tokens, 0, tokens.len()).unwrap_err(),
+        errcode::with_detail(errcode::UNREADABLE, "key \"Kaputt\" has no value")
+    );
+    let entry = find_entry(&tokens, 0, tokens.len(), "a").unwrap().unwrap();
+    assert_eq!(entry.value.kind, TokenKind::String("1".to_string()));
+}
+
 #[test]
 fn extract_vdf_blocks_lehnt_leere_pfadliste_ab() {
     // Befund 13: eine leere pfadliste war vorher ein stiller erfolg (`""`) und

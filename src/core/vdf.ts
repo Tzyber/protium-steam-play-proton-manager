@@ -164,8 +164,9 @@ function neutralizeDangerousBlockKeys(text: string): string {
     cursor = token.end;
   }
 
-  // offener string oder offenes blockkommentar: die restfolge fehlt in `tokens`
-  // und wird roh angehängt, damit der pre-pass nichts verliert.
+  // offener string, offenes blockkommentar oder ein überschrittenes cap (P12a):
+  // die restfolge fehlt in `tokens` und wird roh angehängt, damit der pre-pass
+  // nichts verliert.
   if (cursor < text.length) output.push(text.slice(cursor));
   return output.join("");
 }
@@ -243,7 +244,10 @@ export function asInt(v: VdfValue | undefined): number | undefined {
  *  Conditionals zählen nicht als Key oder Wert. Keys sind case-insensitive,
  *  der letzte Treffer gewinnt. */
 export function rawVdfField(text: string, path: readonly string[]): string | undefined {
-  const { tokens } = tokenizeVdf(text);
+  const { tokens, limitExceeded } = tokenizeVdf(text);
+  // P12a: nach einem überschrittenen cap ist der strom ein präfix; ein treffer
+  // darin wäre geraten. wie bei `unterminated` bleibt das feld leer.
+  if (limitExceeded !== undefined) return undefined;
   const wanted = path.map((key) => key.toLowerCase());
   const openKeys: (string | undefined)[] = [];
   let depth = 0;
