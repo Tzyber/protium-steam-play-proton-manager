@@ -1,6 +1,11 @@
 name: CI
 
 on:
+  # Der Release-Guard (release.yml) verlangt grüne check-runs zum Tag-Commit.
+  # Ein reiner Doku-Commit löst wegen der paths-ignore keinen CI-Lauf aus;
+  # ein Tag darauf würde nach 10 Minuten ohne Lauf abbrechen. Der
+  # Release-Commit muss deshalb mindestens eine Nicht-Doku-Datei ändern;
+  # der Versionsbump tut das.
   push:
     branches: [main]
     paths-ignore: ["docs/**", "**/*.md"]
