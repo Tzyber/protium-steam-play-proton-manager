@@ -396,6 +396,7 @@ fn extract_archive_into_bound_parent(
 ) -> Result<(), String> {
     use crate::commands::delete_ops::renameat2_no_replace;
     use crate::commands::fd::{open_bound_root_fd, sync_dir_fd};
+    use crate::commands::steam_layout::EXTRACT_PREFIX;
     use flate2::read::GzDecoder;
     use std::os::fd::AsRawFd;
     use std::os::unix::ffi::OsStrExt;
@@ -404,11 +405,7 @@ fn extract_archive_into_bound_parent(
     let dest_fd = open_bound_root_fd(dest_canon, before_bind)
         .map_err(|error| errcode::with_context("bind extract destination", &error))?;
     let dest_dir_file = fs::File::from(dest_fd);
-    let temp_name = format!(
-        ".protium-extract-{}-{}",
-        std::process::id(),
-        random_suffix()
-    );
+    let temp_name = format!("{EXTRACT_PREFIX}{}-{}", std::process::id(), random_suffix());
     let temp_path = Path::new("/proc/self/fd")
         .join(dest_dir_file.as_raw_fd().to_string())
         .join(&temp_name);

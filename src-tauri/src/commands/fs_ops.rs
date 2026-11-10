@@ -33,27 +33,6 @@ const MAX_BATCH_DIR_SIZE_PATHS: usize = 4096;
 const MAX_DIRECTORY_WALK_DEPTH: usize = 256;
 const MAX_ENVIRONMENT_DIR_ENTRIES: usize = 8192;
 const MAX_SAFE_JS_INTEGER: u64 = 9_007_199_254_740_991;
-// Beide Layouts, in denen Steam die Compat-Zuordnung ablegt: das klassische
-// `InstallConfigStore`-Dokument und ein flaches `Software`-Dokument. Die
-// Reihenfolge ist fest und Teil des Vertrags: der Lesepfad in
-// `src/core/compatTools.ts` nimmt die erste Zuordnung je AppID, bei doppelten
-// AppIDs gewinnt deshalb das `InstallConfigStore`-Layout.
-#[cfg(target_os = "linux")]
-const COMPAT_TOOL_MAPPING_PATHS: [&[&str]; 2] = [
-    &[
-        steam_layout::INSTALL_CONFIG_STORE,
-        steam_layout::SOFTWARE,
-        steam_layout::VALVE,
-        steam_layout::STEAM,
-        steam_layout::COMPAT_TOOL_MAPPING,
-    ],
-    &[
-        steam_layout::SOFTWARE,
-        steam_layout::VALVE,
-        steam_layout::STEAM,
-        steam_layout::COMPAT_TOOL_MAPPING,
-    ],
-];
 
 /// Reduziert `config.vdf` auf beide Mapping-Layouts: `extract_vdf_blocks`
 /// tokenisiert die Datei einmal und liefert beide Blöcke in fester Reihenfolge,
@@ -62,7 +41,7 @@ const COMPAT_TOOL_MAPPING_PATHS: [&[&str]; 2] = [
 /// weg (INV-7, S-03).
 #[cfg(target_os = "linux")]
 fn reduce_compat_config(text: &str) -> Result<String, String> {
-    vdf_patch::extract_vdf_blocks(text, &COMPAT_TOOL_MAPPING_PATHS)
+    vdf_patch::extract_vdf_blocks(text, &steam_layout::COMPAT_TOOL_MAPPING_BASE_PATHS)
 }
 
 #[derive(Serialize, Debug, PartialEq, Eq, Clone)]

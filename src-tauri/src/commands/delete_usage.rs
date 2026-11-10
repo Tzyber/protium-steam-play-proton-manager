@@ -403,26 +403,12 @@ where
     let tokens = vdf_patch::tokenize(&content)
         .map_err(|error| errcode::with_context("cannot tokenize config.vdf", &error))?;
 
-    let base_paths = [
-        vec![
-            steam_layout::INSTALL_CONFIG_STORE,
-            steam_layout::SOFTWARE,
-            steam_layout::VALVE,
-            steam_layout::STEAM,
-            steam_layout::COMPAT_TOOL_MAPPING,
-        ],
-        vec![
-            steam_layout::SOFTWARE,
-            steam_layout::VALVE,
-            steam_layout::STEAM,
-            steam_layout::COMPAT_TOOL_MAPPING,
-        ],
-    ];
+    let base_paths = steam_layout::COMPAT_TOOL_MAPPING_BASE_PATHS;
 
     let mut affected_apps = Vec::new();
     let mut global_default = false;
 
-    for base in &base_paths {
+    for base in base_paths {
         let mut curr_from = 0;
         let mut curr_to = tokens.len();
         let mut found = true;

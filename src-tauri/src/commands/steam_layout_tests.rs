@@ -198,6 +198,98 @@ fn split_paritaet_mit_library_of_und_suffix() {
     }
 }
 
+/// FR-1: Papierkorb-Name und Extraktions-Präfix stehen genau einmal im
+/// Layout-Modul. Eine zweite Definition in einer Produktionsdatei wäre eine
+/// zweite Wahrheit; der Wert selbst ist Teil des Wire-Vertrags (TS-Spiegel in
+/// `tests/security/mirrored-constants.test.ts`).
+#[test]
+fn papierkorb_name_und_extraktions_praefix_stehen_nur_im_layout_modul() {
+    assert_eq!(super::TRASH_DIR_NAME, ".protium-trash");
+    assert_eq!(super::EXTRACT_PREFIX, ".protium-extract-");
+    for (name, _) in PRODUCTION_FILES {
+        let source = production(name);
+        assert!(
+            !source.contains("const TRASH_DIR_NAME"),
+            "{name} definiert den papierkorb-namen"
+        );
+        assert!(
+            !source.contains("const EXTRACT_PREFIX"),
+            "{name} definiert das extraktions-präfix"
+        );
+    }
+}
+
+/// FR-4: die zwei Basis-Ketten der Compat-Zuordnung stehen einmal im
+/// Layout-Modul, das klassische `InstallConfigStore`-Layout zuerst. Der Leser
+/// `src/core/compatTools.ts` nimmt je AppID die erste Zuordnung; eine zweite
+/// Kette in einem Leser wäre eine zweite Wahrheit.
+#[test]
+fn compat_basis_ketten_stehen_nur_im_layout_modul() {
+    assert_eq!(
+        super::COMPAT_TOOL_MAPPING_BASE_PATHS.len(),
+        2,
+        "genau zwei layouts"
+    );
+    let classic = super::COMPAT_TOOL_MAPPING_BASE_PATHS[0];
+    let flat = super::COMPAT_TOOL_MAPPING_BASE_PATHS[1];
+    assert_eq!(
+        classic,
+        &[
+            super::INSTALL_CONFIG_STORE,
+            super::SOFTWARE,
+            super::VALVE,
+            super::STEAM,
+            super::COMPAT_TOOL_MAPPING,
+        ][..],
+        "das klassische layout steht zuerst"
+    );
+    assert_eq!(
+        flat,
+        &[
+            super::SOFTWARE,
+            super::VALVE,
+            super::STEAM,
+            super::COMPAT_TOOL_MAPPING,
+        ][..]
+    );
+    assert_eq!(flat, &classic[1..], "das flache layout ist der rest");
+
+    let mut with_app = classic.to_vec();
+    with_app.push("620");
+    assert_eq!(super::compat_tool_mapping_path("620"), with_app);
+
+    let layout = include_str!("steam_layout.rs");
+    assert!(
+        layout.contains("COMPAT_TOOL_MAPPING_BASE_PATHS"),
+        "positiv-kontrolle: das layout-modul trägt die ketten"
+    );
+    for (name, _) in PRODUCTION_FILES {
+        let source = production(name);
+        assert!(
+            !source.contains("steam_layout::COMPAT_TOOL_MAPPING,"),
+            "{name} baut eine zweite schlüssel-kette"
+        );
+    }
+}
+
+/// FR-3: der Schnitt liegt am LETZTEN Marker. `find` statt `rfind` liefert
+/// für eine Library unterhalb eines `steamapps`-Verzeichnisses das falsche
+/// library und den falschen suffix.
+#[test]
+fn letzter_steamapps_marker_gewinnt() {
+    let case = "/lib/steamapps/compatdata/steamapps/999";
+    assert_eq!(
+        crate::commands::scope::library_of(case),
+        Ok("/lib/steamapps/compatdata"),
+        "library_of muss am letzten marker schneiden"
+    );
+    assert_eq!(
+        crate::commands::scope::suffix_after_steamapps(case),
+        Ok("999"),
+        "suffix muss nach dem letzten marker beginnen"
+    );
+}
+
 /// FR-4: `compat_tool_mapping_path` ist die eine Schlüsselkette des Schreibers.
 #[test]
 fn compat_tool_mapping_path_hat_die_schluesselkette() {

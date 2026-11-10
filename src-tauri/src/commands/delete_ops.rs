@@ -13,13 +13,9 @@ use crate::commands::errcode;
 #[cfg(target_os = "linux")]
 use crate::commands::fd::{component_name, DirEntryKind, FdIdentity};
 use crate::commands::scope::{EnvironmentSnapshot, EnvironmentState};
+use crate::commands::steam_layout::TRASH_DIR_NAME;
 
 pub const DELETE_TOKEN_TTL_SECS: u64 = 300;
-
-/// Name des Papierkorb-Verzeichnisses unterhalb von `steamapps`. Er lebt hier,
-/// weil der gebundene Referenzpfad des Listings hier entsteht; ein zweiter
-/// Aufbau in `cleanup.rs` könnte von diesem abweichen.
-pub(crate) const TRASH_DIR_NAME: &str = ".protium-trash";
 
 /// 3.2: der uhrfehler wird geführt, nicht verschluckt. Mit 0 als "jetzt" wäre
 /// jedes frisch ausgegebene Token sofort abgelaufen.

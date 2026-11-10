@@ -85,7 +85,7 @@ fn has_extract_leftovers(tools: &Path) -> bool {
             entry
                 .file_name()
                 .to_string_lossy()
-                .starts_with(".protium-extract-")
+                .starts_with(steam_layout::EXTRACT_PREFIX)
         })
 }
 
@@ -673,7 +673,11 @@ async fn install_ge_proton_meldet_extract_crash_reste_und_loescht_nicht() {
     let temp_dir = std::env::temp_dir().join(format!("test-ge-leftover-{}", random_suffix()));
     let tools = temp_dir.join("compatibilitytools.d");
     fs::create_dir_all(&tools).unwrap();
-    let leftover = tools.join(format!(".protium-extract-{}-leftover", std::process::id()));
+    let leftover = tools.join(format!(
+        "{}{}-leftover",
+        steam_layout::EXTRACT_PREFIX,
+        std::process::id()
+    ));
     fs::create_dir(&leftover).unwrap();
     let cache_dir = temp_dir.join("cache");
 
@@ -699,7 +703,7 @@ async fn install_ge_proton_meldet_extract_crash_reste_und_loescht_nicht() {
         errcode::has_code(&err, errcode::INCOMPLETE),
         "crash-reste müssen als incomplete gemeldet werden: {err}"
     );
-    assert!(err.contains(".protium-extract-"), "err: {err}");
+    assert!(err.contains(steam_layout::EXTRACT_PREFIX), "err: {err}");
     assert!(
         leftover.exists(),
         "crash-rest darf nie automatisch gelöscht werden"

@@ -592,7 +592,9 @@ fn leftover_name(entry: std::io::Result<fs::DirEntry>) -> Result<Option<String>,
         )
     })?;
     let name = entry.file_name().to_string_lossy().into_owned();
-    Ok(name.starts_with(".protium-extract-").then_some(name))
+    Ok(name
+        .starts_with(steam_layout::EXTRACT_PREFIX)
+        .then_some(name))
 }
 
 /// Phase „Ziele": validiert Release-Identität und Scope, prüft Crash-Reste und

@@ -95,6 +95,34 @@ mod tests {
         blocks
     }
 
+    /// `production_source` schneidet an der Moduldeklaration, nicht am ersten
+    /// `#[cfg(test)]`. Eine Datei mit frühem `#[cfg(test)]`-Import und
+    /// eingebettetem `mod tests {` am Ende liefert weiterhin den späten
+    /// Produktions-Anker; fällt die `#[path =`-Bindung aus dem Marker, schneidet
+    /// schon der frühe Import und der Anker verschwindet.
+    #[test]
+    fn production_source_behaelt_spaeten_produktions_anker() {
+        let source = concat!(
+            "fn frueh() {}\n\n",
+            "#[cfg(test)]\nuse crate::x;\n\n",
+            "fn spaeter_anker() {}\n\n",
+            "#[cfg(test)]\nmod tests {\n    fn t() {}\n}\n",
+        );
+        let production = crate::commands::test_util::production_source(source);
+        assert!(production.contains("fn spaeter_anker()"), "{production}");
+        assert!(!production.contains("mod tests {"), "{production}");
+        assert!(
+            production.contains("use crate::x;"),
+            "der frühe `#[cfg(test)]`-Import ist keine Modulgrenze: {production}"
+        );
+        // Dieselbe Grenze an einer echten Datei mit eingebettetem `mod tests {`
+        // am Ende: `unix_millis` steht vor dem Testmodul und muss im
+        // Produktionsschnitt liegen.
+        let path = crate::commands::test_util::production_source(include_str!("path.rs"));
+        assert!(path.contains("fn unix_millis"), "{path}");
+        assert!(!path.contains("mod tests {"), "{path}");
+    }
+
     fn pinned_block<'a>(source: &'a str, needle: &str) -> &'a str {
         let mut matches = cfg_not_linux_blocks(source)
             .into_iter()

@@ -4,6 +4,7 @@ use super::{
 };
 use crate::commands::download::CancelSignal;
 use crate::commands::errcode;
+use crate::commands::steam_layout::EXTRACT_PREFIX;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -319,7 +320,7 @@ fn handle_extractor_cancel_raeumt_temp_auf_und_laesst_kein_ziel() {
             entry
                 .file_name()
                 .to_string_lossy()
-                .starts_with(".protium-extract-")
+                .starts_with(EXTRACT_PREFIX)
         })
         .collect();
     assert!(leftovers.is_empty(), "cancel muss das temp aufräumen");
@@ -727,7 +728,7 @@ fn assert_no_extract_leftovers(destination: &Path) {
             entry
                 .file_name()
                 .to_string_lossy()
-                .starts_with(".protium-extract-")
+                .starts_with(EXTRACT_PREFIX)
         })
         .collect();
     assert!(leftovers.is_empty(), "temp-rest muss weg sein");

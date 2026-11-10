@@ -129,30 +129,43 @@ describe("TypeScript-/Rust-Spiegelwerte", () => {
     expect(geproton).toContain(assetPath);
   });
 
-  it("bindet das Extraktions-Temp-Präfix an beide Rust-Literale (5.2)", () => {
+  it("bindet das Extraktions-Temp-Präfix an die eine Rust-Konstante (5.2)", () => {
     // Drei Stellen tragen denselben Präfix: die TS-Konstante filtert die
     // Einträge in listCompatTools, extract.rs baut damit den temporären
     // Verzeichnisnamen, ge_install.rs erkennt daran liegengebliebene reste.
     // Driftet eine davon, sieht die Webview einen extraktionsrest entweder
     // wieder als installiertes Tool (TS zu eng) oder verschluckt ein echtes
     // Tool (TS zu weit), während der Installer weiter auf den alten reste-
-    // namen prüft.
+    // namen prüft. Die eine Quelle ist steam_layout::EXTRACT_PREFIX; beide
+    // Rust-Aufrufer tragen kein zweites Literal.
+    const layout = readFileSync(join(repo, "src-tauri/src/commands/steam_layout.rs"), "utf8");
     const extract = readFileSync(join(repo, "src-tauri/src/commands/extract.rs"), "utf8");
     const geInstall = readFileSync(join(repo, "src-tauri/src/commands/ge_install.rs"), "utf8");
 
     expect(EXTRACT_TEMP_PREFIX).toBe(".protium-extract-");
 
-    // extract.rs:411-415: format!(".protium-extract-{}-{}", pid, suffix).
-    // Der Präfix ist alles vor dem ersten Platzhalter.
-    const tempNameMatch = extract.match(/let temp_name = format!\(\s*"([^"]*)"/);
-    expect(tempNameMatch, "temp_name-format! fehlt in extract.rs").not.toBeNull();
-    const rustTempPrefix = (tempNameMatch?.[1] ?? "").split("{")[0] ?? "";
-    expect(rustTempPrefix).toBe(EXTRACT_TEMP_PREFIX);
+    const prefixMatch = layout.match(/const EXTRACT_PREFIX: &str = "([^"]+)";/);
+    expect(prefixMatch, "EXTRACT_PREFIX fehlt in steam_layout.rs").not.toBeNull();
+    expect(prefixMatch?.[1]).toBe(EXTRACT_TEMP_PREFIX);
 
-    // ge_install.rs:619: starts_with auf demselben Präfix (reste-prüfung).
-    const startsWithMatch = geInstall.match(/name\.starts_with\("([^"]+)"\)/);
-    expect(startsWithMatch, "starts_with-reste-prüfung fehlt in ge_install.rs").not.toBeNull();
-    expect(startsWithMatch?.[1]).toBe(EXTRACT_TEMP_PREFIX);
+    // extract.rs: temp_name = format!("{EXTRACT_PREFIX}{}-{}", pid, suffix).
+    expect(extract, "temp_name-format! mit EXTRACT_PREFIX fehlt in extract.rs").toContain(
+      'let temp_name = format!("{EXTRACT_PREFIX}{}-{}"',
+    );
+
+    // ge_install.rs: starts_with auf derselben Konstante (reste-prüfung).
+    expect(geInstall, "starts_with-reste-prüfung fehlt in ge_install.rs").toContain(
+      ".starts_with(steam_layout::EXTRACT_PREFIX)",
+    );
+
+    for (const [file, source] of [
+      ["extract.rs", extract],
+      ["ge_install.rs", geInstall],
+    ] as const) {
+      expect(source, `${file} trägt ein zweites Präfix-Literal`).not.toContain(
+        '".protium-extract-"',
+      );
+    }
   });
 
   it("bindet das Delete-Batch-Limit an die Rust-Registry", () => {

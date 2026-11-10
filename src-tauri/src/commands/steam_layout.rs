@@ -4,10 +4,23 @@
 //
 // Nicht hier: `compatdata`, `shadercache` und der Papierkorb-Pfad. Die ersten
 // beiden werden ausschließlich als `OsStr` an die gebundene fd-Kette gegeben
-// (prefix.rs, compat_auth.rs, delete_usage.rs), den Papierkorb baut
-// `delete_ops.rs`; ein PathBuf-Konstruktor ohne Aufrufer wäre toter Code.
+// (prefix.rs, compat_auth.rs, delete_usage.rs); den Papierkorb-Pfad baut die
+// gebundene fd-Kette in `delete_ops.rs`. Nur der Name des Papierkorbs steht
+// hier, weil Listing und Löschpfad ihn teilen. Ein PathBuf-Konstruktor ohne
+// Aufrufer wäre toter Code.
 
 use std::path::{Path, PathBuf};
+
+/// Name des Papierkorb-Verzeichnisses unterhalb von `steamapps`. Er lebte
+/// zuvor in `delete_ops.rs`; Listing und Löschpfad bauen ihren Referenzpfad
+/// daraus, und ein zweiter Name in einem Aufrufer könnte von diesem abweichen.
+pub(crate) const TRASH_DIR_NAME: &str = ".protium-trash";
+
+/// Präfix der temporären Extraktionsverzeichnisse unterhalb von
+/// `compatibilitytools.d`. `extract.rs` baut den Temp-Namen daraus,
+/// `ge_install.rs` erkennt daran liegengebliebene Reste; der TS-Spiegel
+/// `src/core/compat.ts::EXTRACT_TEMP_PREFIX` hängt daran.
+pub(crate) const EXTRACT_PREFIX: &str = ".protium-extract-";
 
 /// `<root>/steamapps`.
 pub(super) fn steamapps(root: &Path) -> PathBuf {
@@ -65,16 +78,29 @@ pub(crate) const STEAM: &str = "Steam";
 pub(crate) const COMPAT_TOOL_MAPPING: &str = "CompatToolMapping";
 pub(crate) const NAME: &str = "name";
 
-/// Schlüsselkette der Compat-Zuordnung einer AppID im klassischen Layout.
-pub(super) fn compat_tool_mapping_path(app_id: &str) -> Vec<&str> {
-    vec![
+/// Beide Layouts, in denen Steam die Compat-Zuordnung ablegt: das klassische
+/// `InstallConfigStore`-Dokument und ein flaches `Software`-Dokument. Die
+/// Reihenfolge ist fest und Teil des Vertrags: der Lesepfad in
+/// `src/core/compatTools.ts` nimmt die erste Zuordnung je AppID, bei doppelten
+/// AppIDs gewinnt deshalb das `InstallConfigStore`-Layout. Die AppID ist das
+/// sechste Glied; `compat_tool_mapping_path` hängt sie an die klassische Kette.
+pub(crate) const COMPAT_TOOL_MAPPING_BASE_PATHS: [&[&str]; 2] = [
+    &[
         INSTALL_CONFIG_STORE,
         SOFTWARE,
         VALVE,
         STEAM,
         COMPAT_TOOL_MAPPING,
-        app_id,
-    ]
+    ],
+    &[SOFTWARE, VALVE, STEAM, COMPAT_TOOL_MAPPING],
+];
+
+/// Schlüsselkette der Compat-Zuordnung einer AppID im klassischen Layout
+/// (Index 0 der Basis-Ketten).
+pub(super) fn compat_tool_mapping_path(app_id: &str) -> Vec<&str> {
+    let mut path = COMPAT_TOOL_MAPPING_BASE_PATHS[0].to_vec();
+    path.push(app_id);
+    path
 }
 
 #[cfg(test)]

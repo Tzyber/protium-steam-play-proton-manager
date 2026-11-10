@@ -1,5 +1,6 @@
 use super::*;
-use crate::commands::delete_ops::{TrashListingStage, TRASH_DIR_NAME};
+use crate::commands::delete_ops::TrashListingStage;
+use crate::commands::steam_layout::TRASH_DIR_NAME;
 use crate::commands::test_util::{fixture_dir, WireSerializer, WireValue};
 use serde::Serialize;
 use std::os::unix::fs::{symlink, PermissionsExt};
