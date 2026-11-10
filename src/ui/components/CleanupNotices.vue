@@ -107,9 +107,9 @@ const trashBlockedNotice = () =>
 
 <style scoped>
 .blocked {
-  background: color-mix(in srgb, var(--tier-borked) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--tier-borked) 40%, transparent);
-  color: #ff9aa0;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  color: var(--danger-fg);
   border-radius: var(--r-sm);
   padding: 12px 16px;
   font-family: var(--font-body);
@@ -129,7 +129,7 @@ const trashBlockedNotice = () =>
 .pm-list li { color: var(--fg-1); font-family: var(--font-mono); font-size: 0.875rem; line-height: 1.6; }
 .pm-note { margin: 0 0 12px; color: var(--fg-2); font-size: 0.875rem; line-height: 1.5; }
 .pm-btn {
-  background: var(--signal); border: none; color: var(--bg-0);
+  background: var(--signal); border: none; color: var(--on-signal);
   border-radius: var(--r-sm); padding: 10px 15px;
   font-family: var(--font-body); font-weight: 600; font-size: 0.875rem; cursor: pointer;
 }

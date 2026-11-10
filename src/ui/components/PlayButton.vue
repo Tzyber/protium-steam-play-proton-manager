@@ -67,7 +67,7 @@ function launch() {
 }
 .compact:hover {
   background: var(--signal);
-  color: var(--bg-1);
+  color: var(--on-signal);
 }
 .compact:active {
   transform: scale(0.92);
@@ -78,7 +78,7 @@ function launch() {
   width: 100%;
   background: var(--signal);
   border-color: var(--signal);
-  color: var(--bg-0);
+  color: var(--on-signal);
   border-radius: var(--r-sm);
   padding: 13px 14px;
   font-family: var(--font-body);

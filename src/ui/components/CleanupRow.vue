@@ -82,7 +82,7 @@ position: relative;
 .row.on .box { border-color: var(--signal); background: var(--signal); }
 .row.on .box::after {
   content: ""; width: 5px; height: 9px; margin-top: -2px;
-  border: solid var(--bg-0); border-width: 0 2px 2px 0; transform: rotate(45deg);
+  border: solid var(--on-signal); border-width: 0 2px 2px 0; transform: rotate(45deg);
 }
 
 .rname { font-size: 0.9375rem; color: var(--fg-0); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

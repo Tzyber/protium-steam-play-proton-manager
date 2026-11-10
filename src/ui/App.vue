@@ -93,7 +93,7 @@ watch(
   left: 8px;
   z-index: 100;
   background: var(--signal);
-  color: var(--bg-0);
+  color: var(--on-signal);
   padding: 8px 14px;
   border-radius: var(--r-sm);
   font-family: var(--font-body);

@@ -111,8 +111,8 @@ h3 {
 /* bestätigung ist immer destruktiv (INV-6): die rote variante ist der einzige
  * bestätigungsknopf, ein neutraler zweig existiert nicht mehr. */
 .btn {
-  border: 1px solid #c03940;
-  background: #c03940;
+  border: 1px solid var(--danger);
+  background: var(--danger);
   color: #fff;
   border-radius: var(--r-sm);
   padding: 8px 14px;
@@ -123,7 +123,7 @@ h3 {
 }
 .btn.ghost { background: transparent; color: var(--fg-1); border-color: var(--line); }
 .btn.ghost:hover { color: var(--fg-0); border-color: var(--signal-dim); }
-.btn:hover { background: #a93238; border-color: #a93238; }
+.btn:hover { background: var(--danger-hover); border-color: var(--danger-hover); }
 .btn:focus-visible,
 .btn.ghost:focus-visible {
   outline: 2px solid var(--signal-dim);

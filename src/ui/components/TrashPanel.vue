@@ -111,9 +111,9 @@ const trashTotal = computed(() => formatSizeSummary(cleanup.trash, formatKnownBy
 }
 
 .blocked {
-  background: color-mix(in srgb, var(--tier-borked) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--tier-borked) 40%, transparent);
-  color: #ff9aa0;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  color: var(--danger-fg);
   border-radius: var(--r-sm);
   padding: 12px 16px;
   font-family: var(--font-body);

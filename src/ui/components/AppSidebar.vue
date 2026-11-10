@@ -75,7 +75,7 @@ const rootShort = computed(() => {
   width: 32px; height: 32px;
   display: grid; place-items: center;
   background: var(--signal);
-  color: var(--bg-0);
+  color: var(--on-signal);
   border-radius: 8px;
   font-size: 0.9375rem;
   box-shadow: 0 0 18px -4px var(--signal-glow);

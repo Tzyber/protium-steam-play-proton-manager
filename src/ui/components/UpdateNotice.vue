@@ -29,8 +29,9 @@ function openUpdateRelease() {
 </script>
 
 <template>
-  <section v-if="updateVersion" class="update-notice" role="status">
-        <span>{{ t("app.updateAvailable", { version: updateVersion, current: appVersion }) }}</span>
+  <section v-if="updateVersion" class="update-notice">
+        <!-- live-rolle am text: die knöpfe daneben sind bedienung (FR-3, audit 4.18). -->
+        <span role="status">{{ t("app.updateAvailable", { version: updateVersion, current: appVersion }) }}</span>
         <button class="update-open" type="button" @click="openUpdateRelease">
           {{ t("app.openRelease") }}
         </button>
@@ -64,7 +65,7 @@ function openUpdateRelease() {
   margin-left: auto;
   padding: 6px 9px;
   background: var(--signal);
-  color: var(--bg-0);
+  color: var(--on-signal);
   font-weight: 600;
 }
 .update-close {

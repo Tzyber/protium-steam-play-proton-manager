@@ -24,6 +24,12 @@
   --signal-dim: #3a4283;
   --signal-glow: rgba(107, 124, 255, 0.25);
 
+  /* destruktive aktionen (FR-1, audit 4.15): eine palette statt tier-ausleihe */
+  --danger: #c03940;
+  --danger-hover: #a93238;
+  --danger-fg: #ff9aa0;
+  --on-signal: #08090e; /* schrift auf signal-flächen */
+
   /* Tier-Farben */
   --tier-platinum: #52d6e8;
   --tier-gold: #e6c34a;

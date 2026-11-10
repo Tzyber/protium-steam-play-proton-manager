@@ -37,6 +37,40 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
+describe("NotificationToast live-region (4.18)", () => {
+  it("trägt die alert-rolle am text, nicht am container mit den knöpfen", () => {
+    const ui = useUiStore();
+    ui.showNotification("x");
+    const wrapper = mount(NotificationToast);
+
+    expect(wrapper.get(".note.toast").attributes("role")).toBeUndefined();
+    const message = wrapper.get(".note-msg");
+    expect(message.attributes("role")).toBe("alert");
+    // die knöpfe stehen neben der live-region, nicht darin
+    expect(message.findAll("button")).toHaveLength(0);
+    expect(wrapper.get(".note.toast").findAll("button")).toHaveLength(2);
+
+    wrapper.unmount();
+  });
+
+  it("der kopierfehler behält seine eigene sr-only-live-region", async () => {
+    const ui = useUiStore();
+    ui.showNotification("x");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) },
+    });
+    const wrapper = mount(NotificationToast);
+
+    await wrapper.get(".note-copy").trigger("click");
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(wrapper.get(".sr-only").attributes("role")).toBe("alert");
+
+    wrapper.unmount();
+  });
+});
+
 describe("NotificationToast kopier-timer", () => {
   it("nimmt das kopier-häkchen nach COPY_CONFIRM_MS zurück", async () => {
     const ui = useUiStore();

@@ -80,9 +80,7 @@ describe("readAllShortcutAppIds", () => {
       readDir: (path: string) => {
         if (/\/userdata\/\d+$/.test(path)) {
           configReads += 1;
-          throw new Error(
-            configReads === 1 ? "blocked: first" : "unreadable: second",
-          );
+          throw new Error(configReads === 1 ? "blocked: first" : "unreadable: second");
         }
         return base.readDir(path);
       },

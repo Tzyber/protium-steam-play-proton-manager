@@ -452,7 +452,7 @@ const tabLabel = (id: Tab) =>
 .actionbar-btns { display: flex; gap: 10px; }
 
 .action {
-  background: var(--signal); color: var(--bg-0); border: none;
+  background: var(--signal); color: var(--on-signal); border: none;
   border-radius: var(--r-sm); padding: 10px 16px;
   font-family: var(--font-body); font-weight: 600; font-size: 0.875rem; cursor: pointer;
 }
@@ -460,11 +460,11 @@ const tabLabel = (id: Tab) =>
 .action:disabled { opacity: 0.4; cursor: default; }
 .action:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 .action.danger {
-  background: color-mix(in srgb, var(--tier-borked) 18%, transparent);
-  color: #ff9aa0;
-  border: 1px solid color-mix(in srgb, var(--tier-borked) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  color: var(--danger-fg);
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
 }
-.action.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--tier-borked) 30%, transparent); }
+.action.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger-hover) 30%, transparent); }
 
 .hint { color: var(--tier-gold); font-family: var(--font-body); font-size: 0.875rem; margin-bottom: 12px; }
 

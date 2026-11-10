@@ -71,9 +71,11 @@ onBeforeUnmount(() => {
 
 <template>
   <transition name="toast" mode="out-in">
-        <div v-if="ui.notification" :key="ui.notification.message" class="note toast" role="alert">
+        <div v-if="ui.notification" :key="ui.notification.message" class="note toast">
           <span class="note-icon" aria-hidden="true">⚠</span>
-          <span class="note-msg">{{ ui.notification.message }}</span>
+          <!-- die live-rolle sitzt am text: die knöpfe daneben sind bedienung,
+               keine meldung (FR-3, audit 4.18). -->
+          <span class="note-msg" role="alert">{{ ui.notification.message }}</span>
           <!-- der knopf kopiert weiterhin: sein name bleibt die aktion, nicht
                der fehlertext. der fehlschlag lebt in der live-region (U-14). -->
           <button

@@ -1,11 +1,10 @@
 // @vitest-environment happy-dom
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { mount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { focusFirstFocusable, restoreFocus, trapFocus } from "../../src/ui/a11y";
 import BlockedExplanation from "../../src/ui/components/BlockedExplanation.vue";
 import ConfirmDialog from "../../src/ui/components/ConfirmDialog.vue";
+import { tokenValues } from "../support/themeTokens";
 
 function tabEvent(shiftKey = false): KeyboardEvent {
   return new KeyboardEvent("keydown", { key: "Tab", shiftKey, cancelable: true });
@@ -205,12 +204,7 @@ function contrast(foreground: string, background: string): number {
   return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
 }
 
-const tokens = new Map<string, string>();
-for (const match of fs
-  .readFileSync(path.resolve(__dirname, "../../src/ui/tokens.css"), "utf-8")
-  .matchAll(/(--[a-z0-9-]+):\s*(#[0-9a-fA-F]{6})/g)) {
-  if (match[1] && match[2]) tokens.set(match[1], match[2]);
-}
+const tokens = tokenValues();
 
 describe("a11y Gate: berechneter Kontrast aus den Tokens", () => {
   it("primaerer und sekundaerer Text erfuellen WCAG AA auf ihrem Untergrund", () => {

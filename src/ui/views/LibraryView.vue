@@ -113,7 +113,7 @@ const visibleStatusText = computed(() =>
 
 .rescan {
   background: var(--signal);
-  color: #0a0b11;
+  color: var(--on-signal);
   border: none;
   border-radius: var(--r-sm);
   padding: 8px 14px;
