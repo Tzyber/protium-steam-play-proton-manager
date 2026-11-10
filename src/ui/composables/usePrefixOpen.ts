@@ -3,6 +3,7 @@ import { openPrefixFolder } from "../../core/adapters/tauri";
 import { hasExternalCompatdata } from "../../core/footprint";
 import type { Game } from "../../core/types";
 import type { Key } from "../i18n";
+import { sameContext } from "../sameContext";
 import { useScanStore } from "../stores/scanStore";
 
 const ERROR_KEYS = {
@@ -26,27 +27,48 @@ interface PrefixResult {
   errorKey: Key;
 }
 
+/** alles, was die offene anfrage fachlich bindet: ändert sich eines davon,
+ *  gehört ihre antwort nicht mehr hierher. */
+interface PrefixOpenContext {
+  appId: number | undefined;
+  library: string | undefined;
+  launchOptions: string | undefined;
+  scanGeneration: number;
+  status: string;
+  launchConfigStatus: string | undefined;
+  saving: boolean;
+}
+
+const samePrefixOpenContext = sameContext<PrefixOpenContext>([
+  "appId",
+  "library",
+  "launchOptions",
+  "scanGeneration",
+  "status",
+  "launchConfigStatus",
+  "saving",
+]);
+
 export function usePrefixOpen(game: Readonly<Ref<Game | null>>, saving: Readonly<Ref<boolean>>) {
   const scan = useScanStore();
-  const context = computed(() =>
-    JSON.stringify([
-      game.value?.appId,
-      game.value?.library,
-      game.value?.launchOptions,
-      scan.scanGeneration,
-      scan.status,
-      scan.result?.launchConfigStatus,
-      saving.value,
-    ]),
-  );
+  const context = computed<PrefixOpenContext>(() => ({
+    appId: game.value?.appId,
+    library: game.value?.library,
+    launchOptions: game.value?.launchOptions,
+    scanGeneration: scan.scanGeneration,
+    status: scan.status,
+    launchConfigStatus: scan.result?.launchConfigStatus,
+    saving: saving.value,
+  }));
   const result = shallowRef<PrefixResult | null>(null);
   const state = computed<PrefixOpenState>(() => result.value?.state ?? "idle");
   const errorKey = computed<Key>(() => result.value?.errorKey ?? FALLBACK_KEY);
-  // Auch A/B/A innerhalb eines Ticks macht die alte Anfrage dauerhaft ungültig.
+  // sync: auch A/B/A innerhalb eines Ticks macht die alte Anfrage dauerhaft
+  // ungültig, weil jeder wechsel die offene anfrage aus dem slot nimmt.
   watch(
     context,
-    () => {
-      result.value = null;
+    (current, previous) => {
+      if (!samePrefixOpenContext(current, previous)) result.value = null;
     },
     { flush: "sync" },
   );

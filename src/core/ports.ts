@@ -82,8 +82,9 @@ export interface System {
   batchDirSizes(paths: string[]): Promise<Record<string, DirectorySize>>;
   /** entdeckt und ersetzt den atomaren, backendautorisierten Environment-Snapshot. */
   discoverSteamEnvironment(): Promise<EnvironmentSnapshot>;
-  /** `(dev, ino)` zur Library-Deduplizierung; `null`, wenn nicht erreichbar. */
-  pathIdentity(path: string): Promise<PathIdentity | null>;
+  /** `(dev, ino)` zur Library-Deduplizierung; eine nicht erreichbare datei ist
+   *  eine rejection, kein stiller leerwert (5.10). */
+  pathIdentity(path: string): Promise<PathIdentity>;
   /** Installiert ein GE-Proton-Release atomar, mit Hash-Verifikation und Swap-Schutz. */
   installGeProton(params: GeInstallParams): Promise<InstallGeResult>;
   /** Bricht den Download ab und räumt die partielle Datei auf. */

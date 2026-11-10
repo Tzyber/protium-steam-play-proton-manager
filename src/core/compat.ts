@@ -1,7 +1,7 @@
 import { DELETE_CLAIM_PREFIX } from "./cleanup.js";
 import type { CompatToolMapping } from "./compatTools.js";
 import { readToolVdf, usedBy } from "./compatTools.js";
-import { errText } from "./errtext.js";
+import { errText, parseError } from "./errtext.js";
 import { validNonNegativeInteger } from "./guards.js";
 import { paths } from "./paths.js";
 import type { DirEntry, FileSystem, PathIdentity, System } from "./ports.js";
@@ -55,18 +55,13 @@ async function readCompatDirEntries(
   }
   if (!present) return null;
 
-  // `pathIdentity` meldet einen erwarteten `null`-zustand (ports.ts:82): direkt
-  // als warnung behandeln statt über eine selbst gefangene exception (K-10).
+  // `pathIdentity` rejectet, wenn die datei nicht erreichbar ist (ports.ts):
+  // die warnung trägt den klassifizierten code statt eines stillen leerwerts.
   let identity: PathIdentity;
   try {
-    const resolved = await system.pathIdentity(dir);
-    if (resolved === null) {
-      failCompatTool(warnings, counts, "path-identity", "path identity unavailable", dir);
-      return null;
-    }
-    identity = resolved;
+    identity = await system.pathIdentity(dir);
   } catch (e) {
-    failCompatTool(warnings, counts, "path-identity", errText(e), dir);
+    failCompatTool(warnings, counts, "path-identity", parseError(e).code, dir);
     return null;
   }
   const identityKeys = [`path:${identity.realpath}`, `inode:${identity.dev}:${identity.ino}`];

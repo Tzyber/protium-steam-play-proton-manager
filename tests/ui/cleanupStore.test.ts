@@ -72,6 +72,28 @@ describe("cleanupStore gate logic", () => {
     expect(store.orphans).toEqual([]);
   });
 
+  it("sperrt den löschpfad nicht wegen einer path-missing library", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([{ path: "/gone/lib", reason: "path-missing" }]);
+    const store = useCleanupStore();
+
+    await store.scanOrphans();
+    store.ignoredMissingLibs = ["/gone/lib"];
+    store.pathMissingLibs = [];
+    expect(store.orphanDeleteBlocked("compatdata")).toBe(false);
+
+    await store.deleteOrphans([
+      {
+        appId: 999999,
+        type: "compatdata",
+        path: "/lib/steamapps/compatdata/999999",
+        library: "/lib",
+      },
+    ]);
+
+    expect(mockPrepareDelete).toHaveBeenCalled();
+  });
+
   it("bewahrt getrennte orphan- und trash-fehler beim jeweils anderen scan", async () => {
     const scanStore = useScanStore();
     scanStore.result = fakeScan();
@@ -565,6 +587,88 @@ describe("cleanupStore gate logic", () => {
     expect(store.error).toContain("Sicherheitsfeld");
     expect(mockPrepareDelete).not.toHaveBeenCalled();
     expect(mockExecuteDelete).not.toHaveBeenCalled();
+  });
+
+  // N5a/5.14: scan- und löschpfad prüfen denselben vertrag über dieselbe
+  // regel. Ein kaputtes feld sperrt beide wege fail-closed.
+  const CONTRACT_BROKEN: readonly { fall: string; result: () => ScanResult }[] = [
+    {
+      fall: "cleanupUnsafeLibraries ist kein Array",
+      result: () => {
+        const result = fakeScan();
+        (result as { cleanupUnsafeLibraries: unknown }).cleanupUnsafeLibraries = "/unsafe/lib";
+        return result;
+      },
+    },
+    {
+      fall: "cleanupUnsafeLibraries enthält keine Strings",
+      result: () => {
+        const result = fakeScan();
+        (result as { cleanupUnsafeLibraries: unknown }).cleanupUnsafeLibraries = [
+          "/unsafe/lib",
+          42,
+        ];
+        return result;
+      },
+    },
+    {
+      fall: "blockedAppIds ist kein Array",
+      result: () => {
+        const result = fakeScan();
+        (result as { blockedAppIds: unknown }).blockedAppIds = 1628350;
+        return result;
+      },
+    },
+    {
+      fall: "blockedAppIds enthält keine App-IDs",
+      result: () => {
+        const result = fakeScan();
+        (result as { blockedAppIds: unknown }).blockedAppIds = ["1628350", 0];
+        return result;
+      },
+    },
+  ];
+
+  it.each(CONTRACT_BROKEN)("scanOrphans sperrt fail-closed, wenn $fall", async ({ result }) => {
+    const scanStore = useScanStore();
+    scanStore.result = result();
+    const store = useCleanupStore();
+
+    await store.scanOrphans();
+
+    expect(store.blockedBySkipped).toBe(true);
+    expect(store.error).toContain("Sicherheitsfeld");
+    expect(mockFindOrphans).not.toHaveBeenCalled();
+  });
+
+  it.each(CONTRACT_BROKEN)("deleteOrphans sperrt fail-closed, wenn $fall", async ({ result }) => {
+    const scanStore = useScanStore();
+    scanStore.result = result();
+    const store = useCleanupStore();
+
+    await store.deleteOrphans([
+      { appId: 1091500, type: "compatdata", path: "/fake", library: "/lib" },
+    ]);
+
+    expect(store.blockedBySkipped).toBe(true);
+    expect(store.error).toContain("Sicherheitsfeld");
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
+  });
+
+  // die blockier-regel ist eine: eine gesperrte library sperrt auch das
+  // löschen, nicht nur den scan.
+  it("deleteOrphans nutzt dieselbe blockier-regel wie der scan", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([{ path: "/ext/lib", reason: "scope-failed" }]);
+    const store = useCleanupStore();
+
+    await store.deleteOrphans([
+      { appId: 1091500, type: "compatdata", path: "/fake", library: "/lib" },
+    ]);
+
+    expect(store.blockedBySkipped).toBe(true);
+    expect(store.error).toContain("/ext/lib");
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
   });
 
   it("wenn keine skipped libraries → scan lauft normal durch", async () => {

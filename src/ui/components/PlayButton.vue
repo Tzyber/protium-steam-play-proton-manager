@@ -10,8 +10,9 @@ const props = defineProps<{
   variant: "compact" | "full";
 }>();
 
+const ui = useUiStore();
+
 function launch() {
-  const ui = useUiStore();
   void launchGame(props.appId).catch((e: unknown) => {
     ui.showNotification(t("drawer.launchFailed", { error: formatError(e) }));
   });

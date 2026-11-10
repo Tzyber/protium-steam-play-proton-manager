@@ -174,6 +174,9 @@ export async function readAllShortcutAppIds(
   const ids = new Set<number>();
   const unreadable: string[] = [];
   let anyExists = false;
+  // erster fehlschlag zählt: der code nennt den grund für die ganze liste,
+  // weitere einträge sollen ihn nicht überschreiben (4.12).
+  let detail: string | undefined;
 
   const dir = paths.userdataDir(steamRoot);
   let dirExists: boolean;
@@ -215,12 +218,13 @@ export async function readAllShortcutAppIds(
       const buf = await fs.readFile(scPath);
       const shortcutIds = parseBinaryShortcutIds(buf);
       for (const id of shortcutIds) ids.add(id);
-    } catch {
+    } catch (e) {
+      detail ??= parseError(e).code;
       unreadable.push(scPath);
     }
   }
 
-  if (unreadable.length > 0) return { status: "unreadable", paths: unreadable };
+  if (unreadable.length > 0) return { status: "unreadable", paths: unreadable, detail };
   if (!anyExists) return { status: "none" };
   return { status: "ok", ids };
 }

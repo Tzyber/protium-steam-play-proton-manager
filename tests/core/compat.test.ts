@@ -223,7 +223,9 @@ describe("listCompatTools", () => {
       readFile: vi.fn(async () => new Uint8Array()),
       readDir: vi.fn(async () => []),
     };
-    const system = { pathIdentity: vi.fn(async () => null) } as unknown as System;
+    const system = {
+      pathIdentity: vi.fn(async () => ({ realpath: "/compat", dev: "1", ino: "1" })),
+    } as unknown as System;
 
     const result = await listCompatTools(fs, system, "/fake/steam", new Map(), new Set());
 
@@ -231,27 +233,36 @@ describe("listCompatTools", () => {
     expect(system.pathIdentity).not.toHaveBeenCalled();
   });
 
-  it("behandelt erwartetes pathIdentity-null direkt als warnung (K-10)", async () => {
+  // 5.10: der port liefert kein `null` mehr. Ein reject ist ein echter
+  // fehlschlag und muss als klassifizierter code in der warnung landen, ohne
+  // den scan abzubrechen.
+  it("behandelt ein reject von pathIdentity als warnung mit fehlercode", async () => {
     const fs: FileSystem = {
       exists: vi.fn(async () => true),
       readTextFile: vi.fn(async () => ""),
       readFile: vi.fn(async () => new Uint8Array()),
       readDir: vi.fn(async () => []),
     };
-    // ports.ts:82 definiert `null` als erwarteten zustand. der detailltext kommt
-    // aus dem fail-pfad, nicht aus einer selbst gefangenen exception.
-    const system = { pathIdentity: vi.fn(async () => null) } as unknown as System;
+    const system = {
+      pathIdentity: vi.fn(async () => {
+        // tauri rejectet mit einem rohen string, kein Error-objekt
+        throw "unreadable: path identity denied";
+      }),
+    } as unknown as System;
 
     const result = await listCompatTools(fs, system, "/fake/steam", new Map(), new Set());
 
     expect(result.counts).toEqual({ read: 0, failed: 1 });
+    expect(result.tools).toEqual([]);
     expect(result.warnings).toEqual([
       expect.objectContaining({
         type: "compat-tool",
         reason: "path-identity",
-        detail: "path identity unavailable",
+        detail: "unreadable",
       }),
     ]);
+    // der rohe satz bleibt draußen, nur der code wird weitergegeben
+    expect(result.warnings[0]?.detail).not.toContain("denied");
   });
 
   it("zählt einen readDir-fehler des tool-verzeichnisses als directory-unreadable", async () => {

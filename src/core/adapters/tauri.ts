@@ -157,9 +157,7 @@ const system: System = {
     };
   },
   pathIdentity: (path) =>
-    invoke<{ realpath: string; dev: string; ino: string }>("path_identity", { path }).catch(
-      () => null,
-    ),
+    invoke<{ realpath: string; dev: string; ino: string }>("path_identity", { path }),
   installGeProton: (params) =>
     invoke<InstallGeResult>("install_ge_proton", {
       steamRoot: params.steamRoot,

@@ -8,6 +8,10 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
 /** Obergrenze gültiger Steam-App-IDs: u32::MAX. Spiegel zur Rust-Grenze in
  *  `parse_app_id` (scope.rs). Non-Steam-Shortcut-IDs belegen legitim den
  *  Bereich 2^31..2^32−1 (Bit 31 gesetzt) und müssen angeboten werden können. */
@@ -37,4 +41,28 @@ export function validAppId(value: unknown): number | null {
 
 export function validNonNegativeInteger(value: unknown): number | null {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+/** prädikat-form von `validAppId` für `requireArrayOf` (N5a/5.15): die
+ *  bereichsgrenzen stehen nur in `validAppId`, hier wird nichts kopiert. */
+export function isValidAppId(value: unknown): value is number {
+  return validAppId(value) !== null;
+}
+
+/** struktur-guard für arrays aus der wire: liefert die liste nur, wenn jedes
+ *  element das prädikat erfüllt, sonst `null` (fail-closed). fremde elemente
+ *  werden nicht weggefiltert — sonst sähe ein vertragsbruch wie gültige
+ *  daten aus. */
+export function requireArrayOf<T>(
+  value: unknown,
+  isElement: (raw: unknown) => raw is T,
+): T[] | null {
+  if (!Array.isArray(value)) return null;
+  const elements: unknown[] = value;
+  const result: T[] = [];
+  for (const element of elements) {
+    if (!isElement(element)) return null;
+    result.push(element);
+  }
+  return result;
 }

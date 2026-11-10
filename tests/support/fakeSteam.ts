@@ -348,14 +348,11 @@ export function fakeSystem(opts?: { environment?: EnvironmentSnapshot }): System
         paths.map((path) => [path, { status: "measured" as const, sizeBytes: 4096 }]),
       );
     },
-    async pathIdentity(p): Promise<PathIdentity | null> {
-      try {
-        const rp = await realpath(p);
-        const st = await stat(rp);
-        return { realpath: rp, dev: String(st.dev), ino: String(st.ino) };
-      } catch {
-        return null;
-      }
+    async pathIdentity(p): Promise<PathIdentity> {
+      // wie der tauri-adapter: eine nicht erreichbare datei rejectet, kein null
+      const rp = await realpath(p);
+      const st = await stat(rp);
+      return { realpath: rp, dev: String(st.dev), ino: String(st.ino) };
     },
     async installGeProton() {
       return "verified";

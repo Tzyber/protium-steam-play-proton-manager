@@ -171,6 +171,46 @@ describe("usePrefixOpen, open", () => {
     expect(state.value).toBe("idle");
   });
 
+  // 4.8: der kontextwechsel läuft über sameContext, nicht über einen
+  // JSON-String. A/B/A muss die offene anfrage weiterhin dauerhaft ungültig
+  // machen — auch wenn A danach wieder dem ausgangszustand gleicht.
+  it("A/B/A invalidiert die offene anfrage weiterhin", async () => {
+    const { g } = ready();
+    let reject: (reason?: unknown) => void = () => undefined;
+    mockOpenPrefixFolder.mockImplementation(
+      () =>
+        new Promise<void>((_resolve, rejectFn) => {
+          reject = rejectFn;
+        }),
+    );
+    const { state, open } = usePrefixOpen(g, ref(false));
+
+    const pending = open();
+    expect(state.value).toBe("opening");
+    g.value = game({ appId: 43 });
+    g.value = game({ appId: 42 });
+    reject("not-found");
+    await pending;
+
+    expect(state.value).toBe("idle");
+  });
+
+  // gegenrichtung: ein neues spielobjekt mit gleichen kontextfeldern ist kein
+  // wechsel und darf eine laufende anfrage nicht verwerfen.
+  it("verwirft die anfrage nicht, wenn die kontextfelder gleich bleiben", async () => {
+    const { g } = ready();
+    const { state, open } = usePrefixOpen(g, ref(false));
+    mockOpenPrefixFolder.mockImplementation(async () => {
+      // gleiche fachliche werte, nur eine neue objektidentität (rescan)
+      g.value = game({ appId: 42, name: "anderer name" });
+      await nextTick();
+    });
+
+    await open();
+
+    expect(state.value).toBe("opened");
+  });
+
   it("ignoriert einen zweiten start, solange der erste läuft", async () => {
     const { g } = ready();
     let resolve: () => void = () => undefined;

@@ -73,7 +73,12 @@ export function formatErrorKind(kind: string): string {
 export function formatError(e: unknown): string {
   const parsed = parseError(e);
   const key = CODE_KEYS[parsed.code] ?? KIND_KEYS[parsed.kind] ?? "errors.kinds.unknown";
-  return t(key);
+  const text = t(key);
+  // nur der klassen-code `incomplete` trägt eine handlungsanweisung im detail
+  // (liegengebliebene extraktionsreste, zu entfernende pfade). details der
+  // spezifischen codes sind diagnostik und bleiben draußen (5.6).
+  const showDetail = parsed.kind === "incomplete" && parsed.code === "incomplete";
+  return showDetail && parsed.detail ? `${text} (${parsed.detail})` : text;
 }
 
 /**

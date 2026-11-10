@@ -13,6 +13,8 @@ import {
   type OrphanUnreadable,
   type SteamOwnedPrefix,
 } from "../../core/cleanup";
+import { blockedReport } from "../../core/cleanupBlocked";
+import { isString, isValidAppId, requireArrayOf } from "../../core/guards";
 import { readAppName } from "../../core/localconfig";
 import { paths } from "../../core/paths";
 import { readAllShortcutAppIds, type ShortcutResult } from "../../core/shortcuts";
@@ -90,6 +92,20 @@ export async function readOrphanNames(
   }
 }
 
+/** fail-closed-prüfung des scan-vertrags und die Blockier-Pfade des Snapshots
+ *  in einer regel (N5a/5.14): scan- und löschpfad dürfen nicht zwei fassungen
+ *  derselben bedingung führen. `null` = vertrag verletzt (etwa ein fehlendes
+ *  oder fremdes feld), sonst die pfade, die einen lauf sperren. */
+function scanBlockers(result: ScanResult): string[] | null {
+  if (
+    requireArrayOf(result.cleanupUnsafeLibraries, isString) === null ||
+    requireArrayOf(result.blockedAppIds, isValidAppId) === null
+  ) {
+    return null;
+  }
+  return blockedReport(result).map((item) => item.path);
+}
+
 export async function scanOrphans(store: OrphanStore): Promise<void> {
   const generation = store._orphanScanGeneration + 1;
   store._orphanScanGeneration = generation;
@@ -127,17 +143,15 @@ export async function scanOrphans(store: OrphanStore): Promise<void> {
     // `trashUnavailable`.
 
     const skipped = result.skippedLibraries;
-    const blocking = skipped.filter((s) => s.reason !== "path-missing");
-    const unsafe = result.cleanupUnsafeLibraries;
-    if (!Array.isArray(unsafe)) {
+    const blockers = scanBlockers(result);
+    if (blockers === null) {
       store.blockedBySkipped = true;
       store.setOrphanScanError(t("errors.scanContractMissing"));
       return;
     }
-    if (blocking.length > 0 || unsafe.length > 0) {
+    if (blockers.length > 0) {
       store.blockedBySkipped = true;
-      const blockedPaths = [...new Set([...blocking.map((s) => s.path), ...unsafe])];
-      store.setOrphanScanError(t("errors.scanIncomplete", { paths: blockedPaths.join(", ") }));
+      store.setOrphanScanError(t("errors.scanIncomplete", { paths: blockers.join(", ") }));
       return;
     }
     store.blockedBySkipped = false;
@@ -286,15 +300,15 @@ export async function deleteOrphans(
     return;
   }
 
-  const unsafe = result.cleanupUnsafeLibraries;
-  if (!Array.isArray(unsafe)) {
+  const blockers = scanBlockers(result);
+  if (blockers === null) {
     store.blockedBySkipped = true;
     store.setOrphanError(t("errors.scanContractMissing"));
     return;
   }
-  if (unsafe.length > 0) {
+  if (blockers.length > 0) {
     store.blockedBySkipped = true;
-    store.setOrphanError(t("errors.scanIncomplete", { paths: unsafe.join(", ") }));
+    store.setOrphanError(t("errors.scanIncomplete", { paths: blockers.join(", ") }));
     return;
   }
 

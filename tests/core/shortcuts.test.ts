@@ -70,6 +70,33 @@ describe("readAllShortcutAppIds", () => {
     expect(result.status).toBe("unreadable");
   });
 
+  it("der erste fehlschlag bestimmt das detail (4.12)", async () => {
+    const { root, userId } = await buildFakeSteam();
+    await mkdir(join(root, "userdata", "222", "config"), { recursive: true });
+    const base = nodeFs();
+    let configReads = 0;
+    const fs = {
+      ...base,
+      readDir: (path: string) => {
+        if (/\/userdata\/\d+$/.test(path)) {
+          configReads += 1;
+          throw new Error(
+            configReads === 1 ? "blocked: first" : "unreadable: second",
+          );
+        }
+        return base.readDir(path);
+      },
+    };
+
+    const result = await readAllShortcutAppIds(fs, root);
+
+    expect(result.status).toBe("unreadable");
+    if (result.status === "unreadable") {
+      expect(result.detail).toBe("blocked");
+    }
+    expect(userId).toBeTruthy();
+  });
+
   it("korruptes shortcuts.vdf → status unreadable", async () => {
     const { root, userId } = await buildFakeSteam();
     const fs = nodeFs();
@@ -114,6 +141,27 @@ describe("readAllShortcutAppIds", () => {
     expect(result.detail).toBe("unreadable");
   });
 
+  // 4.12: der account-readDir-fehler lief bisher in ein nacktes `catch {}`,
+  // das detail des ergebnisses blieb leer. der code muss mit.
+  it("account-readDir mit codiertem fehler → detail ist der code", async () => {
+    const { root, userId } = await buildFakeSteam();
+    const inner = nodeFs();
+    const account = paths.userdataAccountDir(root, userId);
+    const fs = {
+      ...inner,
+      readDir: async (path: string) => {
+        if (path === account) throw "unreadable: account nicht lesbar";
+        return inner.readDir(path);
+      },
+    };
+
+    await expect(readAllShortcutAppIds(fs, root)).resolves.toEqual({
+      status: "unreadable",
+      paths: [paths.shortcutsVdf(root, userId)],
+      detail: "unreadable",
+    });
+  });
+
   it("exists-wurf am shortcut-pfad → status unreadable, kein reject", async () => {
     const { root, userId } = await buildFakeSteam();
     const base = nodeFs();
@@ -129,6 +177,8 @@ describe("readAllShortcutAppIds", () => {
     await expect(readAllShortcutAppIds(fs, root)).resolves.toEqual({
       status: "unreadable",
       paths: [scPath],
+      // der rohe satz wird nicht weitergegeben, nur der klassifizierte code
+      detail: "unknown",
     });
   });
 

@@ -80,6 +80,52 @@ describe("formatError (B1)", () => {
     expect(formatDetail("/etc/passwd ist kaputt")).toBeUndefined();
   });
 
+  // 5.6: bei `incomplete` ist das detail die handlungsanweisung
+  // (Extraktionsreste, Pfadliste). Es bleibt in der klammer und wird nicht
+  // verworfen; andere klassen halten rohtext weiter draußen.
+  it("zeigt bei incomplete die Detailklammer", () => {
+    setLocale("de");
+    const raw =
+      "incomplete: incomplete extraction leftovers found: .protium-extract-abc, .protium-extract-def; remove them manually";
+
+    expect(formatError(raw)).toBe(
+      `${t("errors.kinds.incomplete")} (incomplete extraction leftovers found: .protium-extract-abc, .protium-extract-def; remove them manually)`,
+    );
+  });
+
+  it("zeigt ein incomplete-detail auch an einer ProtiumError", () => {
+    setLocale("de");
+    const err = new ProtiumError(
+      "incomplete",
+      "incomplete",
+      "incomplete extraction leftovers found",
+      "incomplete extraction leftovers found: .protium-extract-abc",
+    );
+
+    expect(formatError(err)).toBe(
+      `${t("errors.kinds.incomplete")} (incomplete extraction leftovers found: .protium-extract-abc)`,
+    );
+  });
+
+  it.each([
+    ["blocked-location", "blocked-location: /home/dominik/secret", "errors.codes.blockedLocation"],
+    ["unreadable", "unreadable: cannot read /etc/passwd", "errors.kinds.unreadable"],
+    ["not-found", "not-found: /home/dominik/secret", "errors.codes.notFound"],
+    // spezifische codes der klasse incomplete tragen diagnostik, keine
+    // handlungsanweisung; ihr detail bleibt draußen (Q-03).
+    ["size-invalid", "size-invalid: /home/dominik/secret", "errors.codes.sizeInvalid"],
+    [
+      "manifest-invalid-appid",
+      "manifest-invalid-appid: /etc/passwd",
+      "errors.codes.manifestInvalidAppid",
+    ],
+  ] as const)("verbirgt das detail für %s weiterhin", (_fall, raw, key) => {
+    setLocale("de");
+    expect(formatError(raw)).not.toContain("/home/dominik");
+    expect(formatError(raw)).not.toContain("/etc/passwd");
+    expect(formatError(raw)).toBe(t(key));
+  });
+
   it("faellt auf Fehlerklasse zurueck wenn Code unbekannt", () => {
     setLocale("de");
     const err = new ProtiumError("blocked", "custom-security-gate", "verweigert");

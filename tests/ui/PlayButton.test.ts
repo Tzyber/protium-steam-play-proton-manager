@@ -6,11 +6,12 @@ import PlayButton from "../../src/ui/components/PlayButton.vue";
 
 const mockLaunchGame = vi.hoisted(() => vi.fn(async () => {}));
 const mockShowNotification = vi.hoisted(() => vi.fn());
+const mockUseUiStore = vi.hoisted(() => vi.fn(() => ({ showNotification: mockShowNotification })));
 vi.mock("../../src/core/adapters/tauri", () => ({
   launchGame: mockLaunchGame,
 }));
 vi.mock("../../src/ui/stores/uiStore", () => ({
-  useUiStore: vi.fn(() => ({ showNotification: mockShowNotification })),
+  useUiStore: mockUseUiStore,
 }));
 
 // i18n: minimale nachbildung, t() bildet key auf label ab.
@@ -91,6 +92,19 @@ describe("PlayButton", () => {
   });
 
   describe("fehlerpfad", () => {
+    it("holt den ui-store einmal im setup, nicht pro klick (4.9)", async () => {
+      const wrapper = mount(PlayButton, {
+        props: { appId: 1, name: "x", variant: "compact" },
+      });
+      const callsAfterSetup = mockUseUiStore.mock.calls.length;
+      expect(callsAfterSetup).toBeGreaterThan(0);
+
+      await wrapper.find("button").trigger("click");
+      await wrapper.find("button").trigger("click");
+
+      expect(mockUseUiStore.mock.calls.length).toBe(callsAfterSetup);
+    });
+
     it("zeigt notification bei launchGame-fehler", async () => {
       mockLaunchGame.mockRejectedValueOnce(new Error("steam-not-found"));
       const wrapper = mount(PlayButton, {
