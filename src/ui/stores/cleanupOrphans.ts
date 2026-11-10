@@ -3,7 +3,6 @@
 // Parameter, Aufrufe anderer Actions ausschließlich über `store.`, damit die
 // `vi.spyOn`-Spies der Tests greifen.
 
-import { tauriPorts } from "../../core/adapters/tauri";
 import {
   classifyOrphans,
   findIncompleteDeletions,
@@ -23,6 +22,7 @@ import { localizeConsequences } from "../consequences";
 import { logError, logEvent } from "../diagnostics";
 import { formatError } from "../formatError";
 import { t } from "../i18n";
+import { ports } from "../ports";
 import {
   attachSizes,
   batchInfoLines,
@@ -78,7 +78,7 @@ export async function readOrphanNames(
 ): Promise<Record<string, string>> {
   if (!result.steamUserId) return {};
   try {
-    const text = await tauriPorts.fs.readTextFile(
+    const text = await ports.fs.readTextFile(
       paths.localConfigVdf(result.steamRoot, result.steamUserId),
     );
     const names: Record<string, string> = {};
@@ -132,7 +132,7 @@ export async function scanOrphans(store: OrphanStore): Promise<void> {
     const incompleteDeletions = await findIncompleteDeletions(
       result.libraries,
       result.steamRoot,
-      tauriPorts.fs,
+      ports.fs,
     );
     if (!isCurrent()) return;
     store.incompleteDeletions = incompleteDeletions.entries;
@@ -166,7 +166,7 @@ export async function scanOrphans(store: OrphanStore): Promise<void> {
     }
     store.pathMissingLibs = [];
 
-    const steamRunning = await tauriPorts.system.isSteamRunning();
+    const steamRunning = await ports.system.isSteamRunning();
     if (!isCurrent()) return;
     if (steamRunning) {
       const steamError = t("errors.steamRunningCleanup");
@@ -174,7 +174,7 @@ export async function scanOrphans(store: OrphanStore): Promise<void> {
       return;
     }
 
-    const shortcutResult = await readAllShortcutAppIds(tauriPorts.fs, result.steamRoot);
+    const shortcutResult = await readAllShortcutAppIds(ports.fs, result.steamRoot);
     if (!isCurrent()) return;
     if (shortcutResult.status === "unreadable") {
       store.shortcutUnreadable = true;
@@ -192,7 +192,7 @@ export async function scanOrphans(store: OrphanStore): Promise<void> {
       result.libraries,
       installedAppIds,
       new Set(result.blockedAppIds),
-      tauriPorts.fs,
+      ports.fs,
     );
     if (!isCurrent()) return;
     store.orphans = orphanScan.orphans;
@@ -200,7 +200,7 @@ export async function scanOrphans(store: OrphanStore): Promise<void> {
     const steamOwned = await findSteamOwnedPrefixes(
       result.libraries,
       new Set(result.blockedAppIds),
-      tauriPorts.fs,
+      ports.fs,
     );
     if (!isCurrent()) return;
     store.steamOwnedPrefixes = steamOwned.prefixes;
@@ -226,7 +226,7 @@ export async function scanOrphans(store: OrphanStore): Promise<void> {
       ...store.orphans.map((o) => o.path),
       ...store.steamOwnedPrefixes.map((p) => p.path),
     ];
-    const sizes = await tauriPorts.system.batchDirSizes(paths);
+    const sizes = await ports.system.batchDirSizes(paths);
     if (!isCurrent()) return;
     attachSizes(store.orphans, sizes);
     attachSizes(store.steamOwnedPrefixes, sizes);
@@ -314,11 +314,11 @@ export async function deleteOrphans(
 
   let shortcutResult: ShortcutResult;
   try {
-    if (await tauriPorts.system.isSteamRunning()) {
+    if (await ports.system.isSteamRunning()) {
       if (isCurrent()) store.setOrphanError(t("errors.steamRunningCleanup"));
       return;
     }
-    shortcutResult = await readAllShortcutAppIds(tauriPorts.fs, result.steamRoot);
+    shortcutResult = await readAllShortcutAppIds(ports.fs, result.steamRoot);
   } catch (e) {
     logError("Loeschen vorbereiten fehlgeschlagen", e);
     if (isCurrent()) store.setOrphanError(formatError(e));
@@ -352,7 +352,7 @@ export async function deleteOrphans(
 
     store.deleting.add(entry.path);
     try {
-      const pending = await tauriPorts.system.prepareDelete({
+      const pending = await ports.system.prepareDelete({
         targetType: "orphan",
         path: entry.path,
         steamRoot: result.steamRoot,
@@ -416,7 +416,7 @@ export async function deleteOrphans(
         let trashedCompatdata = false;
         for (const p of prepared) {
           try {
-            await tauriPorts.system.executeDelete(p.token);
+            await ports.system.executeDelete(p.token);
             if (isCurrent()) {
               store.orphans = store.orphans.filter((o) => o.path !== p.path);
               // shadercache wird hart gelöscht, landet nie im papierkorb

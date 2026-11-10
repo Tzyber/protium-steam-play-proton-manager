@@ -17,7 +17,7 @@ use crate::commands::spawn_blocking_io;
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TrashDirEntry {
     pub name: String,
-    pub is_dir: bool,
+    pub is_directory: bool,
     pub is_symlink: bool,
 }
 
@@ -82,7 +82,7 @@ fn collect_trash_entries(handle: &TrashListingHandle) -> Result<TrashListing, St
             .map_err(|error| errcode::with_detail(errcode::code_for_io(&error), error))?;
         entries.push(TrashDirEntry {
             name: e.file_name().to_string_lossy().into_owned(),
-            is_dir: ft.is_dir(),
+            is_directory: ft.is_dir(),
             is_symlink: ft.is_symlink(),
         });
     }

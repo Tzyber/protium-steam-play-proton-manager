@@ -391,6 +391,22 @@ export function fakeSystem(opts?: { environment?: EnvironmentSnapshot }): System
     async saveCompatTool() {
       throw new Error("write gate unavailable in test fixture");
     },
+    // UI-bedienung: der fixture oeffnet nichts und liefert keine protokolle.
+    async openExternal() {},
+    async launchGame() {},
+    async openPrefixFolder() {},
+    async listConfigBackups() {
+      return [];
+    },
+    async openBackupsFolder() {},
+    async logDiagnostic() {},
+    async appVersion() {
+      return "0.0.0-test";
+    },
+    async readLogTail() {
+      return "";
+    },
+    async openLogsFolder() {},
   };
 }
 

@@ -1,10 +1,10 @@
 import { defineStore } from "pinia";
-import { tauriPorts } from "../../core/adapters/tauri";
 import type { IncompleteDeletion, OrphanUnreadable, SteamOwnedPrefix } from "../../core/cleanup";
 import type { TrashEntry, TrashLibraryStatus } from "../../core/trash";
 import type { OrphanEntry, ScanResult } from "../../core/types";
 import { formatDetail } from "../formatError";
 import { t } from "../i18n";
+import { ports } from "../ports";
 import { cleanupBlockedFlags, combineErrors, hasUnreadableOrphanType } from "./cleanupHelpers";
 import { deleteOrphans, readOrphanNames, scanOrphans } from "./cleanupOrphans";
 import { deleteTrashEntries, scanTrash } from "./cleanupTrash";
@@ -218,7 +218,7 @@ export const useCleanupStore = defineStore("cleanup", {
     async loadIgnoredMissing(isCurrent: () => boolean) {
       if (this.ignoredLoaded) return;
       try {
-        const raw = await tauriPorts.cache.get(IGNORED_MISSING_KEY);
+        const raw = await ports.cache.get(IGNORED_MISSING_KEY);
         if (!isCurrent()) return;
         this.ignoredLoaded = true;
         if (!raw) return;
@@ -235,7 +235,7 @@ export const useCleanupStore = defineStore("cleanup", {
 
     async persistIgnoredMissing() {
       try {
-        await tauriPorts.cache.set(IGNORED_MISSING_KEY, JSON.stringify(this.ignoredMissingLibs));
+        await ports.cache.set(IGNORED_MISSING_KEY, JSON.stringify(this.ignoredMissingLibs));
       } catch {
         // schreibfehler nie fatal: die entscheidung gilt dann nur für diese sitzung
       }

@@ -8,7 +8,7 @@ const mockLaunchGame = vi.hoisted(() => vi.fn(async () => {}));
 const mockShowNotification = vi.hoisted(() => vi.fn());
 const mockUseUiStore = vi.hoisted(() => vi.fn(() => ({ showNotification: mockShowNotification })));
 vi.mock("../../src/core/adapters/tauri", () => ({
-  launchGame: mockLaunchGame,
+  tauriPorts: { system: { launchGame: mockLaunchGame } },
 }));
 vi.mock("../../src/ui/stores/uiStore", () => ({
   useUiStore: mockUseUiStore,

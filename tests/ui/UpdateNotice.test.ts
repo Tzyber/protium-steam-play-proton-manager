@@ -12,8 +12,7 @@ vi.mock("../../src/core/update", () => ({
   UPDATE_RELEASE_URL: "https://github.com/Tzyber/protium-steam-play-proton-manager/releases",
 }));
 vi.mock("../../src/core/adapters/tauri", () => ({
-  openExternal: mockOpenExternal,
-  tauriPorts: { http: {} },
+  tauriPorts: { http: {}, system: { openExternal: mockOpenExternal } },
 }));
 
 import UpdateNotice from "../../src/ui/components/UpdateNotice.vue";

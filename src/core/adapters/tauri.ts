@@ -14,6 +14,7 @@ import { ProtiumError } from "../errors.js";
 import { isRecord, validNonNegativeInteger } from "../guards.js";
 import type {
   Cache,
+  ConfigBackupEntry,
   DeleteResult,
   DirEntry,
   DirectorySize,
@@ -27,6 +28,7 @@ import type {
   Ports,
   System,
   TargetArch,
+  TrashListing,
   WriteResult,
 } from "../ports.js";
 import { asSkipReason, type SkippedLibrary } from "../types.js";
@@ -139,23 +141,9 @@ const system: System = {
   isSteamRunning: () => invoke<boolean>("is_steam_running"),
   dirSize: (path) => invoke<DirectorySize>("dir_size", { path }),
   batchDirSizes: (paths) => invoke<Record<string, DirectorySize>>("batch_dir_sizes", { paths }),
-  listTrashEntries: async (library) => {
-    // rust liefert serde-camelCase (isDir), core kennt nur DirEntry (isDirectory)
-    const r = await invoke<{
-      dir: string;
-      present: boolean;
-      entries: { name: string; isDir: boolean; isSymlink: boolean }[];
-    }>("list_trash_entries", { library });
-    return {
-      dir: r.dir,
-      present: r.present,
-      entries: r.entries.map((e) => ({
-        name: e.name,
-        isDirectory: e.isDir,
-        isSymlink: e.isSymlink,
-      })),
-    };
-  },
+  // rust liefert serde-camelCase direkt (isDirectory); einen zweiten wire-namen
+  // für denselben eintrag gibt es nicht mehr (P10a/FR-4).
+  listTrashEntries: (library) => invoke<TrashListing>("list_trash_entries", { library }),
   pathIdentity: (path) =>
     invoke<{ realpath: string; dev: string; ino: string }>("path_identity", { path }),
   installGeProton: (params) =>
@@ -195,6 +183,18 @@ const system: System = {
       appId,
       toolName,
     }),
+  // eigener command statt plugin-opener: dessen PATH-lookup nimmt im appimage
+  // das gebündelte xdg-open, das auf kde-systemen lautlos scheitert.
+  openExternal: (url) => invoke<void>("open_external", { url }),
+  launchGame: (appId) => invoke<void>("open_external", { url: `steam://rungameid/${appId}` }),
+  openPrefixFolder: (library, appId) =>
+    invoke<void>("open_prefix_folder", { library, appId: String(appId) }),
+  listConfigBackups: () => invoke<ConfigBackupEntry[]>("list_config_backups"),
+  openBackupsFolder: () => invoke<void>("open_backups_folder"),
+  logDiagnostic: (level, message) => invoke<void>("log_diagnostic", { level, message }),
+  appVersion: () => getVersion(),
+  readLogTail: () => invoke<string>("read_log_tail"),
+  openLogsFolder: () => invoke<void>("open_logs_folder"),
 };
 
 // cache als json-dateien unter dem app-cache-dir
@@ -255,51 +255,3 @@ const cache: Cache = {
 };
 
 export const tauriPorts: Ports = { fs, http, system, cache };
-
-/** url im system-browser öffnen (eigener command: host-xdg-open, nicht
- * plugin-opener, dessen PATH-lookup nimmt im appimage das gebündelte
- * xdg-open, das auf kde-systemen lautlos scheitert). */
-export function openExternal(url: string): Promise<void> {
-  return invoke("open_external", { url });
-}
-
-/** spiel über steam starten (steam:// handler). steam muss laufen bzw. startet dann. */
-export function launchGame(appId: number): Promise<void> {
-  return invoke("open_external", { url: `steam://rungameid/${appId}` });
-}
-
-export function openPrefixFolder(library: string, appId: number): Promise<void> {
-  return invoke("open_prefix_folder", { library, appId: String(appId) });
-}
-
-export interface ConfigBackupEntry {
-  fileName: string;
-  kind: "localconfig" | "config";
-  targetId: string;
-  timestampMs: number;
-  sizeBytes: number;
-}
-
-export function listConfigBackups(): Promise<ConfigBackupEntry[]> {
-  return invoke<ConfigBackupEntry[]>("list_config_backups");
-}
-
-export function openBackupsFolder(): Promise<void> {
-  return invoke("open_backups_folder");
-}
-
-export function logDiagnostic(level: "info" | "warn" | "error", message: string): Promise<void> {
-  return invoke("log_diagnostic", { level, message });
-}
-
-export function appVersion(): Promise<string> {
-  return getVersion();
-}
-
-export function readLogTail(): Promise<string> {
-  return invoke<string>("read_log_tail");
-}
-
-export function openLogsFolder(): Promise<void> {
-  return invoke("open_logs_folder");
-}

@@ -1,5 +1,4 @@
 import { defineStore } from "pinia";
-import { tauriPorts } from "../../core/adapters/tauri";
 import { recomputeToolUsedBy } from "../../core/compatTools";
 import { parseError } from "../../core/errtext";
 import { deriveProtonCheck } from "../../core/protoncheck";
@@ -10,6 +9,7 @@ import type { ScanResult } from "../../core/types";
 import { logError, logEvent } from "../diagnostics";
 import { formatError } from "../formatError";
 import { t } from "../i18n";
+import { ports } from "../ports";
 import { useLibraryStore } from "./libraryStore";
 import { useUiStore } from "./uiStore";
 
@@ -71,10 +71,10 @@ export const useScanStore = defineStore("scan", {
       const isCurrent = (result?: ScanResult): boolean =>
         this.scanGeneration === generation && (result === undefined || this.result === result);
       try {
-        const environment = await tauriPorts.system.discoverSteamEnvironment();
+        const environment = await ports.system.discoverSteamEnvironment();
         if (!isCurrent()) return;
         this.scanPhase = "scanning-library";
-        const local = await scanLocal(tauriPorts, environment);
+        const local = await scanLocal(ports, environment);
         if (!isCurrent()) return;
         this.result = { steamRoot: environment.steamRoot, ...local };
         const result = this.result;
@@ -107,7 +107,7 @@ export const useScanStore = defineStore("scan", {
         this.protonDbRemaining = result.games.length;
         if (result.games.length === 0) return;
 
-        void enrichProtondb(tauriPorts, result.games, PROTONDB_DELAY_MS, {
+        void enrichProtondb(ports, result.games, PROTONDB_DELAY_MS, {
           shouldApply: () => isCurrent(result),
           onSettled: () => {
             if (!isCurrent(result)) return;

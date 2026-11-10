@@ -1,6 +1,6 @@
 import { onBeforeUnmount, ref, watch } from "vue";
-import { tauriPorts } from "../../core/adapters/tauri";
 import type { Game } from "../../core/types";
+import { ports } from "../ports";
 
 // lokale Steam-Cover kommen als Backend-Bytes. Blob-URLs bleiben deshalb
 // außerhalb des plugin-fs- und asset-Protokolls.
@@ -25,7 +25,7 @@ export function useCover(getGame: () => Game | null) {
 
     if (game.localHeader) {
       try {
-        const bytes = await tauriPorts.fs.readFile(game.localHeader);
+        const bytes = await ports.fs.readFile(game.localHeader);
         if (currentRequest !== request || getGame()?.appId !== game.appId) return;
         const blobBytes = new ArrayBuffer(bytes.byteLength);
         new Uint8Array(blobBytes).set(bytes);

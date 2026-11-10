@@ -1,6 +1,7 @@
 use super::*;
 use crate::commands::delete_ops::{TrashListingStage, TRASH_DIR_NAME};
-use crate::commands::test_util::fixture_dir;
+use crate::commands::test_util::{fixture_dir, WireSerializer, WireValue};
+use serde::Serialize;
 use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::PathBuf;
 
@@ -219,12 +220,33 @@ fn eintraege_tragen_verzeichnis_datei_und_symlink_flags() {
         .iter()
         .find(|entry| entry.name == "compatdata_730_1000")
         .expect("symlinkeintrag fehlt");
-    assert!(compatdata_620.is_dir);
+    assert!(compatdata_620.is_directory);
     assert!(!compatdata_620.is_symlink);
-    assert!(!compatdata_570.is_dir);
+    assert!(!compatdata_570.is_directory);
     assert!(!compatdata_570.is_symlink);
-    assert!(!compatdata_730.is_dir);
+    assert!(!compatdata_730.is_directory);
     assert!(compatdata_730.is_symlink);
+}
+
+#[test]
+fn papierkorb_eintrag_traegt_den_einheitlichen_wire_namen() {
+    // FR-4: genau eine wire-form für DirEntry (isDirectory), nicht mehr isDir.
+    let fixture = Fixture::new("entries-wire");
+    fs::create_dir(fixture.trash()).unwrap();
+    fs::create_dir(fixture.trash().join("compatdata_620_1000")).unwrap();
+
+    let listing = fixture.list().unwrap();
+    let entry = listing.entries.first().expect("verzeichniseintrag fehlt");
+
+    match entry.serialize(WireSerializer).unwrap() {
+        WireValue::Object(fields) => {
+            let keys: Vec<&str> = fields.iter().map(|(key, _)| key.as_str()).collect();
+            assert_eq!(keys, ["name", "isDirectory", "isSymlink"]);
+            assert_eq!(fields[1].1, WireValue::Number(1));
+            assert_eq!(fields[2].1, WireValue::Number(0));
+        }
+        other => panic!("erwartet objekt, war {other:?}"),
+    }
 }
 
 #[test]

@@ -12,10 +12,14 @@ const openLogsFolder = vi.fn();
 const readLogTail = vi.fn();
 
 vi.mock("../../src/core/adapters/tauri", () => ({
-  listConfigBackups: (...args: unknown[]) => listConfigBackups(...args),
-  openBackupsFolder: (...args: unknown[]) => openBackupsFolder(...args),
-  openLogsFolder: (...args: unknown[]) => openLogsFolder(...args),
-  readLogTail: (...args: unknown[]) => readLogTail(...args),
+  tauriPorts: {
+    system: {
+      listConfigBackups: (...args: unknown[]) => listConfigBackups(...args),
+      openBackupsFolder: (...args: unknown[]) => openBackupsFolder(...args),
+      openLogsFolder: (...args: unknown[]) => openLogsFolder(...args),
+      readLogTail: (...args: unknown[]) => readLogTail(...args),
+    },
+  },
 }));
 
 describe("HistoryView", () => {
@@ -67,6 +71,18 @@ describe("HistoryView", () => {
     await vi.waitFor(() => expect(wrapper.text()).toContain("unlesbar"));
 
     expect(wrapper.text()).not.toContain(t("history.snapshotsEmpty"));
+  });
+
+  it("öffnet den Snapshots-Ordner", async () => {
+    listConfigBackups.mockResolvedValue([]);
+    readLogTail.mockResolvedValue("");
+    openBackupsFolder.mockResolvedValue(undefined);
+
+    const wrapper = mount(HistoryView);
+    await vi.waitFor(() => expect(wrapper.find(".snapshots").exists()).toBe(true));
+    await wrapper.get(".snapshots button").trigger("click");
+
+    await vi.waitFor(() => expect(openBackupsFolder).toHaveBeenCalledTimes(1));
   });
 
   it("meldet einen Fehler beim Öffnen des Ordners auch bei gefülltem Protokoll", async () => {

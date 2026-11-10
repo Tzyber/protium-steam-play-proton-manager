@@ -17,9 +17,12 @@ const { measureGameFootprintMock, openExternalMock, openPrefixFolderMock } = vi.
 }));
 
 vi.mock("../../src/core/adapters/tauri", () => ({
-  openExternal: openExternalMock,
-  openPrefixFolder: openPrefixFolderMock,
-  tauriPorts: { system: {} },
+  tauriPorts: {
+    system: {
+      openExternal: openExternalMock,
+      openPrefixFolder: openPrefixFolderMock,
+    },
+  },
 }));
 vi.mock("../../src/core/footprint", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/core/footprint")>();

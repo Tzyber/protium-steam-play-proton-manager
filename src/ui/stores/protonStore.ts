@@ -1,5 +1,4 @@
 import { defineStore } from "pinia";
-import { tauriPorts } from "../../core/adapters/tauri";
 import { ProtiumError } from "../../core/errors";
 import { errText, parseError } from "../../core/errtext";
 import { type FetchSource, fetchReleases, installRelease } from "../../core/geproton";
@@ -12,6 +11,7 @@ import { localizeConsequences } from "../consequences";
 import { logError, logEvent } from "../diagnostics";
 import { formatError } from "../formatError";
 import { getLocale, t } from "../i18n";
+import { ports } from "../ports";
 import { useConfirmStore } from "./confirmStore";
 import { disposeListeners, initListeners } from "./protonListeners";
 import { useScanStore } from "./scanStore";
@@ -116,14 +116,8 @@ export const useProtonStore = defineStore("proton", {
       this.loading = true;
       this.loadError = null;
       try {
-        const targetArch = await tauriPorts.system.geTargetArch();
-        const result = await fetchReleases(
-          tauriPorts.http,
-          tauriPorts.cache,
-          targetArch,
-          Date.now,
-          force,
-        );
+        const targetArch = await ports.system.geTargetArch();
+        const result = await fetchReleases(ports.http, ports.cache, targetArch, Date.now, force);
         if (!isCurrent()) return;
         this.releases = result.releases;
         this.lastFetchedAt = result.fetchedAt;
@@ -177,7 +171,7 @@ export const useProtonStore = defineStore("proton", {
         const job = this.jobs[tag];
         if (job) {
           job.cancelRequested = true;
-          await tauriPorts.system.cancelDownload(job.downloadId).catch((e: unknown) => {
+          await ports.system.cancelDownload(job.downloadId).catch((e: unknown) => {
             // der abbruch ist bereits vorgemerkt; ein fehlgeschlagener
             // backend-weckruf darf nicht still verschwinden (P6).
             logEvent("warn", `Download-Abbruch fehlgeschlagen (${tag}): ${errText(e)}`);
@@ -214,7 +208,7 @@ export const useProtonStore = defineStore("proton", {
         if (!steamRoot) {
           throw new ProtiumError("not-found", "no-scan-result", t("proton.noScanResult"));
         }
-        await installRelease(tauriPorts, {
+        await installRelease(ports, {
           steamRoot,
           release,
           downloadId,
@@ -267,7 +261,7 @@ export const useProtonStore = defineStore("proton", {
       try {
         // NUR für GE-tools aufrufen (distro-tools gehören dem paketmanager)
         const toolDir = paths.compatToolDir(steamRoot, tool.name);
-        const pending = await tauriPorts.system.prepareDelete({
+        const pending = await ports.system.prepareDelete({
           targetType: "compatTool",
           path: toolDir,
           steamRoot,
@@ -282,7 +276,7 @@ export const useProtonStore = defineStore("proton", {
           {
             onSuccess: async () => {
               try {
-                await tauriPorts.system.executeDelete(pending.token);
+                await ports.system.executeDelete(pending.token);
                 await scan.runScan();
               } finally {
                 this.busyRemove = null;

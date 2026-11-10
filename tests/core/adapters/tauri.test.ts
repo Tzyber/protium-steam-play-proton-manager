@@ -11,11 +11,7 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
 
 import { invoke } from "@tauri-apps/api/core";
 import { exists as fsExists, mkdir, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
-import {
-  openPrefixFolder,
-  parseEnvironmentSnapshot,
-  tauriPorts,
-} from "../../../src/core/adapters/tauri";
+import { parseEnvironmentSnapshot, tauriPorts } from "../../../src/core/adapters/tauri";
 import { ProtiumError } from "../../../src/core/errors";
 
 // S-02: kein webview-fetch mehr; url und etag gehen an den rust-command.
@@ -69,64 +65,19 @@ describe("GE-Installation IPC", () => {
   });
 });
 
-describe("Prefix-Öffnen-IPC", () => {
-  it("übergibt genau Library und AppID als String, keinen Zielpfad", async () => {
+describe("Papierkorb-Listing IPC", () => {
+  it("reicht das wire-listing unverändert durch", async () => {
     vi.mocked(invoke).mockClear();
-    vi.mocked(invoke).mockResolvedValueOnce(undefined);
-    await openPrefixFolder("/library", 620);
-    expect(invoke).toHaveBeenCalledExactlyOnceWith("open_prefix_folder", {
-      library: "/library",
-      appId: "620",
-    });
-  });
-});
+    const listing = {
+      dir: "/lib/steamapps/.protium-trash",
+      present: true,
+      entries: [{ name: "compatdata_620_1000", isDirectory: true, isSymlink: false }],
+    };
+    vi.mocked(invoke).mockResolvedValueOnce(listing);
 
-describe("Backup-Sichtbarkeit IPC", () => {
-  it("listConfigBackups ruft list_config_backups auf", async () => {
-    const { listConfigBackups } = await import("../../../src/core/adapters/tauri");
-    vi.mocked(invoke).mockClear();
-    vi.mocked(invoke).mockResolvedValueOnce([]);
-    const res = await listConfigBackups();
-    expect(res).toEqual([]);
-    expect(invoke).toHaveBeenCalledExactlyOnceWith("list_config_backups");
-  });
-
-  it("openBackupsFolder ruft open_backups_folder auf", async () => {
-    const { openBackupsFolder } = await import("../../../src/core/adapters/tauri");
-    vi.mocked(invoke).mockClear();
-    vi.mocked(invoke).mockResolvedValueOnce(undefined);
-    await openBackupsFolder();
-    expect(invoke).toHaveBeenCalledExactlyOnceWith("open_backups_folder");
-  });
-});
-
-describe("Diagnostics IPC", () => {
-  it("logDiagnostic ruft log_diagnostic mit Level und Message auf", async () => {
-    const { logDiagnostic } = await import("../../../src/core/adapters/tauri");
-    vi.mocked(invoke).mockClear();
-    vi.mocked(invoke).mockResolvedValueOnce(undefined);
-    await logDiagnostic("warn", "Testwarnung");
-    expect(invoke).toHaveBeenCalledExactlyOnceWith("log_diagnostic", {
-      level: "warn",
-      message: "Testwarnung",
-    });
-  });
-
-  it("readLogTail ruft read_log_tail auf", async () => {
-    const { readLogTail } = await import("../../../src/core/adapters/tauri");
-    vi.mocked(invoke).mockClear();
-    vi.mocked(invoke).mockResolvedValueOnce("zeile");
-    const res = await readLogTail();
-    expect(res).toBe("zeile");
-    expect(invoke).toHaveBeenCalledExactlyOnceWith("read_log_tail");
-  });
-
-  it("openLogsFolder ruft open_logs_folder auf", async () => {
-    const { openLogsFolder } = await import("../../../src/core/adapters/tauri");
-    vi.mocked(invoke).mockClear();
-    vi.mocked(invoke).mockResolvedValueOnce(undefined);
-    await openLogsFolder();
-    expect(invoke).toHaveBeenCalledExactlyOnceWith("open_logs_folder");
+    // identität statt gleichheit: kein inline gemappter wire-typ mehr (FR-4).
+    await expect(tauriPorts.system.listTrashEntries("/lib")).resolves.toBe(listing);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("list_trash_entries", { library: "/lib" });
   });
 });
 

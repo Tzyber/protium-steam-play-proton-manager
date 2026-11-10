@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { launchGame } from "../../core/adapters/tauri";
 import { formatError } from "../formatError";
 import { t } from "../i18n";
+import { ports } from "../ports";
 import { useUiStore } from "../stores/uiStore";
 
 const props = defineProps<{
@@ -13,7 +13,7 @@ const props = defineProps<{
 const ui = useUiStore();
 
 function launch() {
-  void launchGame(props.appId).catch((e: unknown) => {
+  void ports.system.launchGame(props.appId).catch((e: unknown) => {
     ui.showNotification(t("drawer.launchFailed", { error: formatError(e) }));
   });
 }

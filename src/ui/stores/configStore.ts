@@ -1,10 +1,10 @@
 import { defineStore } from "pinia";
-import { tauriPorts } from "../../core/adapters/tauri";
 import { ProtiumError, SteamRunningError } from "../../core/errors";
 import { parseError } from "../../core/errtext";
 import type { WriteResult } from "../../core/ports";
 import { logError, logEvent } from "../diagnostics";
 import { t } from "../i18n";
+import { ports } from "../ports";
 import { useScanStore } from "./scanStore";
 
 /** Backend-Fehler auf Typen mappen. Der Fehlercode ist der Vertrag; aus dem
@@ -49,7 +49,7 @@ export const useConfigStore = defineStore("config", {
         if (!snapshot.steamUserId) {
           throw new ProtiumError("not-found", "no-steam-account", t("errors.noSteamAccount"));
         }
-        const r = await tauriPorts.system.saveLaunchOptions(
+        const r = await ports.system.saveLaunchOptions(
           snapshot.steamRoot,
           snapshot.steamUserId,
           appId,
@@ -79,7 +79,7 @@ export const useConfigStore = defineStore("config", {
         if (!snapshot) {
           throw new ProtiumError("not-found", "no-scan-result", t("errors.noScanResult"));
         }
-        const r = await tauriPorts.system.saveCompatTool(snapshot.steamRoot, appId, internalName);
+        const r = await ports.system.saveCompatTool(snapshot.steamRoot, appId, internalName);
         if (isSameSnapshot(snapshot, generation)) {
           scan.applyGameConfig(appId, { compatTool: internalName ?? "default" });
         } else {

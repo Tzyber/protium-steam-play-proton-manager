@@ -1,8 +1,8 @@
 import { computed, type Ref, shallowRef, watch } from "vue";
-import { openPrefixFolder } from "../../core/adapters/tauri";
 import { hasExternalCompatdata } from "../../core/footprint";
 import type { Game } from "../../core/types";
 import type { Key } from "../i18n";
+import { ports } from "../ports";
 import { sameContext } from "../sameContext";
 import { useScanStore } from "../stores/scanStore";
 
@@ -88,7 +88,7 @@ export function usePrefixOpen(game: Readonly<Ref<Game | null>>, saving: Readonly
     result.value = request;
     let settled: PrefixResult = { ...request, state: "opened" };
     try {
-      await openPrefixFolder(current.library, current.appId);
+      await ports.system.openPrefixFolder(current.library, current.appId);
     } catch (error) {
       settled = {
         ...settled,

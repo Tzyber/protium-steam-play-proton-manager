@@ -4,7 +4,6 @@
 // erstem Parameter und rufen einander über `store.` auf, damit die
 // `vi.spyOn`-Spies der Tests weiter greifen.
 
-import { tauriPorts } from "../../core/adapters/tauri";
 import { parseError } from "../../core/errtext.js";
 import { findTrashEntries, type TrashEntry, type TrashLibraryStatus } from "../../core/trash";
 import { localizeConsequences } from "../consequences";
@@ -12,6 +11,7 @@ import { logError } from "../diagnostics";
 import { formatKnownBytes } from "../format";
 import { formatError } from "../formatError";
 import { t } from "../i18n";
+import { ports } from "../ports";
 import { formatSizeSummary } from "../sizeSummary";
 import {
   attachSizes,
@@ -72,7 +72,7 @@ export async function scanTrash(store: TrashStore): Promise<void> {
   try {
     const { entries, unknown, unreadable, libraries } = await findTrashEntries(
       result.libraries,
-      tauriPorts.system,
+      ports.system,
     );
     if (!isCurrent()) return;
     store.trash = entries;
@@ -87,7 +87,7 @@ export async function scanTrash(store: TrashStore): Promise<void> {
     if (entries.length === 0) return;
 
     const paths = entries.map((e) => e.path);
-    const sizes = await tauriPorts.system.batchDirSizes(paths);
+    const sizes = await ports.system.batchDirSizes(paths);
     if (!isCurrent()) return;
     attachSizes(store.trash, sizes);
   } catch (e) {
@@ -156,7 +156,7 @@ export async function deleteTrashEntries(
   for (const entry of entries) {
     if (!isCurrent()) break;
     try {
-      const pending = await tauriPorts.system.prepareDelete({
+      const pending = await ports.system.prepareDelete({
         targetType: "trash",
         path: entry.path,
         steamRoot,
@@ -224,7 +224,7 @@ export async function deleteTrashEntries(
         let mayHaveClaimRest = false;
         for (const p of prepared) {
           try {
-            await tauriPorts.system.executeDelete(p.token);
+            await ports.system.executeDelete(p.token);
             if (isCurrent()) {
               store.trash = store.trash.filter((e) => e.path !== p.path);
               deleted = true;
@@ -251,7 +251,7 @@ export async function deleteTrashEntries(
           // orphan-refresh aus.
           let steamRunning = true;
           try {
-            steamRunning = await tauriPorts.system.isSteamRunning();
+            steamRunning = await ports.system.isSteamRunning();
           } catch (e) {
             logError("Steam-Status nach Papierkorb-Löschung nicht prüfbar", e);
           }

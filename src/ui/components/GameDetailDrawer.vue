@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
-import { openExternal, tauriPorts } from "../../core/adapters/tauri";
 import { protonDbAppUrl } from "../../core/protondb";
 import type { LaunchConfigStatus, Tier } from "../../core/types";
 import { focusFirstFocusable, restoreFocus, trapFocus } from "../a11y";
@@ -22,6 +21,7 @@ import {
   saveLabel,
 } from "../gameConfig";
 import { t } from "../i18n";
+import { ports } from "../ports";
 import { useCleanupStore } from "../stores/cleanupStore";
 import { useConfigStore } from "../stores/configStore";
 import { useScanStore } from "../stores/scanStore";
@@ -96,7 +96,7 @@ onBeforeUnmount(() => {
 
 async function openProtonDb() {
   if (game.value) {
-    await openExternal(protonDbAppUrl(game.value.appId)).catch((e: unknown) => {
+    await ports.system.openExternal(protonDbAppUrl(game.value.appId)).catch((e: unknown) => {
       // kein stilles scheitern: fehler als notification sichtbar machen
       ui.showNotification(t("drawer.protondbOpenFailed", { error: formatError(e) }));
     });

@@ -11,16 +11,14 @@ vi.mock("../../src/core/adapters/tauri", async () => {
     system: {
       saveLaunchOptions: vi.fn(async () => "written" as const),
       saveCompatTool: vi.fn(async () => "written" as const),
+      logDiagnostic: vi.fn(async (_level: string, _message: string) => {}),
     },
     cache: {},
   };
-  return {
-    tauriPorts,
-    logDiagnostic: vi.fn(async () => {}),
-  };
+  return { tauriPorts };
 });
 
-import { logDiagnostic } from "../../src/core/adapters/tauri";
+import { tauriPorts } from "../../src/core/adapters/tauri";
 import { parseError } from "../../src/core/errtext";
 import { formatError } from "../../src/ui/formatError";
 import { useConfigStore } from "../../src/ui/stores/configStore";
@@ -102,7 +100,7 @@ describe("configStore.saveCompatTool", () => {
     // (nicht "unbekannt") und der fall landet im protokoll.
     expect(parseError(error).code).toBe("no-scan-result");
     expect(formatError(error)).toBe(t("errors.noScanResult"));
-    expect(logDiagnostic).toHaveBeenCalled();
+    expect(tauriPorts.system.logDiagnostic).toHaveBeenCalled();
   });
 });
 

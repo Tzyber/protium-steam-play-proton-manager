@@ -14,7 +14,7 @@ const { mockOpenPrefixFolder } = vi.hoisted(() => ({
 }));
 
 vi.mock("../../src/core/adapters/tauri", () => ({
-  openPrefixFolder: mockOpenPrefixFolder,
+  tauriPorts: { system: { openPrefixFolder: mockOpenPrefixFolder } },
 }));
 
 import { usePrefixOpen } from "../../src/ui/composables/usePrefixOpen";

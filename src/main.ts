@@ -1,12 +1,12 @@
 import { createPinia } from "pinia";
 import { createApp } from "vue";
-import { appVersion, openLogsFolder } from "./core/adapters/tauri";
 import App from "./ui/App.vue";
 import "./ui/fonts.css";
 import "./ui/tokens.css";
 import { logError, logEvent } from "./ui/diagnostics";
 import { formatError } from "./ui/formatError";
 import { getLocale, t } from "./ui/i18n";
+import { ports } from "./ui/ports";
 import { useUiStore } from "./ui/stores/uiStore";
 
 document.documentElement.lang = getLocale();
@@ -30,7 +30,7 @@ function showFatalError(): void {
   openLogs.type = "button";
   openLogs.textContent = t("app.openLogs");
   openLogs.addEventListener("click", () => {
-    void openLogsFolder().catch(() => {});
+    void ports.system.openLogsFolder().catch(() => {});
   });
   panel.append(title, hint, openLogs);
   host.append(panel);
@@ -52,7 +52,8 @@ if (typeof window !== "undefined") {
   });
 }
 
-void appVersion()
+void ports.system
+  .appVersion()
   .then((version) => logEvent("info", `Protium ${version} gestartet (Sprache ${getLocale()})`))
   .catch(() => logEvent("info", "Protium gestartet"));
 

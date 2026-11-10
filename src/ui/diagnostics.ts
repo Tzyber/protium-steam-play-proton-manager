@@ -1,5 +1,5 @@
-import { logDiagnostic } from "../core/adapters/tauri";
 import { errText } from "../core/errtext";
+import { ports } from "./ports";
 
 /**
  * Diagnose lokal festhalten. Das Protokoll ist der Ort fuer alles, was der
@@ -8,7 +8,7 @@ import { errText } from "../core/errtext";
  */
 export function logEvent(level: "info" | "warn" | "error", message: string): void {
   try {
-    void logDiagnostic(level, message).catch(() => {});
+    void ports.system.logDiagnostic(level, message).catch(() => {});
   } catch {
     // Diagnose darf die Anwendung nie stoeren, auch nicht mit Attrappen im Test.
   }

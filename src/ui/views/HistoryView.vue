@@ -1,18 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted } from "vue";
-import {
-  type ConfigBackupEntry,
-  listConfigBackups,
-  openBackupsFolder,
-  openLogsFolder,
-  readLogTail,
-} from "../../core/adapters/tauri";
 import { parseLogRecord } from "../../core/logline";
 import { useLatestLoad } from "../composables/useLatestLoad";
 import { dateTimeText, timeText } from "../dateTime";
 import { formatBytes } from "../format";
 import { formatError } from "../formatError";
 import { t } from "../i18n";
+import { type ConfigBackupEntry, ports } from "../ports";
 import { useUiStore } from "../stores/uiStore";
 
 const {
@@ -20,7 +14,7 @@ const {
   loading: snapshotsLoading,
   error: snapshotsError,
   load: loadSnapshots,
-} = useLatestLoad<ConfigBackupEntry[]>([], listConfigBackups);
+} = useLatestLoad<ConfigBackupEntry[]>([], () => ports.system.listConfigBackups());
 
 // nicht `logError`: so heißt die protokollhilfe in diagnostics.ts; hier steht
 // der fehlertext des log-panels.
@@ -29,7 +23,7 @@ const {
   loading: logLoading,
   error: logErrorText,
   load: loadLog,
-} = useLatestLoad("", readLogTail);
+} = useLatestLoad("", () => ports.system.readLogTail());
 
 // als notification: die fehler-refs der listen erscheinen nur bei leerer liste.
 async function openFolder(action: () => Promise<void>) {
@@ -38,6 +32,14 @@ async function openFolder(action: () => Promise<void>) {
   } catch (e) {
     useUiStore().showNotification(formatError(e));
   }
+}
+
+function openBackups() {
+  return openFolder(() => ports.system.openBackupsFolder());
+}
+
+function openLogs() {
+  return openFolder(() => ports.system.openLogsFolder());
 }
 
 /** Eine Zeile je Stand: was, wofür, wann. Der Dateiname ist Technik und bleibt weg. */
@@ -98,7 +100,7 @@ onMounted(() => {
             <button
               class="action"
               type="button"
-              @click="openFolder(openBackupsFolder)"
+              @click="openBackups"
             >
               {{ t("history.openSnapshotsFolder") }}
             </button>
@@ -125,7 +127,7 @@ onMounted(() => {
         <div class="section-row">
           <p class="hint">{{ t("history.logHint") }}</p>
           <div class="actions">
-            <button class="action" type="button" @click="openFolder(openLogsFolder)">
+            <button class="action" type="button" @click="openLogs">
               {{ t("history.openLogsFolder") }}
             </button>
             <button class="action" type="button" :disabled="logLoading" @click="loadLog">

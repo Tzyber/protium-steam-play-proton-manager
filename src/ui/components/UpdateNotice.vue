@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { version as appVersion } from "../../../package.json";
-import { openExternal, tauriPorts } from "../../core/adapters/tauri";
 import { checkForUpdate, UPDATE_RELEASE_URL } from "../../core/update";
 import { logError } from "../diagnostics";
 import { t } from "../i18n";
+import { ports } from "../ports";
 import { useUiStore } from "../stores/uiStore";
 
 const ui = useUiStore();
 const updateVersion = ref<string | null>(null);
 
 onMounted(() => {
-  void checkForUpdate(tauriPorts.http, appVersion)
+  void checkForUpdate(ports.http, appVersion)
     .then((version) => {
       updateVersion.value = version;
     })
@@ -21,7 +21,7 @@ onMounted(() => {
 function openUpdateRelease() {
   const version = updateVersion.value;
   const url = version ? `${UPDATE_RELEASE_URL}/tag/v${version}` : UPDATE_RELEASE_URL;
-  void openExternal(url).catch(() => {
+  void ports.system.openExternal(url).catch(() => {
     // kein stilles scheitern: ein wirkungsloser klick wäre sonst nicht erklärbar
     ui.showNotification(t("app.openReleaseFailed"));
   });

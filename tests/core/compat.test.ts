@@ -159,6 +159,15 @@ describe("listCompatTools", () => {
         consequences: [],
       })),
       executeDelete: vi.fn(async () => ({ deletedPath: "/path" })),
+      openExternal: vi.fn(async () => {}),
+      launchGame: vi.fn(async () => {}),
+      openPrefixFolder: vi.fn(async () => {}),
+      listConfigBackups: vi.fn(async () => []),
+      openBackupsFolder: vi.fn(async () => {}),
+      logDiagnostic: vi.fn(async () => {}),
+      appVersion: vi.fn(async () => "0.0.0-test"),
+      readLogTail: vi.fn(async () => ""),
+      openLogsFolder: vi.fn(async () => {}),
     };
 
     const result = await listCompatTools(fs, system, "/fake/steam", new Map(), new Set());

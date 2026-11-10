@@ -108,6 +108,17 @@ export interface System {
   saveCompatTool(steamRoot: string, appId: number, toolName: string | null): Promise<WriteResult>;
   /** listet <library>/steamapps/.protium-trash über den aktuellen Backend-Snapshot. */
   listTrashEntries(library: string): Promise<TrashListing>;
+  /** url im system-browser öffnen; erlaubte schemata prüft das backend. */
+  openExternal(url: string): Promise<void>;
+  /** spiel über den steam://-handler starten. */
+  launchGame(appId: number): Promise<void>;
+  openPrefixFolder(library: string, appId: number): Promise<void>;
+  listConfigBackups(): Promise<ConfigBackupEntry[]>;
+  openBackupsFolder(): Promise<void>;
+  logDiagnostic(level: "info" | "warn" | "error", message: string): Promise<void>;
+  appVersion(): Promise<string>;
+  readLogTail(): Promise<string>;
+  openLogsFolder(): Promise<void>;
 }
 
 type DeleteTargetType = "orphan" | "trash" | "compatTool";
@@ -156,6 +167,15 @@ export interface GeInstallParams {
 export type InstallGeResult = "verified" | "unverified";
 
 export type WriteResult = "written" | "unchanged";
+
+/** eintrag der backup-übersicht in der verlaufsansicht (wire: `list_config_backups`). */
+export interface ConfigBackupEntry {
+  fileName: string;
+  kind: "localconfig" | "config";
+  targetId: string;
+  timestampMs: number;
+  sizeBytes: number;
+}
 
 /** persistenter key/value-cache (protondb TTL, github etag). */
 export interface Cache {

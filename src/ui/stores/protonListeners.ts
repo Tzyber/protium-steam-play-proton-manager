@@ -2,12 +2,12 @@
 // herausgelöst. Die WeakMaps bleiben nach der Store-Instanz geschlüsselt,
 // deshalb bekommen die Funktionen immer `store` und nie eine Kopie.
 
-import { tauriPorts } from "../../core/adapters/tauri";
 import type { GeRelease } from "../../core/geprotonReleases";
 import type { DownloadProgressEvent, InstallPhaseEvent } from "../../core/ports";
 import { logError } from "../diagnostics";
 import { formatError } from "../formatError";
 import { t } from "../i18n";
+import { ports } from "../ports";
 import type { Job } from "./protonStore";
 import { useUiStore } from "./uiStore";
 
@@ -94,7 +94,7 @@ export function initListeners(store: ProtonListenerStore): Promise<void> {
   const token = {};
   const promise = (async () => {
     try {
-      const progressUnlisten = await tauriPorts.system.onDownloadProgress(
+      const progressUnlisten = await ports.system.onDownloadProgress(
         (payload: DownloadProgressEvent) => {
           if (listenerOwnership.get(store)?.token !== token) return;
           const activeTag = store.activeTag;
@@ -110,7 +110,7 @@ export function initListeners(store: ProtonListenerStore): Promise<void> {
         pending.delete(progressUnlisten);
         return;
       }
-      const phaseUnlisten = await tauriPorts.system.onInstallPhase((payload: InstallPhaseEvent) => {
+      const phaseUnlisten = await ports.system.onInstallPhase((payload: InstallPhaseEvent) => {
         if (listenerOwnership.get(store)?.token !== token) return;
         const activeTag = store.activeTag;
         const job = activeTag !== null ? store.jobs[activeTag] : undefined;

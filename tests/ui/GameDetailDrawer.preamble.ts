@@ -74,9 +74,12 @@ export function resetDrawerMocks(): void {
 }
 
 vi.mock("../../src/core/adapters/tauri", () => ({
-  openExternal: vi.fn(async () => {}),
-  openPrefixFolder: vi.fn(async () => {}),
-  tauriPorts: { system: {} },
+  tauriPorts: {
+    system: {
+      openExternal: vi.fn(async () => {}),
+      openPrefixFolder: vi.fn(async () => {}),
+    },
+  },
 }));
 vi.mock("../../src/core/footprint", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/core/footprint")>();
