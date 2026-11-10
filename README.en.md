@@ -47,11 +47,11 @@ when protium is sure:
 
 grab the AppImage or Debian package from the [releases page](https://github.com/Tzyber/protium-steam-play-proton-manager/releases). make the AppImage executable and run it:
 
-current version: `v0.11.4`.
+current version: `v0.11.5`.
 
 ```sh
-chmod +x protium_0.11.4_amd64.AppImage
-./protium_0.11.4_amd64.AppImage
+chmod +x protium_0.11.5_amd64.AppImage
+./protium_0.11.5_amd64.AppImage
 ```
 
 each release ships the AppImage, the Debian package, `SHA256SUMS` and
@@ -89,13 +89,13 @@ if you don't like that, build it yourself (see dev setup). Debian-based
 systems can install the accompanying Debian package:
 
 ```sh
-sudo apt install ./protium_0.11.4_amd64.deb
+sudo apt install ./protium_0.11.5_amd64.deb
 ```
 
 if nothing starts and no error message appears, fuse2 is usually missing. then either `sudo pacman -S fuse2` or run it once without fuse:
 
 ```sh
-./protium_0.11.4_amd64.AppImage --appimage-extract-and-run
+./protium_0.11.5_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## what it does
@@ -268,6 +268,10 @@ rules for the implementation: writes to steam files go through the write gate wi
 - [x] v0.11.4: robustness and security fixes from the app review, quinn-proto
   updated against five RUSTSEC advisories; plus an internal split into
   smaller files without a visible change
+- [x] v0.11.5: safer handling of Steam files: honest Steam check with a
+  block instead of a silent pass, delete rollback without a false unreadable
+  report, descriptor-bound trash listing, and private log and cache
+  directories; plus updated dependencies
 
 version history lives in the [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 

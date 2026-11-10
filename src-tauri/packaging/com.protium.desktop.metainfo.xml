@@ -45,6 +45,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.11.5" date="2026-11-10">
+      <description>
+        <p>Safer handling of Steam files: the Steam check blocks instead of passing silently when the process list is unreadable, a failed delete never reports a harmless unreadable state, the trash listing is descriptor-bound, and app directories and log files are private. Includes dependency updates and closes five development advisories.</p>
+      </description>
+    </release>
     <release version="0.11.4" date="2026-10-13">
       <description>
         <p>Robustness and security fixes from the app review, quinn-proto updated against five RUSTSEC advisories, and an internal split into smaller files without a visible change.</p>
