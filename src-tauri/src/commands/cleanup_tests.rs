@@ -289,6 +289,18 @@ fn papierkorb_listing_bricht_am_eintrags_cap_ab() {
     assert!(error.contains("trash entries"), "{error}");
 }
 
+/// 6.8: die produktion listet mit `MAX_ENTRIES`, nicht mit einem offenen cap.
+/// `usize::MAX` im aufruf bricht den pin.
+#[test]
+fn papierkorb_produktion_listet_mit_max_entries() {
+    let production = crate::commands::test_util::production_source(include_str!("cleanup.rs"));
+    let body = crate::commands::test_util::funktion_body(production, "fn collect_trash_entries(");
+    assert!(
+        body.contains("collect_trash_entries_with_cap(handle, MAX_ENTRIES)"),
+        "{body}"
+    );
+}
+
 #[test]
 fn hook_after_classify_mit_fremdem_verzeichnis_ist_unreadable() {
     let fixture = Fixture::new("trash-after-classify");

@@ -80,6 +80,32 @@ fn ge_install_entpackt_mit_dem_unpack_cap() {
         3,
         "beide extract-arme entpacken mit dem unpack-cap"
     );
+    // Der autorisierte arm reicht beide caps positional durch. Der exakte
+    // aufruf-ausschnitt hält auch die reihenfolge: `u64::MAX`/`usize::MAX`
+    // oder ein vertauschter cap bricht den pin.
+    let arm = crate::commands::test_util::funktion_body(
+        production,
+        "fn extract_in_authorized_environment(",
+    );
+    let arm = arm.lines().map(str::trim).collect::<Vec<_>>().join("\n");
+    assert!(
+        arm.contains("MAX_UNPACK_BYTES,\nMAX_ENTRIES,"),
+        "unpack-arm muss beide caps durchreichen: {arm}"
+    );
+}
+
+/// 6.9: auch der extract-seam reicht den eintrags-cap positional durch, statt
+/// ihn offen zu lassen. `usize::MAX` an dieser stelle bricht den pin.
+#[test]
+fn extract_seam_reicht_den_entry_cap_durch() {
+    let production = crate::commands::test_util::production_source(include_str!("extract.rs"));
+    let body =
+        crate::commands::test_util::funktion_body(production, "fn extract_blocking_with_tag(");
+    let body = body.lines().map(str::trim).collect::<Vec<_>>().join("\n");
+    assert!(
+        body.contains("max_unpack_bytes,\nMAX_ENTRIES,"),
+        "seam muss den entry-cap durchreichen: {body}"
+    );
 }
 
 fn ge_archive(root: &Path) -> fs::File {

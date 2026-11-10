@@ -308,6 +308,23 @@ fn dir_size_bricht_am_eintrags_cap_ab() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// 6.8: der kleine cap der tests ist kein produktionsstand. Die produktion
+/// reicht `MAX_ENTRIES` an den walk durch; ein `usize::MAX` an dieser stelle
+/// macht jeden eintrags-cap wirkungslos und bricht den pin.
+#[cfg(target_os = "linux")]
+#[test]
+fn dir_size_produktion_walkt_mit_max_entries() {
+    let production = production_source(include_str!("fs_ops.rs"));
+    let body = funktion_body(production, "fn measure_directory_with_hook(");
+    assert!(
+        body.contains(concat!(
+            "measure_directory_with_hook_cap(path, before_metadata, before_bind, ",
+            "before_read, MAX_ENTRIES)"
+        )),
+        "{body}"
+    );
+}
+
 #[test]
 fn dir_size_rejects_u64_overflow_and_javascript_unsafe_sum() {
     assert!(super::checked_size_add(u64::MAX, 1).is_err());

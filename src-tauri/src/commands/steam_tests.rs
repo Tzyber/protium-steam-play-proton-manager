@@ -1631,8 +1631,11 @@ fn list_config_backups_ueberspringt_defekte_eintraege() {
 }
 
 /// 6.11: ein symlink auf eine fremde datei mit backup-namen darf nicht als
-/// backup erscheinen. `entry.metadata()` folgte dem verweis und listete die
-/// zielgröße einer fremden datei.
+/// backup erscheinen. Die prämisse ist nicht, dass `entry.metadata()` dem
+/// verweis folgt: auf Unix ist es selbst lstat-basiert. Der pin hält trotzdem
+/// den expliziten no-follow-vertrag, weil die größe aus einem ausdrücklichen
+/// `symlink_metadata` kommen muss und nicht aus der zufällig gleichen semantik
+/// einer fremden methode.
 #[cfg(unix)]
 #[test]
 fn list_config_backups_ueberspringt_symlink_auf_fremde_datei() {
@@ -1655,8 +1658,12 @@ fn list_config_backups_ueberspringt_symlink_auf_fremde_datei() {
 }
 
 /// 6.11: das listing klassifiziert über `entry.file_type()` und liest die
-/// größe ohne folgen. `entry.metadata()` ist im listing verboten: es sieht
-/// zwar wie lstat aus, der vertrag soll aber am expliziten no-follow hängen.
+/// größe ohne folgen. `entry.metadata()` ist im listing verboten: es ist auf
+/// Unix zwar lstat-basiert, der vertrag soll aber am expliziten no-follow
+/// hängen und nicht an der semantik einer fremden methode. Der anker ist der
+/// volle aufruf `fs::symlink_metadata(entry.path())`; die root-prüfung des
+/// ordners enthält nur `symlink_metadata` und belegt den stat des eintrags
+/// damit nicht.
 #[test]
 fn backup_listing_klassifiziert_ohne_metadaten_des_verweises() {
     let production = production_source(include_str!("steam.rs"));
@@ -1674,7 +1681,13 @@ fn backup_listing_klassifiziert_ohne_metadaten_des_verweises() {
         .join("\n");
 
     assert!(body.contains("entry.file_type()"), "{body}");
-    assert!(body.contains("symlink_metadata"), "{body}");
+    // Der volle aufruf, nicht das wort: `symlink_metadata` steht auch in der
+    // root-prüfung des ordners (`fs::symlink_metadata(backup_dir)`), ein
+    // ersatz des eintrags-stat durch `fs::metadata` bliebe dort sonst grün.
+    assert!(
+        body.contains("fs::symlink_metadata(entry.path())"),
+        "{body}"
+    );
     assert!(
         !body.contains("entry.metadata()"),
         "entry.metadata() ist im listing verboten: {body}"
