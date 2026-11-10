@@ -10,6 +10,8 @@ import {
   readTextFile,
   writeTextFile,
 } from "@tauri-apps/plugin-fs";
+import { ProtiumError } from "../errors.js";
+import { isRecord, validNonNegativeInteger } from "../guards.js";
 import type {
   Cache,
   DeleteResult,
@@ -27,6 +29,7 @@ import type {
   TargetArch,
   WriteResult,
 } from "../ports.js";
+import { asSkipReason, type SkippedLibrary } from "../types.js";
 
 const fs: FileSystem = {
   exists: (path) => invoke<boolean>("environment_exists", { path }),
@@ -69,9 +72,70 @@ const http: Http = {
   },
 };
 
+function invalidSnapshot(): ProtiumError {
+  return new ProtiumError(
+    "unreadable",
+    "invalid-environment-snapshot",
+    "invalid-environment-snapshot",
+  );
+}
+
+/** string-array oder `null` für „kein array"; fremde elemente fallen weg. */
+function parseStringArray(value: unknown): string[] | null {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : null;
+}
+
+/** fail-closed-platzhalter für einen snapshot, der seine discovery-fehler
+ *  nicht belegt: er steht auf der wurzel und meint den ganzen scan, nicht eine
+ *  einzelne library (INV-2). */
+function unavailableSentinel(steamRoot: string): SkippedLibrary[] {
+  return [{ path: steamRoot, reason: "unverified" }];
+}
+
+/** discovery-fehler aus dem wire. fehlt das feld, ist es kein array oder ist
+ *  ein eintrag kaputt, ist die liste als ganzes unbelegt: dann bleibt genau
+ *  der sentinel. der grund wird nur hier normalisiert (`asSkipReason`). */
+function parseUnavailableLibraries(value: unknown, steamRoot: string): SkippedLibrary[] {
+  if (!Array.isArray(value)) return unavailableSentinel(steamRoot);
+  const unavailableLibraries: SkippedLibrary[] = [];
+  for (const entry of value) {
+    if (!isRecord(entry) || typeof entry.path !== "string") {
+      return unavailableSentinel(steamRoot);
+    }
+    unavailableLibraries.push({ path: entry.path, reason: asSkipReason(entry.reason) });
+  }
+  return unavailableLibraries;
+}
+
+/** wire-grenze des environment-snapshots: `invoke` liefert `unknown`, und ein
+ *  fremdes oder unvollständiges format darf weder pfad noch grund ungeprüft in
+ *  den scan tragen (INV-7, INV-2). `generation` wird als nicht-negative ganze
+ *  zahl durchgereicht; die eigentliche INV-7-prüfung (>= 1) bleibt in
+ *  `scanLocal`. */
+export function parseEnvironmentSnapshot(raw: unknown): EnvironmentSnapshot {
+  if (!isRecord(raw)) throw invalidSnapshot();
+  const { steamRoot } = raw;
+  const generation = validNonNegativeInteger(raw.generation);
+  if (typeof steamRoot !== "string" || steamRoot.length === 0 || generation === null) {
+    throw invalidSnapshot();
+  }
+  const libraries = parseStringArray(raw.libraries);
+  if (libraries === null) throw invalidSnapshot();
+  return {
+    generation,
+    steamRoot,
+    libraries,
+    unavailableLibraries: parseUnavailableLibraries(raw.unavailableLibraries, steamRoot),
+    systemCompatDirs: parseStringArray(raw.systemCompatDirs) ?? [],
+  };
+}
+
 const system: System = {
   geTargetArch: () => invoke<TargetArch>("ge_target_arch"),
-  discoverSteamEnvironment: () => invoke<EnvironmentSnapshot>("discover_steam_environment"),
+  discoverSteamEnvironment: async () =>
+    parseEnvironmentSnapshot(await invoke<unknown>("discover_steam_environment")),
   isSteamRunning: () => invoke<boolean>("is_steam_running"),
   dirSize: (path) => invoke<DirectorySize>("dir_size", { path }),
   batchDirSizes: (paths) => invoke<Record<string, DirectorySize>>("batch_dir_sizes", { paths }),

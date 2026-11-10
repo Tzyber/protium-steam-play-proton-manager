@@ -2,7 +2,7 @@ import type { GameFootprint } from "./footprint.js";
 import { hasExternalCompatdata } from "./footprint.js";
 import { isRecord, validAppId, validNonNegativeInteger } from "./guards.js";
 import { deriveProtonCheck, isCompatToolPresent } from "./protoncheck.js";
-import { deriveScanCoverage } from "./scan/coverage.js";
+import { deriveScanCoverage, effectiveScanCoverage } from "./scan/coverage.js";
 import { isToolName, libraryAlias, projectToolName } from "./supportRedaction.js";
 import {
   asCompatConfigStatus,
@@ -29,6 +29,8 @@ interface SupportCleanupInput {
   trashUnavailable?: boolean;
   incompleteDeletionsCount?: number;
   incompleteDeletionsUnreadable?: boolean;
+  /** sperrt die löschvorschau, obwohl der scan selbst vollständig sein kann. */
+  coverageBlocked?: boolean;
 }
 
 interface SupportCleanupFacts {
@@ -176,12 +178,13 @@ export function projectSupportFacts(input: SupportInput): SupportFacts {
   const protonDbTier = asTier(input.game.protonDb?.tier);
   const appId = validAppId(input.game.appId);
   const coverage = deriveScanCoverage(input.result);
+  const scanCoverage = effectiveScanCoverage(coverage, input.cleanup?.coverageBlocked === true);
 
   return {
     appId,
     library: libraryAlias(input.game, input.result),
-    scanCoverage: coverage.state,
-    scanCoverageCounts: coverage.state === "complete" ? null : projectScanCoverageCounts(coverage),
+    scanCoverage,
+    scanCoverageCounts: scanCoverage === "complete" ? null : projectScanCoverageCounts(coverage),
     compatConfigStatus: compatConfig,
     launchConfigStatus: launchConfig,
     ...tool,

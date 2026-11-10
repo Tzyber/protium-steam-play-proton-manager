@@ -32,3 +32,14 @@ export function deriveScanCoverage(result: ScanResult): ScanCoverage {
     tools: { read: tools.read, failed: tools.failed },
   };
 }
+
+/** Ein vollständiger Scan belegt nur die Bestandsaufnahme, nicht die
+ *  Löschvorschau: ist das Cleanup gesperrt, ist die Coverage eingeschränkt,
+ *  sonst widersprechen sich Panel und Support-Bericht (INV-2). Die Regel liegt
+ *  genau einmal hier, damit beide dieselbe Bewertung zeigen. */
+export function effectiveScanCoverage(
+  coverage: ScanCoverage,
+  cleanupBlocked: boolean,
+): ScanCoverage["state"] {
+  return coverage.state === "complete" && cleanupBlocked ? "limited" : coverage.state;
+}

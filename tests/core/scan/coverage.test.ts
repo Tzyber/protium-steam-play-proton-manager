@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveScanCoverage } from "../../../src/core/scan/coverage.js";
+import { deriveScanCoverage, effectiveScanCoverage } from "../../../src/core/scan/coverage.js";
 import type { ScanResult } from "../../../src/core/types.js";
 
 function result(overrides: Partial<ScanResult> = {}): ScanResult {
@@ -142,5 +142,20 @@ describe("deriveScanCoverage", () => {
     );
 
     expect(coverage.state).toBe("complete");
+  });
+});
+
+describe("effectiveScanCoverage", () => {
+  it.each([
+    ["complete", false, "complete"],
+    ["complete", true, "limited"],
+    ["limited", false, "limited"],
+    ["limited", true, "limited"],
+    ["incomplete", false, "incomplete"],
+    ["incomplete", true, "incomplete"],
+  ] as const)("stuft %s mit cleanupBlocked=%s als %s ein", (state, cleanupBlocked, expected) => {
+    const coverage = { ...deriveScanCoverage(result()), state };
+
+    expect(effectiveScanCoverage(coverage, cleanupBlocked)).toBe(expected);
   });
 });

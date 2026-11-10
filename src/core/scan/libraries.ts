@@ -1,10 +1,11 @@
 import type { EnvironmentSnapshot } from "../ports.js";
-import { asSkipReason, type ScanWarning, type SkippedLibrary } from "../types.js";
+import type { ScanWarning, SkippedLibrary } from "../types.js";
 
 /** übersetzt den backend-snapshot: fehlgeschlagene discovery bleibt sichtbar.
  *  `path-missing` ist belegte abwesenheit, `scope-failed`/`read-failed` sind
  *  zugriffs- oder strukturschäden; das cleanup behandelt nur den ersten fall
- *  nach nutzerfreigabe als ignorierbar. */
+ *  nach nutzerfreigabe als ignorierbar. der grund kommt bereits normalisiert
+ *  aus der wire-grenze des adapters (`asSkipReason`), hier wird nicht geraten. */
 export function readLibraryList(environment: EnvironmentSnapshot): {
   libraries: string[];
   warnings: ScanWarning[];
@@ -14,39 +15,23 @@ export function readLibraryList(environment: EnvironmentSnapshot): {
   const read = new Set(libraries);
   const skippedLibraries: SkippedLibrary[] = [];
   const warnings: ScanWarning[] = [];
-  // ein snapshot ohne das feld kann die discovery-fehler nicht mehr belegen
-  // (z. b. versionsversatz): der scan degradiert sichtbar statt zu werfen
-  // (INV-2), und der unbekannte zustand blockiert das cleanup wie ein
-  // zugriffsfehler.
-  const unavailableList = environment.unavailableLibraries;
-  if (!Array.isArray(unavailableList)) {
-    warnings.push({
-      type: "library",
-      path: environment.steamRoot,
-      reason: "unverified",
-      detail: "the backend snapshot does not report unavailable libraries",
-    });
-    // platzhalter für den ganzen scan: coverage soll unvollständig melden und
-    // das cleanup blockieren, ohne eine konkrete library zu benennen.
-    skippedLibraries.push({ path: environment.steamRoot, reason: "unverified" });
-    return { libraries, warnings, skippedLibraries };
-  }
   const seen = new Set<string>();
-  for (const unavailable of unavailableList) {
+  for (const unavailable of environment.unavailableLibraries) {
     // ein pfad, der zugleich gelesen wurde, ist kein ausfall; doppelte
-    // discovery-einträge erzeugen genau eine warnung.
-    if (read.has(unavailable.path) || seen.has(unavailable.path)) continue;
+    // discovery-einträge erzeugen genau eine warnung. die steam-wurzel ist die
+    // ausnahme: auf ihr steht der sentinel eines unbekannten snapshots, der den
+    // ganzen scan meint — der read-filter darf ihn nicht verschlucken, sonst
+    // meldet die coverage wieder „vollständig" (INV-2).
+    if (seen.has(unavailable.path)) continue;
+    if (unavailable.path !== environment.steamRoot && read.has(unavailable.path)) continue;
     seen.add(unavailable.path);
-    // der typ verspricht einen bekannten grund, das wire-format garantiert ihn
-    // nicht: ein fremder wert wird `unverified` und blockiert das cleanup,
-    // statt im coverage-panel zu werfen.
-    const reason = asSkipReason(unavailable.reason);
-    skippedLibraries.push({ path: unavailable.path, reason });
+    const { path, reason } = unavailable;
+    skippedLibraries.push({ path, reason });
     warnings.push({
       type: "library",
-      path: unavailable.path,
+      path,
       reason,
-      detail: `library "${unavailable.path}" unavailable during discovery: ${reason}`,
+      detail: `library "${path}" unavailable during discovery: ${reason}`,
     });
   }
   return { libraries, warnings, skippedLibraries };

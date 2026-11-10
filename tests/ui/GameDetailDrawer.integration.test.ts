@@ -130,6 +130,7 @@ function cleanupInput(store: ReturnType<typeof useCleanupStore>) {
     prefixUnavailable: store.prefixUnavailable,
     shaderUnavailable: store.shaderUnavailable,
     trashUnavailable: store.trashUnavailable,
+    coverageBlocked: store.coverageBlocked,
     incompleteDeletionsCount: store.incompleteDeletions.length,
     incompleteDeletionsUnreadable: store.incompleteDeletionsUnreadable.length > 0,
   };

@@ -11,6 +11,7 @@ import {
 } from "./protonStore.preamble";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as diagnostics from "../../src/ui/diagnostics";
 import { setLocale } from "../../src/ui/i18n";
 import { useProtonStore } from "../../src/ui/stores/protonStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
@@ -65,6 +66,35 @@ describe("protonStore pump-phasen", () => {
     });
     expect(mockCancelDownload).toHaveBeenCalledWith(downloadId);
     expect(store.loadError).toBeNull(); // abbruch ist kein fehler
+  });
+
+  it("protokolliert einen fehlgeschlagenen cancel-download und lässt den job stehen", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScanResult();
+    mockInstallGeProton.mockImplementation(() => new Promise(() => {}));
+    mockCancelDownload.mockClear();
+    mockCancelDownload.mockRejectedValueOnce(new Error("registry unavailable"));
+    const logEvent = vi.spyOn(diagnostics, "logEvent");
+
+    const store = useProtonStore();
+    store.releases = [release];
+    store.queueInstall(release);
+    await vi.waitFor(() => {
+      expect(store.activeTag).toBe(release.tag);
+    });
+    const downloadId = store.jobs[release.tag]?.downloadId;
+
+    await expect(store.cancel(release.tag)).resolves.toBeUndefined();
+
+    expect(mockCancelDownload).toHaveBeenCalledWith(downloadId);
+    expect(logEvent).toHaveBeenCalledWith("warn", expect.stringContaining(`(${release.tag})`));
+    // kein eingriff in den lebenszyklus: der job lebt mit seinem abbruchwunsch
+    // weiter, das ende von installRelease räumt ihn ab.
+    expect(store.jobs[release.tag]?.cancelRequested).toBe(true);
+    expect(store.jobs[release.tag]?.downloadId).toBe(downloadId);
+    expect(store.activeTag).toBe(release.tag);
+    expect(store.loadError).toBeNull();
+    logEvent.mockRestore();
   });
 
   it("verifying-/extracting-events ändern nur den passenden aktiven job", async () => {

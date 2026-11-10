@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { effectiveScanCoverage } from "../../core/scan/coverage";
 import type { SkipReason } from "../../core/types";
 import { filterWarningsByType } from "../coverageFilter";
 import { formatConfigStatus, formatLibraryReason, formatWarning } from "../coverageText";
@@ -16,12 +17,11 @@ const showWarnings = ref(false);
 const coverageDetailsId = "library-coverage-details";
 const coverageTitleId = "library-coverage-title";
 /** Ein vollständiger Scan belegt nur die Bestandsaufnahme, nicht die
- *  Löschvorschau: ist das Cleanup gesperrt, ist die Coverage eingeschränkt,
- *  sonst widersprechen sich Panel und Löschdialog (INV-2). */
-const coverageState = computed(() => {
-  const state = scan.coverage?.state ?? "";
-  return state === "complete" && cleanup.coverageBlocked ? "limited" : state;
-});
+ *  Löschvorschau: die gemeinsame Regel liegt in `effectiveScanCoverage`, damit
+ *  Panel und Support-Bericht sich nicht widersprechen (INV-2). */
+const coverageState = computed(() =>
+  scan.coverage ? effectiveScanCoverage(scan.coverage, cleanup.coverageBlocked) : "",
+);
 const coverageNeedsAttention = computed(
   () => coverageState.value === "limited" || coverageState.value === "incomplete",
 );

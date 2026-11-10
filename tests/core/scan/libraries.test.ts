@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { readLibraryList } from "../../../src/core/scan/libraries.js";
-import type { SkippedLibrary } from "../../../src/core/types.js";
 import { buildFakeSteam } from "../../support/fakeSteam";
 
 describe("readLibraryList", () => {
@@ -83,40 +82,17 @@ describe("readLibraryList", () => {
     expect(result.warnings).toHaveLength(1);
   });
 
-  it("normalisiert einen fremden reason aus dem wire zu unverified", () => {
-    // wire-drift: das backend schickt einen grund, den der TS-typ nicht kennt.
-    // der cast simuliert genau diese lücke an einer stelle; der typ selbst
-    // bleibt unangetastet.
-    const drifted = [{ path: "/mnt/fremd", reason: "bogus" }] as unknown as SkippedLibrary[];
+  it("meldet den sentinel an der steam-wurzel trotz gelesener wurzel", () => {
+    // der parser setzt den sentinel auf `steamRoot`, das zugleich in
+    // `libraries` steht: der read-filter darf die degradation nicht
+    // verschlucken, sonst meldet die coverage wieder „vollständig" (INV-2).
     const result = readLibraryList({
       generation: 1,
       steamRoot: "/tmp/steam",
       libraries: ["/tmp/steam"],
-      unavailableLibraries: drifted,
+      unavailableLibraries: [{ path: "/tmp/steam", reason: "unverified" }],
       systemCompatDirs: [],
     });
-
-    expect(result.skippedLibraries).toEqual([{ path: "/mnt/fremd", reason: "unverified" }]);
-    expect(result.warnings).toEqual([
-      {
-        type: "library",
-        path: "/mnt/fremd",
-        reason: "unverified",
-        detail: 'library "/mnt/fremd" unavailable during discovery: unverified',
-      },
-    ]);
-  });
-
-  it("degradiert sichtbar, wenn der snapshot die discovery-fehler nicht belegt", () => {
-    // F1: ein snapshot ohne das feld (versionsversatz) darf den scan weder
-    // werfen lassen noch die abdeckung als vollständig ausgeben.
-    const snapshot = {
-      generation: 1,
-      steamRoot: "/tmp/steam",
-      libraries: ["/tmp/steam"],
-      systemCompatDirs: [],
-    };
-    const result = readLibraryList(snapshot as unknown as Parameters<typeof readLibraryList>[0]);
 
     expect(result.libraries).toEqual(["/tmp/steam"]);
     expect(result.skippedLibraries).toEqual([{ path: "/tmp/steam", reason: "unverified" }]);
@@ -125,7 +101,7 @@ describe("readLibraryList", () => {
         type: "library",
         path: "/tmp/steam",
         reason: "unverified",
-        detail: "the backend snapshot does not report unavailable libraries",
+        detail: 'library "/tmp/steam" unavailable during discovery: unverified',
       },
     ]);
   });

@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { tauriPorts } from "../../core/adapters/tauri";
 import { ProtiumError } from "../../core/errors";
-import { parseError } from "../../core/errtext";
+import { errText, parseError } from "../../core/errtext";
 import { type FetchSource, fetchReleases, installRelease } from "../../core/geproton";
 import { isManagedGeName } from "../../core/geprotonNames";
 import type { GeRelease } from "../../core/geprotonReleases";
@@ -177,7 +177,11 @@ export const useProtonStore = defineStore("proton", {
         const job = this.jobs[tag];
         if (job) {
           job.cancelRequested = true;
-          await tauriPorts.system.cancelDownload(job.downloadId).catch(() => {});
+          await tauriPorts.system.cancelDownload(job.downloadId).catch((e: unknown) => {
+            // der abbruch ist bereits vorgemerkt; ein fehlgeschlagener
+            // backend-weckruf darf nicht still verschwinden (P6).
+            logEvent("warn", `Download-Abbruch fehlgeschlagen (${tag}): ${errText(e)}`);
+          });
         }
       }
     },

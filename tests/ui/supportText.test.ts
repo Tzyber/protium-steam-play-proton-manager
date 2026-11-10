@@ -120,7 +120,7 @@ describe("formatSupportFacts", () => {
     },
   );
 
-  it.each([
+  const limitedOutput = [
     [
       "de",
       "Scan-Abdeckung: eingeschränkt",
@@ -131,7 +131,8 @@ describe("formatSupportFacts", () => {
       "Scan coverage: limited",
       "Coverage: libraries 1/1 · manifests failed 0 · tools failed 0 [local scan]",
     ],
-  ] as const)(
+  ] as const;
+  it.each(limitedOutput)(
     "exportiert eine fehlende Config als eingeschränkt in %s",
     (locale, limited, counts) => {
       setLocale(locale);
@@ -140,6 +141,23 @@ describe("formatSupportFacts", () => {
         game: currentGame,
         result: result({ games: [currentGame], compatConfigStatus: "missing" }),
         cleanup: {},
+      });
+
+      expect(facts.scanCoverage).toBe("limited");
+      const text = formatSupportFacts(facts, "0.7.1");
+      expect(text).toContain(limited);
+      expect(text).toContain(counts);
+    },
+  );
+  it.each(limitedOutput)(
+    "exportiert einen vollständigen Scan mit gesperrtem Cleanup als eingeschränkt in %s",
+    (locale, limited, counts) => {
+      setLocale(locale);
+      const currentGame = portal2();
+      const facts = projectSupportFacts({
+        game: currentGame,
+        result: result({ games: [currentGame] }),
+        cleanup: { coverageBlocked: true },
       });
 
       expect(facts.scanCoverage).toBe("limited");

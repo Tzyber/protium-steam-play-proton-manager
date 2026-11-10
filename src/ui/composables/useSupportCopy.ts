@@ -31,6 +31,9 @@ interface CleanupSource {
   prefixUnavailable: boolean;
   shaderUnavailable: boolean;
   trashUnavailable: boolean;
+  /** sperrt die löschvorschau; der bericht stuft die coverage damit wie das
+   *  panel als eingeschränkt ein (INV-2). */
+  coverageBlocked: boolean;
   incompleteDeletions: readonly unknown[];
   incompleteDeletionsUnreadable: readonly unknown[];
 }
@@ -80,6 +83,7 @@ export function useSupportCopy(
           prefixUnavailable: cleanup.prefixUnavailable,
           shaderUnavailable: cleanup.shaderUnavailable,
           trashUnavailable: cleanup.trashUnavailable,
+          coverageBlocked: cleanup.coverageBlocked,
           incompleteDeletionsCount: cleanup.incompleteDeletions.length,
           incompleteDeletionsUnreadable: cleanup.incompleteDeletionsUnreadable.length > 0,
         },
