@@ -901,7 +901,6 @@ const GROESSTE_FIXTURE: &str = include_str!("../../../tests/fixtures/text-vdf-go
 fn tokenize_laesst_die_groesste_fixture_unter_dem_cap() {
     let tokens = tokenize(GROESSTE_FIXTURE).unwrap();
     assert_eq!(tokens.len(), 39);
-    assert!(tokens.len() < GROESSTE_FIXTURE.len() / 2 + 16);
 }
 
 #[test]
@@ -917,7 +916,6 @@ fn tokenize_deckelt_die_tokenmenge() {
     // durch den kopfraum unter dem cap.
     let dicht = "a b ".repeat(64);
     assert_eq!(tokenize(&dicht).unwrap().len(), 128);
-    assert!(dicht.len() / 2 + 16 > 128);
 }
 
 /// `depth` verschachtelungsebenen als eine wurzelkette.

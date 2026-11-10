@@ -47,6 +47,9 @@ export function tokenizeVdf(text: string): VdfTokenizeResult {
   // P12a: ein token braucht mindestens ein zeichen, deshalb liegt der cap bei
   // der halben textlänge plus kopfraum. er deckelt die arbeit eines
   // token-dichten stroms ("{}"), ohne legitime dateien zu treffen.
+  // `text.length` zählt UTF-16-code-einheiten, das rust-pendant (`tokenize` in
+  // vdf_patch.rs) bytes: bei nicht-ASCII-text liegt der cap hier tiefer, TS ist
+  // damit strenger, nie laxer.
   const maxTokens = Math.floor(text.length / 2) + 16;
   const tokens: VdfToken[] = [];
   let unterminated: VdfTokenizeResult["unterminated"];

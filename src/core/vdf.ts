@@ -246,7 +246,10 @@ export function asInt(v: VdfValue | undefined): number | undefined {
 export function rawVdfField(text: string, path: readonly string[]): string | undefined {
   const { tokens, limitExceeded } = tokenizeVdf(text);
   // P12a: nach einem überschrittenen cap ist der strom ein präfix; ein treffer
-  // darin wäre geraten. wie bei `unterminated` bleibt das feld leer.
+  // darin wäre geraten, deshalb bleibt das feld leer. das ist strenger als bei
+  // `unterminated`: ein unterminierter text liefert aus dem tokenisierten präfix
+  // weiter einen wert, weil der tokenizer den rest nur auslässt, während der cap
+  // hier den ganzen fund verwirft.
   if (limitExceeded !== undefined) return undefined;
   const wanted = path.map((key) => key.toLowerCase());
   const openKeys: (string | undefined)[] = [];

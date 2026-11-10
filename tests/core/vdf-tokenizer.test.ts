@@ -290,16 +290,45 @@ describe("token- und tiefen-cap (P12a)", () => {
     expect(tokens).toHaveLength(39);
   });
 
-  it("meldet eine überschrittene tokenmenge", () => {
-    // "{}" liefert ein token je zeichen: 16 paare liegen exakt am cap, 17
-    // überschreiten ihn.
+  it("stoppt den token-strom am cap statt ihn nur zu melden", () => {
+    // "{}" liefert ein token je zeichen: 16 paare (32 zeichen) liegen exakt am
+    // cap 32, 17 paare (34 zeichen, cap 33) überschreiten ihn um eins. gepinnt
+    // wird der abbruch selbst, nicht nur die marke.
     expect(tokenizeVdf("{}".repeat(16)).limitExceeded).toBeUndefined();
-    expect(tokenizeVdf("{}".repeat(17)).limitExceeded).toBe("tokens");
+    const knapp = tokenizeVdf("{}".repeat(17));
+    expect(knapp.limitExceeded).toBe("tokens");
+    expect(knapp.tokens).toHaveLength(34); // cap + 1
+    expect(knapp.unterminated).toBeUndefined();
+
+    // bei mehr text ist der abbruch sichtbar: 40 zeichen ⇒ cap 36, das 37.
+    // token ist das letzte, die drei resteichen sind nicht mehr im strom.
+    const text = "{}".repeat(20);
+    const gestoppt = tokenizeVdf(text);
+    expect(gestoppt.limitExceeded).toBe("tokens");
+    expect(gestoppt.tokens).toHaveLength(37);
+    const stoppedAt = gestoppt.tokens.at(-1)?.end ?? 0;
+    expect(stoppedAt).toBe(37);
+    expect(text.slice(stoppedAt)).toHaveLength(3);
   });
 
-  it("meldet eine überschrittene tiefe", () => {
-    const flach = tokenizeVdf(nested(256));
-    expect(flach.limitExceeded).toBeUndefined();
-    expect(tokenizeVdf(nested(257)).limitExceeded).toBe("depth");
+  it("stoppt die verschachtelung an der 257. ebene", () => {
+    expect(tokenizeVdf(nested(256)).limitExceeded).toBeUndefined();
+    const tief = tokenizeVdf(nested(257));
+    expect(tief.limitExceeded).toBe("depth");
+    // 256 `{` im strom; der key der 257. ebene steht noch da, ihre klammer
+    // nicht mehr — der abbruch liegt vor dem push.
+    expect(tief.tokens.filter((token) => token.kind === "open")).toHaveLength(256);
+    expect(tief.tokens).toHaveLength(513);
+    expect(tief.tokens.at(-1)).toMatchObject({ kind: "string", value: "L256" });
+  });
+
+  it("zählt ein `}` ohne offene klammer nicht negativ", () => {
+    // ohne `Math.max(0, depth - 1)` sänke die tiefe nach einem streuenden `}`
+    // unter null; die 257 öffnungen erreichten dann nur 256 und der cap bliebe
+    // unbemerkt. die beiden gegenhalte zeigen, dass das clamp die grenze weder
+    // senkt noch hebt.
+    expect(tokenizeVdf(nested(256)).limitExceeded).toBeUndefined();
+    expect(tokenizeVdf(`}${nested(257)}`).limitExceeded).toBe("depth");
+    expect(tokenizeVdf(`}${nested(256)}`).limitExceeded).toBeUndefined();
   });
 });

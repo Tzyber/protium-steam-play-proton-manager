@@ -247,6 +247,26 @@ describe("VDF-parser-fehler", () => {
     expect(caught).toBeInstanceOf(ProtiumError);
     expect(caught).toMatchObject({ kind: "unreadable", code: "vdf-limit" });
   });
+
+  it("nennt token- und tiefen-cap im detail", () => {
+    // P12a: beide caps brechen mit demselben code ab; unterscheidbar sind sie
+    // nur über das detail. ohne diesen pin bliebe eine vertauschung der beiden
+    // meldungen unsichtbar.
+    const detailOf = (text: string): unknown => {
+      try {
+        getVdfValue(text, ["Root", "Key"]);
+      } catch (error) {
+        return error instanceof ProtiumError ? error.detail : error;
+      }
+      return "kein fehler";
+    };
+    expect(detailOf(`"Root"\n{\n\t"Key"\t\t"value"\n}\n${"{}".repeat(128)}`)).toBe(
+      "vdf token limit",
+    );
+    // 257 öffnungen: der tiefen-cap greift vor dem token-cap (513 tokens bei
+    // 1542 zeichen).
+    expect(detailOf('"k"\n{\n'.repeat(257))).toBe("vdf depth limit");
+  });
 });
 
 describe("text-vdf-golden-fixture", () => {
