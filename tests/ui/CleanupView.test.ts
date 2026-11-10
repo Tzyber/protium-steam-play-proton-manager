@@ -7,7 +7,7 @@ import type { TrashEntry } from "../../src/core/trash";
 import type { OrphanEntry } from "../../src/core/types";
 import ConfirmDialogHost from "../../src/ui/components/ConfirmDialogHost.vue";
 import { formatBytes } from "../../src/ui/format";
-import { t } from "../../src/ui/i18n";
+import { setLocale, t } from "../../src/ui/i18n";
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
@@ -309,6 +309,29 @@ describe("CleanupView incomplete deletions", () => {
     expect(wrapper.get("[data-testid='trash-delete-blocked']").text()).toBe(
       t("cleanup.trashDeleteBlocked"),
     );
+  });
+
+  it("übersetzt den papierkorb-sperrgrund bei einem sprachwechsel neu", async () => {
+    setLocale("de");
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    store.trash = [makeTrashEntry({ appId: 2, sizeBytes: 1024 })];
+    store.setTrashScanError(t("cleanup.trashUnreadable", { paths: "/lib" }));
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+    await wrapper.get("#cv-tab-trash").trigger("click");
+    const german = wrapper.get("[data-testid='trash-delete-blocked']").text();
+    expect(german).toBe(t("cleanup.trashDeleteBlocked"));
+
+    setLocale("en");
+    wrapper.vm.$forceUpdate();
+    await wrapper.vm.$nextTick();
+    const english = wrapper.get("[data-testid='trash-delete-blocked']").text();
+    expect(english).toBe(t("cleanup.trashDeleteBlocked"));
+    expect(english).not.toBe(german);
+    setLocale("de");
   });
 
   it("zeigt titel, erklärung, hinweis und pfade statt internem claim-text", async () => {

@@ -22,6 +22,7 @@ import type { ScanResult } from "../../src/core/types";
 import * as diagnostics from "../../src/ui/diagnostics";
 import { formatError } from "../../src/ui/formatError";
 import { setLocale, t } from "../../src/ui/i18n";
+import { trashDeleteBlockedText } from "../../src/ui/stores/cleanupHelpers";
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
@@ -133,13 +134,15 @@ describe("cleanupStore, S-05 + shortcuts", () => {
     expect(store.error).toBe(deleteFailure);
     expect(store.trashUnavailable).toBe(false);
     expect(store.coverageBlocked).toBe(false);
-    expect(store.trashDeleteBlockedText).toBeNull();
+    expect(store.trashDeleteBlocked).toBe(false);
+    expect(trashDeleteBlockedText(store.trashDeleteBlocked)).toBeNull();
 
     // erst der scan-fakt sperrt anzeige und coverage
     store.setTrashScanError(t("cleanup.trashUnreadable", { paths: "/lib" }));
     expect(store.trashUnavailable).toBe(true);
     expect(store.coverageBlocked).toBe(true);
-    expect(store.trashDeleteBlockedText).toBe(t("cleanup.trashDeleteBlocked"));
+    expect(store.trashDeleteBlocked).toBe(true);
+    expect(trashDeleteBlockedText(store.trashDeleteBlocked)).toBe(t("cleanup.trashDeleteBlocked"));
   });
 
   it("unbekannte papierkorb-einträge sperren die anzeige, nicht das löschen", () => {
@@ -149,7 +152,8 @@ describe("cleanupStore, S-05 + shortcuts", () => {
     // der unbekannte eintrag belegt keinen unvollständigen scan: er wird nur
     // nicht angeboten, die erkannten einträge bleiben löschbar (FR-4).
     expect(store.trashUnavailable).toBe(true);
-    expect(store.trashDeleteBlockedText).toBeNull();
+    expect(store.trashDeleteBlocked).toBe(false);
+    expect(trashDeleteBlockedText(store.trashDeleteBlocked)).toBeNull();
   });
 
   it("ein papierkorb-scanfehler sperrt die coverage (P2-3)", async () => {
@@ -163,7 +167,8 @@ describe("cleanupStore, S-05 + shortcuts", () => {
     expect(store._trashScanError).not.toBeNull();
     expect(store.trashUnavailable).toBe(true);
     expect(store.coverageBlocked).toBe(true);
-    expect(store.trashDeleteBlockedText).toBe(t("cleanup.trashDeleteBlocked"));
+    expect(store.trashDeleteBlocked).toBe(true);
+    expect(trashDeleteBlockedText(store.trashDeleteBlocked)).toBe(t("cleanup.trashDeleteBlocked"));
   });
 
   it("Policy: unlesbares shortcuts.vdf → compatdata fail-closed, shadercache regenerierbar", async () => {

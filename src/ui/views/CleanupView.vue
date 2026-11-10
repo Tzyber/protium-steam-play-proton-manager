@@ -8,6 +8,7 @@ import { logError } from "../diagnostics";
 import { formatKnownBytes } from "../format";
 import { t } from "../i18n";
 import { bySizeDesc, formatSizeSummary } from "../sizeSummary";
+import { trashDeleteBlockedText } from "../stores/cleanupHelpers";
 import { useCleanupStore } from "../stores/cleanupStore";
 import { useConfirmStore } from "../stores/confirmStore";
 import { useScanStore } from "../stores/scanStore";
@@ -139,6 +140,11 @@ const destructiveBusy = computed(() => busy.value || confirm.reserved || confirm
 const trashSelectedSize = computed(() => displaySize(trashSelection.selectedEntries));
 
 const trashDeleting = ref(false);
+
+/** Sperrtext des Papierkorbs. Bewusst eine Funktion und kein computed: der Text
+ *  wird bei jedem render neu übersetzt, damit ein Sprachwechsel den stehenden
+ *  Sperrfakt mitnimmt (FR-1). Übersetzt wird nur in `cleanupHelpers`. */
+const trashBlockedText = () => trashDeleteBlockedText(cleanup.trashDeleteBlocked);
 
 /** all: der „papierkorb leeren“-knopf (löscht alles, unabhängig von der
  *  auswahl); sonst nur die ausgewählten einträge. */
@@ -314,19 +320,19 @@ const tabLabel = (id: Tab) =>
         {{ t("cleanup.selectedInfo", { n: trashSelection.selectedEntries.length, size: trashSelectedSize }) }}
       </span>
       <span
-        v-if="cleanup.trashDeleteBlockedText"
+        v-if="cleanup.trashDeleteBlocked"
         class="hint"
         role="alert"
         data-testid="trash-delete-blocked"
       >
-        {{ cleanup.trashDeleteBlockedText }}
+        {{ trashBlockedText() }}
       </span>
       <div class="actionbar-btns">
         <button
           class="action"
           type="button"
-          :disabled="!trashSelection.selectedEntries.length || trashDeleting || confirm.reserved || confirm.busy || cleanup.trashDeleteBlockedText !== null"
-          :title="cleanup.trashDeleteBlockedText ?? undefined"
+          :disabled="!trashSelection.selectedEntries.length || trashDeleting || confirm.reserved || confirm.busy || cleanup.trashDeleteBlocked"
+          :title="trashBlockedText() ?? undefined"
           @click="deleteTrashEntries(false)"
         >
           {{ t("cleanup.trashDeleteEntry") }}
@@ -334,8 +340,8 @@ const tabLabel = (id: Tab) =>
         <button
           class="action danger"
           type="button"
-          :disabled="!cleanup.trash.length || trashDeleting || confirm.reserved || confirm.busy || cleanup.trashDeleteBlockedText !== null"
-          :title="cleanup.trashDeleteBlockedText ?? undefined"
+          :disabled="!cleanup.trash.length || trashDeleting || confirm.reserved || confirm.busy || cleanup.trashDeleteBlocked"
+          :title="trashBlockedText() ?? undefined"
           @click="deleteTrashEntries(true)"
         >
           {{ t("cleanup.trashEmpty") }}

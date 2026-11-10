@@ -19,8 +19,10 @@ import {
 } from "../support/cleanupStoreMocks";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as diagnostics from "../../src/ui/diagnostics";
 import { formatError } from "../../src/ui/formatError";
 import { setLocale, t } from "../../src/ui/i18n";
+import { trashDeleteBlockedText } from "../../src/ui/stores/cleanupHelpers";
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
@@ -143,8 +145,26 @@ describe("cleanupStore, rescan-fehler nach dem löschen (A-04)", () => {
   });
 });
 
+describe("cleanupStore, papierkorb-sperrtext folgt der sprache (FR-1)", () => {
+  it("übersetzt den sperrtext nach einem sprachwechsel neu", () => {
+    const store = useCleanupStore();
+    store.setTrashScanError(t("cleanup.trashUnreadable", { paths: "/lib" }));
+
+    // de: der stehende scan-fakt ist der grund, den die view beim render nennt
+    expect(store.trashDeleteBlocked).toBe(true);
+    const german = trashDeleteBlockedText(store.trashDeleteBlocked);
+    expect(german).toBe(t("cleanup.trashDeleteBlocked"));
+
+    setLocale("en");
+    const english = trashDeleteBlockedText(store.trashDeleteBlocked);
+    expect(english).toBe(t("cleanup.trashDeleteBlocked"));
+    // ein in der schreibsprache eingefrorener text bliebe deutsch
+    expect(english).not.toBe(german);
+  });
+});
+
 describe("cleanupStore, papierkorb-scanfehler beim löschen", () => {
-  const blockedText = () => t("cleanup.trashDeleteBlocked");
+  const blockedText = () => trashDeleteBlockedText(true);
 
   async function scanWithUnreadableLibrary() {
     const entry = fakeTrashEntry();
@@ -187,7 +207,7 @@ describe("cleanupStore, papierkorb-scanfehler beim löschen", () => {
 
   it("sperrt das löschen bei einem scan-fehler: kein prepare, kein dialog", async () => {
     const { store, entry, scanError } = await scanWithUnreadableLibrary();
-    expect(store.trashDeleteBlockedText).toBe(blockedText());
+    expect(store.trashDeleteBlocked).toBe(true);
 
     await store.deleteTrashEntries([entry]);
 
@@ -305,7 +325,8 @@ describe("cleanupStore, papierkorb-scanfehler beim löschen", () => {
     expect(store.trashError).toContain(entry.name);
     expect(store._trashScanError).toBeNull();
     expect(store.trashUnavailable).toBe(false);
-    expect(store.trashDeleteBlockedText).toBeNull();
+    expect(store.trashDeleteBlocked).toBe(false);
+    expect(trashDeleteBlockedText(store.trashDeleteBlocked)).toBeNull();
 
     // ein reiner löschfehler sperrt nicht: der erneute versuch geht bis zum dialog
     await store.deleteTrashEntries([entry]);
@@ -408,5 +429,77 @@ describe("cleanupStore, papierkorb-scanfehler beim löschen", () => {
     expect(store.trash).toEqual([failed]);
     expect(store.trashError).toContain(failed.name);
     expect(store.trashError).not.toContain(t("errors.codes.steamCheckUnavailable"));
+  });
+});
+
+describe("cleanupStore, logError-pins im papierkorb (FR-2)", () => {
+  it("protokolliert einen fehlgeschlagenen papierkorb-eintrag", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    const entry = fakeTrashEntry();
+    store.trash = [entry];
+    const failure = new Error("unreadable");
+    mockExecuteDelete.mockRejectedValueOnce(failure);
+    const spy = vi.spyOn(diagnostics, "logError");
+
+    await store.deleteTrashEntries([entry]);
+    await useConfirmStore().confirm();
+
+    // das protokoll ist der rohe, lokale diagnostand (FR-5): der fehler landet
+    // mit seinem objekt, nicht nur als übersetzter text der oberfläche.
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining("Papierkorb-Eintrag löschen fehlgeschlagen"),
+      failure,
+    );
+    spy.mockRestore();
+  });
+
+  it("protokolliert einen nicht prüfbaren steam-status nach unsicherer löschung", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    const entry = fakeTrashEntry();
+    store.trash = [entry];
+    mockExecuteDelete.mockRejectedValueOnce(
+      new Error("write-may-have-applied: claim may be gone or partial"),
+    );
+    const steamFailure = new Error("steam-check-unavailable: /proc");
+    mockIsSteamRunning.mockRejectedValueOnce(steamFailure);
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    const spy = vi.spyOn(diagnostics, "logError");
+
+    await store.deleteTrashEntries([entry]);
+    await useConfirmStore().confirm();
+
+    // der reject darf den lauf nicht verlassen (P8), verschwinden darf er
+    // aber auch nicht: er steht im protokoll.
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining("Steam-Status nach Papierkorb-Löschung nicht prüfbar"),
+      steamFailure,
+    );
+    spy.mockRestore();
+  });
+
+  it("protokolliert einen fehler des bestätigungsdialogs beim papierkorb-löschen", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    const entry = fakeTrashEntry();
+    store.trash = [entry];
+    const failure = new Error("handler-unavailable");
+    // der rescan wirft nach erfolgreicher mutation: `onSuccess` scheitert, der
+    // dialog ruft `onError` — der gemeinsame fehlerzweig von deleteTrashEntries.
+    vi.spyOn(store, "scanTrash").mockRejectedValueOnce(failure);
+    const spy = vi.spyOn(diagnostics, "logError");
+
+    await store.deleteTrashEntries([entry]);
+    await useConfirmStore().confirm();
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining("Papierkorb leeren fehlgeschlagen"),
+      failure,
+    );
+    spy.mockRestore();
   });
 });

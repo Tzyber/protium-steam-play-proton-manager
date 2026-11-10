@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { blockedReport } from "../../core/cleanupBlocked";
 import { formatErrorKind } from "../formatError";
 import { t } from "../i18n";
+import { trashDeleteBlockedText } from "../stores/cleanupHelpers";
 import { useCleanupStore } from "../stores/cleanupStore";
 import { useScanStore } from "../stores/scanStore";
 import BlockedExplanation from "./BlockedExplanation.vue";
@@ -37,10 +38,10 @@ const unreadableOrphanDirs = computed(() => {
 
 /** Ohne Papierkorb-Liste gibt es keine Aktionsleiste, an der der Sperrgrund
  *  sichtbar wäre; dann steht er hier, sonst bliebe die Löschsperre unsichtbar
- *  (FR-4). */
-const trashDeleteBlocked = computed(() =>
-  cleanup.trash.length === 0 ? cleanup.trashDeleteBlockedText : null,
-);
+ *  (FR-4). Bewusst eine Funktion und kein computed: der Text wird bei jedem
+ *  render neu übersetzt (FR-1), übersetzt wird nur in `cleanupHelpers`. */
+const trashBlockedNotice = () =>
+  cleanup.trash.length === 0 ? trashDeleteBlockedText(cleanup.trashDeleteBlocked) : null;
 </script>
 
 <template>
@@ -56,8 +57,13 @@ const trashDeleteBlocked = computed(() =>
     {{ unreadableOrphanDirs }}
   </div>
 
-  <div v-if="trashDeleteBlocked" class="blocked" role="alert" data-testid="trash-delete-blocked-notice">
-    {{ trashDeleteBlocked }}
+  <div
+    v-if="trashBlockedNotice()"
+    class="blocked"
+    role="alert"
+    data-testid="trash-delete-blocked-notice"
+  >
+    {{ trashBlockedNotice() }}
   </div>
 
   <div v-if="cleanup.pathMissingLibs.length" class="pathmissing">

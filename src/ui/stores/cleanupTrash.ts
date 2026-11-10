@@ -21,6 +21,7 @@ import {
   combineErrors,
   confirmTitle,
   formatTrashErrors,
+  trashDeleteBlockedText,
 } from "./cleanupHelpers";
 import { MAX_PENDING_DELETES } from "./cleanupStore";
 import { useConfirmStore } from "./confirmStore";
@@ -35,9 +36,10 @@ export interface TrashStore {
   trashLibraries: TrashLibraryStatus[];
   trashScanning: boolean;
   trashError: string | null;
-  /** null, wenn der Papierkorb gelöscht werden darf; sonst der sichtbare Grund
-   *  der Sperre (Scanfehler oder Löschrest, FR-4). */
-  trashDeleteBlockedText: string | null;
+  /** true, solange ein Scanfehler oder ein Löschrest das Löschen sperrt
+   *  (dieselben Terme wie `cleanupBlockedFlags(...).trashDelete`). Der sichtbare
+   *  Grund wird erst beim render übersetzt (FR-1, FR-4). */
+  trashDeleteBlocked: boolean;
   _trashScanError: string | null;
   _trashScanGeneration: number;
   clearTrashState(): void;
@@ -119,8 +121,10 @@ export async function deleteTrashEntries(
   // Ein Scanfehler oder ein Löschrest macht die Vorschau unvollständig; ein
   // Löschversuch würde nur einen Teil der Ziele sehen (FR-4). Der vorhandene
   // Fehlertext wird dabei nicht überschrieben, sondern ergänzt.
-  if (store.trashDeleteBlockedText !== null) {
-    store.setTrashError(combineErrors([store._trashScanError, store.trashDeleteBlockedText]));
+  if (store.trashDeleteBlocked) {
+    store.setTrashError(
+      combineErrors([store._trashScanError, trashDeleteBlockedText(store.trashDeleteBlocked)]),
+    );
     return;
   }
   const { result, isCurrent } = cleanupTurn(

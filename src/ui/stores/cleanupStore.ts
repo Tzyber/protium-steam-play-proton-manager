@@ -114,17 +114,17 @@ export const useCleanupStore = defineStore("cleanup", {
         orphanScanError: s._orphanScanError,
         trashScanError: s._trashScanError,
       }).trash,
-    /** Grund, warum der Papierkorb nicht gelöscht werden darf, oder null. Trägt
-     *  den Text bis in die View (Knopf-Titel und Hinweis), damit die Sperre
-     *  sichtbar ist statt nur zu wirken (FR-4). */
-    trashDeleteBlockedText: (s): string | null =>
+    /** Sprachunabhängiger Sperrfakt des Papierkorbs (dieselben Terme wie
+     *  `cleanupBlockedFlags(...).trashDelete`). Den sichtbaren Text übersetzt
+     *  `trashDeleteBlockedText` erst beim render, damit ein Sprachwechsel den
+     *  stehenden Sperrgrund mitnimmt statt den Text der Schreibsprache zu
+     *  zeigen (FR-1). */
+    trashDeleteBlocked: (s): boolean =>
       cleanupBlockedFlags({
         ...s,
         orphanScanError: s._orphanScanError,
         trashScanError: s._trashScanError,
-      }).trashDelete
-        ? t("cleanup.trashDeleteBlocked")
-        : null,
+      }).trashDelete,
     /** Anzeige-Sperre der Coverage: der Scan kann vollständig sein, die
      *  Löschvorschau ist es dann trotzdem nicht (INV-2). */
     coverageBlocked: (s) =>

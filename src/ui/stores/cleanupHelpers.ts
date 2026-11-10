@@ -200,6 +200,15 @@ export function cleanupBlockedFlags(facts: {
   return { base, shader, prefix, trash, trashDelete, any: shader || prefix || trash };
 }
 
+/** Der EINZIGE Übersetzungsort des Papierkorb-Sperrtextes. Die Aufrufer halten
+ *  nur den sprachunabhängigen Fakt `trashDeleteBlocked` und übersetzen beim
+ *  render; ein Sprachwechsel nimmt den stehenden Sperrgrund damit mit. Der
+ *  gespeicherte `trashError` bleibt dagegen ein transienter Fehlertext in der
+ *  Sprache seines Schreibzeitpunkts (FR-1). */
+export function trashDeleteBlockedText(blocked: boolean): string | null {
+  return blocked ? t("cleanup.trashDeleteBlocked") : null;
+}
+
 /** Führt die typ-genauen Unlesbar-Listen zweier Scans zusammen und dedupliziert
  *  nach `path+type` (beide Scans sehen dieselben compatdata-Verzeichnisse, ein
  *  Ort darf nur einmal gemeldet werden). Die Reihenfolge des ersten Vorkommens
