@@ -630,6 +630,92 @@ fn prepare_app_dir_legt_privat_an_und_zieht_bestand_nach() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// FR-1/R9: die modusregel existiert genau einmal. Gruppen- und Andere-Rechte
+/// sowie Spezialbits fallen weg; Besitzerrechte bleiben unveraendert.
+#[cfg(unix)]
+#[test]
+fn owner_only_mode_entfernt_gruppenrechte_und_spezialbits() {
+    for (start, expected) in [
+        (0o4755, Some(0o700)),
+        (0o2755, Some(0o700)),
+        (0o1755, Some(0o700)),
+        (0o7777, Some(0o700)),
+        (0o4600, Some(0o600)),
+        (0o644, Some(0o600)),
+        (0o700, None),
+        (0o500, None),
+    ] {
+        assert_eq!(owner_only_mode(start), expected, "{start:o}");
+    }
+}
+
+/// FR-2/R9: Bestand mit Spezialbits wird beim Anlegen auf `0700` gezogen; die
+/// Assertion laeuft auf `& 0o7777`, sonst bliebe setuid/setgid/sticky unsichtbar.
+#[cfg(unix)]
+#[test]
+fn prepare_app_dir_entfernt_spezialbits() {
+    use std::os::unix::fs::PermissionsExt;
+    let mode =
+        |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o7777;
+    for start in [0o4755, 0o2755, 0o1755] {
+        let root = wsg_fixture(&format!("prepare-app-dir-special-{start:o}"));
+        let dir = root.join("logs");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(start)).unwrap();
+        assert_eq!(mode(&dir), start);
+
+        let canonical = prepare_app_dir(&dir, &root, "app logs").unwrap();
+
+        assert_eq!(mode(&canonical), 0o700, "{start:o}");
+        let _ = std::fs::remove_dir_all(root);
+    }
+}
+
+/// FR-2/R9: der pfadbasierte Fallback traegt `0111`/`0355` (EACCES beim
+/// Deskriptor-Open) und muss dieselbe Regel anwenden wie der Deskriptorweg.
+#[cfg(unix)]
+#[test]
+fn restrict_dir_to_owner_by_path_entfernt_spezialbits() {
+    use std::os::unix::fs::PermissionsExt;
+    let mode =
+        |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o7777;
+    for (start, expected) in [(0o4111, 0o100), (0o4355, 0o300)] {
+        let base = wsg_fixture(&format!("restrict-by-path-{start:o}"));
+        let dir = base.join("dir");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(start)).unwrap();
+        assert_eq!(mode(&dir), start);
+
+        restrict_dir_to_owner_by_path(&dir);
+
+        assert_eq!(mode(&dir), expected, "{start:o}");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let _ = std::fs::remove_dir_all(base);
+    }
+}
+
+/// Pin (am HEAD gruen): eine Datei als Blatt endet als `unavailable`, ihr Modus
+/// bleibt unveraendert; der Fehler kommt aus dem Anlegen, nicht aus der leseregel.
+#[cfg(unix)]
+#[test]
+fn prepare_app_dir_datei_als_blatt_bleibt_unavailable() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = wsg_fixture("prepare-app-dir-file-leaf");
+    let leaf = root.join("logs");
+    std::fs::write(&leaf, b"x").unwrap();
+    std::fs::set_permissions(&leaf, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    let error = prepare_app_dir(&leaf, &root, "app logs").unwrap_err();
+
+    assert!(errcode::has_code(&error, errcode::UNAVAILABLE), "{error}");
+    assert_eq!(
+        std::fs::metadata(&leaf).unwrap().permissions().mode() & 0o7777,
+        0o644,
+        "der modus der datei darf sich nicht aendern"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// R2: das Verengen darf kein Verzeichnis außerhalb des App-Roots treffen.
 /// Der Pfad wird abgelehnt, bevor irgendetwas angelegt wird.
 #[test]
@@ -840,6 +926,54 @@ fn ensure_private_dir_verengt_bestand_auf_0700() {
 
     assert_eq!(mode(&dir), 0o700);
     let _ = std::fs::remove_dir_all(root);
+}
+
+/// FR-3/R9: `build_environment_snapshot` legt Cache und Config ueber
+/// `prepare_app_dir` an und zieht einen Spezialbit-Bestand auf `0700`.
+/// Ohne Vormodus waere der Fall am HEAD gruen und damit kein Rot-Beleg.
+#[cfg(unix)]
+#[test]
+fn discovery_verengt_bestand_mit_spezialbits_auf_0700() {
+    use std::os::unix::fs::PermissionsExt;
+    let home =
+        std::env::temp_dir().join(format!("protium-discovery-special-{}", std::process::id()));
+    let root = home.join(".local/share/Steam");
+    let cache = home.join("app-cache");
+    let config = home.join("app-config");
+    std::fs::create_dir_all(root.join("steamapps")).unwrap();
+    std::fs::create_dir_all(&cache).unwrap();
+    std::fs::create_dir_all(&config).unwrap();
+    let mode =
+        |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o7777;
+    std::fs::set_permissions(&cache, std::fs::Permissions::from_mode(0o4755)).unwrap();
+    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o2755)).unwrap();
+
+    let snapshot = build_environment_snapshot(&home, &cache, &config).unwrap();
+
+    assert_eq!(mode(&snapshot.app_cache_dir), 0o700, "cache");
+    assert_eq!(mode(&snapshot.app_config_dir), 0o700, "config");
+    let _ = std::fs::remove_dir_all(home);
+}
+
+/// Pin (am HEAD gruen): ohne Vormodus entstehen Cache und Config bereits privat.
+#[cfg(unix)]
+#[test]
+fn discovery_legt_cache_und_config_privat_an() {
+    use std::os::unix::fs::PermissionsExt;
+    let home =
+        std::env::temp_dir().join(format!("protium-discovery-private-{}", std::process::id()));
+    let root = home.join(".local/share/Steam");
+    let cache = home.join("app-cache");
+    let config = home.join("app-config");
+    std::fs::create_dir_all(root.join("steamapps")).unwrap();
+    let mode =
+        |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o7777;
+
+    let snapshot = build_environment_snapshot(&home, &cache, &config).unwrap();
+
+    assert_eq!(mode(&snapshot.app_cache_dir), 0o700, "cache");
+    assert_eq!(mode(&snapshot.app_config_dir), 0o700, "config");
+    let _ = std::fs::remove_dir_all(home);
 }
 
 #[test]

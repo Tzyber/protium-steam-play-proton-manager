@@ -626,6 +626,19 @@ pub(crate) fn create_private_dir_all(path: &Path) -> std::io::Result<()> {
     fs::create_dir_all(path)
 }
 
+/// FR-1/R9: die einzige Stelle, die den privaten Modus berechnet. Gruppen- und
+/// Andere-Rechte sowie Spezialbits (setuid, setgid, sticky) fallen weg;
+/// Besitzerrechte werden nie geweitet (`0o500` bleibt `0o500`, `0o700` bleibt
+/// `0o700`). Reine Funktion ohne I/O, damit Deskriptorweg, Pfad-Fallback und der
+/// Loghelfer dieselbe Regel tragen.
+#[cfg(unix)]
+pub(crate) fn owner_only_mode(mode: u32) -> Option<u32> {
+    if mode & 0o7077 == 0 {
+        return None;
+    }
+    Some(mode & !0o7077)
+}
+
 /// Pfadbasierter Fallback: nur verengen, Leaf-Symlinks ueberspringen.
 /// Braucht kein Leserecht auf das Verzeichnis und traegt deshalb die Faelle, in
 /// denen der Deskriptor nicht aufgeht (`0111`, `0355`).
@@ -639,8 +652,8 @@ fn restrict_dir_to_owner_by_path(path: &Path) {
         return;
     }
     let mode = metadata.permissions().mode() & 0o7777;
-    if mode & 0o077 != 0 {
-        let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode & !0o077));
+    if let Some(private) = owner_only_mode(mode) {
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(private));
     }
 }
 
@@ -670,8 +683,8 @@ fn restrict_dir_to_owner(path: &Path) {
         return;
     };
     let mode = metadata.permissions().mode() & 0o7777;
-    if mode & 0o077 != 0 {
-        let _ = file.set_permissions(fs::Permissions::from_mode(mode & !0o077));
+    if let Some(private) = owner_only_mode(mode) {
+        let _ = file.set_permissions(fs::Permissions::from_mode(private));
     }
 }
 

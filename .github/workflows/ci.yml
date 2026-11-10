@@ -26,6 +26,9 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # Fangnetz, kein Laufzeitziel: haengende npm-/Build-Schritte sollen den Job
+    # beenden, statt das Runner-Budget zu verbrauchen.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,6 +52,7 @@ jobs:
   changes:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       mutation: ${{ steps.diff.outputs.mutation }}
     steps:
@@ -90,6 +94,8 @@ jobs:
 
   rust:
     runs-on: ubuntu-latest
+    # Fangnetz fuer apt-get, rust-cache und den testlauf.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -121,6 +127,7 @@ jobs:
 
   audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

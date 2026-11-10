@@ -5,6 +5,8 @@ use tauri::Manager;
 
 use crate::commands::errcode;
 use crate::commands::external::{open_directory_with_handler, spawn_detached_os};
+#[cfg(unix)]
+use crate::commands::scope::owner_only_mode;
 use crate::commands::scope::{ensure_private_dir, prepare_app_dir};
 use crate::commands::spawn_blocking_io;
 
@@ -80,7 +82,9 @@ fn open_log_file_for_read(path: &Path) -> std::io::Result<std::fs::File> {
 }
 
 /// Best effort: Bestand aus aelteren Versionen verengen, ohne einen bereits
-/// engeren Modus zu weiten. Rotationsgenerationen erben den Modus der Datei
+/// engeren Modus zu weiten. Gruppen-/Andere-Rechte und Spezialbits (setuid,
+/// setgid, sticky) entfernt dieselbe Regel wie bei den App-Verzeichnissen
+/// (`owner_only_mode`). Rotationsgenerationen erben den Modus der Datei
 /// und bleiben ueber den 0700-Logordner geschuetzt.
 #[cfg(unix)]
 fn restrict_log_file_to_owner(file: &fs::File) {
@@ -88,9 +92,8 @@ fn restrict_log_file_to_owner(file: &fs::File) {
     let Ok(metadata) = file.metadata() else {
         return;
     };
-    let mode = metadata.permissions().mode() & 0o7777;
-    if mode & 0o077 != 0 {
-        let _ = file.set_permissions(fs::Permissions::from_mode(mode & !0o077));
+    if let Some(private) = owner_only_mode(metadata.permissions().mode() & 0o7777) {
+        let _ = file.set_permissions(fs::Permissions::from_mode(private));
     }
 }
 
@@ -263,6 +266,10 @@ fn clean_log_message(
 fn write_log_line(log_dir: &Path, level: &str, message: &str, rotate: bool) -> Result<(), String> {
     // r-14: die codes kommen als konstante aus errcode, nicht handgeformt
     // als praefix im format-string.
+    //
+    // r-10: `log_dir` wird hier angelegt. Ist der Pfad schon eine Datei,
+    // scheitert `ensure_private_dir` beim mkdir und der Vorgang endet als
+    // `unavailable` (die app-wurzel steht nicht bereit), nicht als lesefehler.
     ensure_private_dir(log_dir)
         .map_err(|error| errcode::with_detail(errcode::UNAVAILABLE, error))?;
     if rotate {
@@ -316,6 +323,9 @@ pub fn read_log_tail_from_dir(log_dir: &Path) -> Result<String, String> {
     let main_log = log_dir.join("protium.log");
     let metadata = match fs::symlink_metadata(&main_log) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
+        // r-10: ENOTDIR bleibt `unreadable` - anders als `write_log_line`, weil
+        // das tail nichts anlegt; ein Nicht-Verzeichnis als `log_dir` ist damit
+        // ein echter lesefehler des angeforderten pfads, keine fehlende app-wurzel.
         Err(error) => return Err(errcode::with_detail(errcode::UNREADABLE, error)),
         Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
             return Err(errcode::BLOCKED.into());

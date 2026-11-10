@@ -53,6 +53,21 @@ das Cover im `librarycache`. `config.vdf` kommt nur mit dem
 `ssfn*`), CEF-Cookies und Logs unter dem Steam-Root sind damit auch für eine
 kompromittierte Webview nicht lesbar.
 
+### Besitzerrechte lokaler App-Verzeichnisse
+
+App-Cache, App-Config, Log- und Backup-Verzeichnis werden beim Anlegen und bei
+jedem Zugriff auf `0700` verengt (nur verengen, nie weiten); die Logdatei
+entsteht mit `0600`, ein engerer Bestand bleibt erhalten. Eine einzige Regel
+berechnet den privaten Modus:
+Gruppen- und Andere-Rechte fallen weg, ebenso Spezialbits (setuid, setgid,
+sticky). Besitzerrechte bleiben unverändert, `0500` bleibt `0500`. Ein auf
+`04755`, `02755` oder `01755` gesetzter Bestand aus einer älteren Version wird
+damit beim nächsten Zugriff auf `0700` gezogen. Das Verengen ist best effort
+und läuft über den Pfad; ein Wettlauf zwischen Prüfung und `chmod` bleibt ein
+Restrisiko, der Linux-Deskriptorweg deckt nur das Blatt ab. `APPLOCALDATA`
+selbst bleibt auf Bestandsinstallationen im Default-Modus; verengt werden die
+darunter angelegten Protium-Verzeichnisse.
+
 ### Netzabfragen
 
 Die Webview hat keine HTTP-Permission. ProtonDB-Bewertungen und die

@@ -105,6 +105,8 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-24.04
+    # Fangnetz: der Hook-Test ist ein einzelner apt-/skript-lauf.
+    timeout-minutes: 5
     container:
       image: ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7
     steps:
@@ -157,6 +159,8 @@ jobs:
     # ubuntu-22.04 am 2027-04-17 ab (actions/runner-images#14254);
     # Plan: docs/notizen/plaene/a1-runner-migration-2026-09-16.md
     runs-on: ubuntu-24.04
+    # Fangnetz fuer apt-get, cargo-build und Smoke-Test. Kein Laufzeitziel.
+    timeout-minutes: 150
     container:
       image: ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7
 
@@ -264,6 +268,10 @@ jobs:
       # AppImage-bundling-Schritt abbrechen (reproduziert lokal, fix
       # verifiziert). system-libs sind bereits gestrippt, strip-überspringen
       # ist sicher.
+      # r-15: kein eigenes Lockfile-Gate hier. `cargo clippy --locked` und
+      # `cargo test --locked` laufen im selben Job in "Verify before release
+      # build" davor; ein dort veraendertes Cargo.lock bricht den Lauf, der
+      # Stand ist damit gebunden, bevor `tauri build` baut.
       - name: Build AppImage
         run: npm run tauri build -- --bundles appimage deb
         env:
@@ -403,6 +411,7 @@ jobs:
       id-token: write
       attestations: write
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - name: Download release artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

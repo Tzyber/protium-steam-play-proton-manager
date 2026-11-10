@@ -48,6 +48,100 @@ fn logdatei_und_verzeichnis_sind_privat() {
     let _ = fs::remove_dir_all(&root);
 }
 
+/// FR-2/R9: der log-helfer nutzt dieselbe modusregel. Geprueft wird direkt am
+/// offenen Append-Handle: die setuid-Integration (04600/04644) deckt den
+/// Helfer nicht ab, weil der Kernel setuid beim Schreiben loescht.
+#[cfg(unix)]
+#[test]
+fn restrict_log_file_to_owner_entfernt_spezialbits() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = wsg_fixture("test_log_helper_special");
+    let log_dir = root.join("logs");
+    fs::create_dir_all(&log_dir).unwrap();
+    let main_log = log_dir.join("protium.log");
+    fs::write(&main_log, b"").unwrap();
+    fs::set_permissions(&main_log, fs::Permissions::from_mode(0o4600)).unwrap();
+    let file = open_log_file(&main_log).unwrap();
+    let mode = |path: &std::path::Path| fs::metadata(path).unwrap().permissions().mode() & 0o7777;
+    assert_eq!(mode(&main_log), 0o4600);
+
+    restrict_log_file_to_owner(&file);
+
+    assert_eq!(mode(&main_log), 0o600);
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// FR-2/R9: die Integration zieht einen Bestand mit Spezialbits auf `0600`.
+#[cfg(unix)]
+#[test]
+fn logdatei_verliert_spezialbits_beim_append() {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = |path: &std::path::Path| fs::metadata(path).unwrap().permissions().mode() & 0o7777;
+    for start in [0o1600, 0o2600] {
+        let root = wsg_fixture(&format!("test_log_special-{start:o}"));
+        let log_dir = root.join("logs");
+        fs::create_dir_all(&log_dir).unwrap();
+        let main_log = log_dir.join("protium.log");
+        fs::write(&main_log, b"").unwrap();
+        fs::set_permissions(&main_log, fs::Permissions::from_mode(start)).unwrap();
+
+        append_log_entry(&log_dir, "info", "spezial").unwrap();
+
+        assert_eq!(mode(&main_log), 0o600, "{start:o}");
+        let _ = fs::remove_dir_all(&root);
+    }
+}
+
+/// Pin (am HEAD gruen): der Kernel loescht setuid beim Schreiben; der Pin haelt
+/// den Endzustand der Integration, nicht die Wirkung des Helfers.
+#[cfg(unix)]
+#[test]
+fn logdatei_mit_setuid_ist_nach_append_privat() {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = |path: &std::path::Path| fs::metadata(path).unwrap().permissions().mode() & 0o7777;
+    for start in [0o4600, 0o4644] {
+        let root = wsg_fixture(&format!("test_log_setuid-{start:o}"));
+        let log_dir = root.join("logs");
+        fs::create_dir_all(&log_dir).unwrap();
+        let main_log = log_dir.join("protium.log");
+        fs::write(&main_log, b"").unwrap();
+        fs::set_permissions(&main_log, fs::Permissions::from_mode(start)).unwrap();
+
+        append_log_entry(&log_dir, "info", "setuid").unwrap();
+
+        assert_eq!(mode(&main_log), 0o600, "{start:o}");
+        let _ = fs::remove_dir_all(&root);
+    }
+}
+
+/// R10-Pin: `write_log_line` legt `log_dir` ueber `ensure_private_dir` an; eine
+/// Datei als `log_dir` scheitert deshalb beim Anlegen als `unavailable`.
+#[test]
+fn append_mit_datei_als_log_dir_ist_unavailable() {
+    let root = wsg_fixture("test_log_dir_file_append");
+    let blocker = root.join("blocker");
+    fs::write(&blocker, b"x").unwrap();
+
+    let error = append_log_entry(&blocker, "info", "x").unwrap_err();
+
+    assert!(errcode::has_code(&error, errcode::UNAVAILABLE), "{error}");
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// R10-Pin: `read_log_tail_from_dir` legt nichts an. Eine Datei als `log_dir`
+/// bleibt deshalb `unreadable` (ENOTDIR beim stat), nicht `unavailable`.
+#[test]
+fn log_tail_mit_datei_als_log_dir_ist_unreadable() {
+    let root = wsg_fixture("test_log_dir_file_tail");
+    let blocker = root.join("blocker");
+    fs::write(&blocker, b"x").unwrap();
+
+    let error = read_log_tail_from_dir(&blocker).unwrap_err();
+
+    assert!(errcode::has_code(&error, errcode::UNREADABLE), "{error}");
+    let _ = fs::remove_dir_all(&root);
+}
+
 #[test]
 fn test_rotate_logs() {
     let root = wsg_fixture("test_rotate_log");
