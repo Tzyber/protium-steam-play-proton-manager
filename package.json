@@ -33,7 +33,7 @@
   },
   "type": "module",
   "devDependencies": {
-    "@biomejs/biome": "^2.5.15",
+    "@biomejs/biome": "^2.6.6",
     "@stryker-mutator/core": "10.0.0",
     "@stryker-mutator/vitest-runner": "10.0.0",
     "@tauri-apps/cli": "^2.12.3",
@@ -43,15 +43,15 @@
     "happy-dom": "^21.0.1",
     "typescript": "^5.7.3",
     "vite": "^8.3.4",
-    "vitest": "^4.1.11",
+    "vitest": "^4.1.12",
     "vue-tsc": "^3.3.12"
   },
   "dependencies": {
     "@node-steam/vdf": "^2.2.0",
     "@tauri-apps/api": "^2.12.2",
-    "@tauri-apps/plugin-fs": "^2.6.0",
-    "pinia": "^4.0.3",
-    "vue": "^3.5.43"
+    "@tauri-apps/plugin-fs": "^2.7.1",
+    "pinia": "^4.1.0",
+    "vue": "^3.5.45"
   },
   "overrides": {
     "qs": "6.15.2"

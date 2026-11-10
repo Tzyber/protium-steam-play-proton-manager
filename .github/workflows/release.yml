@@ -195,7 +195,7 @@ jobs:
           components: clippy, rustfmt
 
       - name: Install cargo-audit
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
         with:
           tool: cargo-audit
 
@@ -421,7 +421,7 @@ jobs:
             src-tauri/target/release/bundle/SHA256SUMS
 
       - name: Create release and upload assets
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ github.ref_name }}
           name: "Protium ${{ github.ref_name }}"
