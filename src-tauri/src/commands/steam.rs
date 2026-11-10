@@ -313,7 +313,20 @@ pub(super) fn list_config_backups_in_dir(
     let mut results = Vec::new();
     for entry in entries.flatten() {
         // Ein defekter Eintrag darf die Liste nicht als Ganzes verhindern.
-        let Ok(metadata) = entry.metadata() else {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        // 6.11: `file_type()` beschreibt den Verzeichniseintrag selbst, folgt
+        // also keinem Symlink. Ein Symlink auf eine fremde Datei ist kein
+        // Backup, auch wenn sein Name passt.
+        if !file_type.is_file() {
+            continue;
+        }
+        // Kein `entry.metadata()`: das hängt zwar ebenfalls am Eintrag, die
+        // Größe kommt aber ausdrücklich ohne Folge aus `symlink_metadata`. Ein
+        // zwischen Klassifikation und Stat getauschter Eintrag bleibt damit
+        // ein Nicht-Datei-Fall und wird übersprungen.
+        let Ok(metadata) = fs::symlink_metadata(entry.path()) else {
             continue;
         };
         if !metadata.is_file() {

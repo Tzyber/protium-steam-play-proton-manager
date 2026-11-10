@@ -1630,6 +1630,57 @@ fn list_config_backups_ueberspringt_defekte_eintraege() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// 6.11: ein symlink auf eine fremde datei mit backup-namen darf nicht als
+/// backup erscheinen. `entry.metadata()` folgte dem verweis und listete die
+/// zielgröße einer fremden datei.
+#[cfg(unix)]
+#[test]
+fn list_config_backups_ueberspringt_symlink_auf_fremde_datei() {
+    let root = wsg_fixture("test_backups_symlink_datei");
+    let backup_dir = root.join("backups");
+    std::fs::create_dir_all(&backup_dir).unwrap();
+    let foreign = root.join("fremd.vdf");
+    std::fs::write(&foreign, b"fremder inhalt").unwrap();
+    std::os::unix::fs::symlink(&foreign, backup_dir.join("config-9-999.vdf")).unwrap();
+    std::fs::write(backup_dir.join("config-200-2000.vdf"), b"x").unwrap();
+
+    let list = list_config_backups_in_dir(&backup_dir).unwrap();
+    assert_eq!(
+        list.len(),
+        1,
+        "symlink darf nicht als backup gelten: {list:?}"
+    );
+    assert_eq!(list[0].file_name, "config-200-2000.vdf");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 6.11: das listing klassifiziert über `entry.file_type()` und liest die
+/// größe ohne folgen. `entry.metadata()` ist im listing verboten: es sieht
+/// zwar wie lstat aus, der vertrag soll aber am expliziten no-follow hängen.
+#[test]
+fn backup_listing_klassifiziert_ohne_metadaten_des_verweises() {
+    let production = production_source(include_str!("steam.rs"));
+    let start = production
+        .find("fn list_config_backups_in_dir(")
+        .expect("backup-listing fehlt");
+    let body = &production[start..];
+    let end = body.find("\n}\n").expect("ende des listings fehlt");
+    let body = &body[..end];
+    // Kommentare nennen den verbotenen Aufruf; geprüft wird der Code.
+    let body = body
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(body.contains("entry.file_type()"), "{body}");
+    assert!(body.contains("symlink_metadata"), "{body}");
+    assert!(
+        !body.contains("entry.metadata()"),
+        "entry.metadata() ist im listing verboten: {body}"
+    );
+}
+
 /// Ein symlinkter Backup-Ordner ist eine Blockade, keine leere Liste.
 #[cfg(unix)]
 #[test]

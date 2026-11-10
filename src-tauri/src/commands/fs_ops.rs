@@ -6,6 +6,8 @@ use crate::commands::fd::{
     ensure_regular_fd, open_bound_root_fd, open_dir_at, open_file_at, read_fd_bytes,
 };
 #[cfg(target_os = "linux")]
+use crate::commands::limits::MAX_ENTRIES;
+#[cfg(target_os = "linux")]
 use crate::commands::scope::ContentRead;
 use crate::commands::scope::{EnvironmentState, MAX_ENVIRONMENT_READ_BYTES};
 use crate::commands::spawn_blocking_io;
@@ -257,17 +259,19 @@ fn checked_size_add(total: u64, next: u64) -> Result<u64, String> {
 /// Parent-Deskriptor geöffnet. Ein Tausch des Roots oder eines Kindes nach
 /// der Bindung misst den gebundenen alten Stand, nie einen fremden Baum.
 /// Symlinks zählen weder als Verzeichnis noch als Datei und werden
-/// übersprungen. `relative` ist der Pfad vom Root (für Fehlermeldungen und
-/// Test-Hooks). Die Tiefe ist gedeckelt, damit eine künstlich tiefe
-/// Verschachtelung den Blocking-Thread-Stack nicht überlaufen lässt
-/// (fail-closed wie beim binären VDF-Parser).
+/// übersprungen, aber als Eintrag mitgezählt. `relative` ist der Pfad vom Root
+/// (für Fehlermeldungen und Test-Hooks). Die Tiefe und die Eintragszahl sind
+/// gedeckelt, damit ein künstlich tiefer oder breiter Baum den
+/// Blocking-Thread-Stack nicht überlaufen lässt und den Environment-Mutex
+/// nicht minutenlang hält (fail-closed wie beim binären VDF-Parser).
 #[cfg(target_os = "linux")]
 fn walk_directory_fd(
     dir_fd: &std::os::unix::io::OwnedFd,
     relative: &Path,
     depth: usize,
     before_read: &mut dyn FnMut(&Path) -> Result<(), String>,
-    total: &mut u64,
+    state: &mut WalkState,
+    max_entries: usize,
 ) -> Result<(), String> {
     if depth > MAX_DIRECTORY_WALK_DEPTH {
         return Err(errcode::with_detail(errcode::SIZE_LIMIT, "walk depth"));
@@ -276,6 +280,10 @@ fn walk_directory_fd(
     let rd = fs::read_dir(&proc_path).map_err(|error| format!("read_dir {relative:?}: {error}"))?;
     for entry in rd {
         let entry = entry.map_err(|error| format!("read_dir entry {relative:?}: {error}"))?;
+        state.entries += 1;
+        if state.entries > max_entries {
+            return Err(errcode::with_detail(errcode::SIZE_LIMIT, "walk entries"));
+        }
         let file_type = entry
             .file_type()
             .map_err(|error| format!("file_type {relative:?}: {error}"))?;
@@ -285,16 +293,30 @@ fn walk_directory_fd(
             before_read(&child)?;
             let child_fd = open_dir_at(dir_fd.as_raw_fd(), name.as_os_str())
                 .map_err(|error| format!("open_dir {child:?}: {error}"))?;
-            walk_directory_fd(&child_fd, &child, depth + 1, before_read, total)?;
+            walk_directory_fd(
+                &child_fd,
+                &child,
+                depth + 1,
+                before_read,
+                state,
+                max_entries,
+            )?;
         } else if file_type.is_file() {
             before_read(&child)?;
             let file = open_file_at(dir_fd.as_raw_fd(), name.as_os_str())
                 .map_err(|error| format!("open_file {child:?}: {error}"))?;
             let length = ensure_regular_fd(&file, &child.to_string_lossy())?;
-            *total = checked_size_add(*total, length)?;
+            state.total = checked_size_add(state.total, length)?;
         }
     }
     Ok(())
+}
+
+/// Laufender Walk-Zähler: Bytes und Einträge, beide gedeckelt.
+#[cfg(target_os = "linux")]
+struct WalkState {
+    total: u64,
+    entries: usize,
 }
 
 /// Misst ein Verzeichnis fd-gebunden. `before_metadata` läuft vor dem ersten
@@ -307,6 +329,20 @@ fn measure_directory_with_hook(
     before_metadata: &mut dyn FnMut(&Path) -> Result<(), String>,
     before_bind: &mut dyn FnMut(),
     before_read: &mut dyn FnMut(&Path) -> Result<(), String>,
+) -> Result<DirectorySize, String> {
+    measure_directory_with_hook_cap(path, before_metadata, before_bind, before_read, MAX_ENTRIES)
+}
+
+/// Derselbe Walk mit explizitem Eintrags-Cap: die Produktion reicht
+/// `MAX_ENTRIES` durch, Tests einen kleinen Cap (100 000 Fixture-Einträge wären
+/// unverhältnismäßig).
+#[cfg(target_os = "linux")]
+fn measure_directory_with_hook_cap(
+    path: &Path,
+    before_metadata: &mut dyn FnMut(&Path) -> Result<(), String>,
+    before_bind: &mut dyn FnMut(),
+    before_read: &mut dyn FnMut(&Path) -> Result<(), String>,
+    max_entries: usize,
 ) -> Result<DirectorySize, String> {
     before_metadata(path)?;
     let metadata = match fs::symlink_metadata(path) {
@@ -325,10 +361,22 @@ fn measure_directory_with_hook(
     }
     let root_fd = open_bound_root_fd(path, before_bind)
         .map_err(|error| errcode::with_context("directory size", &error))?;
-    let mut total = 0u64;
+    let mut state = WalkState {
+        total: 0,
+        entries: 0,
+    };
     before_read(Path::new(""))?;
-    match walk_directory_fd(&root_fd, Path::new(""), 0, before_read, &mut total) {
-        Ok(()) => Ok(DirectorySize::Measured { size_bytes: total }),
+    match walk_directory_fd(
+        &root_fd,
+        Path::new(""),
+        0,
+        before_read,
+        &mut state,
+        max_entries,
+    ) {
+        Ok(()) => Ok(DirectorySize::Measured {
+            size_bytes: state.total,
+        }),
         Err(detail) => Ok(DirectorySize::Failed { detail }),
     }
 }
@@ -336,6 +384,18 @@ fn measure_directory_with_hook(
 #[cfg(target_os = "linux")]
 fn measure_directory(path: &Path) -> Result<DirectorySize, String> {
     measure_directory_with_hook(path, &mut |_| Ok(()), &mut || {}, &mut |_| Ok(()))
+}
+
+/// Test-Seam: derselbe Walk mit kleinem Eintrags-Cap.
+#[cfg(all(test, target_os = "linux"))]
+fn measure_directory_with_cap(path: &Path, max_entries: usize) -> Result<DirectorySize, String> {
+    measure_directory_with_hook_cap(
+        path,
+        &mut |_| Ok(()),
+        &mut || {},
+        &mut |_| Ok(()),
+        max_entries,
+    )
 }
 
 #[cfg(not(target_os = "linux"))]

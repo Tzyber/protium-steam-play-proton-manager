@@ -1,5 +1,7 @@
 use crate::commands::download::CancelSignal;
 use crate::commands::errcode;
+#[cfg(test)]
+use crate::commands::limits::MAX_ENTRIES;
 use crate::commands::path::{
     canonicalize_nearest_ancestor, exists_without_following, is_descendant_of, is_safe_path,
     link_target_stays_inside, random_suffix,
@@ -8,10 +10,58 @@ use std::fs;
 use std::io::{Seek, SeekFrom};
 use std::path::{Component, Path, PathBuf};
 
-/// a-p1-1-rest: einträge der größe 0 umgehen das größen-cap, eine inode- oder
-/// metadatenbombe stoppt erst die eintragszahl. echte GE-Proton-builds haben
-/// rund 9 000 einträge (GE-Proton11-6/11-7 gezählt), 100 000 lässt >10× luft.
-pub(super) const MAX_ARCHIVE_ENTRIES: usize = 100_000;
+/// Freier-Platz-Regel (6.9): die validierten Entpack-Bytes müssen am Ziel frei
+/// sein. Rein rechnerisch und damit ohne Syscall testbar; `free_bytes_at`
+/// liefert nur die Zahl. Gleich viel Platz bleibt erlaubt.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn check_unpack_fits(free_bytes: u64, needed_bytes: u64) -> Result<(), String> {
+    if free_bytes >= needed_bytes {
+        return Ok(());
+    }
+    Err(errcode::with_detail(
+        errcode::SIZE_LIMIT,
+        format!("insufficient free space: {free_bytes} < {needed_bytes}"),
+    ))
+}
+
+/// Freier Platz am Ziel (Linux). Der Syscall hängt am echten Dateisystem und
+/// ist nicht injizierbar: gepinnt ist ausschließlich `check_unpack_fits`, der
+/// Wrapper selbst bleibt ungetestet.
+#[cfg(target_os = "linux")]
+fn free_bytes_at(path: &Path) -> Result<u64, String> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let raw = std::ffi::CString::new(path.as_os_str().as_bytes()).map_err(|error| {
+        errcode::with_detail(errcode::UNREADABLE, format!("statvfs path: {error}"))
+    })?;
+    // SAFETY: `raw` ist ein gültiger NUL-terminierter Pfad und `stat` ein
+    // vollständig initialisierter `statvfs`-Puffer; `statvfs` schreibt nur
+    // hinein.
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(raw.as_ptr(), &mut stat) } != 0 {
+        return Err(errcode::with_detail(
+            errcode::UNREADABLE,
+            format!("statvfs {:?}: {}", path, std::io::Error::last_os_error()),
+        ));
+    }
+    // `f_bavail` ist der Platz, der einem unprivilegierten Prozess noch zur
+    // Verfügung steht; `f_frsize` die Blockgröße der Rechnung.
+    Ok(stat.f_bavail.saturating_mul(stat.f_frsize))
+}
+
+/// Prüft den freien Platz am Entpackziel. Ein nicht belegbarer Platz ist ein
+/// Fehler mit Detail, kein Freibrief.
+#[cfg(target_os = "linux")]
+fn require_free_space(dest: &Path, needed_bytes: u64) -> Result<(), String> {
+    check_unpack_fits(free_bytes_at(dest)?, needed_bytes)
+}
+
+/// Ohne Linux gibt es keine `statvfs`-Vorprüfung; das Verhalten bleibt wie
+/// zuvor (nur der Größen-Cap greift).
+#[cfg(not(target_os = "linux"))]
+fn require_free_space(_dest: &Path, _needed_bytes: u64) -> Result<(), String> {
+    Ok(())
+}
 
 /// Bekommt den finalen Installations-Rename und führt ihn aus; der Aufrufer
 /// legt die Sperre darum (A-10).
@@ -147,7 +197,7 @@ pub(super) fn extract_blocking_with_tag(
         dest_dir,
         expected_tag,
         max_unpack_bytes,
-        MAX_ARCHIVE_ENTRIES,
+        MAX_ENTRIES,
         scope_ok,
         cancel,
         &mut || {},
@@ -159,14 +209,15 @@ pub(super) fn extract_blocking_with_tag(
 /// Top-Level-Ordner mit dem erwarteten Tag, jede Eintragsart, die Eintragszahl
 /// und die entpackte Gesamtgröße. Derselbe Code wie zuvor, nur aus
 /// `extract_blocking_with_tag` herausgezogen; Fehler und deren Reihenfolge
-/// bleiben unverändert.
+/// bleiben unverändert. Gibt die validierte Gesamtgröße zurück, damit die
+/// freier-Platz-Prüfung denselben Bedarf sieht.
 fn validate_archive_entries(
     file: &mut fs::File,
     expected_tag: &str,
     max_unpack_bytes: u64,
     max_entries: usize,
     cancel: &CancelSignal,
-) -> Result<(), String> {
+) -> Result<u64, String> {
     use flate2::read::GzDecoder;
     use tar::Archive;
 
@@ -299,7 +350,7 @@ fn validate_archive_entries(
     if !root_seen {
         return Err(errcode::INCOMPLETE.into());
     }
-    Ok(())
+    Ok(total)
 }
 
 /// wie `extract_blocking_with_tag`, zusätzlich mit Hooks: `before_bind` (Tests)
@@ -362,7 +413,8 @@ pub(super) fn extract_blocking_with_tag_with_hook(
         return Err(errcode::with_detail(errcode::TOOL_EXISTS, "extract target"));
     }
 
-    validate_archive_entries(file, expected_tag, max_unpack_bytes, max_entries, cancel)?;
+    validate_archive_entries(file, expected_tag, max_unpack_bytes, max_entries, cancel)
+        .and_then(|unpack_total| require_free_space(&dest_canon, unpack_total))?;
 
     extract_archive_into_bound_parent(
         file,

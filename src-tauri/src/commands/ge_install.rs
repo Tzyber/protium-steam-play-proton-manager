@@ -16,7 +16,8 @@ use crate::commands::download::{
 use crate::commands::errcode;
 #[cfg(test)]
 use crate::commands::extract::extract_blocking_with_tag;
-use crate::commands::extract::{extract_blocking_with_tag_with_hook, MAX_ARCHIVE_ENTRIES};
+use crate::commands::extract::extract_blocking_with_tag_with_hook;
+use crate::commands::limits::{MAX_ENTRIES, MAX_UNPACK_BYTES};
 use crate::commands::path::{exists_without_following, is_descendant_of, sanitize_path};
 use crate::commands::steam_layout;
 
@@ -525,7 +526,7 @@ where
                         &mut downloaded_file,
                         &tools_dir.to_string_lossy(),
                         Some(&install_name),
-                        MAX_DOWNLOAD_BYTES,
+                        MAX_UNPACK_BYTES,
                         &|p| p == tools_dir || p == root_canon,
                         &cancel_for_extract,
                     );
@@ -571,8 +572,8 @@ fn extract_in_authorized_environment(
             downloaded_file,
             &tools_dir.to_string_lossy(),
             Some(install_name),
-            MAX_DOWNLOAD_BYTES,
-            MAX_ARCHIVE_ENTRIES,
+            MAX_UNPACK_BYTES,
+            MAX_ENTRIES,
             &|p| p == tools_dir || p == root_canon,
             cancel,
             before_bind,

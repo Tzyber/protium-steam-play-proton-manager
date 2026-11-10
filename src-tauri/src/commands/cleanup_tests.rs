@@ -51,6 +51,10 @@ impl Fixture {
         list_trash_entries_at_with_hook(&self.library(), hook)
     }
 
+    fn list_with_cap(&self, max_entries: usize) -> Result<TrashListing, String> {
+        list_trash_entries_at_with_cap(&self.library(), max_entries)
+    }
+
     fn error_of(&self) -> String {
         self.list()
             .err()
@@ -258,6 +262,31 @@ fn leerer_papierkorb_ist_present_mit_null_eintraegen() {
     // present=true bei leerem verzeichnis: vorhanden, aber nichts aufzuraeumen.
     assert!(listing.present);
     assert!(listing.entries.is_empty());
+}
+
+/// 6.8: auch das papierkorb-listing ist gedeckelt. Der kleine cap ersetzt
+/// 100 000 fixture-einträge; die produktion nutzt `limits::MAX_ENTRIES`.
+#[test]
+fn papierkorb_listing_bricht_am_eintrags_cap_ab() {
+    let fixture = Fixture::new("trash-entries");
+    fs::create_dir(fixture.trash()).unwrap();
+    for index in 0..3 {
+        fs::write(
+            fixture.trash().join(format!("compatdata_{index}_1000")),
+            b"x",
+        )
+        .unwrap();
+    }
+
+    let listing = fixture.list_with_cap(3).unwrap();
+    assert_eq!(listing.entries.len(), 3);
+
+    let error = fixture
+        .list_with_cap(2)
+        .err()
+        .expect("cap muss das listing abbrechen");
+    assert!(errcode::has_code(&error, errcode::SIZE_LIMIT), "{error}");
+    assert!(error.contains("trash entries"), "{error}");
 }
 
 #[test]

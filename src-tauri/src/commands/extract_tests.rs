@@ -1,9 +1,10 @@
 use super::{
-    extract_archive_into_bound_parent, extract_blocking_with_tag,
-    extract_blocking_with_tag_with_hook, validate_archive_entries, MAX_ARCHIVE_ENTRIES,
+    check_unpack_fits, extract_archive_into_bound_parent, extract_blocking_with_tag,
+    extract_blocking_with_tag_with_hook, validate_archive_entries,
 };
 use crate::commands::download::CancelSignal;
 use crate::commands::errcode;
+use crate::commands::limits::MAX_ENTRIES;
 use crate::commands::steam_layout::EXTRACT_PREFIX;
 use std::fs::{self, File};
 use std::io::Write;
@@ -228,7 +229,7 @@ fn handle_extractor_parent_tausch_vor_rename_installiert_in_gebundenen_parent() 
         destination.to_str().unwrap(),
         Some("GE-Proton11-5-x86_64"),
         1024,
-        MAX_ARCHIVE_ENTRIES,
+        MAX_ENTRIES,
         &|_| true,
         &no_cancel,
         &mut || {},
@@ -265,7 +266,7 @@ fn handle_extractor_parent_tausch_zwischen_stat_und_open_bricht_ab() {
         destination.to_str().unwrap(),
         Some("GE-Proton11-5-x86_64"),
         1024,
-        MAX_ARCHIVE_ENTRIES,
+        MAX_ENTRIES,
         &|_| true,
         &no_cancel,
         &mut before_bind,
@@ -305,7 +306,7 @@ fn handle_extractor_cancel_raeumt_temp_auf_und_laesst_kein_ziel() {
         destination.to_str().unwrap(),
         Some("GE-Proton11-5-x86_64"),
         1024,
-        MAX_ARCHIVE_ENTRIES,
+        MAX_ENTRIES,
         &|_| true,
         &cancel,
         &mut before_bind,
@@ -348,7 +349,41 @@ fn installations_rename_synchronisiert_das_zielverzeichnis() {
 fn first_pass(source: &Path, tag: &str, cap: u64) -> Result<(), String> {
     let mut handle = File::open(source).unwrap();
     let no_cancel = CancelSignal::new();
-    validate_archive_entries(&mut handle, tag, cap, MAX_ARCHIVE_ENTRIES, &no_cancel)
+    validate_archive_entries(&mut handle, tag, cap, MAX_ENTRIES, &no_cancel).map(|_total| ())
+}
+
+/// 6.9: die freier-platz-regel ist rein und braucht keinen syscall. Genau so
+/// viel platz bleibt erlaubt, ein byte weniger bricht mit `size-limit-exceeded`.
+#[test]
+fn freier_platz_vergleich_lehnt_zu_wenig_platz_ab() {
+    assert!(check_unpack_fits(1024, 1024).is_ok());
+    assert!(check_unpack_fits(1025, 1024).is_ok());
+
+    let error = check_unpack_fits(1023, 1024).unwrap_err();
+    assert!(errcode::has_code(&error, errcode::SIZE_LIMIT), "{error}");
+    assert!(error.contains("insufficient free space"), "{error}");
+}
+
+/// 6.9: geprüft wird nach der größenvalidierung (der bedarf ist die validierte
+/// summe) und vor dem mutierenden zweiten durchgang. Der `statvfs`-syscall
+/// selbst hängt am echten dateisystem und ist hier nicht injizierbar.
+#[test]
+fn entpack_prueft_freien_platz_nach_der_groessenvalidierung() {
+    let production = crate::commands::test_util::production_source(include_str!("extract.rs"));
+    let start = production
+        .find("fn extract_blocking_with_tag_with_hook(")
+        .expect("hook-funktion fehlt");
+    let body = &production[start..];
+    let validate = body
+        .find("validate_archive_entries(")
+        .expect("größenvalidierung fehlt");
+    let free = body
+        .find("require_free_space(")
+        .expect("freier-platz-prüfung fehlt");
+    assert!(
+        validate < free,
+        "freier platz wird erst nach der größenvalidierung geprüft"
+    );
 }
 
 /// Baut ein gzip-tar mit einem oder zwei einträgen und erlaubt es, den

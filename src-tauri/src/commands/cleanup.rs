@@ -8,6 +8,7 @@ use tauri::State;
 
 use crate::commands::delete_ops::TrashListingHandle;
 use crate::commands::errcode;
+use crate::commands::limits::MAX_ENTRIES;
 use crate::commands::scope::EnvironmentState;
 use crate::commands::spawn_blocking_io;
 
@@ -51,10 +52,28 @@ fn list_trash_entries_at_with_hook(
     collect_trash_entries(&handle)
 }
 
+/// derselbe lesepfad mit explizitem Eintrags-Cap; die Produktion reicht
+/// `MAX_ENTRIES` durch, Tests einen kleinen Cap.
+#[cfg(test)]
+fn list_trash_entries_at_with_cap(real: &Path, max_entries: usize) -> Result<TrashListing, String> {
+    let handle = crate::commands::delete_ops::open_trash_dir_for_listing(real)?;
+    collect_trash_entries_with_cap(&handle, max_entries)
+}
+
 /// die einzige lesestelle des papierkorbs: über den deskriptor-pfad des
 /// handles, nie über den referenzpfad. danach wird der deskriptor nachgeprüft,
 /// damit `dir` nicht auf einen anderen ort zeigt als die gelesenen einträge.
 fn collect_trash_entries(handle: &TrashListingHandle) -> Result<TrashListing, String> {
+    collect_trash_entries_with_cap(handle, MAX_ENTRIES)
+}
+
+/// Wie `collect_trash_entries`, mit explizitem Eintrags-Cap: ein aufgeblähter
+/// papierkorb soll den Environment-Mutex nicht minutenlang halten und keine
+/// dreistelligen MB über die IPC schicken.
+fn collect_trash_entries_with_cap(
+    handle: &TrashListingHandle,
+    max_entries: usize,
+) -> Result<TrashListing, String> {
     let dir = handle.wire_dir().to_string_lossy().into_owned();
     if !handle.present() {
         // WARUM: das listing legt den papierkorb nicht an. ein halb gefüllter
@@ -76,6 +95,9 @@ fn collect_trash_entries(handle: &TrashListingHandle) -> Result<TrashListing, St
     for e in fs::read_dir(entries_path)
         .map_err(|error| errcode::with_detail(errcode::code_for_io(&error), error))?
     {
+        if entries.len() >= max_entries {
+            return Err(errcode::with_detail(errcode::SIZE_LIMIT, "trash entries"));
+        }
         let e = e.map_err(|error| errcode::with_detail(errcode::code_for_io(&error), error))?;
         let ft = e
             .file_type()

@@ -280,6 +280,34 @@ fn dir_size_begrenzt_die_walk_tiefe_fail_closed() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// 6.8: der walk zählt jeden eintrag (datei, verzeichnis, symlink) und bricht
+/// am cap ab. Der kleine cap ersetzt 100 000 fixture-einträge; die produktion
+/// nutzt `limits::MAX_ENTRIES`.
+#[cfg(target_os = "linux")]
+#[test]
+fn dir_size_bricht_am_eintrags_cap_ab() {
+    let root = std::env::temp_dir().join(format!("protium-dir-entries-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    std::fs::write(root.join("a.bin"), vec![0u8; 3]).unwrap();
+    std::fs::write(root.join("b.bin"), vec![0u8; 4]).unwrap();
+    std::fs::write(root.join("sub/c.bin"), vec![0u8; 5]).unwrap();
+    unixfs::symlink("/etc", root.join("link")).unwrap();
+
+    // fünf einträge: a.bin, b.bin, link, sub, sub/c.bin. Der symlink zählt
+    // mit und wird nicht gemessen (3 + 4 + 5 = 12 byte).
+    let measured = measure_directory_with_cap(&root, 5).unwrap();
+    assert_eq!(measured, DirectorySize::Measured { size_bytes: 12 });
+
+    let capped = measure_directory_with_cap(&root, 4).unwrap();
+    let detail = match &capped {
+        DirectorySize::Failed { detail } => detail.clone(),
+        other => panic!("cap muss fail-closed failed liefern: {other:?}"),
+    };
+    assert!(detail.contains("walk entries"), "{capped:?}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn dir_size_rejects_u64_overflow_and_javascript_unsafe_sum() {
     assert!(super::checked_size_add(u64::MAX, 1).is_err());

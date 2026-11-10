@@ -54,6 +54,34 @@ fn ge_install_direct_ipc_snapshot_authority_is_current_and_exact() {
 
 const GE_NAME: &str = "GE-Proton11-5-x86_64";
 
+/// 6.9: der entpack-cap ist ein eigener cap. Der download-cap (8 GiB) ist
+/// keine obergrenze für entpackte bytes; der quelltext-pin hält beide
+/// extract-arme auf `MAX_UNPACK_BYTES`.
+#[test]
+fn ge_install_entpackt_mit_dem_unpack_cap() {
+    // Der Download-Cap ist keine Obergrenze für entpackte Bytes.
+    const {
+        assert!(
+            crate::commands::limits::MAX_UNPACK_BYTES
+                < crate::commands::download::MAX_DOWNLOAD_BYTES
+        )
+    };
+    let production = crate::commands::test_util::production_source(include_str!("ge_install.rs"));
+    // import + `max_bytes` des download-speichers: `MAX_DOWNLOAD_BYTES` steht
+    // nur am download, nie am extract.
+    assert_eq!(
+        production.matches("MAX_DOWNLOAD_BYTES").count(),
+        2,
+        "MAX_DOWNLOAD_BYTES gehört nur zum download"
+    );
+    // import + die beiden extract-arme (autorisiert und test-scope).
+    assert_eq!(
+        production.matches("MAX_UNPACK_BYTES").count(),
+        3,
+        "beide extract-arme entpacken mit dem unpack-cap"
+    );
+}
+
 fn ge_archive(root: &Path) -> fs::File {
     let mut bytes = Vec::new();
     {
