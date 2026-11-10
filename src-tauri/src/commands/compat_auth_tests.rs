@@ -522,6 +522,11 @@ fn compat_authority_bleibt_an_root_tooldir_und_vdf_fd_gebunden() {
     let (home, _cache, steam) = wsg_env("compat-fd-races");
     let root = steam.join("compatibilitytools.d");
     let tool = root.join("GE-Proton9-27");
+    // Die Suche läuft in Verzeichnisreihenfolge. Der Test tauscht gezielt
+    // GE-Proton9-27; ein zweiter Kandidat würde den Hook je nach
+    // readdir-Reihenfolge am falschen Ordner auslösen (im Release-Container
+    // am 2026-11-10 passiert).
+    std::fs::remove_dir_all(root.join("GE-Proton9-28")).unwrap();
     let external = home.parent().unwrap().join("compat-fd-external");
     std::fs::create_dir_all(external.join("ExternalTool")).unwrap();
     std::fs::write(
