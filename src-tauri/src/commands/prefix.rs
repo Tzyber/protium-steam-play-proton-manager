@@ -8,7 +8,6 @@ use {
         compat_auth::{is_app_installed_in_steamapps_fd, ManifestReadError},
         external::{open_directory_with_handler, spawn_detached_os, SpawnOs},
         fd,
-        scope::parse_app_id,
     },
     std::{ffi::OsStr, io, os::fd::AsRawFd, path::Path},
 };
@@ -92,11 +91,16 @@ fn validate_handler_path(path: &Path, library: &Path) -> Result<(), PrefixError>
 fn open_prefix_folder_with(
     state: &EnvironmentState,
     library: &str,
-    app_id: &str,
+    app_id: u32,
     hook: &mut dyn FnMut(PrefixReadStage),
     spawn: &mut SpawnOs<'_>,
 ) -> Result<(), &'static str> {
-    let app_id = parse_app_id(app_id).map_err(|_| errcode::BLOCKED)?;
+    // FR-4: 0 ist in steam reserviert und wird vor jeder IO abgelehnt; die
+    // tauri-deserialisierung hat nicht-zahlen, negative und über u32::MAX
+    // liegende werte bereits als InvalidArgs verworfen.
+    if app_id == 0 {
+        return Err(errcode::BLOCKED);
+    }
     // Der Snapshot bleibt bis zum Spawn gesperrt; Scope-Fehler verlassen diese Grenze nie.
     state
         .with_authorized_library(library, |canonical| {
@@ -160,7 +164,7 @@ fn open_authorized_prefix(
 pub async fn open_prefix_folder(
     state: State<'_, EnvironmentState>,
     library: String,
-    app_id: String,
+    app_id: u32,
 ) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
@@ -171,7 +175,7 @@ pub async fn open_prefix_folder(
             open_prefix_folder_with(
                 &state,
                 &library,
-                &app_id,
+                app_id,
                 &mut |_| {},
                 &mut spawn_detached_os,
             )

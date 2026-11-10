@@ -1,12 +1,12 @@
 use super::*;
 use crate::commands::compat_auth::MAX_MANIFEST_BYTES;
 use crate::commands::shortcuts_bin::make_test_bin_shortcuts;
-use crate::commands::test_util::{wsg_fixture, WireSerializer, WireValue};
+use crate::commands::test_util::{wire_unit_variant, wsg_fixture, WireSerializer, WireValue};
 use serde::ser::Serialize;
 
-/// Ein Feld der Wire-Form einer Folge; `None` heißt: nicht serialisiert.
-fn wire_field(consequence: &DeleteConsequence, key: &str) -> Option<WireValue> {
-    match consequence.serialize(WireSerializer).unwrap() {
+/// Ein Feld der Wire-Form einer Struktur; `None` heißt: nicht serialisiert.
+fn wire_field<T: Serialize>(value: &T, key: &str) -> Option<WireValue> {
+    match value.serialize(WireSerializer).unwrap() {
         WireValue::Object(fields) => fields
             .into_iter()
             .find(|(field, _)| field == key)
@@ -40,7 +40,7 @@ fn delete_livepruefung_verwirft_nachtraeglich_ungescopte_library() {
     let steam_owned = steam.clone();
     let error = inspect_deletion_target(
         steam.to_str().unwrap(),
-        "trash",
+        DeleteTargetType::Trash,
         target.to_str().unwrap(),
         &|path| path.starts_with(&steam_owned),
     )
@@ -128,14 +128,14 @@ fn inspect_deletion_target_schuetzt_vor_falschen_loeschungen() {
     std::fs::create_dir_all(&orphan_dir).unwrap();
     let inspection = inspect_deletion_target(
         steam.to_str().unwrap(),
-        "orphan",
+        DeleteTargetType::Orphan,
         orphan_dir.to_str().unwrap(),
         &|_| true,
     )
     .unwrap();
-    assert_eq!(inspection.target_type, "orphan");
+    assert_eq!(inspection.target_type, DeleteTargetType::Orphan);
     assert_eq!(inspection.consequences.len(), 1);
-    assert_eq!(inspection.consequences[0].action, "trash");
+    assert_eq!(inspection.consequences[0].action, DeleteAction::Trash);
     assert_eq!(
         inspection.consequences[0].affected_app_ids,
         Some(vec![999999])
@@ -150,7 +150,7 @@ fn inspect_deletion_target_schuetzt_vor_falschen_loeschungen() {
 
     let err = inspect_deletion_target(
         steam.to_str().unwrap(),
-        "orphan",
+        DeleteTargetType::Orphan,
         installed_dir.to_str().unwrap(),
         &|_| true,
     )
@@ -171,7 +171,7 @@ fn inspect_deletion_target_schuetzt_vor_falschen_loeschungen() {
 
     let err2 = inspect_deletion_target(
         steam.to_str().unwrap(),
-        "orphan",
+        DeleteTargetType::Orphan,
         shortcut_dir.to_str().unwrap(),
         &|_| true,
     )
@@ -183,20 +183,23 @@ fn inspect_deletion_target_schuetzt_vor_falschen_loeschungen() {
     std::fs::create_dir_all(&tool).unwrap();
     let tool_inspection = inspect_deletion_target(
         steam.to_str().unwrap(),
-        "compatTool",
+        DeleteTargetType::CompatTool,
         tool.to_str().unwrap(),
         &|_| true,
     )
     .unwrap();
-    assert_eq!(tool_inspection.target_type, "compatTool");
-    assert_eq!(tool_inspection.consequences[0].action, "permanentDelete");
+    assert_eq!(tool_inspection.target_type, DeleteTargetType::CompatTool);
+    assert_eq!(
+        tool_inspection.consequences[0].action,
+        DeleteAction::PermanentDelete
+    );
 
     // 5. Nicht-GE Tool -> Err
     let custom_tool = tools_dir.join("Proton-Custom");
     std::fs::create_dir_all(&custom_tool).unwrap();
     assert!(inspect_deletion_target(
         steam.to_str().unwrap(),
-        "compatTool",
+        DeleteTargetType::CompatTool,
         custom_tool.to_str().unwrap(),
         &|_| true,
     )
@@ -228,7 +231,7 @@ fn compat_tool_folgen_nennen_globalen_standard_und_internen_namen() {
 
     let inspection = inspect_deletion_target(
         steam.to_str().unwrap(),
-        "compatTool",
+        DeleteTargetType::CompatTool,
         tool.to_str().unwrap(),
         &|_| true,
     )
@@ -243,7 +246,7 @@ fn compat_tool_folgen_nennen_globalen_standard_und_internen_namen() {
     std::fs::remove_file(tool.join("compatibilitytool.vdf")).unwrap();
     let without_vdf = inspect_deletion_target(
         steam.to_str().unwrap(),
-        "compatTool",
+        DeleteTargetType::CompatTool,
         tool.to_str().unwrap(),
         &|_| true,
     )
@@ -290,7 +293,7 @@ fn compat_tool_vdf_als_verzeichnis_laesst_die_appliste_unbekannt() {
 
     let inspection = inspect_deletion_target(
         steam.to_str().unwrap(),
-        "compatTool",
+        DeleteTargetType::CompatTool,
         tool.to_str().unwrap(),
         &|_| true,
     )
@@ -309,7 +312,7 @@ fn compat_tool_vdf_als_verzeichnis_laesst_die_appliste_unbekannt() {
 fn consequence_serialisiert_impact_unknown_immer() {
     let mut consequence = DeleteConsequence {
         path: "/lib/steamapps/compatdata/620".to_string(),
-        action: "permanentDelete".to_string(),
+        action: DeleteAction::PermanentDelete,
         description: "beschreibung".to_string(),
         affected_app_ids: None,
         affects_global_default: None,
@@ -326,6 +329,67 @@ fn consequence_serialisiert_impact_unknown_immer() {
     );
 }
 
+/// FR-1/FR-2: die wire-namen bleiben die bisherigen strings und kommen aus
+/// dem serde-Rename (`camelCase`), nicht aus einem `as_str`. Beide `Trash`-
+/// varianten (zielart und aktion) werden getrennt geprüft.
+#[test]
+fn delete_enums_tragen_die_bisherigen_wire_namen() {
+    for (value, wire) in [
+        (DeleteTargetType::Orphan, "orphan"),
+        (DeleteTargetType::Trash, "trash"),
+        (DeleteTargetType::CompatTool, "compatTool"),
+    ] {
+        assert_eq!(
+            wire_unit_variant(value.serialize(WireSerializer).unwrap()),
+            Some(wire.to_string()),
+            "targetType fuer {value:?}"
+        );
+    }
+    for (value, wire) in [
+        (DeleteAction::Trash, "trash"),
+        (DeleteAction::PermanentDelete, "permanentDelete"),
+    ] {
+        let consequence = DeleteConsequence {
+            path: "/lib/steamapps/compatdata/620".to_string(),
+            action: value,
+            description: "beschreibung".to_string(),
+            affected_app_ids: None,
+            affects_global_default: None,
+            impact_unknown: false,
+        };
+        let action = wire_field(&consequence, "action").expect("action muss serialisiert werden");
+        assert_eq!(
+            wire_unit_variant(action),
+            Some(wire.to_string()),
+            "action fuer {value:?}"
+        );
+    }
+}
+
+/// FR-1: der pfad-suffix traegt weiterhin seinen code; nur das wire-feld
+/// `targetType` kennt einen fremden wert nicht mehr (tauri `InvalidArgs`).
+#[test]
+fn fremder_pfad_suffix_traegt_unsupported_target() {
+    let root = wsg_fixture("inspect-unsupported-suffix");
+    let steam = root.join("steam");
+    let target = steam.join("steamapps/foo/123");
+    std::fs::create_dir_all(&target).unwrap();
+
+    let error = inspect_deletion_target(
+        steam.to_str().unwrap(),
+        DeleteTargetType::Orphan,
+        target.to_str().unwrap(),
+        &|_| true,
+    )
+    .unwrap_err();
+    assert!(
+        errcode::has_code(&error, errcode::UNSUPPORTED_TARGET),
+        "{error}"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn inspect_deletion_target_lehnt_target_ausserhalb_scope_ab() {
     let root = wsg_fixture("inspect-target-scope");
@@ -339,7 +403,7 @@ fn inspect_deletion_target_lehnt_target_ausserhalb_scope_ab() {
     let steam_root_path = steam.clone();
     let result = inspect_deletion_target(
         steam.to_str().unwrap(),
-        "trash",
+        DeleteTargetType::Trash,
         target.to_str().unwrap(),
         &|p| p == steam_root_path,
     );
@@ -350,12 +414,12 @@ fn inspect_deletion_target_lehnt_target_ausserhalb_scope_ab() {
     let steam_owned = steam.clone();
     let ok = inspect_deletion_target(
         steam.to_str().unwrap(),
-        "trash",
+        DeleteTargetType::Trash,
         target.to_str().unwrap(),
         &|p| p.starts_with(&steam_owned),
     )
     .unwrap();
-    assert_eq!(ok.target_type, "trash");
+    assert_eq!(ok.target_type, DeleteTargetType::Trash);
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -370,7 +434,7 @@ fn trash_inspektion_erlaubt_nur_direkte_gueltige_ordner() {
     let inspect = |path: &Path| {
         inspect_deletion_target(
             steam.to_str().unwrap(),
-            "trash",
+            DeleteTargetType::Trash,
             path.to_str().unwrap(),
             &all_in_scope,
         )
@@ -448,7 +512,7 @@ fn inspection_erlaubt_non_steam_shortcut_appid() {
 
     let result = inspect_deletion_target(
         steam.to_str().unwrap(),
-        "orphan",
+        DeleteTargetType::Orphan,
         target.to_str().unwrap(),
         &|_| true,
     );
@@ -486,7 +550,7 @@ fn orphan_inspektion_meldet_fremden_manifestnamen_als_unreadable() {
 
     let error = inspect_deletion_target(
         steam.to_str().unwrap(),
-        "orphan",
+        DeleteTargetType::Orphan,
         target.to_str().unwrap(),
         &|_| true,
     )
@@ -533,7 +597,7 @@ fn orphan_inspektion_bricht_bei_geschaedigter_gelisteter_library_ab() {
 
     let error = inspect_deletion_target(
         steam.to_str().unwrap(),
-        "orphan",
+        DeleteTargetType::Orphan,
         target.to_str().unwrap(),
         &all_in_scope,
     )
@@ -552,12 +616,12 @@ fn orphan_inspektion_bricht_bei_geschaedigter_gelisteter_library_ab() {
     .unwrap();
     let inspection = inspect_deletion_target(
         steam.to_str().unwrap(),
-        "orphan",
+        DeleteTargetType::Orphan,
         target.to_str().unwrap(),
         &all_in_scope,
     )
     .unwrap();
-    assert_eq!(inspection.target_type, "orphan");
+    assert_eq!(inspection.target_type, DeleteTargetType::Orphan);
     assert_eq!(inspection.consequences.len(), 1);
 
     let _ = std::fs::remove_dir_all(root);

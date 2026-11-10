@@ -187,8 +187,7 @@ const system: System = {
   // das gebündelte xdg-open, das auf kde-systemen lautlos scheitert.
   openExternal: (url) => invoke<void>("open_external", { url }),
   launchGame: (appId) => invoke<void>("open_external", { url: `steam://rungameid/${appId}` }),
-  openPrefixFolder: (library, appId) =>
-    invoke<void>("open_prefix_folder", { library, appId: String(appId) }),
+  openPrefixFolder: (library, appId) => invoke<void>("open_prefix_folder", { library, appId }),
   listConfigBackups: () => invoke<ConfigBackupEntry[]>("list_config_backups"),
   openBackupsFolder: () => invoke<void>("open_backups_folder"),
   logDiagnostic: (level, message) => invoke<void>("log_diagnostic", { level, message }),

@@ -29,12 +29,31 @@ use crate::commands::libraryfolders::read_library_folders_with_failures;
 use crate::commands::path::{is_safe_path, sanitize_path};
 use crate::commands::scope::LibraryUnavailableReason;
 
+/// Zielart einer Löschung. Der Wire-Name (`orphan`, `trash`, `compatTool`)
+/// kommt aus dem serde-Rename; ein unbekannter Wert scheitert deshalb schon an
+/// der Tauri-Deserialisierung (FR-1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DeleteTargetType {
+    Orphan,
+    Trash,
+    CompatTool,
+}
+
+/// Löschfolge eines Ziels (FR-2). Der Wire-Name kommt aus dem serde-Rename.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DeleteAction {
+    Trash,
+    PermanentDelete,
+}
+
 /// Strukturierte Löschfolge (Erzeugungs-Heimat: delete_inspect).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteConsequence {
     pub path: String,
-    pub action: String, // "trash" | "permanentDelete"
+    pub action: DeleteAction,
     pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub affected_app_ids: Option<Vec<u32>>,
@@ -54,7 +73,7 @@ pub struct DeleteConsequence {
 pub struct DeletionInspection {
     pub target_path: String,
     pub canonical_path: String,
-    pub target_type: String,
+    pub target_type: DeleteTargetType,
     pub dev: u64,
     pub ino: u64,
     pub consequences: Vec<DeleteConsequence>,
@@ -147,7 +166,7 @@ pub(super) fn validate_trash_target(canon_str: &str, meta: &fs::Metadata) -> Res
 /// verletzt sind, bricht die Inspektion mit einem Fehler ab.
 pub(super) fn inspect_deletion_target(
     steam_root_str: &str,
-    target_type: &str,
+    target_type: DeleteTargetType,
     target_path_str: &str,
     scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
 ) -> Result<DeletionInspection, String> {
@@ -174,7 +193,7 @@ pub(super) fn inspect_deletion_target(
 /// Pfad, Zieltyp, das eine `symlink_metadata` und die daraus gelesene Identität.
 struct DeleteTargetContext<'a> {
     target_path: &'a str,
-    target_type: &'a str,
+    target_type: DeleteTargetType,
     canonical: &'a Path,
     canon_str: &'a str,
     meta: &'a fs::Metadata,
@@ -187,19 +206,19 @@ impl DeleteTargetContext<'_> {
     /// Beschreibung und betroffene AppIDs unterscheiden sich.
     fn inspection(
         &self,
-        action: &str,
+        action: DeleteAction,
         description: String,
         affected_app_ids: Option<Vec<u32>>,
     ) -> DeletionInspection {
         DeletionInspection {
             target_path: self.target_path.to_string(),
             canonical_path: self.canon_str.to_string(),
-            target_type: self.target_type.to_string(),
+            target_type: self.target_type,
             dev: self.dev,
             ino: self.ino,
             consequences: vec![DeleteConsequence {
                 path: self.canon_str.to_string(),
-                action: action.to_string(),
+                action,
                 description,
                 affected_app_ids,
                 affects_global_default: None,
@@ -275,9 +294,12 @@ where
     }
 
     let (action, desc) = match typ {
-        "compatdata" => ("trash", format!("move app {app_id} prefix to trash")),
+        "compatdata" => (
+            DeleteAction::Trash,
+            format!("move app {app_id} prefix to trash"),
+        ),
         "shadercache" => (
-            "permanentDelete",
+            DeleteAction::PermanentDelete,
             format!("permanently delete app {app_id} shader cache"),
         ),
         _ => return Err(errcode::UNSUPPORTED_TARGET.into()),
@@ -301,7 +323,7 @@ fn inspect_trash_target(context: &DeleteTargetContext<'_>) -> Result<DeletionIns
             .unwrap_or_default()
             .to_string_lossy()
     );
-    Ok(context.inspection("permanentDelete", description, None))
+    Ok(context.inspection(DeleteAction::PermanentDelete, description, None))
 }
 
 /// Löschziel „compatTool" (r-10): nur verwaltete GE-Namen direkt in
@@ -360,7 +382,7 @@ where
         Some(affected_apps)
     };
     let mut inspection = context.inspection(
-        "permanentDelete",
+        DeleteAction::PermanentDelete,
         format!("permanently delete GE-Proton tool {tool_name}"),
         affected_app_ids,
     );
@@ -374,7 +396,7 @@ where
 #[cfg(target_os = "linux")]
 fn inspect_deletion_target_linux_with_hook<F>(
     steam_root_str: &str,
-    target_type: &str,
+    target_type: DeleteTargetType,
     target_path_str: &str,
     scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
     hook: &mut F,
@@ -445,20 +467,20 @@ where
     // Die Zieltypen teilen sich den Kopf (Scope, Identität, Zielart) und
     // unterscheiden sich in Prüfliste und Löschfolge; je ein eigener Arm (r-10).
     match target_type {
-        "orphan" => inspect_orphan_target(&context, &steam_root, &steam_root_fd, hook),
-        "trash" => inspect_trash_target(&context),
-        "compatTool" => inspect_compat_tool_target(&context, &steam_root, &steam_root_fd, hook),
-        _ => Err(errcode::with_detail(
-            errcode::UNSUPPORTED_TARGET,
-            target_type,
-        )),
+        DeleteTargetType::Orphan => {
+            inspect_orphan_target(&context, &steam_root, &steam_root_fd, hook)
+        }
+        DeleteTargetType::Trash => inspect_trash_target(&context),
+        DeleteTargetType::CompatTool => {
+            inspect_compat_tool_target(&context, &steam_root, &steam_root_fd, hook)
+        }
     }
 }
 
 #[cfg(all(test, target_os = "linux"))]
 pub(crate) fn inspect_deletion_target_with_test_hook<F>(
     steam_root_str: &str,
-    target_type: &str,
+    target_type: DeleteTargetType,
     target_path_str: &str,
     scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
     hook: &mut F,

@@ -1,4 +1,5 @@
 use super::*;
+use crate::commands::delete_inspect::DeleteAction;
 use crate::commands::test_util::{production_source, wsg_fixture};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -23,7 +24,7 @@ fn orphan_fixture(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
 
 fn orphan_request(steam: &std::path::Path) -> PrepareDeleteRequest {
     PrepareDeleteRequest {
-        target_type: "orphan".to_string(),
+        target_type: DeleteTargetType::Orphan,
         path: steam
             .join("steamapps/compatdata/999999")
             .to_str()
@@ -146,9 +147,13 @@ fn orphan_fixture_mit_ziel(
     (root, steam, target)
 }
 
-fn ziel_request(steam: &Path, target_type: &str, target: &Path) -> PrepareDeleteRequest {
+fn ziel_request(
+    steam: &Path,
+    target_type: DeleteTargetType,
+    target: &Path,
+) -> PrepareDeleteRequest {
     PrepareDeleteRequest {
-        target_type: target_type.to_string(),
+        target_type,
         path: target.to_string_lossy().into_owned(),
         steam_root: steam.to_string_lossy().into_owned(),
     }
@@ -203,7 +208,7 @@ fn prepare_bindet_den_steam_root_exakt_an_den_snapshot() {
         std::path::PathBuf::from("/nonexistent-config"),
     );
     let request = PrepareDeleteRequest {
-        target_type: "orphan".to_string(),
+        target_type: DeleteTargetType::Orphan,
         path: target.to_string_lossy().into_owned(),
         steam_root: library.to_string_lossy().into_owned(),
     };
@@ -234,7 +239,7 @@ fn prepare_lehnt_einen_nicht_aufloesbaren_steam_root_ab() {
     let root = wsg_fixture("prepare-root-missing");
     let snapshot = snapshot_for(&root);
     let request = PrepareDeleteRequest {
-        target_type: "orphan".to_string(),
+        target_type: DeleteTargetType::Orphan,
         path: root
             .join("steamapps/compatdata/999999")
             .to_string_lossy()
@@ -263,7 +268,7 @@ fn prepare_meldet_enotdir_des_steam_roots_als_unreadable() {
     std::fs::write(root.join("datei"), b"x").unwrap();
     let snapshot = snapshot_for(&root);
     let request = PrepareDeleteRequest {
-        target_type: "orphan".to_string(),
+        target_type: DeleteTargetType::Orphan,
         path: root
             .join("steamapps/compatdata/999999")
             .to_string_lossy()
@@ -427,16 +432,16 @@ fn prepare_und_execute_happy_path_und_replay_schutz() {
 
     let registry = PendingDeleteRegistry::default();
     let req = PrepareDeleteRequest {
-        target_type: "orphan".to_string(),
+        target_type: DeleteTargetType::Orphan,
         path: compatdata.to_str().unwrap().to_string(),
         steam_root: steam.to_str().unwrap().to_string(),
     };
 
     // 1. Prepare
     let info = prepare_with_snapshot(&registry, &req, || Ok(false)).unwrap();
-    assert_eq!(info.target_type, "orphan");
+    assert_eq!(info.target_type, DeleteTargetType::Orphan);
     assert_eq!(info.consequences.len(), 1);
-    assert_eq!(info.consequences[0].action, "trash");
+    assert_eq!(info.consequences[0].action, DeleteAction::Trash);
 
     // 2. Execute 1st time -> Erfolg ist ein Ok (kein bool-flag)
     let res = execute_delete_pipeline(&registry, &info.token, &|_| true, || Ok(false)).unwrap();
@@ -492,7 +497,7 @@ fn abgelaufenes_token_wird_abgelehnt() {
     let expired_pending = PendingDelete {
         created_at: 0,
         expires_at: 1000, // weit in der Vergangenheit
-        target_type: "orphan".to_string(),
+        target_type: DeleteTargetType::Orphan,
         target_path: "/tmp/foo".to_string(),
         canonical_path: PathBuf::from("/tmp/foo"),
         steam_root: PathBuf::from("/tmp/steam"),
@@ -529,7 +534,7 @@ fn steam_laeuft_zwischen_prepare_und_execute_blockiert_loeschung() {
 
     let registry = PendingDeleteRegistry::default();
     let req = PrepareDeleteRequest {
-        target_type: "orphan".to_string(),
+        target_type: DeleteTargetType::Orphan,
         path: compatdata.to_str().unwrap().to_string(),
         steam_root: steam.to_str().unwrap().to_string(),
     };
@@ -669,7 +674,7 @@ fn execute_zweiter_check_blockiert_bei_nicht_pruefbarem_steam_status() {
     let registry = PendingDeleteRegistry::default();
     let info = prepare_with_snapshot(
         &registry,
-        &ziel_request(&steam, "compatTool", &target),
+        &ziel_request(&steam, DeleteTargetType::CompatTool, &target),
         || Ok(false),
     )
     .unwrap();
@@ -728,12 +733,16 @@ fn prepare_blockiert_shadercache_bei_nicht_pruefbarem_steam_status() {
     );
     let registry = PendingDeleteRegistry::default();
 
-    let error = prepare_with_snapshot(&registry, &ziel_request(&steam, "orphan", &target), || {
-        Err(errcode::with_detail(
-            errcode::STEAM_CHECK_UNAVAILABLE,
-            "/proc",
-        ))
-    })
+    let error = prepare_with_snapshot(
+        &registry,
+        &ziel_request(&steam, DeleteTargetType::Orphan, &target),
+        || {
+            Err(errcode::with_detail(
+                errcode::STEAM_CHECK_UNAVAILABLE,
+                "/proc",
+            ))
+        },
+    )
     .unwrap_err();
 
     assert!(
@@ -764,7 +773,7 @@ fn prepare_blockiert_compat_tool_bei_nicht_pruefbarem_steam_status() {
 
     let error = prepare_with_snapshot(
         &registry,
-        &ziel_request(&steam, "compatTool", &target),
+        &ziel_request(&steam, DeleteTargetType::CompatTool, &target),
         || {
             Err(errcode::with_detail(
                 errcode::STEAM_CHECK_UNAVAILABLE,
@@ -808,7 +817,7 @@ fn prepare_with_hook_blockiert_shadercache_bei_nicht_pruefbarem_steam_status() {
 
     let error = prepare_delete_inner_with_hook(
         &registry,
-        &ziel_request(&steam, "orphan", &target),
+        &ziel_request(&steam, DeleteTargetType::Orphan, &target),
         &|_| true,
         || {
             Err(errcode::with_detail(
@@ -858,7 +867,7 @@ fn prepare_with_hook_blockiert_compat_tool_bei_nicht_pruefbarem_steam_status() {
 
     let error = prepare_delete_inner_with_hook(
         &registry,
-        &ziel_request(&steam, "compatTool", &target),
+        &ziel_request(&steam, DeleteTargetType::CompatTool, &target),
         &|_| true,
         || {
             Err(errcode::with_detail(
@@ -901,9 +910,11 @@ fn execute_erster_check_blockiert_shadercache_bei_nicht_pruefbarem_steam_status(
         "steamapps/shadercache/999999",
     );
     let registry = PendingDeleteRegistry::default();
-    let info = prepare_with_snapshot(&registry, &ziel_request(&steam, "orphan", &target), || {
-        Ok(false)
-    })
+    let info = prepare_with_snapshot(
+        &registry,
+        &ziel_request(&steam, DeleteTargetType::Orphan, &target),
+        || Ok(false),
+    )
     .unwrap();
 
     let error = execute_confirmed(&registry, &info.token, || {
@@ -948,17 +959,17 @@ fn papierkorb_loescht_trotz_nicht_pruefbarem_steam_status() {
     // für `trash` nicht auf
     let hooked = prepare_delete_inner_with_hook(
         &registry,
-        &ziel_request(&steam, "trash", &target),
+        &ziel_request(&steam, DeleteTargetType::Trash, &target),
         &|_| true,
         || -> Result<bool, String> { panic!("steam-check darf für trash nicht laufen") },
         &mut |_, _: Option<&mut std::fs::File>| {},
     )
     .unwrap();
-    assert_eq!(hooked.target_type, "trash");
+    assert_eq!(hooked.target_type, DeleteTargetType::Trash);
 
     let info = prepare_with_snapshot(
         &registry,
-        &ziel_request(&steam, "trash", &target),
+        &ziel_request(&steam, DeleteTargetType::Trash, &target),
         || -> Result<bool, String> { panic!("steam-check darf für trash nicht laufen") },
     )
     .unwrap();
@@ -1005,7 +1016,7 @@ fn registry_groesse_bleibt_auf_32_und_verdrängt_aeltesten() {
             PendingDelete {
                 created_at: now_ms.saturating_sub(MAX_PENDING_DELETES as u64 - i as u64),
                 expires_at: now_ms + 100_000,
-                target_type: "orphan".to_string(),
+                target_type: DeleteTargetType::Orphan,
                 target_path: compatdata.to_str().unwrap().to_string(),
                 canonical_path: compatdata.clone(),
                 steam_root: steam.clone(),
@@ -1021,7 +1032,7 @@ fn registry_groesse_bleibt_auf_32_und_verdrängt_aeltesten() {
     drop(map);
 
     let req = PrepareDeleteRequest {
-        target_type: "orphan".to_string(),
+        target_type: DeleteTargetType::Orphan,
         path: compatdata.to_str().unwrap().to_string(),
         steam_root: steam.to_str().unwrap().to_string(),
     };
@@ -1058,7 +1069,7 @@ fn ino_mismatch_oder_symlink_mutation_zwischen_prepare_und_execute_wird_abgelehn
 
     let registry = PendingDeleteRegistry::default();
     let req = PrepareDeleteRequest {
-        target_type: "orphan".to_string(),
+        target_type: DeleteTargetType::Orphan,
         path: compatdata.to_str().unwrap().to_string(),
         steam_root: steam.to_str().unwrap().to_string(),
     };
@@ -1149,7 +1160,7 @@ fn trash_revalidierung_lehnt_verschachteltes_ziel_vor_claim_ab() {
 
     let registry = PendingDeleteRegistry::default();
     let request = PrepareDeleteRequest {
-        target_type: "trash".to_string(),
+        target_type: DeleteTargetType::Trash,
         path: target.to_string_lossy().into_owned(),
         steam_root: steam.to_string_lossy().into_owned(),
     };
@@ -1291,7 +1302,7 @@ fn delete_prepare_erlaubt_non_steam_shortcut_appid() {
     )
     .unwrap();
     let request = PrepareDeleteRequest {
-        target_type: "orphan".to_string(),
+        target_type: DeleteTargetType::Orphan,
         path: target.to_string_lossy().into_owned(),
         steam_root: steam.to_string_lossy().into_owned(),
     };
@@ -1393,7 +1404,7 @@ fn neue_gueltige_compat_mapping_aendert_folgen_und_blockiert_delete() {
     std::fs::create_dir_all(&target).unwrap();
     let registry = PendingDeleteRegistry::default();
     let request = PrepareDeleteRequest {
-        target_type: "compatTool".to_string(),
+        target_type: DeleteTargetType::CompatTool,
         path: target.to_str().unwrap().to_string(),
         steam_root: steam.to_str().unwrap().to_string(),
     };
@@ -1441,7 +1452,7 @@ fn config_replacement_nach_openat_in_prepare_wird_vor_execute_erkannt() {
         }
     };
     let request = PrepareDeleteRequest {
-        target_type: "compatTool".to_string(),
+        target_type: DeleteTargetType::CompatTool,
         path: target.to_string_lossy().into_owned(),
         steam_root: steam.to_string_lossy().into_owned(),
     };
@@ -1464,7 +1475,7 @@ fn neue_unlesbare_compat_config_blockiert_fail_closed() {
     std::fs::create_dir_all(&target).unwrap();
     let registry = PendingDeleteRegistry::default();
     let request = PrepareDeleteRequest {
-        target_type: "compatTool".to_string(),
+        target_type: DeleteTargetType::CompatTool,
         path: target.to_str().unwrap().to_string(),
         steam_root: steam.to_str().unwrap().to_string(),
     };
@@ -1489,7 +1500,7 @@ fn neue_defekte_compat_config_blockiert_fail_closed() {
     std::fs::create_dir_all(&target).unwrap();
     let registry = PendingDeleteRegistry::default();
     let request = PrepareDeleteRequest {
-        target_type: "compatTool".to_string(),
+        target_type: DeleteTargetType::CompatTool,
         path: target.to_str().unwrap().to_string(),
         steam_root: steam.to_str().unwrap().to_string(),
     };
@@ -1527,7 +1538,7 @@ fn unterminierte_compat_config_traegt_den_io_code() {
     std::fs::create_dir_all(&target).unwrap();
     let registry = PendingDeleteRegistry::default();
     let request = PrepareDeleteRequest {
-        target_type: "compatTool".to_string(),
+        target_type: DeleteTargetType::CompatTool,
         path: target.to_str().unwrap().to_string(),
         steam_root: steam.to_str().unwrap().to_string(),
     };
@@ -1655,9 +1666,11 @@ fn shadercache_teilweiser_remove_meldet_write_uncertain() {
     std::fs::write(target.join("rest-marker"), b"rest").unwrap();
 
     let registry = PendingDeleteRegistry::default();
-    let info = prepare_with_snapshot(&registry, &ziel_request(&steam, "orphan", &target), || {
-        Ok(false)
-    })
+    let info = prepare_with_snapshot(
+        &registry,
+        &ziel_request(&steam, DeleteTargetType::Orphan, &target),
+        || Ok(false),
+    )
     .unwrap();
 
     let error = execute_delete_after_inspection(
@@ -1707,9 +1720,11 @@ fn papierkorb_teilweiser_remove_meldet_write_uncertain() {
     std::fs::write(target.join("rest-marker"), b"rest").unwrap();
 
     let registry = PendingDeleteRegistry::default();
-    let info = prepare_with_snapshot(&registry, &ziel_request(&steam, "trash", &target), || {
-        Ok(false)
-    })
+    let info = prepare_with_snapshot(
+        &registry,
+        &ziel_request(&steam, DeleteTargetType::Trash, &target),
+        || Ok(false),
+    )
     .unwrap();
 
     let error = execute_delete_after_inspection(
@@ -1756,9 +1771,11 @@ fn papierkorb_loeschung_ueber_die_produktionspipeline_entfernt_den_eintrag() {
     std::fs::create_dir_all(target.join("pfx/drive_c")).unwrap();
 
     let registry = PendingDeleteRegistry::default();
-    let info = prepare_with_snapshot(&registry, &ziel_request(&steam, "trash", &target), || {
-        Ok(false)
-    })
+    let info = prepare_with_snapshot(
+        &registry,
+        &ziel_request(&steam, DeleteTargetType::Trash, &target),
+        || Ok(false),
+    )
     .unwrap();
 
     let result = execute_confirmed(&registry, &info.token, || Ok(false)).unwrap();
@@ -1784,7 +1801,7 @@ fn compat_tool_teilweiser_remove_meldet_write_uncertain() {
     let registry = PendingDeleteRegistry::default();
     let info = prepare_with_snapshot(
         &registry,
-        &ziel_request(&steam, "compatTool", &target),
+        &ziel_request(&steam, DeleteTargetType::CompatTool, &target),
         || Ok(false),
     )
     .unwrap();
@@ -1831,9 +1848,11 @@ fn fehlendes_ziel_beim_remove_meldet_write_uncertain() {
     std::fs::create_dir_all(target.join("shader-cache")).unwrap();
 
     let registry = PendingDeleteRegistry::default();
-    let info = prepare_with_snapshot(&registry, &ziel_request(&steam, "orphan", &target), || {
-        Ok(false)
-    })
+    let info = prepare_with_snapshot(
+        &registry,
+        &ziel_request(&steam, DeleteTargetType::Orphan, &target),
+        || Ok(false),
+    )
     .unwrap();
 
     let error = execute_delete_after_inspection(

@@ -1,8 +1,10 @@
 use super::*;
 use crate::commands::test_util::{
-    production_source, write_appmanifest, wsg_env, wsg_env_at, wsg_fixture,
+    production_source, wire_unit_variant, write_appmanifest, wsg_env, wsg_env_at, wsg_fixture,
+    WireSerializer, WireValue,
 };
 use crate::commands::write_gate::{set_write_lock_entry_probe, MAX_CONFIG_VDF_BYTES};
+use serde::ser::Serialize;
 
 #[test]
 fn save_launch_options_steam_laeuft_abgelehnt() {
@@ -1516,11 +1518,15 @@ fn write_gate_folgt_keinem_root_tausch_nach_dem_snapshot() {
 fn test_parse_backup_file_name() {
     assert_eq!(
         parse_backup_file_name("localconfig-12345-1700000000.vdf"),
-        Some(("localconfig".to_string(), "12345".to_string(), 1700000000))
+        Some((
+            ConfigBackupKind::Localconfig,
+            "12345".to_string(),
+            1700000000
+        ))
     );
     assert_eq!(
         parse_backup_file_name("config-570-1700000001.vdf"),
-        Some(("config".to_string(), "570".to_string(), 1700000001))
+        Some((ConfigBackupKind::Config, "570".to_string(), 1700000001))
     );
     assert_eq!(parse_backup_file_name("invalid-name.vdf"), None);
     assert_eq!(parse_backup_file_name("localconfig-abc-17000.vdf"), None);
@@ -1530,6 +1536,37 @@ fn test_parse_backup_file_name() {
         None
     );
     assert_eq!(parse_backup_file_name("localconfig-123-17000.txt"), None);
+}
+
+/// FR-3: der wire-name des backup-typs bleibt der bisherige string; er kommt
+/// aus dem serde-Rename, nicht aus einem `as_str`.
+#[test]
+fn config_backup_kind_traegt_die_bisherigen_wire_namen() {
+    for (kind, wire) in [
+        (ConfigBackupKind::Localconfig, "localconfig"),
+        (ConfigBackupKind::Config, "config"),
+    ] {
+        let entry = ConfigBackupEntry {
+            file_name: format!("{wire}-123-1700000000.vdf"),
+            kind,
+            target_id: "123".to_string(),
+            timestamp_ms: 1700000000,
+            size_bytes: 11,
+        };
+        let value = match entry.serialize(WireSerializer).unwrap() {
+            WireValue::Object(fields) => fields
+                .into_iter()
+                .find(|(field, _)| field == "kind")
+                .map(|(_, value)| value),
+            other => panic!("keine struktur: {other:?}"),
+        }
+        .expect("kind muss serialisiert werden");
+        assert_eq!(
+            wire_unit_variant(value),
+            Some(wire.to_string()),
+            "kind fuer {kind:?}"
+        );
+    }
 }
 
 #[test]
@@ -1550,13 +1587,13 @@ fn test_list_config_backups_in_dir() {
     assert_eq!(list.len(), 2);
     // Sortiert nach timestamp absteigend (2000 vor 1000)
     assert_eq!(list[0].file_name, "config-200-2000.vdf");
-    assert_eq!(list[0].kind, "config");
+    assert_eq!(list[0].kind, ConfigBackupKind::Config);
     assert_eq!(list[0].target_id, "200");
     assert_eq!(list[0].timestamp_ms, 2000);
     assert_eq!(list[0].size_bytes, 11);
 
     assert_eq!(list[1].file_name, "localconfig-100-1000.vdf");
-    assert_eq!(list[1].kind, "localconfig");
+    assert_eq!(list[1].kind, ConfigBackupKind::Localconfig);
     assert_eq!(list[1].target_id, "100");
     assert_eq!(list[1].timestamp_ms, 1000);
     assert_eq!(list[1].size_bytes, 16);

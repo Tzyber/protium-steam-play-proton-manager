@@ -63,7 +63,7 @@ const ipcCases: IpcCase[] = [
     method: "openPrefixFolder",
     call: () => ports.system.openPrefixFolder("/library", 620),
     command: "open_prefix_folder",
-    args: { library: "/library", appId: "620" },
+    args: { library: "/library", appId: 620 },
   },
   {
     method: "listConfigBackups",

@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use crate::commands::delete_inspect::inspect_deletion_target;
-use crate::commands::delete_inspect::{DeleteConsequence, DeletionInspection};
+use crate::commands::delete_inspect::{DeleteConsequence, DeleteTargetType, DeletionInspection};
 use crate::commands::errcode;
 #[cfg(target_os = "linux")]
 use crate::commands::fd::{component_name, DirEntryKind, FdIdentity};
@@ -37,7 +37,7 @@ pub const MAX_PENDING_DELETES: usize = 32;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrepareDeleteRequest {
-    pub target_type: String, // "orphan" | "trash" | "compatTool"
+    pub target_type: DeleteTargetType,
     pub path: String,
     pub steam_root: String,
 }
@@ -47,7 +47,7 @@ pub struct PrepareDeleteRequest {
 pub struct PendingDeleteInfo {
     pub token: String,
     pub expires_at: u64,
-    pub target_type: String,
+    pub target_type: DeleteTargetType,
     pub target_path: String,
     pub consequences: Vec<DeleteConsequence>,
 }
@@ -64,7 +64,7 @@ pub struct DeleteResult {
 pub struct PendingDelete {
     pub created_at: u64,
     pub expires_at: u64,
-    pub target_type: String,
+    pub target_type: DeleteTargetType,
     pub target_path: String,
     pub canonical_path: PathBuf,
     pub steam_root: PathBuf,
@@ -675,7 +675,7 @@ pub(super) fn prepare_delete_inner(
 ) -> Result<PendingDeleteInfo, String> {
     // FR-4: für `trash` wird der Check gar nicht aufgerufen, damit ein nicht
     // prüfbarer Steam-Status den Papierkorb nicht blockiert (Audit 5.5).
-    if request.target_type != "trash" && is_steam_running_fn()? {
+    if request.target_type != DeleteTargetType::Trash && is_steam_running_fn()? {
         return Err(errcode::STEAM_RUNNING.into());
     }
     ensure_current_steam_root(&request.steam_root, snapshot)?;
@@ -683,7 +683,7 @@ pub(super) fn prepare_delete_inner(
     let scope_ok = |path: &Path| snapshot.authorizes(path);
     let inspection = inspect_deletion_target(
         &request.steam_root,
-        &request.target_type,
+        request.target_type,
         &request.path,
         &scope_ok,
     )?;
@@ -725,7 +725,7 @@ fn prepare_delete_with_inspection(
     let pending = PendingDelete {
         created_at: now_ms,
         expires_at,
-        target_type: request.target_type.clone(),
+        target_type: request.target_type,
         target_path: request.path.clone(),
         canonical_path,
         steam_root: PathBuf::from(&request.steam_root),
@@ -766,7 +766,7 @@ fn prepare_delete_with_inspection(
     Ok(PendingDeleteInfo {
         token,
         expires_at,
-        target_type: request.target_type.clone(),
+        target_type: request.target_type,
         target_path: request.path.clone(),
         consequences: inspection.consequences,
     })
@@ -784,13 +784,13 @@ where
     F: FnMut(crate::commands::delete_inspect::DeleteReadStage, Option<&mut std::fs::File>),
 {
     // FR-4: gleiche lazy Papierkorb-Ausnahme wie in `prepare_delete_inner`.
-    if request.target_type != "trash" && is_steam_running_fn()? {
+    if request.target_type != DeleteTargetType::Trash && is_steam_running_fn()? {
         return Err(errcode::STEAM_RUNNING.into());
     }
 
     let inspection = crate::commands::delete_inspect::inspect_deletion_target_with_test_hook(
         &request.steam_root,
-        &request.target_type,
+        request.target_type,
         &request.path,
         scope_ok,
         hook,
@@ -841,7 +841,7 @@ fn execute_delete_pipeline_inner(
 
     // FR-4: `trash` bleibt von beiden Checks ausgenommen; ein nicht prüfbarer
     // Steam-Status darf den Papierkorb nicht blockieren.
-    if pending.target_type != "trash" && is_steam_running_fn()? {
+    if pending.target_type != DeleteTargetType::Trash && is_steam_running_fn()? {
         return Err(errcode::STEAM_RUNNING.into());
     }
 
@@ -863,7 +863,7 @@ fn execute_delete_pipeline_inner(
     // (steam_start_zwischen_den_checks_...,
     // live_aenderung_zwischen_checks_...).
     inspect_pending_target(&pending, scope_ok)?;
-    if pending.target_type != "trash" && is_steam_running_fn()? {
+    if pending.target_type != DeleteTargetType::Trash && is_steam_running_fn()? {
         return Err(errcode::STEAM_RUNNING.into());
     }
     inspect_pending_target(&pending, scope_ok)?;
@@ -928,7 +928,7 @@ fn inspect_pending_target(
     })?;
     let inspection = crate::commands::delete_inspect::inspect_deletion_target(
         steam_root,
-        &pending.target_type,
+        pending.target_type,
         &pending.target_path,
         scope_ok,
     )?;
@@ -1026,8 +1026,8 @@ fn apply_delete_mutation(
     restore: &mut ClaimRestoreGuard<'_>,
     remove_dir_all_fn: &mut dyn FnMut(&Path) -> std::io::Result<()>,
 ) -> Result<(), String> {
-    match pending.target_type.as_str() {
-        "orphan" => {
+    match pending.target_type {
+        DeleteTargetType::Orphan => {
             let canon_str = pending.canonical_path.to_string_lossy();
             let suffix = crate::commands::scope::suffix_after_steamapps(&canon_str)
                 .map_err(|error| restore_or_write_uncertain(restore, error))?;
@@ -1110,7 +1110,7 @@ fn apply_delete_mutation(
                 }
             }
         }
-        "trash" => {
+        DeleteTargetType::Trash => {
             let parent = bound_parent(pending)
                 .map_err(|error| restore_or_write_uncertain(restore, error))?;
             remove_claimed_dir(
@@ -1121,7 +1121,7 @@ fn apply_delete_mutation(
                 remove_dir_all_fn,
             )?;
         }
-        "compatTool" => {
+        DeleteTargetType::CompatTool => {
             let parent = bound_parent(pending)
                 .map_err(|error| restore_or_write_uncertain(restore, error))?;
             remove_claimed_dir(
@@ -1131,12 +1131,6 @@ fn apply_delete_mutation(
                 "compat tool",
                 remove_dir_all_fn,
             )?;
-        }
-        _ => {
-            return Err(restore_or_write_uncertain(
-                restore,
-                errcode::with_detail(errcode::UNSUPPORTED_TARGET, &pending.target_type),
-            ));
         }
     }
     Ok(())

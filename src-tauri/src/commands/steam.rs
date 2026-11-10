@@ -266,32 +266,42 @@ pub async fn save_compat_tool(
     .await
 }
 
+/// Art eines config-backups. Der Wire-Name (`localconfig`, `config`) kommt aus
+/// dem serde-Rename (FR-3).
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ConfigBackupKind {
+    Localconfig,
+    Config,
+}
+
 #[derive(serde::Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigBackupEntry {
     pub file_name: String,
-    pub kind: String,
+    pub kind: ConfigBackupKind,
     pub target_id: String,
     pub timestamp_ms: u64,
     pub size_bytes: u64,
 }
 
-pub(super) fn parse_backup_file_name(name: &str) -> Option<(String, String, u64)> {
+pub(super) fn parse_backup_file_name(name: &str) -> Option<(ConfigBackupKind, String, u64)> {
     let stem = name.strip_suffix(".vdf")?;
     let parts: Vec<&str> = stem.split('-').collect();
     if parts.len() != 3 {
         return None;
     }
-    let kind = parts[0];
-    if kind != "localconfig" && kind != "config" {
-        return None;
-    }
+    let kind = match parts[0] {
+        "localconfig" => ConfigBackupKind::Localconfig,
+        "config" => ConfigBackupKind::Config,
+        _ => return None,
+    };
     let target_id = parts[1];
     if target_id.is_empty() || !target_id.chars().all(|c| c.is_ascii_digit()) {
         return None;
     }
     let timestamp_ms = parts[2].parse::<u64>().ok()?;
-    Some((kind.to_string(), target_id.to_string(), timestamp_ms))
+    Some((kind, target_id.to_string(), timestamp_ms))
 }
 
 pub(super) fn list_config_backups_in_dir(

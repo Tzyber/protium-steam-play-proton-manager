@@ -555,4 +555,20 @@ pub(crate) mod test_util {
             Err(WireError("struct variant unsupported".to_string()))
         }
     }
+
+    /// Der serializer bildet Unit-Varianten als `{"status": "<name>"}` ab (so
+    /// pinnt er `DirectorySize`); der serde-generierte Variantenname steht im
+    /// Wert. Für Enums ohne `status`-Tag ist das nur die form des tests —
+    /// gepinnt wird der name aus dem serde-Rename, nicht der JSON-typ.
+    pub(super) fn wire_unit_variant(value: WireValue) -> Option<String> {
+        match value {
+            WireValue::Object(fields) => {
+                match fields.into_iter().find(|(key, _)| key == "status") {
+                    Some((_, WireValue::String(name))) => Some(name),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
 }

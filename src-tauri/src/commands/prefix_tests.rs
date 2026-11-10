@@ -16,12 +16,16 @@ struct Fixture {
 
 impl Fixture {
     fn new(tag: &str) -> Self {
+        Self::for_app(tag, 620)
+    }
+
+    fn for_app(tag: &str, app_id: u32) -> Self {
         let root = fixture_dir("prefix-open", tag);
         let library = root.join("library");
-        fs::create_dir_all(library.join("steamapps/compatdata/620/pfx")).unwrap();
+        fs::create_dir_all(library.join(format!("steamapps/compatdata/{app_id}/pfx"))).unwrap();
         fs::write(
-            library.join("steamapps/appmanifest_620.acf"),
-            "\"AppState\" { \"appid\" \"620\" }",
+            library.join(format!("steamapps/appmanifest_{app_id}.acf")),
+            format!("\"AppState\" {{ \"appid\" \"{app_id}\" }}"),
         )
         .unwrap();
         let state = EnvironmentState::for_test(EnvironmentSnapshot::for_test(
@@ -40,7 +44,7 @@ impl Fixture {
 
     fn run(
         &self,
-        app_id: &str,
+        app_id: u32,
         hook: &mut dyn FnMut(PrefixReadStage),
     ) -> Result<Vec<HandlerCall>, &'static str> {
         let mut calls = Vec::new();
@@ -62,11 +66,20 @@ impl Fixture {
     }
 
     fn assert_error(&self, expected: &'static str, hook: &mut dyn FnMut(PrefixReadStage)) {
+        self.assert_error_for(620, expected, hook);
+    }
+
+    fn assert_error_for(
+        &self,
+        app_id: u32,
+        expected: &'static str,
+        hook: &mut dyn FnMut(PrefixReadStage),
+    ) {
         let mut spawned = false;
         let result = open_prefix_folder_with(
             &self.state,
             self.library.to_str().unwrap(),
-            "620",
+            app_id,
             hook,
             &mut |_, _, _| {
                 spawned = true;
@@ -98,7 +111,7 @@ impl Drop for Fixture {
 fn opens_only_validated_prefix_and_no_extra_argument() {
     let fixture = Fixture::new("success");
     assert_eq!(
-        fixture.run("620", &mut |_| {}).unwrap(),
+        fixture.run(620, &mut |_| {}).unwrap(),
         vec![(
             "xdg-open".into(),
             vec![],
@@ -107,21 +120,39 @@ fn opens_only_validated_prefix_and_no_extra_argument() {
     );
 }
 
+/// FR-4: nicht-numerisch, negativ oder über `u32::MAX` lehnt tauri vor dem
+/// command ab (`InvalidArgs`); ohne `test`-feature nicht als Rust-test
+/// nachstellbar. Die acht string-fälle des früheren tests sind damit
+/// gegenstandslos; 0 bleibt die fachliche ablehnung und wird mit vorhandenem
+/// manifest und prefix geprüft.
 #[test]
-fn rejects_all_invalid_wire_app_ids() {
-    let fixture = Fixture::new("invalid-ids");
-    for app_id in [
-        "",
-        "0",
-        "4294967296",
-        " 620",
-        "620\n",
-        "+620",
-        "٦٢٠",
-        "../620",
-    ] {
-        assert_eq!(fixture.run(app_id, &mut |_| {}), Err("blocked"));
-    }
+fn zero_app_id_bleibt_blockiert_trotz_manifest_und_prefix() {
+    let fixture = Fixture::for_app("zero-appid", 0);
+    assert!(fixture
+        .library
+        .join("steamapps/appmanifest_0.acf")
+        .is_file());
+    assert!(fixture.library.join("steamapps/compatdata/0/pfx").is_dir());
+    fixture.assert_error_for(0, "blocked", &mut |_| {});
+}
+
+/// FR-4: die u32-grenze des commands. Ohne `test`-feature ist die
+/// tauri-deserialisierung (`InvalidArgs` für nicht-zahlen) nicht aufrufbar,
+/// deshalb hält der pin die signatur fest.
+#[test]
+fn open_prefix_folder_nimmt_die_app_id_als_zahl() {
+    let production = include_str!("prefix.rs");
+    let signatur = production
+        .split_once("pub async fn open_prefix_folder(")
+        .map(|(_, rest)| rest)
+        .expect("open_prefix_folder muss vorhanden sein")
+        .split_once(") -> Result<(), String> {")
+        .map(|(span, _)| span)
+        .expect("open_prefix_folder braucht die erwartete rückgabe");
+    assert!(
+        signatur.contains("app_id: u32"),
+        "open_prefix_folder muss app_id: u32 nehmen: {signatur}"
+    );
 }
 
 #[test]
@@ -132,7 +163,7 @@ fn blocks_existing_library_outside_snapshot() {
     let result = open_prefix_folder_with(
         &fixture.state,
         outside.to_str().unwrap(),
-        "620",
+        620,
         &mut |_| {},
         &mut |_, _, _| panic!("must not spawn"),
     );
@@ -148,7 +179,7 @@ fn blocks_library_symlink() {
         open_prefix_folder_with(
             &fixture.state,
             alias.to_str().unwrap(),
-            "620",
+            620,
             &mut |_| {},
             &mut |_, _, _| panic!("must not spawn")
         ),
@@ -323,7 +354,7 @@ fn unavailable_handlers_return_only_code_and_fallback_uses_gio() {
     let result = open_prefix_folder_with(
         &fixture.state,
         fixture.library.to_str().unwrap(),
-        "620",
+        620,
         &mut |_| {},
         &mut |program, args, _| {
             programs.push((
@@ -346,7 +377,7 @@ fn unavailable_handlers_return_only_code_and_fallback_uses_gio() {
         open_prefix_folder_with(
             &fixture.state,
             fixture.library.to_str().unwrap(),
-            "620",
+            620,
             &mut |_| {},
             &mut |_, _, _| {
                 attempts += 1;
@@ -456,7 +487,7 @@ fn documents_residual_path_swap_before_handler() {
     let fixture = Fixture::new("residual-race");
     let pfx = fixture.library.join("steamapps/compatdata/620/pfx");
     let calls = fixture
-        .run("620", &mut |stage| {
+        .run(620, &mut |stage| {
             if stage == PrefixReadStage::BeforeHandler {
                 fs::rename(&pfx, pfx.with_extension("old")).unwrap();
                 fs::create_dir(&pfx).unwrap();
