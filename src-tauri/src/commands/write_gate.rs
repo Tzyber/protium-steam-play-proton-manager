@@ -19,6 +19,7 @@ use crate::commands::fd::{
 };
 use crate::commands::path::{is_safe_path, random_suffix};
 use crate::commands::steam::WriteResult;
+use crate::commands::steam_layout;
 
 /// Gedeckelter Text-Read für Steam-Config-Dateien im Write-Gate (16 MiB).
 /// Eine präparierte oder aufgeblähte Datei darf keinen Speicherversuch
@@ -72,10 +73,10 @@ fn read_config_text_bounded(_path: &Path, _label: &str) -> Result<String, String
 /// Snapshot, nicht aus einer zweiten fest kodierten Wurzelliste: Discovery
 /// kennt fünf Kandidaten und kanonisiert `$HOME`, das Write-Gate folgt dem.
 fn is_steam_config_path(file: &Path, steam_root: &Path) -> bool {
-    if file == steam_root.join("config").join("config.vdf") {
+    if file == steam_layout::config_vdf(steam_root) {
         return true;
     }
-    let Ok(rel) = file.strip_prefix(steam_root.join("userdata")) else {
+    let Ok(rel) = file.strip_prefix(steam_layout::userdata(steam_root)) else {
         return false;
     };
     let comps: Vec<_> = rel.components().collect();

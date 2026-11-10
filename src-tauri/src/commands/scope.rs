@@ -4,6 +4,7 @@ use crate::commands::path::{
     canonicalize_nearest_ancestor, is_descendant_of, is_safe_path, next_existing_ancestor,
     sanitize_path,
 };
+use crate::commands::steam_layout;
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -387,7 +388,7 @@ impl EnvironmentState {
                 "steam root is not the current environment root",
             ));
         }
-        let tools_dir = steam_root.join("compatibilitytools.d");
+        let tools_dir = steam_layout::compatibilitytools(&steam_root);
         Self::authorize_path_against(
             snapshot,
             &tools_dir.to_string_lossy(),
@@ -440,7 +441,8 @@ impl EnvironmentState {
     {
         let current = self.lock_current()?;
         let snapshot = require_snapshot(&current)?;
-        if snapshot.steam_root != steam_root || tools_dir != steam_root.join("compatibilitytools.d")
+        if snapshot.steam_root != steam_root
+            || tools_dir != steam_layout::compatibilitytools(steam_root)
         {
             return Err(errcode::with_detail(
                 errcode::BLOCKED_LOCATION,
@@ -925,7 +927,7 @@ pub(crate) fn build_environment_snapshot(
         {
             continue;
         }
-        let steamapps = canonical.join("steamapps");
+        let steamapps = steam_layout::steamapps(&canonical);
         let Ok(metadata) = fs::symlink_metadata(&steamapps) else {
             continue;
         };
@@ -1007,23 +1009,25 @@ pub async fn discover_steam_environment(
     .await
 }
 
-/// extrahiert das library-verzeichnis (alles vor dem letzten "/steamapps/").
-/// `rfind` ist sicher, weil das folgende muster-check die echte anwendung garantiert.
-pub(super) fn library_of(canon_str: &str) -> Result<&str, String> {
+/// der einzige trennschnitt am letzten "/steamapps/" (FR-3): library davor,
+/// alles dahinter. `rfind` ist sicher, weil das folgende muster-check die echte
+/// anwendung garantiert.
+pub(super) fn split_after_steamapps(canon_str: &str) -> Result<(&str, &str), String> {
     let marker = "/steamapps/";
     let idx = canon_str.rfind(marker).ok_or_else(|| {
         errcode::with_detail(errcode::INVALID_VALUE, "path does not contain /steamapps/")
     })?;
-    Ok(&canon_str[..idx])
+    Ok((&canon_str[..idx], &canon_str[idx + marker.len()..]))
 }
 
-/// alles nach dem letzten "/steamapps/". gibt None wenn der marker fehlt.
+/// extrahiert das library-verzeichnis (alles vor dem letzten "/steamapps/").
+pub(super) fn library_of(canon_str: &str) -> Result<&str, String> {
+    Ok(split_after_steamapps(canon_str)?.0)
+}
+
+/// alles nach dem letzten "/steamapps/".
 pub(super) fn suffix_after_steamapps(canon_str: &str) -> Result<&str, String> {
-    let marker = "/steamapps/";
-    let idx = canon_str.rfind(marker).ok_or_else(|| {
-        errcode::with_detail(errcode::INVALID_VALUE, "path does not contain /steamapps/")
-    })?;
-    Ok(&canon_str[idx + marker.len()..])
+    Ok(split_after_steamapps(canon_str)?.1)
 }
 
 /// gemeinsame typ/appId-validierung der beiden lösch-pfade (orphan + trash):

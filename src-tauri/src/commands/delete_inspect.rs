@@ -28,6 +28,8 @@ use crate::commands::fd::open_bound_root_fd;
 use crate::commands::libraryfolders::read_library_folders_with_failures;
 use crate::commands::path::{is_safe_path, sanitize_path};
 use crate::commands::scope::LibraryUnavailableReason;
+#[cfg(target_os = "linux")]
+use crate::commands::steam_layout;
 
 /// Zielart einer Löschung. Der Wire-Name (`orphan`, `trash`, `compatTool`)
 /// kommt aus dem serde-Rename; ein unbekannter Wert scheitert deshalb schon an
@@ -354,7 +356,7 @@ where
         ));
     }
 
-    let expected_parent = steam_root.join("compatibilitytools.d");
+    let expected_parent = steam_layout::compatibilitytools(steam_root);
     if context.canonical.parent() != Some(&expected_parent) {
         return Err(errcode::with_detail(
             errcode::BLOCKED_LOCATION,

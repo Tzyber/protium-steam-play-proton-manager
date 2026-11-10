@@ -14,6 +14,7 @@ use crate::commands::fs_ops::is_steam_running_sync;
 use crate::commands::path::sanitize_path;
 use crate::commands::scope::EnvironmentState;
 use crate::commands::spawn_blocking_io;
+use crate::commands::steam_layout;
 use crate::commands::vdf_patch;
 use crate::commands::write_gate::{apply_write_gate, canonical_allowed_steam_root, ensure_size};
 
@@ -55,11 +56,7 @@ where
         return Err(errcode::STEAM_RUNNING.into());
     }
     let root = canonical_allowed_steam_root(steam_root, allowed_steam_root)?;
-    let target = root
-        .join("userdata")
-        .join(account_id)
-        .join("config")
-        .join("localconfig.vdf");
+    let target = steam_layout::localconfig_vdf(&root, account_id);
     let canon = fs::canonicalize(&target).map_err(|e| {
         errcode::with_detail(
             errcode::NOT_FOUND,
@@ -126,7 +123,7 @@ where
         return Err(errcode::STEAM_RUNNING.into());
     }
     let root = canonical_allowed_steam_root(steam_root, allowed_steam_root)?;
-    let target = root.join("config").join("config.vdf");
+    let target = steam_layout::config_vdf(&root);
     let canon = fs::canonicalize(&target).map_err(|e| {
         errcode::with_detail(
             errcode::NOT_FOUND,
@@ -151,16 +148,9 @@ where
         |timestamp| format!("config-{app_id}-{timestamp}.vdf"),
         process_reader,
         |original| {
-            let base = [
-                "InstallConfigStore",
-                "Software",
-                "Valve",
-                "Steam",
-                "CompatToolMapping",
-                &app_id_str,
-            ];
-            let mut name_path = base.to_vec();
-            name_path.push("name");
+            let base = steam_layout::compat_tool_mapping_path(&app_id_str);
+            let mut name_path = base.clone();
+            name_path.push(steam_layout::NAME);
             let current_name = vdf_patch::get_vdf_value(original, &name_path)?;
 
             match tool_name {

@@ -23,6 +23,8 @@ use crate::commands::fd::open_bound_root_fd;
 #[cfg(target_os = "linux")]
 use crate::commands::fd::{open_dir_at, open_file_at};
 use crate::commands::shortcuts_bin::parse_binary_shortcut_ids;
+#[cfg(target_os = "linux")]
+use crate::commands::steam_layout;
 
 #[cfg(all(test, not(target_os = "linux")))]
 use crate::commands::delete_inspect::delete_inspection_unsupported;
@@ -403,13 +405,18 @@ where
 
     let base_paths = [
         vec![
-            "InstallConfigStore",
-            "Software",
-            "Valve",
-            "Steam",
-            "CompatToolMapping",
+            steam_layout::INSTALL_CONFIG_STORE,
+            steam_layout::SOFTWARE,
+            steam_layout::VALVE,
+            steam_layout::STEAM,
+            steam_layout::COMPAT_TOOL_MAPPING,
         ],
-        vec!["Software", "Valve", "Steam", "CompatToolMapping"],
+        vec![
+            steam_layout::SOFTWARE,
+            steam_layout::VALVE,
+            steam_layout::STEAM,
+            steam_layout::COMPAT_TOOL_MAPPING,
+        ],
     ];
 
     let mut affected_apps = Vec::new();

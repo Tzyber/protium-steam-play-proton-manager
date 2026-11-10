@@ -10,6 +10,8 @@ use crate::commands::scope::ContentRead;
 use crate::commands::scope::{EnvironmentState, MAX_ENVIRONMENT_READ_BYTES};
 use crate::commands::spawn_blocking_io;
 #[cfg(target_os = "linux")]
+use crate::commands::steam_layout;
+#[cfg(target_os = "linux")]
 use crate::commands::vdf_patch;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -39,13 +41,18 @@ const MAX_SAFE_JS_INTEGER: u64 = 9_007_199_254_740_991;
 #[cfg(target_os = "linux")]
 const COMPAT_TOOL_MAPPING_PATHS: [&[&str]; 2] = [
     &[
-        "InstallConfigStore",
-        "Software",
-        "Valve",
-        "Steam",
-        "CompatToolMapping",
+        steam_layout::INSTALL_CONFIG_STORE,
+        steam_layout::SOFTWARE,
+        steam_layout::VALVE,
+        steam_layout::STEAM,
+        steam_layout::COMPAT_TOOL_MAPPING,
     ],
-    &["Software", "Valve", "Steam", "CompatToolMapping"],
+    &[
+        steam_layout::SOFTWARE,
+        steam_layout::VALVE,
+        steam_layout::STEAM,
+        steam_layout::COMPAT_TOOL_MAPPING,
+    ],
 ];
 
 /// Reduziert `config.vdf` auf beide Mapping-Layouts: `extract_vdf_blocks`

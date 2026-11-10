@@ -4,6 +4,7 @@
 
 use crate::commands::errcode;
 use crate::commands::path::{is_safe_path, sanitize_path};
+use crate::commands::steam_layout;
 use crate::commands::vdf_patch;
 use std::collections::HashSet;
 use std::fs;
@@ -22,8 +23,10 @@ use std::io;
 use std::os::fd::{AsRawFd, OwnedFd};
 
 fn libraryfolders_path(steam_root: &Path) -> Result<Option<PathBuf>, String> {
-    for relative in ["config/libraryfolders.vdf", "steamapps/libraryfolders.vdf"] {
-        let path = steam_root.join(relative);
+    for path in [
+        steam_layout::libraryfolders_vdf(steam_root),
+        steam_layout::steamapps_libraryfolders_vdf(steam_root),
+    ] {
         reject_symlink_components(&path, true, "libraryfolders.vdf")?;
         match fs::symlink_metadata(&path) {
             Ok(_) => return Ok(Some(path)),
@@ -271,7 +274,7 @@ fn canonical_library(path: &Path) -> Result<PathBuf, (LibraryUnavailableReason, 
         ));
     }
 
-    let steamapps = canonical.join("steamapps");
+    let steamapps = steam_layout::steamapps(&canonical);
     let metadata = fs::symlink_metadata(&steamapps).map_err(|error| {
         let reason = if error.kind() == io::ErrorKind::NotFound {
             LibraryUnavailableReason::PathMissing

@@ -18,6 +18,7 @@ use crate::commands::errcode;
 use crate::commands::extract::extract_blocking_with_tag;
 use crate::commands::extract::{extract_blocking_with_tag_with_hook, MAX_ARCHIVE_ENTRIES};
 use crate::commands::path::{exists_without_following, is_descendant_of, sanitize_path};
+use crate::commands::steam_layout;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -614,7 +615,7 @@ fn resolve_ge_install_targets(
             format!("steam root canonicalize: {error}"),
         )
     })?;
-    let tools_dir = root_canon.join("compatibilitytools.d");
+    let tools_dir = steam_layout::compatibilitytools(&root_canon);
     if !scope_ok(&tools_dir) || !scope_ok(&root_canon) {
         return Err(errcode::BLOCKED_LOCATION.into());
     }

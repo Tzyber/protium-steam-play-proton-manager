@@ -25,6 +25,7 @@ pub(crate) mod prefix;
 pub(crate) mod scope;
 pub(crate) mod shortcuts_bin;
 pub(crate) mod steam;
+pub(crate) mod steam_layout;
 pub(crate) mod vdf_patch;
 pub(crate) mod write_gate;
 
@@ -306,17 +307,22 @@ pub(crate) mod test_util {
         // einem eingebetteten `mod tests {`. Beide Formen sind gültig; ein
         // fehlender Marker bleibt ein harter Fehler, damit ein still zu kurz
         // geschnittener Text nicht als grüner Test durchgeht.
+        //
+        // `prefix.rs` hängt sein Testmodul an `cfg(all(test, target_os =
+        // "linux"))`. Der Marker verlangt `#[path =` direkt danach: ein
+        // cfg-gated Import weiter oben im Text ist keine Modulgrenze und würde
+        // den Schnitt sonst zu früh setzen.
         let module = source.find("\n#[cfg(test)]\n#[path =");
         let inline = source.find("\n#[cfg(test)]\nmod tests {");
-        let end = match (module, inline) {
-            (Some(a), Some(b)) => a.min(b),
-            (Some(a), None) => a,
-            (None, Some(b)) => b,
+        let platform_module = source.find("\n#[cfg(all(test, target_os = \"linux\"))]\n#[path =");
+        let end = [module, inline, platform_module]
+            .into_iter()
+            .flatten()
             // kein Testmodul im Text: der ganze text ist produktionscode. Die
             // aufrufer prüfen ausschließlich verbote, ein zu kurzer text wäre
             // still grün, deshalb bleibt der leere fall ein harter fehler.
-            (None, None) => panic!("source has no `#[cfg(test)]` test module"),
-        };
+            .min()
+            .unwrap_or_else(|| panic!("source has no `#[cfg(test)]` test module"));
         &source[..end]
     }
 

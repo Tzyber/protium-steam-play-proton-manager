@@ -15,6 +15,7 @@ use crate::commands::fd::{
 #[cfg(target_os = "linux")]
 use crate::commands::libraryfolders::LibraryFoldersStage;
 use crate::commands::scope::SYSTEM_COMPAT_DIRS;
+use crate::commands::steam_layout;
 use crate::commands::vdf_patch;
 #[cfg(target_os = "linux")]
 use std::ffi::OsStr;
@@ -643,10 +644,10 @@ where
     let mut roots = Vec::new();
     #[cfg(target_os = "linux")]
     if steam_root_fd.is_none() {
-        roots.push(steam_root.join("compatibilitytools.d"));
+        roots.push(steam_layout::compatibilitytools(steam_root));
     }
     #[cfg(not(target_os = "linux"))]
-    roots.push(steam_root.join("compatibilitytools.d"));
+    roots.push(steam_layout::compatibilitytools(steam_root));
     roots.extend(SYSTEM_COMPAT_DIRS.iter().map(PathBuf::from));
     for root in roots {
         if compat_root_contains_name_linux_with_hook(&root, requested, hook)? {
