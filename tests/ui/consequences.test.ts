@@ -159,6 +159,92 @@ describe("localizeConsequences", () => {
     expect(lines).toEqual(["Permanently delete GE-Proton tool GE-Proton9-27"]);
   });
 
+  it("impactUnknown: unbekannte app-liste ersetzt die zahl und bleibt neben der aktion sichtbar", () => {
+    setLocale("en");
+    const lines = localizeConsequences(
+      pending({
+        targetType: "compatTool",
+        targetPath: "/home/u/.steam/compatibilitytools.d/GE-Proton9-27",
+        consequences: [
+          {
+            path: "/home/u/.steam/compatibilitytools.d/GE-Proton9-27",
+            action: "permanentDelete",
+            description: "GE-Proton-Tool GE-Proton9-27 dauerhaft löschen",
+            affectedAppIds: [620, 730],
+            impactUnknown: true,
+          },
+        ],
+      }),
+    );
+    expect(lines).toEqual([
+      "Permanently delete GE-Proton tool GE-Proton9-27",
+      "Affected apps unknown (tool VDF unreadable): GE-Proton9-27",
+    ]);
+  });
+
+  it("impactUnknown: die globale zeile kommt nur bei affectsGlobalDefault === true dazu", () => {
+    setLocale("en");
+    const lines = localizeConsequences(
+      pending({
+        targetType: "compatTool",
+        targetPath: "/home/u/.steam/compatibilitytools.d/GE-Proton9-27",
+        consequences: [
+          {
+            path: "/home/u/.steam/compatibilitytools.d/GE-Proton9-27",
+            action: "permanentDelete",
+            description: "GE-Proton-Tool GE-Proton9-27 dauerhaft löschen",
+            impactUnknown: true,
+            affectsGlobalDefault: true,
+          },
+        ],
+      }),
+    );
+    expect(lines).toEqual([
+      "Permanently delete GE-Proton tool GE-Proton9-27",
+      "Affected apps unknown (tool VDF unreadable): GE-Proton9-27",
+      "This tool is Steam's default; games without their own assignment lose their tool",
+    ]);
+  });
+
+  it("impactUnknown false mit leerer liste bleibt die zeile ohne zahl", () => {
+    setLocale("en");
+    const lines = localizeConsequences(
+      pending({
+        targetType: "compatTool",
+        targetPath: "/home/u/.steam/compatibilitytools.d/GE-Proton9-27",
+        consequences: [
+          {
+            path: "/home/u/.steam/compatibilitytools.d/GE-Proton9-27",
+            action: "permanentDelete",
+            description: "GE-Proton-Tool GE-Proton9-27 dauerhaft löschen",
+            affectedAppIds: [],
+            impactUnknown: false,
+          },
+        ],
+      }),
+    );
+    expect(lines).toEqual(["Permanently delete GE-Proton tool GE-Proton9-27"]);
+  });
+
+  it("legacy-payload ohne impactUnknown behält die bisherige zeile", () => {
+    setLocale("en");
+    const lines = localizeConsequences(
+      pending({
+        targetType: "compatTool",
+        targetPath: "/home/u/.steam/compatibilitytools.d/GE-Proton9-27",
+        consequences: [
+          {
+            path: "/home/u/.steam/compatibilitytools.d/GE-Proton9-27",
+            action: "permanentDelete",
+            description: "GE-Proton-Tool GE-Proton9-27 dauerhaft löschen",
+            affectedAppIds: [620, 730],
+          },
+        ],
+      }),
+    );
+    expect(lines).toEqual(["Permanently delete GE-Proton tool GE-Proton9-27 (assigned games: 2)"]);
+  });
+
   it("unbekannte struktur fällt auf den backend-string zurück", () => {
     setLocale("en");
     const lines = localizeConsequences(

@@ -1,7 +1,19 @@
 use super::*;
 use crate::commands::compat_auth::MAX_MANIFEST_BYTES;
 use crate::commands::shortcuts_bin::make_test_bin_shortcuts;
-use crate::commands::test_util::wsg_fixture;
+use crate::commands::test_util::{wsg_fixture, WireSerializer, WireValue};
+use serde::ser::Serialize;
+
+/// Ein Feld der Wire-Form einer Folge; `None` heißt: nicht serialisiert.
+fn wire_field(consequence: &DeleteConsequence, key: &str) -> Option<WireValue> {
+    match consequence.serialize(WireSerializer).unwrap() {
+        WireValue::Object(fields) => fields
+            .into_iter()
+            .find(|(field, _)| field == key)
+            .map(|(_, value)| value),
+        other => panic!("keine struktur: {other:?}"),
+    }
+}
 
 #[test]
 fn delete_livepruefung_verwirft_nachtraeglich_ungescopte_library() {
@@ -224,7 +236,10 @@ fn compat_tool_folgen_nennen_globalen_standard_und_internen_namen() {
     let consequence = &inspection.consequences[0];
     assert_eq!(consequence.affected_app_ids, Some(vec![620]));
     assert_eq!(consequence.affects_global_default, Some(true));
+    assert!(!consequence.impact_unknown);
 
+    // FR-8-Pin: eine fehlende tool-vdf ist belegte abwesenheit, kein
+    // lesefehler; die folge bleibt bekannt.
     std::fs::remove_file(tool.join("compatibilitytool.vdf")).unwrap();
     let without_vdf = inspect_deletion_target(
         steam.to_str().unwrap(),
@@ -235,8 +250,80 @@ fn compat_tool_folgen_nennen_globalen_standard_und_internen_namen() {
     .unwrap();
     assert_eq!(without_vdf.consequences[0].affected_app_ids, None);
     assert_eq!(without_vdf.consequences[0].affects_global_default, None);
+    assert!(!without_vdf.consequences[0].impact_unknown);
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// FR-8: ein nicht lesbares tool-vdf ist keine belegte abwesenheit. Der
+/// Ordner-name zählt weiter (die suche läuft), die folge nennt die app-liste
+/// aber unbekannt statt leer.
+#[test]
+fn compat_tool_vdf_als_verzeichnis_laesst_die_appliste_unbekannt() {
+    let root = wsg_fixture("inspect-tool-vdf-unreadable");
+    let steam = root.join("steam");
+    let config_dir = steam.join("config");
+    let tool = steam.join("compatibilitytools.d/GE-Proton11-4-x86_64");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    // der vdf-name ist ein verzeichnis: das open gelingt, `ensure_regular_fd`
+    // liefert not-a-directory.
+    std::fs::create_dir_all(tool.join("compatibilitytool.vdf")).unwrap();
+    // gemappt ist der ORDNERNAME: er belegt, dass die suche trotz des
+    // vdf-fehlers gelaufen ist.
+    std::fs::write(
+        config_dir.join("config.vdf"),
+        "\"InstallConfigStore\"\n{\n\t\"Software\"\n\t{\n\t\t\"Valve\"\n\t\t{\n\t\t\t\"Steam\"\n\t\t\t{\n\t\t\t\t\"CompatToolMapping\"\n\t\t\t\t{\n\t\t\t\t\t\"620\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"name\"\t\"GE-Proton11-4-x86_64\"\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n",
+    )
+    .unwrap();
+
+    let canonical_root = std::fs::canonicalize(&steam).unwrap();
+    let root_fd = crate::commands::fd::open_bound_root_fd(&canonical_root, &mut || {}).unwrap();
+    let error = crate::commands::compat_auth::read_compat_tool_internal_name(
+        &root_fd,
+        "GE-Proton11-4-x86_64",
+    )
+    .unwrap_err();
+    assert!(
+        errcode::has_code(&error, errcode::NOT_A_DIRECTORY),
+        "{error}"
+    );
+
+    let inspection = inspect_deletion_target(
+        steam.to_str().unwrap(),
+        "compatTool",
+        tool.to_str().unwrap(),
+        &|_| true,
+    )
+    .unwrap();
+    let consequence = &inspection.consequences[0];
+    assert!(consequence.impact_unknown);
+    assert_eq!(consequence.affected_app_ids, Some(vec![620]));
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// FR-8: `impactUnknown` ist pflichtfeld der wire-form und wird auch als
+/// `false` serialisiert. Der serializer bildet bool auf Number(1/0) ab;
+/// gepinnt werden präsenz und wert, nicht der JSON-typ.
+#[test]
+fn consequence_serialisiert_impact_unknown_immer() {
+    let mut consequence = DeleteConsequence {
+        path: "/lib/steamapps/compatdata/620".to_string(),
+        action: "permanentDelete".to_string(),
+        description: "beschreibung".to_string(),
+        affected_app_ids: None,
+        affects_global_default: None,
+        impact_unknown: false,
+    };
+    assert_eq!(
+        wire_field(&consequence, "impactUnknown"),
+        Some(WireValue::Number(0))
+    );
+    consequence.impact_unknown = true;
+    assert_eq!(
+        wire_field(&consequence, "impactUnknown"),
+        Some(WireValue::Number(1))
+    );
 }
 
 #[test]

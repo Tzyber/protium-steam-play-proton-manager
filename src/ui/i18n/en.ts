@@ -183,6 +183,7 @@ export const en = {
     consequenceTrashEntry: "Permanently delete trash entry {name}",
     consequenceCompatTool: "Permanently delete GE-Proton tool {name}",
     consequenceCompatToolMapped: "Permanently delete GE-Proton tool {name} (assigned games: {n})",
+    consequenceCompatToolAppsUnknown: "Affected apps unknown (tool VDF unreadable): {name}",
     consequenceCompatToolGlobalDefault:
       "This tool is Steam's default; games without their own assignment lose their tool",
     winePrefixMovedNote:

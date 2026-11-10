@@ -41,6 +41,12 @@ pub struct DeleteConsequence {
     /// INV-6: das tool ist steams globale standard-zuordnung (mapping `"0"`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub affects_global_default: Option<bool>,
+    /// FR-8: die liste der betroffenen apps ist belegbar unvollständig, weil
+    /// die tool-vdf nicht lesbar war. Immer serialisiert (auch `false`), damit
+    /// die oberfläche „keine" nicht mit „unbekannt" verwechselt; `default`
+    /// hält ältere payloads deserialisierbar.
+    #[serde(default)]
+    pub impact_unknown: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -197,6 +203,7 @@ impl DeleteTargetContext<'_> {
                 description,
                 affected_app_ids,
                 affects_global_default: None,
+                impact_unknown: false,
             }],
         }
     }
@@ -334,8 +341,15 @@ where
     }
 
     // config.vdf trägt den internen namen aus der tool-vdf; er kann vom
-    // ordnernamen abweichen. unlesbar heißt: nur der ordnername zählt.
-    let internal_name = read_compat_tool_internal_name(steam_root_fd, tool_name);
+    // ordnernamen abweichen. eine fehlende vdf ist belegte abwesenheit: nur
+    // der ordnername zählt. ein lesefehler ist keine abwesenheit (FR-8): der
+    // ordnername zählt weiter, die app-liste wird aber als unbekannt
+    // gemeldet, statt als leer zu gelten.
+    let (internal_name, impact_unknown) =
+        match read_compat_tool_internal_name(steam_root_fd, tool_name) {
+            Ok(name) => (name, false),
+            Err(_) => (None, true),
+        };
     let mut names = vec![tool_name];
     names.extend(internal_name.as_deref());
     let (affected_apps, global_default) =
@@ -350,6 +364,7 @@ where
         format!("permanently delete GE-Proton tool {tool_name}"),
         affected_app_ids,
     );
+    inspection.consequences[0].impact_unknown = impact_unknown;
     if global_default {
         inspection.consequences[0].affects_global_default = Some(true);
     }

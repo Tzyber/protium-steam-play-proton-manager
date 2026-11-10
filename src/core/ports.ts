@@ -125,6 +125,9 @@ interface DeleteConsequence {
   description: string;
   affectedAppIds?: number[];
   affectsGlobalDefault?: boolean;
+  /** FR-8: betroffene apps sind unbekannt (tool-VDF war nicht lesbar); legacy
+   *  payloads ohne das feld gelten als `false`. */
+  impactUnknown?: boolean;
 }
 
 export interface PendingDeleteInfo {

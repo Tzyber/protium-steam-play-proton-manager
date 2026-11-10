@@ -71,12 +71,23 @@ mod tests {
         let mut blocks = Vec::new();
         let mut rest = source;
         while let Some(start) = rest.find(CFG_NOT_LINUX) {
+            let line_start = rest[..start].rfind('\n').map_or(0, |index| index + 1);
+            let indent = start - line_start;
             let after = &rest[start + CFG_NOT_LINUX.len()..];
-            let end = [after.find("\n#[cfg("), after.find("\n}")]
-                .into_iter()
-                .flatten()
-                .min()
-                .unwrap_or(after.len());
+            let mut end = after.len();
+            let mut offset = 0;
+            for line in after.split_inclusive('\n') {
+                let trimmed = line.trim_start();
+                let line_indent = line.len() - trimmed.len();
+                if line_indent <= indent
+                    && !trimmed.is_empty()
+                    && (trimmed.starts_with('#') || trimmed.starts_with('}'))
+                {
+                    end = offset;
+                    break;
+                }
+                offset += line.len();
+            }
             blocks.push(&after[..end]);
             rest = &after[end..];
         }
@@ -182,6 +193,8 @@ mod tests {
 
 #[cfg(test)]
 pub(crate) mod test_util {
+    use serde::ser::{self, Impossible, Serialize, SerializeStruct, Serializer};
+
     // gemeinsame fixture-helper der command-tests: tempdir-fixtures für
     // state-, trash- und write-gate-tests.
     pub(super) fn fixture_dir(prefix: &str, tag: &str) -> std::path::PathBuf {
@@ -305,5 +318,241 @@ pub(crate) mod test_util {
             (None, None) => panic!("source has no `#[cfg(test)]` test module"),
         };
         &source[..end]
+    }
+
+    // ---- Wire-Vertrag ohne serde_json ----
+    //
+    // Der Serializer bildet `bool` als `Number(1/0)` ab. Gepinnt werden
+    // Präsenz und Wert der Felder, nicht der JSON-Typ; ein eigenes Crate für
+    // den Test wäre unverhältnismäßig. Er stand vorher in `fs_ops_tests.rs`
+    // und wird seit FR-8 von den delete-inspect-Tests mitgenutzt.
+    #[derive(Debug, PartialEq)]
+    pub(super) enum WireValue {
+        Object(Vec<(String, WireValue)>),
+        String(String),
+        Number(u64),
+        Null,
+    }
+
+    #[derive(Debug)]
+    pub(super) struct WireError(String);
+
+    impl std::fmt::Display for WireError {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str(&self.0)
+        }
+    }
+
+    impl std::error::Error for WireError {}
+
+    impl ser::Error for WireError {
+        fn custom<T: std::fmt::Display>(message: T) -> Self {
+            Self(message.to_string())
+        }
+    }
+
+    pub(super) struct WireSerializer;
+
+    pub(super) struct WireStruct {
+        fields: Vec<(String, WireValue)>,
+    }
+
+    impl SerializeStruct for WireStruct {
+        type Ok = WireValue;
+        type Error = WireError;
+
+        fn serialize_field<T: ?Sized + Serialize>(
+            &mut self,
+            key: &'static str,
+            value: &T,
+        ) -> Result<(), Self::Error> {
+            self.fields
+                .push((key.to_string(), value.serialize(WireSerializer)?));
+            Ok(())
+        }
+
+        fn end(self) -> Result<Self::Ok, Self::Error> {
+            Ok(WireValue::Object(self.fields))
+        }
+    }
+
+    impl Serializer for WireSerializer {
+        type Ok = WireValue;
+        type Error = WireError;
+        type SerializeSeq = Impossible<Self::Ok, Self::Error>;
+        type SerializeTuple = Impossible<Self::Ok, Self::Error>;
+        type SerializeTupleStruct = Impossible<Self::Ok, Self::Error>;
+        type SerializeTupleVariant = Impossible<Self::Ok, Self::Error>;
+        type SerializeMap = Impossible<Self::Ok, Self::Error>;
+        type SerializeStruct = WireStruct;
+        type SerializeStructVariant = Impossible<Self::Ok, Self::Error>;
+
+        fn serialize_bool(self, value: bool) -> Result<Self::Ok, Self::Error> {
+            if value {
+                Ok(WireValue::Number(1))
+            } else {
+                Ok(WireValue::Number(0))
+            }
+        }
+
+        fn serialize_i8(self, value: i8) -> Result<Self::Ok, Self::Error> {
+            self.serialize_i64(value.into())
+        }
+
+        fn serialize_i16(self, value: i16) -> Result<Self::Ok, Self::Error> {
+            self.serialize_i64(value.into())
+        }
+
+        fn serialize_i32(self, value: i32) -> Result<Self::Ok, Self::Error> {
+            self.serialize_i64(value.into())
+        }
+
+        fn serialize_i64(self, value: i64) -> Result<Self::Ok, Self::Error> {
+            u64::try_from(value)
+                .map(WireValue::Number)
+                .map_err(|_| WireError("negative number unsupported".to_string()))
+        }
+
+        fn serialize_u8(self, value: u8) -> Result<Self::Ok, Self::Error> {
+            Ok(WireValue::Number(value.into()))
+        }
+
+        fn serialize_u16(self, value: u16) -> Result<Self::Ok, Self::Error> {
+            Ok(WireValue::Number(value.into()))
+        }
+
+        fn serialize_u32(self, value: u32) -> Result<Self::Ok, Self::Error> {
+            Ok(WireValue::Number(value.into()))
+        }
+
+        fn serialize_u64(self, value: u64) -> Result<Self::Ok, Self::Error> {
+            Ok(WireValue::Number(value))
+        }
+
+        fn serialize_u128(self, value: u128) -> Result<Self::Ok, Self::Error> {
+            u64::try_from(value)
+                .map(WireValue::Number)
+                .map_err(|_| WireError("u128 unsupported".to_string()))
+        }
+
+        fn serialize_i128(self, value: i128) -> Result<Self::Ok, Self::Error> {
+            u64::try_from(value)
+                .map(WireValue::Number)
+                .map_err(|_| WireError("i128 unsupported".to_string()))
+        }
+
+        fn serialize_f32(self, _value: f32) -> Result<Self::Ok, Self::Error> {
+            Err(WireError("float unsupported".to_string()))
+        }
+
+        fn serialize_f64(self, _value: f64) -> Result<Self::Ok, Self::Error> {
+            Err(WireError("float unsupported".to_string()))
+        }
+
+        fn serialize_char(self, value: char) -> Result<Self::Ok, Self::Error> {
+            Ok(WireValue::String(value.to_string()))
+        }
+
+        fn serialize_str(self, value: &str) -> Result<Self::Ok, Self::Error> {
+            Ok(WireValue::String(value.to_string()))
+        }
+
+        fn serialize_bytes(self, _value: &[u8]) -> Result<Self::Ok, Self::Error> {
+            Err(WireError("bytes unsupported".to_string()))
+        }
+
+        fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
+            Ok(WireValue::Null)
+        }
+
+        fn serialize_some<T: ?Sized + Serialize>(self, value: &T) -> Result<Self::Ok, Self::Error> {
+            value.serialize(self)
+        }
+
+        fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
+            Ok(WireValue::Null)
+        }
+
+        fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok, Self::Error> {
+            Ok(WireValue::Null)
+        }
+
+        fn serialize_unit_variant(
+            self,
+            _name: &'static str,
+            _variant_index: u32,
+            variant: &'static str,
+        ) -> Result<Self::Ok, Self::Error> {
+            Ok(WireValue::Object(vec![(
+                "status".to_string(),
+                WireValue::String(variant.to_string()),
+            )]))
+        }
+
+        fn serialize_newtype_struct<T: ?Sized + Serialize>(
+            self,
+            _name: &'static str,
+            value: &T,
+        ) -> Result<Self::Ok, Self::Error> {
+            value.serialize(self)
+        }
+
+        fn serialize_newtype_variant<T: ?Sized + Serialize>(
+            self,
+            _name: &'static str,
+            _variant_index: u32,
+            _variant: &'static str,
+            _value: &T,
+        ) -> Result<Self::Ok, Self::Error> {
+            Err(WireError("newtype variant unsupported".to_string()))
+        }
+
+        fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+            Err(WireError("sequence unsupported".to_string()))
+        }
+
+        fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Self::Error> {
+            Err(WireError("tuple unsupported".to_string()))
+        }
+
+        fn serialize_tuple_struct(
+            self,
+            _name: &'static str,
+            _len: usize,
+        ) -> Result<Self::SerializeTupleStruct, Self::Error> {
+            Err(WireError("tuple struct unsupported".to_string()))
+        }
+
+        fn serialize_tuple_variant(
+            self,
+            _name: &'static str,
+            _variant_index: u32,
+            _variant: &'static str,
+            _len: usize,
+        ) -> Result<Self::SerializeTupleVariant, Self::Error> {
+            Err(WireError("tuple variant unsupported".to_string()))
+        }
+
+        fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
+            Err(WireError("map unsupported".to_string()))
+        }
+
+        fn serialize_struct(
+            self,
+            _name: &'static str,
+            _len: usize,
+        ) -> Result<Self::SerializeStruct, Self::Error> {
+            Ok(WireStruct { fields: Vec::new() })
+        }
+
+        fn serialize_struct_variant(
+            self,
+            _name: &'static str,
+            _variant_index: u32,
+            _variant: &'static str,
+            _len: usize,
+        ) -> Result<Self::SerializeStructVariant, Self::Error> {
+            Err(WireError("struct variant unsupported".to_string()))
+        }
     }
 }

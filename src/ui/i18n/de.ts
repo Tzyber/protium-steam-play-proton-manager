@@ -181,6 +181,7 @@ export const de = {
     consequenceCompatTool: "GE-Proton-Tool {name} dauerhaft löschen",
     consequenceCompatToolMapped:
       "GE-Proton-Tool {name} dauerhaft löschen (zugeordnete Spiele: {n})",
+    consequenceCompatToolAppsUnknown: "Betroffene Apps unbekannt (Tool-VDF nicht lesbar): {name}",
     consequenceCompatToolGlobalDefault:
       "Das Tool ist in Steam als Standard gesetzt; Spiele ohne eigene Zuordnung verlieren ihr Tool",
     winePrefixMovedNote:

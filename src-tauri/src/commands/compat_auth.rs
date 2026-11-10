@@ -144,22 +144,50 @@ where
     compat_root_contains_name_at_fd(&root_fd, requested, hook)
 }
 
-/// Interner Name aus `compatibilitytools.d/<tool>/compatibilitytool.vdf`;
-/// jeder Lese- oder Parsefehler ergibt `None`.
+/// Interner Name aus `compatibilitytools.d/<tool>/compatibilitytool.vdf`.
+/// Belegte abwesenheit (NotFound) ist `Ok(None)`; jeder andere lese- oder
+/// parsefehler ist `Err` mit code (FR-8): ein fehler darf nicht als
+/// abwesenheit erscheinen.
 #[cfg(target_os = "linux")]
 pub(super) fn read_compat_tool_internal_name(
     steam_root_fd: &OwnedFd,
     tool_name: &str,
-) -> Option<String> {
-    let tools_fd = open_dir_at(
+) -> Result<Option<String>, String> {
+    let tools_fd = match open_dir_at(
         steam_root_fd.as_raw_fd(),
         OsStr::new("compatibilitytools.d"),
-    )
-    .ok()?;
-    let tool_fd = open_dir_at(tools_fd.as_raw_fd(), OsStr::new(tool_name)).ok()?;
-    let mut vdf = open_file_at(tool_fd.as_raw_fd(), OsStr::new("compatibilitytool.vdf")).ok()?;
-    let text = read_fd_text(&mut vdf, "compatibilitytool.vdf", MAX_COMPAT_VDF_BYTES).ok()?;
-    parse_compat_tool_vdf(&text).ok().flatten()
+    ) {
+        Ok(fd) => fd,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot open compatibilitytools.d: {error}"),
+            ))
+        }
+    };
+    let tool_fd = match open_dir_at(tools_fd.as_raw_fd(), OsStr::new(tool_name)) {
+        Ok(fd) => fd,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot open compat tool {tool_name}: {error}"),
+            ))
+        }
+    };
+    let mut vdf = match open_file_at(tool_fd.as_raw_fd(), OsStr::new("compatibilitytool.vdf")) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot open compatibilitytool.vdf: {error}"),
+            ))
+        }
+    };
+    let text = read_fd_text(&mut vdf, "compatibilitytool.vdf", MAX_COMPAT_VDF_BYTES)?;
+    parse_compat_tool_vdf(&text)
 }
 
 #[cfg(target_os = "linux")]

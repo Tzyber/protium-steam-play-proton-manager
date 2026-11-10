@@ -27,13 +27,23 @@ export function localizeConsequences(
       case "compatTool": {
         const affected = c.affectedAppIds ?? [];
         const name = pathBasename(c.path);
-        const line =
-          affected.length > 0
-            ? t("cleanup.consequenceCompatToolMapped", { name, n: affected.length })
-            : t("cleanup.consequenceCompatTool", { name });
-        return c.affectsGlobalDefault
-          ? [line, t("cleanup.consequenceCompatToolGlobalDefault")]
-          : line;
+        // impactUnknown: die tool-VDF war nicht lesbar, die liste ist also
+        // belegbar unvollständig. "leer" darf hier nicht als "keine" gelten;
+        // die aktionszeile bleibt sichtbar.
+        const lines =
+          c.impactUnknown === true
+            ? [
+                t("cleanup.consequenceCompatTool", { name }),
+                t("cleanup.consequenceCompatToolAppsUnknown", { name }),
+              ]
+            : [
+                affected.length > 0
+                  ? t("cleanup.consequenceCompatToolMapped", { name, n: affected.length })
+                  : t("cleanup.consequenceCompatTool", { name }),
+              ];
+        return c.affectsGlobalDefault === true
+          ? [...lines, t("cleanup.consequenceCompatToolGlobalDefault")]
+          : lines;
       }
     }
     return c.description;
