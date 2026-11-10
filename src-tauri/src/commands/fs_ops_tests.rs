@@ -1,7 +1,7 @@
 use super::*;
 use crate::commands::scope::{EnvironmentSnapshot, EnvironmentState};
 #[cfg(target_os = "linux")]
-use crate::commands::test_util::production_source;
+use crate::commands::test_util::{funktion_body, production_source};
 use crate::commands::test_util::{WireSerializer, WireValue};
 #[cfg(target_os = "linux")]
 use crate::commands::vdf_patch::tests::BEIDE_LAYOUTS;
@@ -825,11 +825,7 @@ fn is_steam_process_name_erkennt_steam_und_helpers() {
 fn prozessscan_prueft_namen_ohne_string_allokation() {
     let production = production_source(include_str!("fs_ops.rs"));
 
-    let scan = production
-        .split("fn is_steam_running_sync()")
-        .nth(1)
-        .expect("is_steam_running_sync muss vorhanden sein");
-    let scan = &scan[..scan.find("\n}\n").expect("scan braucht einen rumpf")];
+    let scan = funktion_body(production, "fn is_steam_running_sync()");
     assert!(
         scan.contains(".values().map(|process| process.name())"),
         "der scan muss den namen als &OsStr weiterreichen: {scan}"
@@ -841,11 +837,10 @@ fn prozessscan_prueft_namen_ohne_string_allokation() {
         );
     }
 
-    let matcher = production
-        .split("fn is_steam_process_name(name: &OsStr) -> bool {")
-        .nth(1)
-        .expect("is_steam_process_name muss &OsStr nehmen");
-    let matcher = &matcher[..matcher.find("\n}\n").expect("matcher braucht einen rumpf")];
+    let matcher = funktion_body(
+        production,
+        "fn is_steam_process_name(name: &OsStr) -> bool {",
+    );
     for erwartet in [
         "as_bytes()",
         "windows(5)",
@@ -919,13 +914,7 @@ fn probe_bleibt_im_scan_verdrahtet_und_meldet_read_dir_fehler() {
     // "kein Steam" (Audit 5.5).
     let production = production_source(include_str!("fs_ops.rs"));
 
-    let scan = production
-        .split("fn is_steam_running_sync()")
-        .nth(1)
-        .expect("is_steam_running_sync muss vorhanden sein")
-        .split("\n}\n")
-        .next()
-        .expect("is_steam_running_sync braucht einen rumpf");
+    let scan = funktion_body(production, "fn is_steam_running_sync()");
     assert!(
         scan.contains("probe_proc(Path::new(\"/proc\"))?"),
         "der scan muss die probe auf /proc ziehen und ihren fehler weiterreichen"
@@ -935,13 +924,7 @@ fn probe_bleibt_im_scan_verdrahtet_und_meldet_read_dir_fehler() {
         "der scan muss die sichtbare eigene PID prüfen und an steam_running_from reichen"
     );
 
-    let probe = production
-        .split("fn probe_proc(root: &Path)")
-        .nth(1)
-        .expect("probe_proc muss vorhanden sein")
-        .split("\n}\n")
-        .next()
-        .expect("probe_proc braucht einen rumpf");
+    let probe = funktion_body(production, "fn probe_proc(root: &Path)");
     let statement = probe
         .split("fs::read_dir(root)")
         .nth(1)

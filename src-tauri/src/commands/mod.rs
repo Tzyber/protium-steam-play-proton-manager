@@ -355,6 +355,38 @@ pub(crate) mod test_util {
         &source[..end]
     }
 
+    /// Rumpf einer Funktion aus dem Produktionsschnitt: der Text ab der
+    /// Signatur bis zur schließenden Klammer in Spalte 0. Die Pin-Tests haben
+    /// diesen Schnitt vorher vierfach kopiert. Ein fehlender Treffer panikt:
+    /// ein zu kurzer Text wäre in einem Verbots-Pin still grün.
+    pub(super) fn funktion_body<'a>(source: &'a str, signatur: &str) -> &'a str {
+        let rest = source
+            .split(signatur)
+            .nth(1)
+            .unwrap_or_else(|| panic!("signatur fehlt: {signatur}"));
+        let ende = rest
+            .find("\n}\n")
+            .unwrap_or_else(|| panic!("rumpf-ende fehlt: {signatur}"));
+        &rest[..ende]
+    }
+
+    mod funktion_body_tests {
+        use super::funktion_body;
+
+        #[test]
+        fn schneidet_bis_zur_schliessenden_klammer() {
+            let source = "fn a() {\n    eins();\n}\nfn b() {\n    zwei();\n}\n";
+            assert_eq!(funktion_body(source, "fn a() {"), "\n    eins();");
+        }
+
+        /// Ohne Signatur ist der Schnitt ein harter Fehler, kein leerer Rumpf.
+        #[test]
+        #[should_panic(expected = "signatur fehlt")]
+        fn panikt_ohne_signatur() {
+            let _ = funktion_body("fn a() {\n}\n", "fn fehlt(");
+        }
+    }
+
     // ---- Wire-Vertrag ohne serde_json ----
     //
     // Der Serializer bildet `bool` als `Number(1/0)` ab. Gepinnt werden

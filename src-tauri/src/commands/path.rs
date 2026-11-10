@@ -304,25 +304,36 @@ mod tests {
         }
     }
 
+    /// Der pin als prüfung. Der positive anker hält den trenner-vergleich fest:
+    /// ohne ihn bliebe ein `starts_with(b)` grün, das `/etcfoo` mit sperrt.
+    fn vergleicht_ohne_allokation(body: &str) -> bool {
+        body.contains(".strip_prefix(b)")
+            && body.contains(".is_some_and(")
+            && !["format!", "to_string", "to_owned", "String"]
+                .iter()
+                .any(|verboten| body.contains(verboten))
+    }
+
     /// FR-2: der blocklist-vergleich vergleicht ohne allokation. Ein
     /// `format!("{b}/")` pro eintrag und aufruf (Befund 3.20) prüft dasselbe,
     /// allokiert aber bei jedem `is_safe_path` (es steht vor jedem write-gate).
     #[test]
     fn safe_path_vergleicht_ohne_allokation() {
         let production = crate::commands::test_util::production_source(include_str!("path.rs"));
-        let body = production
-            .split("fn is_safe_path(canonical: &str) -> bool {")
-            .nth(1)
-            .expect("is_safe_path muss vorhanden sein");
-        let body = &body[..body
-            .find("\n}\n")
-            .expect("is_safe_path braucht einen rumpf")];
-        for verboten in ["format!", "to_string", "to_owned", "String"] {
-            assert!(
-                !body.contains(verboten),
-                "is_safe_path allokiert (`{verboten}`): {body}"
-            );
-        }
+        let body = crate::commands::test_util::funktion_body(
+            production,
+            "fn is_safe_path(canonical: &str) -> bool {",
+        );
+        assert!(vergleicht_ohne_allokation(body), "is_safe_path: {body}");
+
+        // gegenprobe: der befund 3.20 (`format!` pro eintrag) muss auffallen.
+        assert!(!vergleicht_ohne_allokation(
+            "blocked.iter().any(|b| canonical == format!(\"{b}/\") || canonical == *b)"
+        ));
+        // und ein präfix-vergleich ohne trenner (auch er wäre still grün).
+        assert!(!vergleicht_ohne_allokation(
+            "blocked.iter().any(|b| canonical.starts_with(b))"
+        ));
     }
 
     #[test]

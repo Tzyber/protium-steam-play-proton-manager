@@ -101,10 +101,28 @@ pub async fn http_get(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::test_util::production_source;
+    use crate::commands::test_util::{funktion_body, production_source};
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::mpsc;
+
+    /// Der pin als prüfung: die positive seite hält `fetch` am geteilten
+    /// `shared_client()` und den client an `OnceLock`/`get_or_init(`, die
+    /// negative seite weist einen builder pro aufruf ab. Nur negativ gepinnt
+    /// wäre ein `fetch` ohne clientbezug grün.
+    fn client_ist_geteilt(fetch: &str, client: &str) -> bool {
+        fetch.contains("shared_client()")
+            && !fetch.contains("Client::builder()")
+            && fetch.contains(".timeout(timeout)")
+            && [
+                "OnceLock",
+                "get_or_init(",
+                "connect_timeout(",
+                "user_agent(",
+            ]
+            .iter()
+            .all(|anker| client.contains(anker))
+    }
 
     /// FR-1: der client wird einmal gebaut und geteilt; der timeout bleibt pro
     /// Aufruf am Request. Ein eigener builder pro `fetch` ist der Befund 3.19,
@@ -114,19 +132,23 @@ mod tests {
     #[test]
     fn client_wird_geteilt_und_timeout_bleibt_am_request() {
         let production = production_source(include_str!("http_get.rs"));
-        let fetch = production
-            .split("async fn fetch(")
-            .nth(1)
-            .expect("fetch muss vorhanden sein");
-        let fetch = &fetch[..fetch.find("\n}\n").expect("fetch braucht einen rumpf")];
+        let fetch = funktion_body(production, "async fn fetch(");
+        let client = funktion_body(production, "fn shared_client()");
         assert!(
-            !fetch.contains("Client::builder()"),
-            "der client gehört in einen geteilten OnceLock, nicht in fetch: {fetch}"
+            client_ist_geteilt(fetch, client),
+            "client nicht geteilt: fetch={fetch} shared_client={client}"
         );
-        assert!(
-            fetch.contains(".timeout(timeout)"),
-            "der per-aufruf-timeout muss am RequestBuilder hängen: {fetch}"
-        );
+
+        // gegenprobe: der befund 3.19 (builder pro aufruf) muss auffallen.
+        assert!(!client_ist_geteilt(
+            "    let client = reqwest::Client::builder().build()?;\n",
+            ""
+        ));
+        // und ein fetch ohne geteilten client (nur negativ gepinnt bliebe er grün).
+        assert!(!client_ist_geteilt(
+            "    let client = eigener_client();\n    client.get(url).timeout(timeout)\n",
+            "OnceLock get_or_init( connect_timeout( user_agent("
+        ));
     }
 
     #[test]
