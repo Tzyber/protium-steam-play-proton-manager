@@ -440,12 +440,8 @@ pub(super) fn read_app_manifest_with_hook(
         hook(ManifestStage::BeforeRead, Some(file));
     })
     .map_err(unreadable)?;
-    let content = String::from_utf8(bytes).map_err(|error| {
-        unreadable(errcode::with_detail(
-            errcode::UNREADABLE,
-            format!("cannot read {label}: {error}"),
-        ))
-    })?;
+    let content = String::from_utf8(bytes)
+        .map_err(|error| unreadable(errcode::read_error(&label, &error)))?;
     // A-04: jede meldung dieses readers trägt den kanonischen code im leitfeld,
     // wie die zeile darüber (`cannot read {label}`); sonst fällt die
     // klassifikation in der oberfläche auf "unbekannt" zurück.
@@ -682,10 +678,8 @@ pub(super) fn is_managed_ge_name(name: &str) -> bool {
         [major, minor, arch] if *arch == "x86_64" || *arch == "aarch64" => (*major, *minor, true),
         _ => return false,
     };
-    if major_text.is_empty()
-        || minor_text.is_empty()
-        || !major_text.bytes().all(|byte| byte.is_ascii_digit())
-        || !minor_text.bytes().all(|byte| byte.is_ascii_digit())
+    if !crate::commands::scope::is_ascii_digits(major_text)
+        || !crate::commands::scope::is_ascii_digits(minor_text)
     {
         return false;
     }

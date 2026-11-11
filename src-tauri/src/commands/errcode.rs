@@ -87,6 +87,19 @@ pub(crate) fn remap_size_limit(error: String, detail: impl std::fmt::Display) ->
     }
 }
 
+/// `"<label>: <io-fehler>"` mit der io-Regel (`not-found`/`unreadable`) als
+/// Code: der wiederholte Bau fuer fehlgeschlagene Metadaten- und Oeffnungs-
+/// aufrufe auf einem bereits autorisierten Pfad.
+pub(crate) fn label_error(label: &str, error: &std::io::Error) -> String {
+    with_detail(code_for_io(error), format!("{label}: {error}"))
+}
+
+/// `"cannot read <label>: <fehler>"` als `unreadable`: Lese- und
+/// Dekodierfehler einer bereits geoeffneten Datei.
+pub(crate) fn read_error(label: &str, error: impl std::fmt::Display) -> String {
+    with_detail(UNREADABLE, format!("cannot read {label}: {error}"))
+}
+
 /// io-regel fuer belegte abwesenheit: `NotFound` ist `NOT_FOUND` (INV-2: nur das
 /// darf still uebersprungen werden), jeder andere io-fehler `UNREADABLE`.
 pub(crate) fn code_for_io(error: &std::io::Error) -> &'static str {
@@ -217,6 +230,24 @@ mod tests {
         assert!(!has_code("invalid-appid-x: y", INVALID_APPID));
         assert!(!has_code("not-found-something", NOT_FOUND));
         assert!(has_code("blocked-location: x", BLOCKED_LOCATION));
+    }
+
+    #[test]
+    fn label_error_und_read_error_erzeugen_die_bisherigen_texte() {
+        let missing = std::io::Error::new(std::io::ErrorKind::NotFound, "gone");
+        assert_eq!(
+            label_error("config.vdf", &missing),
+            "not-found: config.vdf: gone"
+        );
+        let denied = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
+        assert_eq!(
+            label_error("config.vdf", &denied),
+            "unreadable: config.vdf: denied"
+        );
+        assert_eq!(
+            read_error("config.vdf", "bad utf8"),
+            "unreadable: cannot read config.vdf: bad utf8"
+        );
     }
 
     #[test]

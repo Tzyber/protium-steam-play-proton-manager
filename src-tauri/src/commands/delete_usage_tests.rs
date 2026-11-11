@@ -4,6 +4,16 @@ use crate::commands::fd::open_bound_root_fd;
 use crate::commands::shortcuts_bin::make_test_bin_shortcuts;
 use crate::commands::test_util::wsg_fixture;
 
+#[cfg(target_os = "linux")]
+#[test]
+fn account_name_ist_nur_ascii_digits() {
+    // 2.10: der Leerstring ist kein Account-Name. `read_dir` liefert keinen
+    // leeren Namen, deshalb prueft der Test die Regel des Guards selbst.
+    assert!(!is_account_dir_name(""));
+    assert!(!is_account_dir_name("12a"));
+    assert!(is_account_dir_name("76561198000000001"));
+}
+
 #[test]
 fn is_app_installed_in_libraries_pruefung() {
     let root = wsg_fixture("app-installed-check");

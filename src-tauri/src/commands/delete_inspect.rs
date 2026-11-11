@@ -141,7 +141,7 @@ pub(super) fn validate_trash_target(canon_str: &str, meta: &fs::Metadata) -> Res
     // eine nicht-numerische appId (`parse_compat_id` → `unreadable`); nur der
     // im bereich liegende, semantisch verbotene wert 0 bleibt eine bewusste
     // wert-ablehnung (wie „appId 0 rejected").
-    if !timestamp_str.bytes().all(|byte| byte.is_ascii_digit()) {
+    if !crate::commands::scope::is_ascii_digits(timestamp_str) {
         return Err(errcode::with_detail(
             errcode::UNREADABLE,
             format!("trash target has non-numeric timestamp: {timestamp_str}"),

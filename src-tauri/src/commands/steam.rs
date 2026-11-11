@@ -287,7 +287,7 @@ pub(super) fn parse_backup_file_name(name: &str) -> Option<(ConfigBackupKind, St
         _ => return None,
     };
     let target_id = parts[1];
-    if target_id.is_empty() || !target_id.chars().all(|c| c.is_ascii_digit()) {
+    if !crate::commands::scope::is_ascii_digits(target_id) {
         return None;
     }
     let timestamp_ms = parts[2].parse::<u64>().ok()?;

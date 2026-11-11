@@ -37,6 +37,12 @@ pub(crate) const SYSTEM_COMPAT_DIRS: [&str; 2] = [
     "/usr/local/share/steam/compatibilitytools.d",
 ];
 
+/// Die eine Ziffernregel des Backends (2.8/2.10): nicht leer und alle Bytes
+/// ASCII-Ziffern. Der Leerstring ist falsch; `all()` allein liesse ihn durch.
+pub(crate) fn is_ascii_digits(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|byte| byte.is_ascii_digit())
+}
+
 /// Discovery-Fehler einer gelisteten Library. `path-missing` ist belegte
 /// abwesenheit, `scope-failed`/`read-failed` sind struktur- oder zugriffsschäden
 /// (INV-2: nur der erste fall darf still übersprungen werden).
@@ -158,7 +164,6 @@ impl EnvironmentSnapshot {
                 .map(|c| c.to_str())
                 .collect()
         };
-        let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
         match names(&self.steam_root).as_deref() {
             Some(["config", "config.vdf"]) => return Some(ContentRead::CompatToolMappingOnly),
             Some(
@@ -166,7 +171,7 @@ impl EnvironmentSnapshot {
             ) => return Some(ContentRead::Full),
             Some(["userdata", id, "config", "localconfig.vdf" | "shortcuts.vdf"])
             | Some(["appcache", "librarycache", id, _, "library_header.jpg"])
-                if digits(id) =>
+                if is_ascii_digits(id) =>
             {
                 return Some(ContentRead::Full)
             }
@@ -180,7 +185,7 @@ impl EnvironmentSnapshot {
                 Some(["steamapps", name]) => name
                     .strip_prefix("appmanifest_")
                     .and_then(|rest| rest.strip_suffix(".acf"))
-                    .is_some_and(digits),
+                    .is_some_and(is_ascii_digits),
                 _ => false,
             });
         let system_tool = self
@@ -245,10 +250,7 @@ impl EnvironmentState {
             Ok(metadata) => Some(metadata),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound && allow_missing => None,
             Err(error) => {
-                return Err(errcode::with_detail(
-                    errcode::code_for_io(&error),
-                    format!("{label}: {error}"),
-                ));
+                return Err(errcode::label_error(label, &error));
             }
         };
 
@@ -258,9 +260,7 @@ impl EnvironmentState {
         reject_symlink_components(raw_path, metadata.is_some(), label)?;
 
         let canonical = if metadata.is_some() {
-            fs::canonicalize(raw_path).map_err(|error| {
-                errcode::with_detail(errcode::code_for_io(&error), format!("{label}: {error}"))
-            })?
+            fs::canonicalize(raw_path).map_err(|error| errcode::label_error(label, &error))?
         } else {
             canonicalize_nearest_ancestor(raw_path, label)?
         };
@@ -588,10 +588,7 @@ pub(super) fn reject_symlink_components(
                 break
             }
             Err(error) => {
-                return Err(errcode::with_detail(
-                    errcode::code_for_io(&error),
-                    format!("{label}: {error}"),
-                ))
+                return Err(errcode::label_error(label, &error));
             }
         }
     }
@@ -816,18 +813,15 @@ pub(crate) fn prepare_app_dir(
     // nicht atomar, und der Deskriptorweg deckt nur das Blatt ab.
     create_private_dir_all(path)
         .map_err(|error| errcode::with_detail(errcode::UNAVAILABLE, format!("{label}: {error}")))?;
-    let metadata = fs::symlink_metadata(path).map_err(|error| {
-        errcode::with_detail(errcode::code_for_io(&error), format!("{label}: {error}"))
-    })?;
+    let metadata =
+        fs::symlink_metadata(path).map_err(|error| errcode::label_error(label, &error))?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return Err(errcode::with_detail(
             errcode::NOT_A_DIRECTORY,
             format!("{label}: not a regular directory"),
         ));
     }
-    let canonical = fs::canonicalize(path).map_err(|error| {
-        errcode::with_detail(errcode::code_for_io(&error), format!("{label}: {error}"))
-    })?;
+    let canonical = fs::canonicalize(path).map_err(|error| errcode::label_error(label, &error))?;
     if !is_safe_path(&canonical.to_string_lossy()) {
         return Err(errcode::with_detail(
             errcode::BLOCKED_LOCATION,
@@ -1031,19 +1025,15 @@ pub(super) fn suffix_after_steamapps(canon_str: &str) -> Result<&str, String> {
 }
 
 /// gemeinsame typ/appId-validierung der beiden lösch-pfade (orphan + trash):
-/// typ ∈ {compatdata, shadercache}, ascii-digits, appId ∈ 1..u32::MAX. das
-/// split selbst bleibt an den stellen (orphan: '/', trash: '_' nach
-/// marker/timestamp-parse, unterschiedliche fehlermeldungen).
+/// typ ∈ {compatdata, shadercache}, appId ∈ 1..u32::MAX. das split selbst
+/// bleibt an den stellen (orphan: '/', trash: '_' nach marker/timestamp-parse,
+/// unterschiedliche fehlermeldungen). die appId-regel (ascii-digits, nicht
+/// leer) haelt allein `parse_app_id`; ein vorgelagerter guard waere dieselbe
+/// bedingung mit demselben text ein zweites mal (2.9).
 pub(super) fn parse_compat_id<'a>(pair: (&'a str, &'a str)) -> Result<(&'a str, &'a str), String> {
     let (typ, app_id_str) = pair;
     if typ != "compatdata" && typ != "shadercache" {
         return Err(errcode::with_detail(errcode::UNSUPPORTED_TARGET, typ));
-    }
-    if app_id_str.is_empty() || !app_id_str.chars().all(|c| c.is_ascii_digit()) {
-        return Err(errcode::with_detail(
-            errcode::UNREADABLE,
-            format!("non-numeric appId: {app_id_str}"),
-        ));
     }
     // defense-in-depth: das JS-seitige findOrphans filtert appId 0 bereits,
     // aber ein direkter IPC-aufruf (oder zukünftiger code-pfad) darf nicht
@@ -1055,7 +1045,7 @@ pub(super) fn parse_compat_id<'a>(pair: (&'a str, &'a str)) -> Result<(&'a str, 
 }
 
 pub(super) fn parse_app_id(app_id_str: &str) -> Result<u32, String> {
-    if app_id_str.is_empty() || !app_id_str.chars().all(|c| c.is_ascii_digit()) {
+    if !is_ascii_digits(app_id_str) {
         return Err(errcode::with_detail(
             errcode::UNREADABLE,
             format!("non-numeric appId: {app_id_str}"),

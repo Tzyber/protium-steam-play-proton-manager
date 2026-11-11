@@ -395,9 +395,7 @@ pub(super) fn read_fd_bytes(
     let mut bytes = Vec::new();
     file.take(read_limit)
         .read_to_end(&mut bytes)
-        .map_err(|error| {
-            errcode::with_detail(errcode::UNREADABLE, format!("cannot read {label}: {error}"))
-        })?;
+        .map_err(|error| errcode::read_error(label, &error))?;
     if bytes.len() as u64 > max_bytes {
         return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
     }
@@ -411,9 +409,7 @@ pub(super) fn read_fd_text(
     max_bytes: u64,
 ) -> Result<String, String> {
     let bytes = read_fd_bytes(file, label, max_bytes, &mut |_| {})?;
-    String::from_utf8(bytes).map_err(|error| {
-        errcode::with_detail(errcode::UNREADABLE, format!("cannot read {label}: {error}"))
-    })
+    String::from_utf8(bytes).map_err(|error| errcode::read_error(label, &error))
 }
 
 /// Bytes als kleingeschriebener Hex-String. Drei Stellen (Token-Generierung,

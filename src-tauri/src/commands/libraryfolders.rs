@@ -69,7 +69,7 @@ pub(super) fn parse_library_folder_paths(text: &str) -> Result<Vec<PathBuf>, Str
         let vdf_patch::TokenKind::String(key) = &child.key.kind else {
             continue;
         };
-        if !key.chars().all(|character| character.is_ascii_digit()) {
+        if !crate::commands::scope::is_ascii_digits(key) {
             continue;
         }
         let Some((child_from, child_to)) = child.block else {

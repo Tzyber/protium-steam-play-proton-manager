@@ -56,9 +56,7 @@ where
     F: FnMut(DeleteReadStage, Option<&mut std::fs::File>),
 {
     let bytes = read_fd_bytes_with_hook(file, label, max_bytes, hook, stage)?;
-    String::from_utf8(bytes).map_err(|error| {
-        errcode::with_detail(errcode::UNREADABLE, format!("cannot read {label}: {error}"))
-    })
+    String::from_utf8(bytes).map_err(|error| errcode::read_error(label, &error))
 }
 
 #[cfg(target_os = "linux")]
@@ -216,6 +214,14 @@ fn read_all_shortcut_app_ids(steam_root: &Path) -> Result<HashSet<u32>, String> 
     }
 }
 
+/// Account-Verzeichnisse in `userdata` tragen einen ascii-digit-Namen; der
+/// Leerstring ist kein Account (2.10). Die Regel selbst steht in
+/// `scope::is_ascii_digits`.
+#[cfg(target_os = "linux")]
+fn is_account_dir_name(name: &str) -> bool {
+    crate::commands::scope::is_ascii_digits(name)
+}
+
 #[cfg(target_os = "linux")]
 pub(super) fn read_all_shortcut_app_ids_linux_with_hook<F>(
     steam_root_fd: &OwnedFd,
@@ -269,7 +275,7 @@ where
 
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
-        if !name_str.chars().all(|character| character.is_ascii_digit()) {
+        if !is_account_dir_name(&name_str) {
             continue;
         }
         let account_fd = match open_dir_at(userdata_fd.as_raw_fd(), &name) {
@@ -435,7 +441,7 @@ where
             let mapping_entries = vdf_patch::scan_entries(&tokens, curr_from, curr_to)?;
             for app_entry in mapping_entries {
                 if let vdf_patch::TokenKind::String(app_key) = &app_entry.key.kind {
-                    if app_key.chars().all(|c| c.is_ascii_digit()) {
+                    if crate::commands::scope::is_ascii_digits(app_key) {
                         // appId 0 ist steams globale standard-zuordnung, kein
                         // spiel: sie wird als eigene folge gemeldet.
                         let app_id = if app_key == "0" {

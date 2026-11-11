@@ -84,7 +84,7 @@ fn walk_binary_map_body(
         pos = next_pos;
 
         if is_root {
-            if type_byte == 0x00 && key.chars().all(|c| c.is_ascii_digit()) {
+            if type_byte == 0x00 && crate::commands::scope::is_ascii_digits(&key) {
                 pos = walk_binary_map_body(buf, pos, on_app_id, false, depth + 1)?;
             } else {
                 pos = skip_binary_value(buf, pos, type_byte, depth + 1)?;

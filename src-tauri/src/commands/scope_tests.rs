@@ -39,6 +39,35 @@ fn parse_compat_id_begrenzt_appid_exakt_auf_uint32() {
     assert!(parse_compat_id(("compatdata", "4294967296")).is_err());
 }
 
+#[test]
+fn is_ascii_digits_ist_die_einzige_ziffernregel() {
+    // Nicht leer und alle Bytes ASCII-Ziffern (2.8/2.10): der Leerstring ist
+    // falsch, nicht-ASCII-Ziffern ebenfalls.
+    assert!(!is_ascii_digits(""));
+    assert!(!is_ascii_digits("12a"));
+    assert!(!is_ascii_digits("1 2"));
+    assert!(!is_ascii_digits("١٢"));
+    assert!(is_ascii_digits("0123"));
+    assert!(is_ascii_digits("4294967295"));
+}
+
+#[test]
+fn parse_compat_id_meldet_ein_ungueltiges_suffix_wie_parse_app_id() {
+    // Kein vorgelagerter Ziffern-Guard: `parse_app_id` ist die Autoritaet und
+    // liefert denselben Code und Text (2.9).
+    assert_eq!(
+        parse_compat_id(("compatdata", "12a")).unwrap_err(),
+        "unreadable: non-numeric appId: 12a"
+    );
+    for suffix in ["", "12a", "0", "4294967296"] {
+        assert_eq!(
+            parse_compat_id(("compatdata", suffix)).unwrap_err(),
+            parse_app_id(suffix).unwrap_err(),
+            "suffix {suffix:?}"
+        );
+    }
+}
+
 fn snapshot(root: &std::path::Path, library: &std::path::Path) -> EnvironmentSnapshot {
     EnvironmentSnapshot::for_test(
         root.join("steam"),

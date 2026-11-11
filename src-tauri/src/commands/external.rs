@@ -16,7 +16,7 @@ use std::process::{Command, Stdio};
 /// nur die exakten pfadmuster, die die app selbst baut.
 pub(super) fn validate_external_url(url: &str) -> Result<(), String> {
     if let Some(app_id) = url.strip_prefix("steam://rungameid/") {
-        return if !app_id.is_empty() && app_id.bytes().all(|b| b.is_ascii_digit()) {
+        return if crate::commands::scope::is_ascii_digits(app_id) {
             Ok(())
         } else {
             Err(errcode::INVALID_APPID.into())
@@ -34,7 +34,7 @@ pub(super) fn validate_external_url(url: &str) -> Result<(), String> {
                 .path()
                 .strip_prefix("/app/")
                 .ok_or_else(|| errcode::with_detail(errcode::INVALID_URL, "protondb path"))?;
-            if !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()) {
+            if crate::commands::scope::is_ascii_digits(rest) {
                 Ok(())
             } else {
                 Err(errcode::INVALID_APPID.into())

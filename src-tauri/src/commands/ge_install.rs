@@ -83,10 +83,8 @@ pub(super) enum ExtractEnvironment {
 fn release_version(tag: &str) -> Option<(u64, u64)> {
     let rest = tag.strip_prefix("GE-Proton")?;
     let (major, minor) = rest.split_once('-')?;
-    if major.is_empty()
-        || minor.is_empty()
-        || !major.bytes().all(|byte| byte.is_ascii_digit())
-        || !minor.bytes().all(|byte| byte.is_ascii_digit())
+    if !crate::commands::scope::is_ascii_digits(major)
+        || !crate::commands::scope::is_ascii_digits(minor)
     {
         return None;
     }

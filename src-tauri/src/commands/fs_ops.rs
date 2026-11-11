@@ -109,9 +109,8 @@ fn read_environment_file_with_hook(
         })?;
         let parent_fd = open_bound_root_fd(parent, before_open)
             .map_err(|error| errcode::with_context(label, &error))?;
-        let mut file = open_file_at(parent_fd.as_raw_fd(), file_name).map_err(|error| {
-            errcode::with_detail(errcode::code_for_io(&error), format!("{label}: {error}"))
-        })?;
+        let mut file = open_file_at(parent_fd.as_raw_fd(), file_name)
+            .map_err(|error| errcode::label_error(label, &error))?;
         after_open(&mut file);
         let bytes = read_fd_bytes(&mut file, label, MAX_ENVIRONMENT_READ_BYTES, &mut |_| {})?;
         match read {
@@ -207,20 +206,16 @@ fn read_environment_dir_with_hook(
         let proc_path = Path::new("/proc/self/fd").join(dir_fd.as_raw_fd().to_string());
         let mut entries = Vec::new();
         for (index, entry) in fs::read_dir(&proc_path)
-            .map_err(|error| {
-                errcode::with_detail(errcode::code_for_io(&error), format!("{label}: {error}"))
-            })?
+            .map_err(|error| errcode::label_error(label, &error))?
             .enumerate()
         {
             if index >= MAX_ENVIRONMENT_DIR_ENTRIES {
                 return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
             }
-            let entry = entry.map_err(|error| {
-                errcode::with_detail(errcode::code_for_io(&error), format!("{label}: {error}"))
-            })?;
-            let file_type = entry.file_type().map_err(|error| {
-                errcode::with_detail(errcode::code_for_io(&error), format!("{label}: {error}"))
-            })?;
+            let entry = entry.map_err(|error| errcode::label_error(label, &error))?;
+            let file_type = entry
+                .file_type()
+                .map_err(|error| errcode::label_error(label, &error))?;
             entries.push(EnvironmentDirEntry {
                 name: entry.file_name().to_string_lossy().into_owned(),
                 is_directory: file_type.is_dir(),
