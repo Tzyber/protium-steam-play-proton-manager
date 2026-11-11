@@ -11,7 +11,7 @@ export function readRepoFile(file: string): string {
 export function tokenValues(): Map<string, string> {
   if (cache.size === 0) {
     for (const match of readRepoFile("src/ui/tokens.css").matchAll(
-      /(--[a-z0-9-]+):\s*(#[0-9a-fA-F]{6})/g,
+      /(--[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{6})/g,
     )) {
       if (match[1] && match[2]) cache.set(match[1], match[2]);
     }

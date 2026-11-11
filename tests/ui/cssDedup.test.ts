@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
+import { flattenCss, ruleCount } from "../support/cssRules";
 import { readRepoFile } from "../support/themeTokens";
 
 /** P17a/FR-1 (2.1, 4.13): nur die im audit belegten, wortgleichen Paare
@@ -39,6 +40,11 @@ const SHARED = [
     owners: [DRAWER, FOOTPRINT],
   },
   {
+    name: ".control (GameDetailDrawer/SelectBox)",
+    selectors: [".control"],
+    owners: ["src/ui/components/GameDetailDrawer.vue"],
+  },
+  {
     name: ".section-label (GameDetailDrawer/GameFootprintSection)",
     selectors: [".section-label", ".section-label-explained"],
     owners: [DRAWER, FOOTPRINT],
@@ -54,18 +60,6 @@ const SHARED = [
     owners: [DRAWER, FOOTPRINT],
   },
 ];
-
-/** Kommentare raus, jede whitespace-folge auf ein leerzeichen. */
-function flatten(css: string): string {
-  return css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, " ");
-}
-
-/** Zählt Regeln, deren Selektor exakt `selector` ist (keine präfix-treffer). */
-function ruleCount(source: string, selector: string): number {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`(?:^|[{};]) ?${escaped} \\{`, "g");
-  return [...flatten(source).matchAll(pattern)].length;
-}
 
 describe("CSS-Dedup: geteilte Klassen (2.1, 4.13)", () => {
   const tokens = readRepoFile("src/ui/tokens.css");
@@ -98,6 +92,6 @@ describe("CSS-Dedup: geteilte Klassen (2.1, 4.13)", () => {
   it("CleanupView behält die eigene .hint-Form", () => {
     const view = readRepoFile("src/ui/views/CleanupView.vue");
     expect(ruleCount(view, ".hint")).toBe(1);
-    expect(flatten(view)).toMatch(/\.hint \{ [^}]*color: var\(--tier-gold\)/);
+    expect(flattenCss(view)).toMatch(/\.hint \{ [^}]*color: var\(--tier-gold\)/);
   });
 });

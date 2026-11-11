@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
+import { flattenCss, ruleBlock } from "../support/cssRules";
 import { readRepoFile, tokenValue } from "../support/themeTokens";
 
 /** die vier dateien, die den literalen Rot-Ton #ff9aa0 trugen (audit 4.15). */
@@ -28,16 +29,24 @@ describe("Theme-Tokens: Danger-Palette (4.15)", () => {
     }
   });
 
-  it("die gemeinsame .blocked-Form und CleanupViews Danger-Aktion nutzen die Tokens", () => {
+  it("die gemeinsame .blocked-Form trägt Text, deckenden Rand und Flächen-Mix", () => {
     // P17a/FR-1: die wortgleiche .blocked-form der drei Cleanup-Panels steht
     // jetzt einmal in tokens.css statt dreimal in den komponenten.
-    const tokens = readRepoFile("src/ui/tokens.css");
-    expect(tokens).toMatch(/color:\s*var\(--danger-fg\)/);
-    expect(tokens).toMatch(/(?:background|border):[^;]*var\(--danger\)/);
+    // FR-3.3: der rand ist deckend (--error-border) statt eines danger-mixes.
+    const block = ruleBlock(
+      readRepoFile("src/ui/tokens.css"),
+      ".blocked:not(.blocked-explanation)",
+    );
+    expect(block).toContain("color: var(--danger-fg)");
+    expect(block).toContain("border: 1px solid var(--error-border)");
+    expect(block).toContain("background: color-mix(in srgb, var(--danger) 12%, transparent)");
+  });
 
-    const cleanupView = readRepoFile("src/ui/views/CleanupView.vue");
-    expect(cleanupView).toMatch(/color:\s*var\(--danger-fg\)/);
-    expect(cleanupView).toMatch(/(?:background|border):[^;]*var\(--danger\)/);
+  it("CleanupViews Danger-Aktion nutzt die Danger-Tokens", () => {
+    const block = ruleBlock(readRepoFile("src/ui/views/CleanupView.vue"), ".action.danger");
+    expect(block).toContain("color: var(--danger-fg)");
+    expect(block).toContain("background: color-mix(in srgb, var(--danger) 18%, transparent)");
+    expect(block).toContain("border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent)");
   });
 
   it("ConfirmDialog nutzt die Danger-Tokens statt eigener Literale", () => {
@@ -88,11 +97,52 @@ describe("P1-Tokensatz", () => {
   });
 
   it("jedes Token steht genau einmal in tokens.css", () => {
-    const source = readRepoFile("src/ui/tokens.css").replace(/\/\*[\s\S]*?\*\//g, "");
-    const names = [...source.matchAll(/(--[a-z0-9-]+):/g)].flatMap((match) => match[1] ?? []);
+    const source = flattenCss(readRepoFile("src/ui/tokens.css"));
+    const names = [...source.matchAll(/(--[a-z0-9-]+)\s*:/g)].flatMap((match) => match[1] ?? []);
     const duplicates = names.filter((name, index) => names.indexOf(name) !== index);
     expect(names.length, "tokens.css deklariert keine Custom Property").toBeGreaterThan(0);
     expect(duplicates).toEqual([]);
+  });
+});
+
+describe("P2a: Basisflächen und gemeinsame Control-Form", () => {
+  it(".control steht mit allen acht Deklarationen in tokens.css", () => {
+    const block = ruleBlock(readRepoFile("src/ui/tokens.css"), ".control");
+    for (const declaration of [
+      "background: var(--bg-2)",
+      "border: 1px solid var(--line-control)",
+      "min-width: 0",
+      "color: var(--fg-0)",
+      "border-radius: var(--r-sm)",
+      "flex: 1",
+      "padding: 11px 13px",
+      "font-size: 0.8125rem",
+    ]) {
+      expect(block, declaration).toContain(`${declaration};`);
+    }
+  });
+
+  it(".control:focus-visible hält den Kontrollrand auf --signal", () => {
+    const block = ruleBlock(
+      readRepoFile("src/ui/components/GameDetailDrawer.vue"),
+      ".control:focus-visible",
+    );
+    expect(block).toContain("outline: 2px solid var(--signal)");
+    expect(block).toContain("border-color: var(--signal)");
+  });
+
+  it("die Scrollbar nutzt Breite und Thumb-Tokens", () => {
+    const tokens = readRepoFile("src/ui/tokens.css");
+    const bar = ruleBlock(tokens, "::-webkit-scrollbar");
+    expect(bar).toContain("width: var(--scrollbar-w)");
+    expect(bar).toContain("height: var(--scrollbar-w)");
+    expect(ruleBlock(tokens, "::-webkit-scrollbar-thumb")).toContain(
+      "background: var(--line-control)",
+    );
+    expect(ruleBlock(tokens, "::-webkit-scrollbar-thumb:hover")).toContain(
+      "background: var(--fg-2)",
+    );
+    expect(tokens).not.toContain("#2a3048");
   });
 });
 

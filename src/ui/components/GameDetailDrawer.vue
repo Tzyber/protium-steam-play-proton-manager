@@ -437,17 +437,7 @@ function dismissError() {
 
 .field { margin-bottom: 16px; }
 .field-row { display: flex; gap: 8px; }
-.control {
-  flex: 1;
-  min-width: 0;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  color: var(--fg-0);
-  border-radius: var(--r-sm);
-  padding: 11px 13px;
-  font-size: 0.8125rem;
-}
-.control:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-color: var(--signal-dim); }
+.control:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-color: var(--signal); }
 
 .close:focus-visible, .drawer-error-close:focus-visible {
   outline: 2px solid var(--signal);
