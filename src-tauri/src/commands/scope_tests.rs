@@ -107,13 +107,19 @@ fn app_cache_und_config_sind_keine_environment_wurzeln() {
     std::fs::create_dir_all(cache.join("backups")).unwrap();
     std::fs::create_dir_all(cache.join("downloads")).unwrap();
     std::fs::create_dir_all(&config).unwrap();
-    let state = EnvironmentState::for_test(EnvironmentSnapshot::for_test(
+    let snapshot = EnvironmentSnapshot::for_test(
         root.join("steam"),
         vec![library.clone()],
         Vec::new(),
         cache.clone(),
         config.clone(),
-    ));
+    );
+    // strukturell: die App-Ordner sind keine Environment-Wurzeln, auch nicht
+    // wenn eine Library ihr Elternverzeichnis ist.
+    let roots: Vec<_> = snapshot.roots().collect();
+    assert!(!roots.iter().any(|root| *root == cache), "{roots:?}");
+    assert!(!roots.iter().any(|root| *root == config), "{roots:?}");
+    let state = EnvironmentState::for_test(snapshot);
 
     for blocked in [
         cache.as_path(),
@@ -151,16 +157,17 @@ fn environment_read_dir_ist_auf_app_backups_blockiert() {
         cache.clone(),
         root.join("config"),
     ));
-    let dirs = [backups.clone(), cache.clone()];
-    let labels = ["environment read dir", "dir_size"];
-
-    for (label, dir) in labels.into_iter().zip(dirs.iter()) {
-        let error = state
-            .with_authorized_existing(&dir.to_string_lossy(), label, |_| Ok(()))
-            .unwrap_err();
+    // derselbe Gate wie environment_read_dir/dir_size/path_identity.
+    for dir in [&backups, &cache] {
+        let error =
+            state
+                .with_authorized_existing(&dir.to_string_lossy(), "authorized command path", |_| {
+                    Ok(())
+                })
+                .unwrap_err();
         assert!(
             errcode::has_code(&error, errcode::BLOCKED_LOCATION),
-            "{label}: {error}"
+            "{dir:?}: {error}"
         );
     }
 

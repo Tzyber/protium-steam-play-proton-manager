@@ -110,10 +110,9 @@ impl EnvironmentSnapshot {
     }
 
     fn to_info(&self) -> EnvironmentInfo {
-        // F-05: die beiden app-wurzeln bleiben snapshot-felder (die App-Commands
-        // bauen ihre Pfade daraus), liegen aber nicht im drahtvertrag; kein
-        // TS-consumer liest sie, und ein zu kurzes TS-interface darf die
-        // autoritaetsmenge nicht verdecken.
+        // F-05: die beiden app-wurzeln bleiben snapshot-felder fuer app_roots()
+        // und die App-Ausnahme in authorizes; die App-Commands bauen ihre Pfade
+        // ueber app.path(), nicht daraus. Sie liegen nicht im drahtvertrag.
         EnvironmentInfo {
             generation: self.generation,
             steam_root: self.steam_root.to_string_lossy().into_owned(),
