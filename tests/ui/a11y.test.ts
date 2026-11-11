@@ -206,32 +206,85 @@ function contrast(foreground: string, background: string): number {
 
 const tokens = tokenValues();
 
+const SURFACES = ["--bg-0", "--bg-1", "--bg-2", "--bg-3"];
+
+type Pair = [foreground: string, background: string];
+
+/** jedes Paar auf allen vier Flächen. */
+function onSurfaces(foreground: string, surfaces: string[] = SURFACES): Pair[] {
+  return surfaces.map((background) => [foreground, background] as Pair);
+}
+
+function measure([foreground, background]: Pair): number | undefined {
+  const fg = tokens.get(foreground);
+  const bg = tokens.get(background);
+  expect(fg, `${foreground} fehlt in tokens.css`).toBeDefined();
+  expect(bg, `${background} fehlt in tokens.css`).toBeDefined();
+  if (fg === undefined || bg === undefined) return undefined;
+  return contrast(fg, bg);
+}
+
 describe("a11y Gate: berechneter Kontrast aus den Tokens", () => {
-  it("primaerer und sekundaerer Text erfuellen WCAG AA auf ihrem Untergrund", () => {
-    const pairs: Array<[string, string, number]> = [
-      ["--fg-0", "--bg-0", 4.5],
-      ["--fg-0", "--bg-1", 4.5],
-      ["--fg-1", "--bg-1", 4.5],
-      ["--fg-1", "--bg-2", 4.5],
+  it("Textpaare der Matrix halten 4.5:1", () => {
+    const pairs: Pair[] = [
+      ...onSurfaces("--fg-0"),
+      ...onSurfaces("--fg-1"),
+      ...onSurfaces("--fg-2", ["--bg-0", "--bg-1", "--bg-2"]),
+      ...onSurfaces("--signal-bright"),
+      ...onSurfaces("--danger-fg"),
+      ...onSurfaces("--warning-text"),
+      ...onSurfaces("--info-text"),
+      ["--on-danger", "--danger"],
     ];
-    for (const [fg, bg, minimum] of pairs) {
-      const foreground = tokens.get(fg);
-      const background = tokens.get(bg);
-      expect(foreground, `${fg} fehlt in tokens.css`).toBeDefined();
-      expect(background, `${bg} fehlt in tokens.css`).toBeDefined();
-      if (foreground === undefined || background === undefined) continue;
-      const ratio = contrast(foreground, background);
-      expect(ratio, `${fg} auf ${bg} = ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(minimum);
+    for (const pair of pairs) {
+      const ratio = measure(pair);
+      if (ratio === undefined) continue;
+      expect(
+        ratio,
+        `${pair[0]} auf ${pair[1]} = ${ratio.toFixed(2)}, mindestens 4.5`,
+      ).toBeGreaterThanOrEqual(4.5);
     }
   });
 
-  it("das Signal bleibt als Fokus- und Aktionsfarbe sichtbar", () => {
-    const signal = tokens.get("--signal");
-    const background = tokens.get("--bg-0");
-    expect(signal).toBeDefined();
-    expect(background).toBeDefined();
-    if (signal === undefined || background === undefined) return;
-    expect(contrast(signal, background)).toBeGreaterThanOrEqual(3);
+  it("Nicht-Textpaare der Matrix halten 3.0:1", () => {
+    const pairs: Pair[] = [
+      ...onSurfaces("--signal"),
+      ...onSurfaces("--line-control"),
+      ...onSurfaces("--error-border"),
+      ["--error-border", "--error-surface"],
+      ["--warning-border", "--warning-surface"],
+      ["--info-border", "--info-surface"],
+    ];
+    for (const pair of pairs) {
+      const ratio = measure(pair);
+      if (ratio === undefined) continue;
+      expect(
+        ratio,
+        `${pair[0]} auf ${pair[1]} = ${ratio.toFixed(2)}, mindestens 3.0`,
+      ).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("gesperrte Paare bleiben unter der Schwelle", () => {
+    // Die Sperre gilt für Fokusringe und Kontrollränder unbeschrifteter Controls.
+    // Ränder textbeschrifteter Buttons (.sel-all, .save, .seg, .reset, .btn.ghost,
+    // .row u. a.) sind nach der Entscheidung vom 2026-11-11 dekorativ, WCAG 1.4.11
+    // greift dort nicht; der Umbau ist P6.
+    const locked: Array<[Pair[], number]> = [
+      [onSurfaces("--signal-dim"), 3],
+      [onSurfaces("--line"), 3],
+      [[["--fg-2", "--bg-3"]], 4.5],
+    ];
+    for (const [pairs, maximum] of locked) {
+      for (const pair of pairs) {
+        const ratio = measure(pair);
+        if (ratio === undefined) continue;
+        expect(
+          ratio,
+          `${pair[0]} auf ${pair[1]} = ${ratio.toFixed(2)}, kleiner als ${maximum}`,
+        ).toBeLessThan(maximum);
+      }
+    }
   });
 });
 

@@ -10,25 +10,40 @@
   --bg-1: #10121b; /* panels / sidebar */
   --bg-2: #161927; /* cards */
   --bg-3: #1e2233; /* erhöht / hover */
-  --line: #262b3d; /* borders */
+  --line: #262b3d; /* dekorativ, kein kontrollrand */
   --line-soft: #1c2030;
+  --line-control: #656f9c; /* rand von input/select/checkbox: 4.08/3.83/3.58/3.23 */
+  --overlay: rgba(4, 5, 9, 0.6);
 
   /* text */
   --fg-0: #eceef6; /* primär */
   --fg-1: #a8adc2; /* sekundär */
-  --fg-2: #8087a3; /* gedämpft / labels */
+  --fg-2: #8087a3; /* gedämpft / labels, nie auf --bg-3: 4.44 */
 
   /* signal (periwinkle) */
-  --signal: #6b7cff;
-  --signal-bright: #8f9bff;
-  --signal-dim: #3a4283;
+  --signal: #6b7cff; /* fokus, auswahl, primär */
+  --signal-bright: #8f9bff; /* text auf dunkel: 7.86 */
+  --signal-dim: #3a4283; /* nur dekorativer rand, nie fokusring */
   --signal-glow: rgba(107, 124, 255, 0.25);
+  --on-signal: #08090e; /* schrift auf signal-flächen */
 
   /* destruktive aktionen (FR-1, audit 4.15): eine palette statt tier-ausleihe */
   --danger: #c03940;
   --danger-hover: #a93238;
-  --danger-fg: #ff9aa0;
-  --on-signal: #08090e; /* schrift auf signal-flächen */
+  --danger-fg: #ff9aa0; /* text/icon: 9.83/9.23/8.63 */
+  --on-danger: #ffffff; /* auf --danger: 5.38 */
+
+  /* zustands-semantik, vier rollen je zustand (fläche, rand, text, icon) */
+  --error-surface: #261317;
+  --error-border: #c04a53; /* 4.12/3.86/3.61/3.26 */
+  --warning-text: #e6c34a; /* = wert von --tier-gold, bewusster alias */
+  --warning-surface: #241c0d;
+  --warning-border: #9c7420;
+  --info-text: #8f9bff; /* = --signal-bright */
+  --info-surface: #12162e;
+  --info-border: #5a66ae;
+  /* success entfällt: erst mit erstem verwender anlegen (reserviert: text
+     #3fb984, fläche #0d1f1a, rand #2a7f5c) */
 
   /* Tier-Farben */
   --tier-platinum: #52d6e8;
@@ -43,11 +58,88 @@
   --font-body: "Inter", system-ui, -apple-system, sans-serif;
   --font-mono: "Space Mono", ui-monospace, "JetBrains Mono", monospace;
 
-  /* radius / spacing */
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
-  --gap: 16px;
+  --text-2xs: 0.6875rem; /* 11: mono-microlabel, dt */
+  --text-xs: 0.75rem; /* 12: chips, pills, log, tabelle */
+  --text-sm: 0.8125rem; /* 13: meta, hint, dialogtext, button */
+  --text-md: 0.875rem; /* 14: body (base) */
+  --text-lg: 0.9375rem; /* 15: zeilenname, nav, primärbutton */
+  --text-xl: 1.125rem; /* 18: card-/panel-/erklärtitel */
+  --text-2xl: 1.3125rem; /* 21: drawer-/dialog-h2 */
+  --text-3xl: 1.625rem; /* 26: view-h1 */
+
+  --icon-sm: 0.75rem;
+  --icon-md: 1rem;
+  --icon-lg: 1.125rem;
+
+  --leading-display: 1.1;
+  --leading-tight: 1.2;
+  --leading-body: 1.5;
+  --leading-prose: 1.55;
+  --leading-mono: 1.6;
+
+  --tracking-micro: 0.06em;
+  --tracking-label: 0.08em;
+  --tracking-pill: 0.04em;
+  --tracking-display: -0.02em;
+
+  /* space: 4er-basis, 8er-rhythmus */
+  --space-half: 0.125rem; /* 2: nur label/wert in gestapelten paaren */
+  --space-1: 0.25rem; /* 4: ringabstand, icon/text */
+  --space-2: 0.5rem; /* 8: default gap */
+  --space-3: 0.75rem; /* 12: dichte zeilen, panel-innenabstand */
+  --space-4: 1rem; /* 16: blockabstand, card-gap */
+  --space-5: 1.5rem; /* 24: sektion, dialog-padding, seitengutter */
+  --space-6: 2rem; /* 32: empty state */
+  --space-7: 3rem; /* 48: leerzustand groß */
+  --space-8: 4rem; /* 64: nur außergewöhnlich */
+
+  /* radius */
+  --r-sm: 6px; /* alles mit hit-area, inline-container */
+  --r-md: 10px; /* cards, rows, panels */
+  --r-lg: 14px; /* nur overlays */
+  --r-pill: 999px; /* nur chips, tracks, status */
+
+  /* höhen: aus höhe, nie aus vertikalem padding */
+  --control-xs: 24px;
+  --control-sm: 28px;
+  --control-md: 36px;
+  --control-lg: 42px;
+  --row-tight: 24px;
+  --row: 40px;
+  --row-comfy: 48px;
+
+  /* layout */
+  --sidebar-w: 216px;
+  --sidebar-w-compact: 200px;
+  --view-pad: var(--space-5);
+  --content-max: 1600px;
+  --drawer-w: 420px;
+  --dialog-w: 480px;
+  --scrollbar-w: 10px;
+  --z-scrim: 30;
+  --z-drawer: 40;
+  --z-dialog: 50;
+  --z-toast: 60;
+
+  /* elevation: auf #08090e ist ein schwarzer schatten unsichtbar, die
+     silhouette trägt der inset-highlight */
+  --shadow-e1:
+    0 2px 4px -1px rgba(0, 0, 0, 0.5), 0 10px 24px -12px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --shadow-e2: -16px 0 40px -16px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --shadow-e3:
+    0 24px 60px -20px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+
+  /* bewegung */
+  --dur-1: 120ms;
+  --dur-2: 160ms;
+  --dur-3: 220ms;
+  --ease-std: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+
+  --gap: var(--space-4);
 }
 
 * {

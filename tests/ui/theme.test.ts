@@ -82,6 +82,20 @@ describe("Signal-Text nutzt --on-signal", () => {
   });
 });
 
+describe("P1-Tokensatz", () => {
+  it("--on-danger ist reines Weiß", () => {
+    expect(tokenValue("--on-danger")).toBe("#ffffff");
+  });
+
+  it("jedes Token steht genau einmal in tokens.css", () => {
+    const source = readRepoFile("src/ui/tokens.css").replace(/\/\*[\s\S]*?\*\//g, "");
+    const names = [...source.matchAll(/(--[a-z0-9-]+):/g)].flatMap((match) => match[1] ?? []);
+    const duplicates = names.filter((name, index) => names.indexOf(name) !== index);
+    expect(names.length, "tokens.css deklariert keine Custom Property").toBeGreaterThan(0);
+    expect(duplicates).toEqual([]);
+  });
+});
+
 describe("Erster Paint (4.16)", () => {
   it("index.html trägt keine statische Sprache mehr", () => {
     expect(readRepoFile("index.html")).not.toMatch(/<html[^>]*\blang\s*=/i);
