@@ -1,0 +1,6 @@
+# P18/FR-1: fester Toolchain statt `stable`. `src-tauri/Cargo.toml` nennt
+# `rust-version = "1.95"`; CI, Release und lokal lesen denselben Pin, damit
+# ein stiller Compiler-Wechsel nicht erst im Release auffällt.
+[toolchain]
+channel = "1.95.0"
+components = ["clippy", "rustfmt"]

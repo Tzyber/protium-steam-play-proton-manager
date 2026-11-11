@@ -191,10 +191,11 @@ jobs:
           node scripts/check-release-version.mjs --self-test
           node scripts/check-release-version.mjs
 
+      # P18/FR-1: fester Toolchain wie in rust-toolchain.toml, kein stable.
       - name: Rust
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable=v1
         with:
-          toolchain: stable
+          toolchain: 1.95.0
           # rustfmt fehlt im minimal-Profil; `cargo fmt --check` braucht es.
           components: clippy, rustfmt
 

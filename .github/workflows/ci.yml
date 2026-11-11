@@ -39,6 +39,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      # 7.17: das metainfo wird im Release bereits validiert; hier fällt ein
+      # fehler im PR auf statt erst beim tag.
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y appstream
+          appstreamcli validate src-tauri/packaging/com.protium.desktop.metainfo.xml
       - run: npm test
       - run: npm run bench:gate
       - run: npm run vite:build
@@ -100,9 +106,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # P18/FR-1: fester Toolchain wie in rust-toolchain.toml, kein stable.
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable=v1
         with:
-          toolchain: stable
+          toolchain: 1.95.0
           components: clippy, rustfmt
       # nur main schreibt caches; PR-läufe lesen sie mit. jede PR schrieb sonst
       # rund 1 GB, womit das repo-limit (10 GB) schnell voll lief. shared-key
@@ -132,9 +139,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # P18/FR-1: fester Toolchain wie in rust-toolchain.toml, kein stable.
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable=v1
         with:
-          toolchain: stable
+          toolchain: 1.95.0
       # nur main schreibt caches; PR-läufe lesen sie mit. jede PR schrieb sonst
       # rund 1 GB, womit das repo-limit (10 GB) schnell voll lief. shared-key
       # fixiert den key: sonst trägt er den lock- und rustc-hash und jeder

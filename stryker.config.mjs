@@ -33,6 +33,9 @@ const config = {
     "src/ui/stores/confirmStore.ts",
     "src/ui/stores/cleanupHelpers.ts",
   ],
+  // 7.19 wollte concurrency 4. R12 hat den lauf bei 8 gegen die 70/75-minuten-
+  // grenze gemessen (mutation-job hier, release-guard in release.yml); 4
+  // verschiebt die laufzeit nur auf mehr kerne, statt sie zu senken. bleibt 8.
   concurrency: 8,
   reporters: ["clear-text", "html", "json"],
   htmlReporter: { fileName: "reports/mutation/html/index.html" },

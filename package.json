@@ -7,6 +7,8 @@
   },
   "scripts": {
     "test": "vitest run",
+    "test:rust": "cargo test --locked --manifest-path src-tauri/Cargo.toml",
+    "test:all": "npm test && npm run test:rust",
     "test:watch": "vitest",
     "bench:scan": "vitest run --config vitest.bench.config.ts --disableConsoleIntercept",
     "bench:gate": "node scripts/bench-scan-gate.mjs",
