@@ -16,24 +16,28 @@ fn anonymous_download_nutzt_tmpfile_ohne_unlink_naht() {
 
 /// P15/FR-3: `download_stream_in_directory` trug einen funktionslosen
 /// `async { ... }.await`-Block. Der rumpf beginnt nach der signatur direkt mit
-/// dem client-aufbau und endet ohne `.await`; ein wieder eingeführter wrapper
-/// bricht den pin.
+/// dem client-aufbau; ein wieder eingeführter wrapper bricht den pin. Verglichen
+/// wird der whitespace-normalisierte text (Review P2-2): Umbrüche und
+/// Einrückung sind nicht teil des vertrags, die reihenfolge der anweisungen ist
+/// es.
 #[test]
 fn download_stream_in_directory_ohne_async_wrapper() {
     let production = crate::commands::test_util::production_source(include_str!("download.rs"));
     let body =
         crate::commands::test_util::funktion_body(production, "fn download_stream_in_directory(");
+    let body = body.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
         !body.contains("async {"),
         "kein async-block im rumpf: {body}"
     );
     let rumpf = body
-        .split_once(") -> Result<DownloadedFile, String> {\n")
+        .split_once('{')
         .expect("rumpf-beginn fehlt")
-        .1;
+        .1
+        .trim_start();
     assert!(
-        rumpf.starts_with("    let client = build_client(redirect_ok)?;"),
-        "rumpf beginnt ohne wrapper und mit einer einrückungsebene weniger: {rumpf}"
+        rumpf.starts_with("let client = build_client(redirect_ok)?;"),
+        "rumpf beginnt ohne wrapper mit dem client-aufbau: {rumpf}"
     );
 }
 

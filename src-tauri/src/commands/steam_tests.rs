@@ -1341,7 +1341,7 @@ fn save_compat_tool_serially_concurrent_removals() {
 #[cfg(target_os = "linux")]
 #[test]
 fn alias_root_kandidaten_schreiben_in_die_native_config() {
-    use crate::commands::scope::build_environment_snapshot;
+    use crate::commands::discovery::build_environment_snapshot;
     use std::os::unix::fs::symlink;
 
     for (tag, alias) in [
@@ -1382,7 +1382,7 @@ fn alias_root_kandidaten_schreiben_in_die_native_config() {
 #[cfg(target_os = "linux")]
 #[test]
 fn debian_installation_root_ist_schreibbar() {
-    use crate::commands::scope::build_environment_snapshot;
+    use crate::commands::discovery::build_environment_snapshot;
     use std::os::unix::fs::symlink;
 
     let (home, cache, debian) = wsg_env_at("debian-root", ".steam/debian-installation");
@@ -1417,7 +1417,7 @@ fn debian_installation_root_ist_schreibbar() {
 #[cfg(target_os = "linux")]
 #[test]
 fn write_gate_schreibt_entdeckten_root_mit_symlink_home() {
-    use crate::commands::scope::build_environment_snapshot;
+    use crate::commands::discovery::build_environment_snapshot;
     use std::os::unix::fs::symlink;
 
     let discover_and_write = |tag: &str, relative: &str| {

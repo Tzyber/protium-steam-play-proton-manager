@@ -10,11 +10,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use tauri::Manager;
 
-/// Der Snapshot-Aufbau lebt in `discovery`; der Pfad bleibt hier stabil, weil
-/// `discover_steam_environment` und die bestehenden Aufrufer ihn unter
-/// `scope::build_environment_snapshot` führen.
-pub(crate) use crate::commands::discovery::build_environment_snapshot;
-
 /// Obergrenze für gedeckelte Steam-Datei-Reads (16 MiB). Alle Lesepfade, die
 /// eine fremde Datei in den Speicher holen, hängen an diesem einen Wert; die
 /// sprechenden Aliase darunter dürfen ihn nicht überschreiten.
@@ -866,9 +861,15 @@ pub async fn discover_steam_environment(
     // spawn_blocking, sonst friert der main-thread beim start ein (C1-muster).
     // replace und current nehmen denselben std-Mutex und laufen deshalb
     // ebenfalls im blocking-pool, nicht auf einem Tokio-Worker.
+    // Der Snapshot-Aufbau lebt in `discovery`; den Pfad nennt der Aufruf, es
+    // gibt keine zweite `scope::build_environment_snapshot`-Fassade.
     let state = state.inner().clone();
     crate::commands::spawn_blocking_io(move || {
-        let snapshot = build_environment_snapshot(&home, &app_cache_dir, &app_config_dir)?;
+        let snapshot = crate::commands::discovery::build_environment_snapshot(
+            &home,
+            &app_cache_dir,
+            &app_config_dir,
+        )?;
         state.replace(snapshot);
         Ok(state.current()?.to_info())
     })

@@ -1,11 +1,12 @@
 // Quelltext-Pins und Paritätstests für das Pfad-Layout (FR-1..FR-4).
 
-/// Die elf Produktionsdateien, die das Steam-Layout nicht mehr selbst joinen.
-const PRODUCTION_FILES: [(&str, &str); 11] = [
+/// Die zwölf Produktionsdateien, die das Steam-Layout nicht mehr selbst joinen.
+const PRODUCTION_FILES: [(&str, &str); 12] = [
     ("steam.rs", include_str!("steam.rs")),
     ("cleanup.rs", include_str!("cleanup.rs")),
     ("prefix.rs", include_str!("prefix.rs")),
     ("scope.rs", include_str!("scope.rs")),
+    ("discovery.rs", include_str!("discovery.rs")),
     ("compat_auth.rs", include_str!("compat_auth.rs")),
     ("ge_install.rs", include_str!("ge_install.rs")),
     ("delete_inspect.rs", include_str!("delete_inspect.rs")),
@@ -26,7 +27,7 @@ const LAYOUT_JOINS: [&str; 7] = [
     "join(\"config\")",
 ];
 
-/// Pfad-Joins, die in keiner der elf Produktionsdateien stehen dürfen. Für
+/// Pfad-Joins, die in keiner der zwölf Produktionsdateien stehen dürfen. Für
 /// `compatdata`/`shadercache` gibt es im Scope keinen Produktions-Join: beide
 /// laufen über die gebundene fd-Kette (`prefix.rs`, `compat_auth.rs`,
 /// `delete_usage.rs`), die ihre Bausteine als `OsStr` an `openat` gibt. Der Pin
@@ -58,7 +59,7 @@ fn production(name: &str) -> &'static str {
     crate::commands::test_util::production_source(source)
 }
 
-/// FR-2: die Pfad-Joins der elf Produktionsdateien stehen nur noch in
+/// FR-2: die Pfad-Joins der zwölf Produktionsdateien stehen nur noch in
 /// `steam_layout.rs`. Der Positiv-Teil hält fest, dass das Layout-Modul die
 /// Literale wirklich trägt; ohne ihn wäre der Pin still grün, wenn ein Join
 /// ersatzlos verschwindet.
@@ -89,6 +90,29 @@ fn pfad_joins_liegen_nur_im_layout_modul() {
             );
         }
     }
+}
+
+/// P16/FR-2: die Discovery joint die Root-Kandidaten relativ unter `home` und
+/// holt `steamapps` aus dem Layout. Der Test ist der Rot-Beleg für die Aufnahme
+/// in `PRODUCTION_FILES`: ohne den Eintrag panikt `production` mit „datei
+/// fehlt: discovery.rs"; danach laufen die Verbots-Pins oben auch über die
+/// Discovery, und dieser Positiv-Teil hält ihre zwei Joins fest.
+#[test]
+fn discovery_gehoert_zu_den_gepinnten_produktionsdateien() {
+    let discovery = production("discovery.rs");
+    assert!(
+        discovery.contains("steam_layout::steamapps("),
+        "die discovery holt steamapps aus dem layout"
+    );
+    assert_eq!(
+        discovery.matches(".join(").count(),
+        2,
+        "die zwei kandidaten-joins liegen unter home"
+    );
+    assert!(
+        !discovery.contains(".join(\"/"),
+        "kein absoluter join in der discovery"
+    );
 }
 
 /// FR-4: die Schlüsselkette der Compat-Zuordnung steht einmal im Layout-Modul;

@@ -108,6 +108,14 @@ fn extract_seam_reicht_den_entry_cap_durch() {
     );
 }
 
+/// P15/FR-1 (Review P2-2): Signatur-Pins dürfen nicht an Einrückung oder
+/// Zeilenumbrüchen hängen; `rustfmt` bricht lange Signaturen und Feldlisten um,
+/// ohne die Signatur zu ändern. Deshalb läuft jeder Vergleich über den
+/// whitespace-normalisierten Text.
+fn normalisiert(source: &str) -> String {
+    source.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// P15/FR-1: der ausführungskontext von `install_ge_proton_inner` steht in zwei
 /// structs. Der pin hält beides fest: die parameterliste besteht aus genau `job`
 /// und `sinks` (13 einzelparameter brechen ihn), und die closure-typen bleiben
@@ -115,23 +123,33 @@ fn extract_seam_reicht_den_entry_cap_durch() {
 #[test]
 fn install_ge_proton_inner_hat_zwei_parameter() {
     let production = crate::commands::test_util::production_source(include_str!("ge_install.rs"));
-    let body = crate::commands::test_util::funktion_body(production, "fn install_ge_proton_inner");
-    let deklaration = &body[..body.find("\n) -> ").expect("signatur-ende fehlt")];
-    let params = deklaration
-        .split_once("(\n")
-        .expect("parameterliste fehlt")
+    let deklaration = normalisiert(production);
+    let deklaration = deklaration
+        .split_once("async fn install_ge_proton_inner")
+        .expect("signatur fehlt")
         .1;
+    let params = deklaration
+        .split_once('(')
+        .expect("parameterliste fehlt")
+        .1
+        .split_once(')')
+        .expect("parameterliste nicht geschlossen")
+        .0
+        .trim();
     assert_eq!(
-        params, "    job: InstallJob<'_>,\n    sinks: InstallSinks<P, H, C>,",
+        params, "job: InstallJob<'_>, sinks: InstallSinks<P, H, C>,",
         "install_ge_proton_inner nimmt genau job und sinks"
     );
     assert!(
-        !production.contains(
-            "#[allow(clippy::too_many_arguments)]\npub(super) async fn install_ge_proton_inner"
+        !normalisiert(production).contains(
+            "#[allow(clippy::too_many_arguments)] pub(super) async fn install_ge_proton_inner"
         ),
         "zwei kontext-structs machen das too_many_arguments-allow überflüssig"
     );
-    let job = crate::commands::test_util::funktion_body(production, "struct InstallJob");
+    let job = normalisiert(crate::commands::test_util::funktion_body(
+        production,
+        "struct InstallJob",
+    ));
     for feld in [
         "pub(super) steam_root: &'a str,",
         "pub(super) target_arch: TargetArch,",
@@ -146,7 +164,10 @@ fn install_ge_proton_inner_hat_zwei_parameter() {
     ] {
         assert!(job.contains(feld), "InstallJob braucht das feld {feld}");
     }
-    let sinks = crate::commands::test_util::funktion_body(production, "struct InstallSinks");
+    let sinks = normalisiert(crate::commands::test_util::funktion_body(
+        production,
+        "struct InstallSinks",
+    ));
     for feld in [
         "pub(super) on_progress: P,",
         "pub(super) on_phase: H,",
@@ -155,8 +176,32 @@ fn install_ge_proton_inner_hat_zwei_parameter() {
         assert!(sinks.contains(feld), "InstallSinks braucht das feld {feld}");
     }
     assert!(
-        !production.contains("Box<dyn FnMut"),
+        !sinks.contains("Box<dyn FnMut"),
         "die sinks bleiben generisch, keine trait-objekte"
+    );
+}
+
+/// P15/FR-2 (Review P2-1): die pipeline klopft das verschachtelte Result in
+/// dieser reihenfolge flach: der äußere fehler (scope, autorisierung, cancel)
+/// geht unverändert durch, der innere (extraktion) bekommt seinen code über
+/// `extract_error_with_code`. Ein echter pipeline-lauf ist nicht herstellbar,
+/// weil `validate_release_identity` die download-URL auf github.com pinnt und
+/// der download vor der extraktion liegt (kein lokaler server); der pin hält
+/// deshalb die stelle fest, die map selbst deckt
+/// `extract_fehler_behalten_ihren_code_statt_unavailable` ab.
+#[test]
+fn extract_pipeline_mappt_nur_den_inneren_fehler_auf_seinen_code() {
+    let production = crate::commands::test_util::production_source(include_str!("ge_install.rs"));
+    let rumpf = normalisiert(crate::commands::test_util::funktion_body(
+        production,
+        "async fn install_ge_proton_inner",
+    ));
+    assert!(
+        rumpf.contains(
+            "let (extract_result, _downloaded_file) = extract_res?; \
+             extract_result.map_err(extract_error_with_code)?;"
+        ),
+        "innerer extract-fehler läuft durch die code-map, der äußere unverändert"
     );
 }
 

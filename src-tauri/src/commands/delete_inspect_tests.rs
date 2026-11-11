@@ -1,5 +1,5 @@
 use super::*;
-use crate::commands::compat_auth::MAX_MANIFEST_BYTES;
+use crate::commands::manifest::MAX_MANIFEST_BYTES;
 use crate::commands::shortcuts_bin::make_test_bin_shortcuts;
 use crate::commands::test_util::{wire_unit_variant, wsg_fixture, WireSerializer, WireValue};
 use serde::ser::Serialize;

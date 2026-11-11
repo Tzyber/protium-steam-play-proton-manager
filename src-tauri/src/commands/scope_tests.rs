@@ -1,4 +1,5 @@
 use super::*;
+use crate::commands::discovery::build_environment_snapshot;
 use crate::commands::libraryfolders::read_library_folders_with_failures;
 use crate::commands::test_util::{production_source, wsg_fixture};
 use std::path::PathBuf;

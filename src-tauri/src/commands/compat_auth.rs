@@ -27,14 +27,10 @@ use std::io;
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::path::{Path, PathBuf};
 
-#[cfg(test)]
-pub(super) use crate::commands::manifest::MAX_MANIFEST_BYTES;
-/// Das Manifest-Lesen und -Parsen lebt in `manifest`; die Pfade bleiben hier
-/// stabil, weil `prefix`, `delete_usage` und die delete-Tests sie unter
-/// `compat_auth::...` führen.
-pub(super) use crate::commands::manifest::{
-    is_app_installed_in_steamapps_fd, read_app_manifest_with_hook, ManifestReadError, ManifestStage,
-};
+// Manifest-Lesen und -Parsen lebt in `manifest`; nur der Installations-Nachweis
+// wird hier gebraucht, und nur der linux-Zweig ruft ihn (r-12).
+#[cfg(target_os = "linux")]
+use crate::commands::manifest::{is_app_installed_in_steamapps_fd, ManifestReadError};
 
 /// Zeitpunkte der Compat-Tool-Autoritätsleseketten (r-11). Die Stufen waren
 /// zuvor magische `u8`-Literale (1 bis 4) am gemeinsamen Hook-Kanal; als Enum

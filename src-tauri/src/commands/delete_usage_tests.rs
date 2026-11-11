@@ -1,6 +1,6 @@
 use super::*;
-use crate::commands::compat_auth::MAX_MANIFEST_BYTES;
 use crate::commands::fd::open_bound_root_fd;
+use crate::commands::manifest::MAX_MANIFEST_BYTES;
 use crate::commands::shortcuts_bin::make_test_bin_shortcuts;
 use crate::commands::test_util::wsg_fixture;
 

@@ -658,6 +658,7 @@ fn parse_compat_tool_vdf_verlangt_genau_einen_eintrag() {
 #[cfg(all(test, target_os = "linux"))]
 mod manifest_reader_tests {
     use super::*;
+    use crate::commands::manifest::{is_app_installed_in_steamapps_fd, ManifestReadError};
     use crate::commands::test_util::fixture_dir;
 
     #[test]

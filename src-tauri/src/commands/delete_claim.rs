@@ -7,13 +7,13 @@ use std::fs;
 #[cfg(target_os = "linux")]
 use std::path::PathBuf;
 
-#[cfg(not(target_os = "linux"))]
-use crate::commands::delete_ops::renameat2_no_replace;
 #[cfg(target_os = "linux")]
 use crate::commands::delete_ops::{
     bound_parent, delete_handle_identity, generate_os_random_128, open_delete_child_handle,
     renameat2_no_replace, PendingDelete,
 };
+#[cfg(not(target_os = "linux"))]
+use crate::commands::delete_ops::{renameat2_no_replace, PendingDelete};
 use crate::commands::errcode;
 
 /// Ein Claim-Versuch endet mit EEXIST, wenn der Zufallsname kollidiert; vier

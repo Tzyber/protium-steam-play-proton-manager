@@ -5,9 +5,9 @@ use tauri::State;
 #[cfg(target_os = "linux")]
 use {
     crate::commands::{
-        compat_auth::{is_app_installed_in_steamapps_fd, ManifestReadError},
         external::{open_directory_with_handler, spawn_detached_os, SpawnOs},
         fd,
+        manifest::{is_app_installed_in_steamapps_fd, ManifestReadError},
     },
     std::{ffi::OsStr, io, os::fd::AsRawFd, path::Path},
 };

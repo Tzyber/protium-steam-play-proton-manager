@@ -12,10 +12,10 @@ use std::path::{Path, PathBuf};
 use std::os::fd::{AsRawFd, OwnedFd};
 
 #[cfg(target_os = "linux")]
-use crate::commands::compat_auth::{
-    open_external_library_fd_with_hook, read_app_manifest_with_hook, ManifestStage,
-};
+use crate::commands::compat_auth::open_external_library_fd_with_hook;
 use crate::commands::errcode;
+#[cfg(target_os = "linux")]
+use crate::commands::manifest::{read_app_manifest_with_hook, ManifestStage};
 // fd-Items gibt es nur unter Linux (fd.rs ist leer gekappt), deshalb wie ihre
 // Aufrufer bedingt (r-12).
 #[cfg(all(test, target_os = "linux"))]
@@ -37,7 +37,7 @@ use crate::commands::vdf_patch;
 const MAX_SHORTCUTS_VDF_BYTES: u64 = crate::commands::scope::MAX_VDF_READ_BYTES;
 
 /// Caps für die delete-pipeline-reads: config.vdf. Der appmanifest-Deckel
-/// liegt als einziger in `compat_auth::MAX_MANIFEST_BYTES` (r-05). Ohne cap
+/// liegt als einziger in `manifest::MAX_MANIFEST_BYTES` (r-05). Ohne cap
 /// könnte eine präparierte datei jeden löschversuch in eine voll-allokation
 /// (oom) treiben.
 const MAX_DELETE_CONFIG_BYTES: u64 = crate::commands::scope::MAX_VDF_READ_BYTES;
