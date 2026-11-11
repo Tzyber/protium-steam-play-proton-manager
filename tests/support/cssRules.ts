@@ -34,3 +34,10 @@ export function ruleBlock(source: string, selector: string): string {
   if (!match) throw new Error(`Regel nicht gefunden: ${selector}`);
   return match[1] ?? "";
 }
+
+/** Letzter Wert einer Eigenschaft im Regelblock; eine spätere Deklaration gewinnt. */
+export function declarationValue(block: string, property: string): string | undefined {
+  const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const matches = [...block.matchAll(new RegExp(`(?:^|;)\\s*${escaped}\\s*:\\s*([^;]+)`, "g"))];
+  return matches[matches.length - 1]?.[1]?.trim();
+}

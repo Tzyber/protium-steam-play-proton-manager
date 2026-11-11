@@ -30,6 +30,7 @@ describe("SelectBox", () => {
     const firstTrigger = first.find("button");
     const secondTrigger = second.find("button");
 
+    expect(firstTrigger.classes()).toContain("control");
     expect(firstTrigger.attributes("id")).toBeTruthy();
     expect(secondTrigger.attributes("id")).toBeTruthy();
     expect(firstTrigger.attributes("id")).not.toBe(secondTrigger.attributes("id"));

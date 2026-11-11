@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { flattenCss, ruleBlock } from "../support/cssRules";
+import { declarationValue, flattenCss, ruleBlock } from "../support/cssRules";
 import { readRepoFile, tokenValue } from "../support/themeTokens";
 
 /** die vier dateien, die den literalen Rot-Ton #ff9aa0 trugen (audit 4.15). */
@@ -37,16 +37,22 @@ describe("Theme-Tokens: Danger-Palette (4.15)", () => {
       readRepoFile("src/ui/tokens.css"),
       ".blocked:not(.blocked-explanation)",
     );
-    expect(block).toContain("color: var(--danger-fg)");
-    expect(block).toContain("border: 1px solid var(--error-border)");
-    expect(block).toContain("background: color-mix(in srgb, var(--danger) 12%, transparent)");
+    expect(declarationValue(block, "color")).toBe("var(--danger-fg)");
+    expect(declarationValue(block, "border")).toBe("1px solid var(--error-border)");
+    expect(declarationValue(block, "background")).toBe(
+      "color-mix(in srgb, var(--danger) 12%, transparent)",
+    );
   });
 
   it("CleanupViews Danger-Aktion nutzt die Danger-Tokens", () => {
     const block = ruleBlock(readRepoFile("src/ui/views/CleanupView.vue"), ".action.danger");
-    expect(block).toContain("color: var(--danger-fg)");
-    expect(block).toContain("background: color-mix(in srgb, var(--danger) 18%, transparent)");
-    expect(block).toContain("border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent)");
+    expect(declarationValue(block, "color")).toBe("var(--danger-fg)");
+    expect(declarationValue(block, "background")).toBe(
+      "color-mix(in srgb, var(--danger) 18%, transparent)",
+    );
+    expect(declarationValue(block, "border")).toBe(
+      "1px solid color-mix(in srgb, var(--danger) 45%, transparent)",
+    );
   });
 
   it("ConfirmDialog nutzt die Danger-Tokens statt eigener Literale", () => {
@@ -56,8 +62,8 @@ describe("Theme-Tokens: Danger-Palette (4.15)", () => {
     expect(source).toMatch(/border:[^;]*var\(--danger\)/);
     expect(source).toMatch(/background:\s*var\(--danger\)/);
     expect(source).toMatch(/:hover[^}]*var\(--danger-hover\)/);
-    expect(ruleBlock(source, ".btn")).toContain("color: var(--on-danger)");
-    expect(source).not.toContain("#fff");
+    expect(declarationValue(ruleBlock(source, ".btn"), "color")).toBe("var(--on-danger)");
+    expect(source).not.toMatch(/#f{3}(?:f{3})?\b/i);
   });
 });
 
@@ -109,17 +115,18 @@ describe("P1-Tokensatz", () => {
 describe("P2a: Basisflächen und gemeinsame Control-Form", () => {
   it(".control steht mit allen acht Deklarationen in tokens.css", () => {
     const block = ruleBlock(readRepoFile("src/ui/tokens.css"), ".control");
-    for (const declaration of [
-      "background: var(--bg-2)",
-      "border: 1px solid var(--line-control)",
-      "min-width: 0",
-      "color: var(--fg-0)",
-      "border-radius: var(--r-sm)",
-      "flex: 1",
-      "padding: 11px 13px",
-      "font-size: 0.8125rem",
-    ]) {
-      expect(block, declaration).toContain(`${declaration};`);
+    const expected: Record<string, string> = {
+      background: "var(--bg-2)",
+      border: "1px solid var(--line-control)",
+      "min-width": "0",
+      color: "var(--fg-0)",
+      "border-radius": "var(--r-sm)",
+      flex: "1",
+      padding: "11px 13px",
+      "font-size": "0.8125rem",
+    };
+    for (const [property, value] of Object.entries(expected)) {
+      expect(declarationValue(block, property), property).toBe(value);
     }
   });
 
@@ -128,21 +135,21 @@ describe("P2a: Basisflächen und gemeinsame Control-Form", () => {
       readRepoFile("src/ui/components/GameDetailDrawer.vue"),
       ".control:focus-visible",
     );
-    expect(block).toContain("outline: 2px solid var(--signal)");
-    expect(block).toContain("border-color: var(--signal)");
+    expect(declarationValue(block, "outline")).toBe("2px solid var(--signal)");
+    expect(declarationValue(block, "border-color")).toBe("var(--signal)");
   });
 
   it("die Scrollbar nutzt Breite und Thumb-Tokens", () => {
     const tokens = readRepoFile("src/ui/tokens.css");
     const bar = ruleBlock(tokens, "::-webkit-scrollbar");
-    expect(bar).toContain("width: var(--scrollbar-w)");
-    expect(bar).toContain("height: var(--scrollbar-w)");
-    expect(ruleBlock(tokens, "::-webkit-scrollbar-thumb")).toContain(
-      "background: var(--line-control)",
+    expect(declarationValue(bar, "width")).toBe("var(--scrollbar-w)");
+    expect(declarationValue(bar, "height")).toBe("var(--scrollbar-w)");
+    expect(declarationValue(ruleBlock(tokens, "::-webkit-scrollbar-thumb"), "background")).toBe(
+      "var(--line-control)",
     );
-    expect(ruleBlock(tokens, "::-webkit-scrollbar-thumb:hover")).toContain(
-      "background: var(--fg-2)",
-    );
+    expect(
+      declarationValue(ruleBlock(tokens, "::-webkit-scrollbar-thumb:hover"), "background"),
+    ).toBe("var(--fg-2)");
     expect(tokens).not.toContain("#2a3048");
   });
 });
@@ -152,13 +159,13 @@ describe("P2b: Fokusring, Input-Ränder und Warnfarbe", () => {
     // FR-3.1: --line (1.42 auf --bg-1) ist dekorativ, der input-container
     // braucht den Kontrollrand.
     const block = ruleBlock(readRepoFile("src/ui/components/FilterBar.vue"), ".search");
-    expect(block).toContain("border: 1px solid var(--line-control)");
+    expect(declarationValue(block, "border")).toBe("1px solid var(--line-control)");
   });
 
   it("SelectBox .sb-list trägt den Kontrollrand --line-control", () => {
     // FR-3.1: derselbe Fall für den popup-rand.
     const block = ruleBlock(readRepoFile("src/ui/components/SelectBox.vue"), ".sb-list");
-    expect(block).toContain("border: 1px solid var(--line-control)");
+    expect(declarationValue(block, "border")).toBe("1px solid var(--line-control)");
   });
 
   it("ConfirmDialog .btn:focus-visible ringt mit --signal, nie mit --signal-dim", () => {
@@ -166,20 +173,20 @@ describe("P2b: Fokusring, Input-Ränder und Warnfarbe", () => {
     // fokusring unbrauchbar.
     const source = readRepoFile("src/ui/components/ConfirmDialog.vue");
     const block = ruleBlock(source, ".btn:focus-visible, .btn.ghost:focus-visible");
-    expect(block).toContain("outline: 2px solid var(--signal)");
+    expect(declarationValue(block, "outline")).toBe("2px solid var(--signal)");
     expect(flattenCss(source)).not.toMatch(/outline:\s*[^;]*var\(--signal-dim\)/);
   });
 
   it("ConfirmDialog .backdrop nutzt --overlay", () => {
     const block = ruleBlock(readRepoFile("src/ui/components/ConfirmDialog.vue"), ".backdrop");
-    expect(block).toContain("background: var(--overlay)");
+    expect(declarationValue(block, "background")).toBe("var(--overlay)");
   });
 
   it("CleanupRow .sc-warn nutzt --warning-text", () => {
     // FR-3.5: nur der textliteral wird getauscht, fläche und rand bleiben
     // bis P3 auf --tier-gold.
     const source = readRepoFile("src/ui/components/CleanupRow.vue");
-    expect(ruleBlock(source, ".sc-warn")).toContain("color: var(--warning-text)");
+    expect(declarationValue(ruleBlock(source, ".sc-warn"), "color")).toBe("var(--warning-text)");
     expect(source).not.toContain("#f5d678");
   });
 });

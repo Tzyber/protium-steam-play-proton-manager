@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { flattenCss, ruleBlock, ruleCount } from "./cssRules";
+import { declarationValue, flattenCss, ruleBlock, ruleCount } from "./cssRules";
 import { readRepoFile } from "./themeTokens";
 
 /** FR-5: Charakterisierungs-Pin für den Regelparser. Ab dem Anlegen grün. */
@@ -26,6 +26,17 @@ describe("cssRules: Styleblock-Grenzen", () => {
 
   it("ein Kindkombinator ist keine Regelgrenze", () => {
     expect(ruleCount(".parent > .child { color: red; } .child { color: blue; }", ".child")).toBe(1);
+  });
+
+  it("ein Klassenpräfix ist keine eigene Regel", () => {
+    expect(ruleCount(".btn.ghost { color: red; }", ".btn")).toBe(0);
+    expect(ruleCount(".btn { color: red; }", ".btn")).toBe(1);
+  });
+
+  it("declarationValue nimmt die letzte Deklaration", () => {
+    const block = ruleBlock(".a { border: 1px solid red; border: 2px solid blue; }", ".a");
+    expect(declarationValue(block, "border")).toBe("2px solid blue");
+    expect(declarationValue(block, "missing")).toBeUndefined();
   });
 
   it("ein fehlender Selektor wirft mit der Meldung", () => {
