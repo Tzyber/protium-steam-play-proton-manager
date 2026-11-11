@@ -745,6 +745,31 @@ fn validate_entry_type_prueft_art_modus_und_link() {
         "{error}"
     );
 
+    // pin: das link-ziel wird vor der top-level-prüfung gelesen. derselbe
+    // top-level-symlink ohne ziel meldet darum `incomplete` und nicht
+    // `symlink-rejected`; eine reihenfolge mit der top-level-prüfung zuerst
+    // fällt hier auf.
+    let mut top_ohne_ziel = tar::Header::new_gnu();
+    top_ohne_ziel.set_path("GE-Proton11-5-x86_64").unwrap();
+    top_ohne_ziel.set_entry_type(tar::EntryType::Symlink);
+    // kein set_link_name: das feld bleibt leer, `link_name()` liefert
+    // damit `Ok(None)`.
+    top_ohne_ziel.set_size(0);
+    top_ohne_ziel.set_cksum();
+    let error = with_entry(&top_ohne_ziel, |entry| {
+        validate_entry_type(
+            entry,
+            tar::EntryType::Symlink,
+            Path::new("GE-Proton11-5-x86_64"),
+        )
+    })
+    .unwrap_err();
+    assert!(errcode::has_code(&error, errcode::INCOMPLETE), "{error}");
+    assert!(
+        !errcode::has_code(&error, errcode::SYMLINK_REJECTED),
+        "{error}"
+    );
+
     let mut fifo = tar::Header::new_gnu();
     fifo.set_path("GE-Proton11-5-x86_64/fifo").unwrap();
     fifo.set_entry_type(tar::EntryType::Fifo);
