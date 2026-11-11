@@ -108,6 +108,58 @@ fn extract_seam_reicht_den_entry_cap_durch() {
     );
 }
 
+/// P15/FR-1: der ausführungskontext von `install_ge_proton_inner` steht in zwei
+/// structs. Der pin hält beides fest: die parameterliste besteht aus genau `job`
+/// und `sinks` (13 einzelparameter brechen ihn), und die closure-typen bleiben
+/// generisch statt `Box<dyn>`.
+#[test]
+fn install_ge_proton_inner_hat_zwei_parameter() {
+    let production = crate::commands::test_util::production_source(include_str!("ge_install.rs"));
+    let body = crate::commands::test_util::funktion_body(production, "fn install_ge_proton_inner");
+    let deklaration = &body[..body.find("\n) -> ").expect("signatur-ende fehlt")];
+    let params = deklaration
+        .split_once("(\n")
+        .expect("parameterliste fehlt")
+        .1;
+    assert_eq!(
+        params, "    job: InstallJob<'_>,\n    sinks: InstallSinks<P, H, C>,",
+        "install_ge_proton_inner nimmt genau job und sinks"
+    );
+    assert!(
+        !production.contains(
+            "#[allow(clippy::too_many_arguments)]\npub(super) async fn install_ge_proton_inner"
+        ),
+        "zwei kontext-structs machen das too_many_arguments-allow überflüssig"
+    );
+    let job = crate::commands::test_util::funktion_body(production, "struct InstallJob");
+    for feld in [
+        "pub(super) steam_root: &'a str,",
+        "pub(super) target_arch: TargetArch,",
+        "pub(super) release_tag: &'a str,",
+        "pub(super) download_url: &'a str,",
+        "pub(super) download_id: &'a str,",
+        "pub(super) cache_dir: &'a Path,",
+        "pub(super) cancel_flag: Arc<CancelSignal>,",
+        "pub(super) dialog_locale: DialogLocale,",
+        "pub(super) scope_ok: Arc<dyn Fn(&Path) -> bool + Send + Sync>,",
+        "pub(super) environment: ExtractEnvironment,",
+    ] {
+        assert!(job.contains(feld), "InstallJob braucht das feld {feld}");
+    }
+    let sinks = crate::commands::test_util::funktion_body(production, "struct InstallSinks");
+    for feld in [
+        "pub(super) on_progress: P,",
+        "pub(super) on_phase: H,",
+        "pub(super) confirm_unverified: C,",
+    ] {
+        assert!(sinks.contains(feld), "InstallSinks braucht das feld {feld}");
+    }
+    assert!(
+        !production.contains("Box<dyn FnMut"),
+        "die sinks bleiben generisch, keine trait-objekte"
+    );
+}
+
 fn ge_archive(root: &Path) -> fs::File {
     let mut bytes = Vec::new();
     {
@@ -636,19 +688,23 @@ async fn install_ge_proton_validiert_release_tag() {
     let cache_dir = temp_dir.join("cache");
 
     let res = install_ge_proton_inner(
-        temp_dir.to_str().unwrap(),
-        TargetArch::X86_64,
-        "Proton-9.0",
-        "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton9-27/GE-Proton9-27.tar.gz",
-        "dl-1",
-        &cache_dir,
-        Arc::new(CancelSignal::new()),
-        |_, _| {},
-        |_, _| {},
-        DialogLocale::De,
-        |_| std::future::ready(Ok(true)),
-        Arc::new(|_: &Path| true),
-        ExtractEnvironment::StaticScopeOnly,
+        InstallJob {
+            steam_root: temp_dir.to_str().unwrap(),
+            target_arch: TargetArch::X86_64,
+            release_tag: "Proton-9.0",
+            download_url: "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton9-27/GE-Proton9-27.tar.gz",
+            download_id: "dl-1",
+            cache_dir: &cache_dir,
+            cancel_flag: Arc::new(CancelSignal::new()),
+            dialog_locale: DialogLocale::De,
+            scope_ok: Arc::new(|_: &Path| true),
+            environment: ExtractEnvironment::StaticScopeOnly,
+        },
+        InstallSinks {
+            on_progress: |_: u64, _: Option<u64>| {},
+            on_phase: |_: &str, _: bool| {},
+            confirm_unverified: |_: UnverifiedConfirmationRequest| std::future::ready(Ok(true)),
+        },
     )
     .await;
 
@@ -665,19 +721,23 @@ async fn install_ge_proton_validiert_download_url() {
     let cache_dir = temp_dir.join("cache");
 
     let res = install_ge_proton_inner(
-        temp_dir.to_str().unwrap(),
-        TargetArch::X86_64,
-        "GE-Proton9-27",
-        "https://evil.com/GE-Proton9-27.tar.gz",
-        "dl-1",
-        &cache_dir,
-        Arc::new(CancelSignal::new()),
-        |_, _| {},
-        |_, _| {},
-        DialogLocale::De,
-        |_| std::future::ready(Ok(true)),
-        Arc::new(|_: &Path| true),
-        ExtractEnvironment::StaticScopeOnly,
+        InstallJob {
+            steam_root: temp_dir.to_str().unwrap(),
+            target_arch: TargetArch::X86_64,
+            release_tag: "GE-Proton9-27",
+            download_url: "https://evil.com/GE-Proton9-27.tar.gz",
+            download_id: "dl-1",
+            cache_dir: &cache_dir,
+            cancel_flag: Arc::new(CancelSignal::new()),
+            dialog_locale: DialogLocale::De,
+            scope_ok: Arc::new(|_: &Path| true),
+            environment: ExtractEnvironment::StaticScopeOnly,
+        },
+        InstallSinks {
+            on_progress: |_: u64, _: Option<u64>| {},
+            on_phase: |_: &str, _: bool| {},
+            confirm_unverified: |_: UnverifiedConfirmationRequest| std::future::ready(Ok(true)),
+        },
     )
     .await;
 
@@ -697,19 +757,23 @@ async fn install_ge_proton_lehnt_existierendes_ziel_ab() {
     let cache_dir = temp_dir.join("cache");
 
     let res = install_ge_proton_inner(
-        temp_dir.to_str().unwrap(),
-        TargetArch::X86_64,
-        "GE-Proton9-27",
-        "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton9-27/GE-Proton9-27.tar.gz",
-        "dl-1",
-        &cache_dir,
-        Arc::new(CancelSignal::new()),
-        |_, _| {},
-        |_, _| {},
-        DialogLocale::De,
-        |_| std::future::ready(Ok(true)),
-        Arc::new(|_: &Path| true),
-        ExtractEnvironment::StaticScopeOnly,
+        InstallJob {
+            steam_root: temp_dir.to_str().unwrap(),
+            target_arch: TargetArch::X86_64,
+            release_tag: "GE-Proton9-27",
+            download_url: "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton9-27/GE-Proton9-27.tar.gz",
+            download_id: "dl-1",
+            cache_dir: &cache_dir,
+            cancel_flag: Arc::new(CancelSignal::new()),
+            dialog_locale: DialogLocale::De,
+            scope_ok: Arc::new(|_: &Path| true),
+            environment: ExtractEnvironment::StaticScopeOnly,
+        },
+        InstallSinks {
+            on_progress: |_: u64, _: Option<u64>| {},
+            on_phase: |_: &str, _: bool| {},
+            confirm_unverified: |_: UnverifiedConfirmationRequest| std::future::ready(Ok(true)),
+        },
     )
     .await;
 
@@ -736,19 +800,23 @@ async fn install_ge_proton_meldet_extract_crash_reste_und_loescht_nicht() {
     let cache_dir = temp_dir.join("cache");
 
     let res = install_ge_proton_inner(
-        temp_dir.to_str().unwrap(),
-        TargetArch::X86_64,
-        "GE-Proton9-27",
-        "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton9-27/GE-Proton9-27.tar.gz",
-        "dl-1",
-        &cache_dir,
-        Arc::new(CancelSignal::new()),
-        |_, _| {},
-        |_, _| {},
-        DialogLocale::De,
-        |_| std::future::ready(Ok(true)),
-        Arc::new(|_: &Path| true),
-        ExtractEnvironment::StaticScopeOnly,
+        InstallJob {
+            steam_root: temp_dir.to_str().unwrap(),
+            target_arch: TargetArch::X86_64,
+            release_tag: "GE-Proton9-27",
+            download_url: "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton9-27/GE-Proton9-27.tar.gz",
+            download_id: "dl-1",
+            cache_dir: &cache_dir,
+            cancel_flag: Arc::new(CancelSignal::new()),
+            dialog_locale: DialogLocale::De,
+            scope_ok: Arc::new(|_: &Path| true),
+            environment: ExtractEnvironment::StaticScopeOnly,
+        },
+        InstallSinks {
+            on_progress: |_: u64, _: Option<u64>| {},
+            on_phase: |_: &str, _: bool| {},
+            confirm_unverified: |_: UnverifiedConfirmationRequest| std::future::ready(Ok(true)),
+        },
     )
     .await;
 
@@ -795,19 +863,23 @@ async fn install_ge_proton_lehnt_unscoped_steam_root_ab() {
     let cache_dir = temp_dir.join("cache");
 
     let res = install_ge_proton_inner(
-        temp_dir.to_str().unwrap(),
-        TargetArch::X86_64,
-        "GE-Proton9-27",
-        "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton9-27/GE-Proton9-27.tar.gz",
-        "dl-1",
-        &cache_dir,
-        Arc::new(CancelSignal::new()),
-        |_, _| {},
-        |_, _| {},
-        DialogLocale::De,
-        |_| std::future::ready(Ok(true)),
-        Arc::new(|_: &Path| false),
-        ExtractEnvironment::StaticScopeOnly,
+        InstallJob {
+            steam_root: temp_dir.to_str().unwrap(),
+            target_arch: TargetArch::X86_64,
+            release_tag: "GE-Proton9-27",
+            download_url: "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton9-27/GE-Proton9-27.tar.gz",
+            download_id: "dl-1",
+            cache_dir: &cache_dir,
+            cancel_flag: Arc::new(CancelSignal::new()),
+            dialog_locale: DialogLocale::De,
+            scope_ok: Arc::new(|_: &Path| false),
+            environment: ExtractEnvironment::StaticScopeOnly,
+        },
+        InstallSinks {
+            on_progress: |_: u64, _: Option<u64>| {},
+            on_phase: |_: &str, _: bool| {},
+            confirm_unverified: |_: UnverifiedConfirmationRequest| std::future::ready(Ok(true)),
+        },
     )
     .await;
 

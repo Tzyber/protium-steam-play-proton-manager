@@ -409,25 +409,56 @@ async fn show_native_unverified_confirmation(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(super) async fn install_ge_proton_inner<ConfirmFut>(
-    steam_root: &str,
-    target_arch: TargetArch,
-    release_tag: &str,
-    download_url: &str,
-    download_id: &str,
-    cache_dir: &Path,
-    cancel_flag: Arc<CancelSignal>,
-    mut on_progress: impl FnMut(u64, Option<u64>),
-    mut on_phase: impl FnMut(&str, bool),
-    dialog_locale: DialogLocale,
-    confirm_unverified: impl FnMut(UnverifiedConfirmationRequest) -> ConfirmFut,
-    scope_ok: Arc<dyn Fn(&Path) -> bool + Send + Sync>,
-    environment: ExtractEnvironment,
+/// Ausführungskontext einer GE-Installation (P15/FR-1): die früheren
+/// Einzelparameter in derselben Reihenfolge, gebündelt in einem Struct.
+pub(super) struct InstallJob<'a> {
+    pub(super) steam_root: &'a str,
+    pub(super) target_arch: TargetArch,
+    pub(super) release_tag: &'a str,
+    pub(super) download_url: &'a str,
+    pub(super) download_id: &'a str,
+    pub(super) cache_dir: &'a Path,
+    pub(super) cancel_flag: Arc<CancelSignal>,
+    pub(super) dialog_locale: DialogLocale,
+    pub(super) scope_ok: Arc<dyn Fn(&Path) -> bool + Send + Sync>,
+    pub(super) environment: ExtractEnvironment,
+}
+
+/// Die Senken eines Laufs (P15/FR-1): Fortschritt, Phase und Rückfrage bleiben
+/// generische Closures, keine `Box<dyn>`-Umstellung.
+pub(super) struct InstallSinks<P, H, C> {
+    pub(super) on_progress: P,
+    pub(super) on_phase: H,
+    pub(super) confirm_unverified: C,
+}
+
+pub(super) async fn install_ge_proton_inner<P, H, C, ConfirmFut>(
+    job: InstallJob<'_>,
+    sinks: InstallSinks<P, H, C>,
 ) -> Result<InstallGeResult, String>
 where
+    P: FnMut(u64, Option<u64>),
+    H: FnMut(&str, bool),
+    C: FnMut(UnverifiedConfirmationRequest) -> ConfirmFut,
     ConfirmFut: Future<Output = Result<bool, String>>,
 {
+    let InstallJob {
+        steam_root,
+        target_arch,
+        release_tag,
+        download_url,
+        download_id,
+        cache_dir,
+        cancel_flag,
+        dialog_locale,
+        scope_ok,
+        environment,
+    } = job;
+    let InstallSinks {
+        mut on_progress,
+        mut on_phase,
+        confirm_unverified,
+    } = sinks;
     // scope_ok kann den Environment-Mutex nehmen. Das gehört in den
     // blocking-pool, nicht auf den Tokio-Worker.
     let steam_root_owned = steam_root.to_string();
@@ -535,13 +566,11 @@ where
         }
     };
 
-    match extract_res {
-        Ok((extract_result, _downloaded_file)) => match extract_result {
-            Ok(_) => Ok(result_status),
-            Err(error) => Err(extract_error_with_code(error)),
-        },
-        Err(error) => Err(error),
-    }
+    // P15/FR-2: äußerer Fehler (Scope, Autorisierung, Cancel) geht unverändert
+    // durch, innerer (Extraktion) bekommt seinen Code. Reihenfolge wie zuvor.
+    let (extract_result, _downloaded_file) = extract_res?;
+    extract_result.map_err(extract_error_with_code)?;
+    Ok(result_status)
 }
 
 /// Autorisierter Extraktionsarm (r-18). Root und Tool-Ordner werden vor der
@@ -874,43 +903,47 @@ pub async fn install_ge_proton(
     let mut last_emit: u64 = 0;
 
     let res = install_ge_proton_inner(
-        &steam_root,
-        target_arch,
-        &release_tag,
-        &download_url,
-        &download_id,
-        &cache_dir,
-        cancel_flag_clone,
-        move |downloaded, total| {
-            let done = total.map(|t| downloaded >= t).unwrap_or(false);
-            if downloaded - last_emit >= PROGRESS_EMIT_STEP_BYTES || done {
-                last_emit = downloaded;
-                let _ = app_handle.emit(
-                    "download-progress",
-                    DownloadProgress {
-                        id: dl_id.clone(),
-                        downloaded,
-                        total,
+        InstallJob {
+            steam_root: &steam_root,
+            target_arch,
+            release_tag: &release_tag,
+            download_url: &download_url,
+            download_id: &download_id,
+            cache_dir: &cache_dir,
+            cancel_flag: cancel_flag_clone,
+            dialog_locale,
+            scope_ok,
+            environment: ExtractEnvironment::Authorized(environment.inner().clone()),
+        },
+        InstallSinks {
+            on_progress: move |downloaded: u64, total: Option<u64>| {
+                let done = total.map(|t| downloaded >= t).unwrap_or(false);
+                if downloaded - last_emit >= PROGRESS_EMIT_STEP_BYTES || done {
+                    last_emit = downloaded;
+                    let _ = app_handle.emit(
+                        "download-progress",
+                        DownloadProgress {
+                            id: dl_id.clone(),
+                            downloaded,
+                            total,
+                        },
+                    );
+                }
+            },
+            on_phase: move |phase: &str, verified: bool| {
+                let _ = app_handle_phase.emit(
+                    "install-phase",
+                    InstallPhasePayload {
+                        id: dl_id_phase.clone(),
+                        phase: phase.to_string(),
+                        verified,
                     },
                 );
-            }
+            },
+            confirm_unverified: move |request: UnverifiedConfirmationRequest| {
+                show_native_unverified_confirmation(app_handle_confirmation.clone(), request)
+            },
         },
-        move |phase, verified| {
-            let _ = app_handle_phase.emit(
-                "install-phase",
-                InstallPhasePayload {
-                    id: dl_id_phase.clone(),
-                    phase: phase.to_string(),
-                    verified,
-                },
-            );
-        },
-        dialog_locale,
-        move |request| {
-            show_native_unverified_confirmation(app_handle_confirmation.clone(), request)
-        },
-        scope_ok,
-        ExtractEnvironment::Authorized(environment.inner().clone()),
     )
     .await;
 

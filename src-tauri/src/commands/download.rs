@@ -289,78 +289,75 @@ pub(super) async fn download_stream_in_directory(
     mut on_progress: impl FnMut(u64, Option<u64>),
     storage: DownloadStorage<'_>,
 ) -> Result<DownloadedFile, String> {
-    async {
-        let client = build_client(redirect_ok)?;
-        let resp = client
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| errcode::with_detail(errcode::UNAVAILABLE, e))?;
-        if !resp.status().is_success() {
-            return Err(errcode::with_detail(errcode::UNAVAILABLE, resp.status()));
-        }
-
-        // content-length-prüfung (server kann lügen, also zählt der streaming-loop
-        // zusätzlich die tatsächlich geschriebenen bytes mit)
-        if let Some(len) = resp.content_length() {
-            if len > storage.max_bytes {
-                return Err(errcode::SIZE_LIMIT.into());
-            }
-        }
-
-        let std_file = open_anonymous_download_file(
-            storage.directory,
-            #[cfg(test)]
-            storage.before_open,
-        )
-        .map_err(|e| errcode::with_detail(errcode::code_for_io(&e), e))?;
-        let mut file = tokio::fs::File::from_std(std_file);
-        let mut hasher = Sha512::new();
-        let content_length = resp.content_length();
-        let mut downloaded: u64 = 0;
-        let mut stream = resp.bytes_stream();
-
-        // stall-erkennung: jede next()-poll darf max. 120 s brauchen
-        const STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
-
-        loop {
-            // cancel weckt den body-read auch bei blockiertem stream aktiv auf
-            // (select auf das notify-signal statt nur synchroner flag-check)
-            let chunk = tokio::select! {
-                biased;
-                _ = cancel.cancelled() => return Err(errcode::CANCELLED.to_owned()),
-                result = tokio::time::timeout(STALL_TIMEOUT, stream.next()) => {
-                    result.map_err(|_| errcode::with_detail(errcode::INCOMPLETE, "download stalled"))?
-                }
-            };
-            match chunk {
-                None => break,
-                Some(chunk) => {
-                    let chunk = chunk.map_err(|e| errcode::with_detail(errcode::UNAVAILABLE, e))?;
-
-                    downloaded += chunk.len() as u64;
-                    if downloaded > storage.max_bytes {
-                        return Err(errcode::SIZE_LIMIT.into());
-                    }
-
-                    hasher.update(&chunk);
-                    file.write_all(&chunk)
-                        .await
-                        .map_err(|e| errcode::with_detail(errcode::code_for_io(&e), e))?;
-                    on_progress(downloaded, content_length);
-                }
-            }
-        }
-        file.flush()
-            .await
-            .map_err(|e| errcode::with_detail(errcode::code_for_io(&e), e))?;
-        let hash = crate::commands::fd::hex_lower(&hasher.finalize());
-        Ok(DownloadedFile {
-            hash,
-            file: file.into_std().await,
-        })
+    let client = build_client(redirect_ok)?;
+    let resp = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| errcode::with_detail(errcode::UNAVAILABLE, e))?;
+    if !resp.status().is_success() {
+        return Err(errcode::with_detail(errcode::UNAVAILABLE, resp.status()));
     }
-    .await
+
+    // content-length-prüfung (server kann lügen, also zählt der streaming-loop
+    // zusätzlich die tatsächlich geschriebenen bytes mit)
+    if let Some(len) = resp.content_length() {
+        if len > storage.max_bytes {
+            return Err(errcode::SIZE_LIMIT.into());
+        }
+    }
+
+    let std_file = open_anonymous_download_file(
+        storage.directory,
+        #[cfg(test)]
+        storage.before_open,
+    )
+    .map_err(|e| errcode::with_detail(errcode::code_for_io(&e), e))?;
+    let mut file = tokio::fs::File::from_std(std_file);
+    let mut hasher = Sha512::new();
+    let content_length = resp.content_length();
+    let mut downloaded: u64 = 0;
+    let mut stream = resp.bytes_stream();
+
+    // stall-erkennung: jede next()-poll darf max. 120 s brauchen
+    const STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+    loop {
+        // cancel weckt den body-read auch bei blockiertem stream aktiv auf
+        // (select auf das notify-signal statt nur synchroner flag-check)
+        let chunk = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Err(errcode::CANCELLED.to_owned()),
+            result = tokio::time::timeout(STALL_TIMEOUT, stream.next()) => {
+                result.map_err(|_| errcode::with_detail(errcode::INCOMPLETE, "download stalled"))?
+            }
+        };
+        match chunk {
+            None => break,
+            Some(chunk) => {
+                let chunk = chunk.map_err(|e| errcode::with_detail(errcode::UNAVAILABLE, e))?;
+
+                downloaded += chunk.len() as u64;
+                if downloaded > storage.max_bytes {
+                    return Err(errcode::SIZE_LIMIT.into());
+                }
+
+                hasher.update(&chunk);
+                file.write_all(&chunk)
+                    .await
+                    .map_err(|e| errcode::with_detail(errcode::code_for_io(&e), e))?;
+                on_progress(downloaded, content_length);
+            }
+        }
+    }
+    file.flush()
+        .await
+        .map_err(|e| errcode::with_detail(errcode::code_for_io(&e), e))?;
+    let hash = crate::commands::fd::hex_lower(&hasher.finalize());
+    Ok(DownloadedFile {
+        hash,
+        file: file.into_std().await,
+    })
 }
 
 #[derive(Debug)]
