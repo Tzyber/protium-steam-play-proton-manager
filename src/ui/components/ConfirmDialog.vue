@@ -86,7 +86,7 @@ onBeforeUnmount(() => {
 .backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(4, 5, 9, 0.6);
+  background: var(--overlay);
   backdrop-filter: blur(2px);
   display: grid;
   place-items: center;
@@ -113,7 +113,7 @@ h3 {
 .btn {
   border: 1px solid var(--danger);
   background: var(--danger);
-  color: #fff;
+  color: var(--on-danger);
   border-radius: var(--r-sm);
   padding: 8px 14px;
   font-family: var(--font-body);
@@ -126,7 +126,7 @@ h3 {
 .btn:hover { background: var(--danger-hover); border-color: var(--danger-hover); }
 .btn:focus-visible,
 .btn.ghost:focus-visible {
-  outline: 2px solid var(--signal-dim);
+  outline: 2px solid var(--signal);
   outline-offset: 2px;
 }
 </style>

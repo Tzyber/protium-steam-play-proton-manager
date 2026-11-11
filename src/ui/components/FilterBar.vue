@@ -191,7 +191,7 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
   align-items: center;
   gap: 6px;
   background: var(--bg-0);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-control);
   border-radius: var(--r-sm);
   padding: 0 8px;
   flex: 1 1 200px;

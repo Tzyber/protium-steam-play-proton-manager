@@ -184,7 +184,7 @@ onBeforeUnmount(() => {
 	padding: 4px;
 	list-style: none;
 	background: var(--bg-2);
-	border: 1px solid var(--line);
+	border: 1px solid var(--line-control);
 	border-radius: var(--r-sm);
 	box-shadow: 0 12px 32px -10px rgba(0, 0, 0, 0.5);
 }

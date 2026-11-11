@@ -56,7 +56,7 @@ describe("Theme-Tokens: Danger-Palette (4.15)", () => {
     expect(source).toMatch(/border:[^;]*var\(--danger\)/);
     expect(source).toMatch(/background:\s*var\(--danger\)/);
     expect(source).toMatch(/:hover[^}]*var\(--danger-hover\)/);
-    expect(source).toMatch(/color:\s*#fff/);
+    expect(ruleBlock(source, ".btn")).toContain("color: var(--on-danger)");
   });
 });
 
@@ -143,6 +143,49 @@ describe("P2a: Basisflächen und gemeinsame Control-Form", () => {
       "background: var(--fg-2)",
     );
     expect(tokens).not.toContain("#2a3048");
+  });
+});
+
+describe("P2b: Fokusring, Input-Ränder und Warnfarbe", () => {
+  it("FilterBar .search trägt den Kontrollrand --line-control", () => {
+    // FR-3.1: --line (1.42 auf --bg-1) ist dekorativ, der input-container
+    // braucht den Kontrollrand.
+    const block = ruleBlock(readRepoFile("src/ui/components/FilterBar.vue"), ".search");
+    expect(block).toContain("border: 1px solid var(--line-control)");
+  });
+
+  it("SelectBox .sb-list trägt den Kontrollrand --line-control", () => {
+    // FR-3.1: derselbe Fall für den popup-rand.
+    const block = ruleBlock(readRepoFile("src/ui/components/SelectBox.vue"), ".sb-list");
+    expect(block).toContain("border: 1px solid var(--line-control)");
+  });
+
+  it("ConfirmDialog .btn:focus-visible ringt mit --signal, nie mit --signal-dim", () => {
+    // FR-3.2 / C5: --signal-dim liegt auf --bg-1 bei 2.03 und ist als
+    // fokusring unbrauchbar.
+    const source = readRepoFile("src/ui/components/ConfirmDialog.vue");
+    const block = ruleBlock(source, ".btn:focus-visible, .btn.ghost:focus-visible");
+    expect(block).toContain("outline: 2px solid var(--signal)");
+    expect(flattenCss(source)).not.toMatch(/outline: [^;]*var\(--signal-dim\)/);
+  });
+
+  it("ConfirmDialog .btn nutzt --on-danger statt #fff", () => {
+    const source = readRepoFile("src/ui/components/ConfirmDialog.vue");
+    expect(ruleBlock(source, ".btn")).toContain("color: var(--on-danger)");
+    expect(source).not.toContain("#fff");
+  });
+
+  it("ConfirmDialog .backdrop nutzt --overlay", () => {
+    const block = ruleBlock(readRepoFile("src/ui/components/ConfirmDialog.vue"), ".backdrop");
+    expect(block).toContain("background: var(--overlay)");
+  });
+
+  it("CleanupRow .sc-warn nutzt --warning-text", () => {
+    // FR-3.5: nur der textliteral wird getauscht, fläche und rand bleiben
+    // bis P3 auf --tier-gold.
+    const source = readRepoFile("src/ui/components/CleanupRow.vue");
+    expect(ruleBlock(source, ".sc-warn")).toContain("color: var(--warning-text)");
+    expect(source).not.toContain("#f5d678");
   });
 });
 

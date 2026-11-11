@@ -90,7 +90,7 @@ position: relative;
   display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center;
   border-radius: 50%; font-size: 0.8125rem; font-weight: 600; margin-left: 4px;
   background: color-mix(in srgb, var(--tier-gold) 20%, transparent);
-  color: #f5d678; border: 1px solid color-mix(in srgb, var(--tier-gold) 40%, transparent);
+  color: var(--warning-text); border: 1px solid color-mix(in srgb, var(--tier-gold) 40%, transparent);
 }
 .rpath {
   min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;

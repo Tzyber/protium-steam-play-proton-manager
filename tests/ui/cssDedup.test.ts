@@ -42,7 +42,7 @@ const SHARED = [
   {
     name: ".control (GameDetailDrawer/SelectBox)",
     selectors: [".control"],
-    owners: ["src/ui/components/GameDetailDrawer.vue"],
+    owners: [DRAWER],
   },
   {
     name: ".section-label (GameDetailDrawer/GameFootprintSection)",
