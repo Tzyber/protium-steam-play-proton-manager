@@ -346,3 +346,196 @@ fn find_apps_using_compat_tool_findet_abhaengige_spiele() {
 
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// `find_block` löst die Schlüsselkette in den Tokenstrom auf; `collect_tool_apps`
+/// sammelt daraus die AppIDs eines Tools und trennt die globale
+/// Standard-Zuordnung ("0") von den Spielen.
+#[test]
+fn find_block_und_collect_tool_apps_decken_die_zuordnung_ab() {
+    let text = r#"
+"InstallConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"CompatToolMapping"
+				{
+					"0"
+					{
+						"name"		"proton-cachyos-slr"
+					}
+					"620"
+					{
+						"name"		"GE-Proton9-27"
+						"config"		""
+					}
+					"730"
+					{
+						"name"		"GE-Proton9-27"
+					}
+					"570"
+					{
+						"name"		"proton_experimental"
+					}
+					"999"
+					{
+						"NAME"		"GE-Proton9-27"
+					}
+				}
+			}
+		}
+	}
+}
+"#;
+    let tokens = vdf_patch::tokenize(text).unwrap();
+    let base = crate::commands::steam_layout::COMPAT_TOOL_MAPPING_BASE_PATHS[0];
+    let (from, to) = find_block(&tokens, base)
+        .unwrap()
+        .expect("zuordnungsblock fehlt");
+
+    let mut apps = Vec::new();
+    let mut global = false;
+    collect_tool_apps(
+        &tokens,
+        from,
+        to,
+        &["GE-Proton9-27"],
+        &mut apps,
+        &mut global,
+    )
+    .unwrap();
+    assert_eq!((apps, global), (vec![620, 730, 999], false));
+
+    // die globale Standard-Zuordnung ("0") ist kein Spiel.
+    let mut apps = Vec::new();
+    let mut global = false;
+    collect_tool_apps(
+        &tokens,
+        from,
+        to,
+        &["proton-cachyos-slr"],
+        &mut apps,
+        &mut global,
+    )
+    .unwrap();
+    assert_eq!((apps, global), (Vec::new(), true));
+
+    // kein Tool im Block: nichts gesammelt, kein globaler Default.
+    let mut apps = Vec::new();
+    let mut global = false;
+    collect_tool_apps(
+        &tokens,
+        from,
+        to,
+        &["GE-Proton10-1"],
+        &mut apps,
+        &mut global,
+    )
+    .unwrap();
+    assert_eq!((apps, global), (Vec::new(), false));
+
+    // fehlender Schlüssel und Blatt statt Block sind beide "nicht vorhanden".
+    assert!(find_block(&tokens, &["InstallConfigStore", "Fehlt"])
+        .unwrap()
+        .is_none());
+    let blatt = [
+        "InstallConfigStore",
+        "Software",
+        "Valve",
+        "Steam",
+        "CompatToolMapping",
+        "570",
+        "name",
+    ];
+    assert!(find_block(&tokens, &blatt).unwrap().is_none());
+}
+
+/// Ein Zuordnungsschlüssel aus Ziffern, aber ausserhalb des appId-Bereichs,
+/// bleibt fail-closed statt still übergangen.
+#[test]
+fn collect_tool_apps_meldet_unlesbare_app_id() {
+    let text = "\"CompatToolMapping\" { \"99999999999999999999\" { \"name\" \"GE-Proton9-27\" } }";
+    let tokens = vdf_patch::tokenize(text).unwrap();
+    let (from, to) = find_block(&tokens, &["CompatToolMapping"])
+        .unwrap()
+        .expect("zuordnungsblock fehlt");
+    let error = collect_tool_apps(
+        &tokens,
+        from,
+        to,
+        &["GE-Proton9-27"],
+        &mut Vec::new(),
+        &mut false,
+    )
+    .unwrap_err();
+    assert!(errcode::has_code(&error, errcode::UNREADABLE), "{error}");
+}
+
+/// Der `read_dir`-Eintrag zu `name`; die Helfer nehmen den Eintrag selbst,
+/// damit Symlink-Politik und Fehlertext denselben Pfad sehen wie der Scan.
+#[cfg(target_os = "linux")]
+fn dir_entry(dir: &Path, name: &str) -> std::fs::DirEntry {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap())
+        .find(|entry| entry.file_name().to_string_lossy() == name)
+        .unwrap_or_else(|| panic!("eintrag fehlt: {name}"))
+}
+
+/// `shortcut_ids_for_account` trägt Account-Filter, Symlink-Politik und die
+/// open-/parse-Kette: ein gültiger Account liefert seine IDs, ein leerer
+/// Account und ein fremder Name tragen nichts bei, Symlinks bleiben
+/// fail-closed (auch vor dem Namensfilter).
+#[cfg(target_os = "linux")]
+#[test]
+fn shortcut_ids_for_account_deckt_filter_symlink_und_parse_ab() {
+    let root = wsg_fixture("shortcut-account");
+    let userdata = root.join("userdata");
+    let account = userdata.join("123");
+    std::fs::create_dir_all(account.join("config")).unwrap();
+    std::fs::write(
+        account.join("config/shortcuts.vdf"),
+        make_test_bin_shortcuts(&[42, 43]),
+    )
+    .unwrap();
+    // kein config-verzeichnis: dieser Account trägt nichts bei.
+    std::fs::create_dir_all(userdata.join("456")).unwrap();
+    // kein Account-Name (2.10): wird vor dem open übersprungen.
+    std::fs::create_dir_all(userdata.join("12a")).unwrap();
+    std::os::unix::fs::symlink(&account, userdata.join("789")).unwrap();
+    std::os::unix::fs::symlink(&account, userdata.join("nope")).unwrap();
+
+    let userdata = std::fs::canonicalize(&userdata).unwrap();
+    let userdata_fd = open_bound_root_fd(&userdata, &mut || {}).unwrap();
+    let mut no_hook = |_: DeleteReadStage, _: Option<&mut std::fs::File>| {};
+
+    let ids = shortcut_ids_for_account(&userdata_fd, &dir_entry(&userdata, "123"), &mut no_hook)
+        .unwrap()
+        .expect("account 123 trägt shortcuts");
+    assert!(ids.contains(&42) && ids.contains(&43), "{ids:?}");
+
+    for leer in ["456", "12a"] {
+        assert!(
+            shortcut_ids_for_account(&userdata_fd, &dir_entry(&userdata, leer), &mut no_hook)
+                .unwrap()
+                .is_none(),
+            "{leer} darf nichts beitragen"
+        );
+    }
+
+    for symlink in ["789", "nope"] {
+        let error =
+            shortcut_ids_for_account(&userdata_fd, &dir_entry(&userdata, symlink), &mut no_hook)
+                .unwrap_err();
+        assert!(
+            errcode::has_code(&error, errcode::SYMLINK_REJECTED),
+            "{error}"
+        );
+        assert!(error.contains(symlink), "detail nennt den eintrag: {error}");
+    }
+
+    let _ = std::fs::remove_dir_all(&root);
+}

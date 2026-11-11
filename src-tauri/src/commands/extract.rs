@@ -122,6 +122,73 @@ fn is_archive_metadata(entry_type: tar::EntryType) -> bool {
         || entry_type == tar::EntryType::GNULongLink
 }
 
+/// Link-Ziel eines eintrags; der fehlende Block war für hardlink und symlink
+/// doppelt, deshalb trägt `kind` die meldung.
+fn link_target<R: std::io::Read>(entry: &tar::Entry<'_, R>, kind: &str) -> Result<PathBuf, String> {
+    let target = entry
+        .link_name()
+        .map_err(|error| {
+            errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("read {kind} target: {error}"),
+            )
+        })?
+        .ok_or_else(|| {
+            errcode::with_detail(errcode::INCOMPLETE, format!("{kind} target is missing"))
+        })?;
+    Ok(target.into_owned())
+}
+
+/// Prüft die eintragsart eines archiv-eintrags: regular, verzeichnis-modus
+/// (a-08), link-ziel und die ablehnung fremder arten. Reihenfolge und codes
+/// sind die des ersten durchgangs.
+fn validate_entry_type<R: std::io::Read>(
+    entry: &tar::Entry<'_, R>,
+    entry_type: tar::EntryType,
+    path: &Path,
+) -> Result<(), String> {
+    match entry_type {
+        tar::EntryType::Regular => Ok(()),
+        tar::EntryType::Directory => {
+            // a-08: modus kommt per chmod, nicht über die umask. fehlt
+            // u+rwx (z. b. 0o500), scheitern entpacken und aufräumen und
+            // der `.protium-extract-*`-rest blockiert die nächste
+            // installation. abweisen, die rechte nicht anheben. ein
+            // leeres mode-feld lässt `mode()` scheitern; tar chmodet
+            // dann nicht, mkdir behält u+rwx.
+            match entry.header().mode() {
+                Ok(mode) if mode & 0o700 != 0o700 => Err(errcode::with_detail(
+                    errcode::INCOMPLETE,
+                    format!("directory mode lacks 0o700: {}", path.display()),
+                )),
+                _ => Ok(()),
+            }
+        }
+        tar::EntryType::Link => validate_link_target(
+            Path::new(""),
+            path,
+            &link_target(entry, "hardlink")?,
+            "hardlink",
+        ),
+        tar::EntryType::Symlink => {
+            validate_link_target(
+                path.parent().unwrap_or(Path::new("")),
+                path,
+                &link_target(entry, "symlink")?,
+                "symlink",
+            )?;
+            if path.components().count() == 1 {
+                return Err(errcode::SYMLINK_REJECTED.into());
+            }
+            Ok(())
+        }
+        _ => Err(errcode::with_detail(
+            errcode::INCOMPLETE,
+            format!("archive contains unsupported entry type: {entry_type:?}"),
+        )),
+    }
+}
+
 /// a-09: `link_target_stays_inside` ist lexikalisch und sieht die kette
 /// `a/l -> ..`, `m -> a/l/..` nicht. nach dem entpacken muss jedes aufgelöste
 /// ziel unter `root` (`<temp>/<tag>`) bleiben, sonst abbruch.
@@ -274,69 +341,7 @@ fn validate_archive_entries(
                 root_seen = true;
             }
 
-            match entry_type {
-                tar::EntryType::Regular => {}
-                tar::EntryType::Directory => {
-                    // a-08: modus kommt per chmod, nicht über die umask. fehlt
-                    // u+rwx (z. b. 0o500), scheitern entpacken und aufräumen und
-                    // der `.protium-extract-*`-rest blockiert die nächste
-                    // installation. abweisen, die rechte nicht anheben. ein
-                    // leeres mode-feld lässt `mode()` scheitern; tar chmodet
-                    // dann nicht, mkdir behält u+rwx.
-                    if let Ok(mode) = entry.header().mode() {
-                        if mode & 0o700 != 0o700 {
-                            return Err(errcode::with_detail(
-                                errcode::INCOMPLETE,
-                                format!("directory mode lacks 0o700: {}", path.display()),
-                            ));
-                        }
-                    }
-                }
-                tar::EntryType::Link => {
-                    let target = entry
-                        .link_name()
-                        .map_err(|error| {
-                            errcode::with_detail(
-                                errcode::code_for_io(&error),
-                                format!("read hardlink target: {error}"),
-                            )
-                        })?
-                        .ok_or_else(|| {
-                            errcode::with_detail(errcode::INCOMPLETE, "hardlink target is missing")
-                        })?
-                        .into_owned();
-                    validate_link_target(Path::new(""), &path, &target, "hardlink")?;
-                }
-                tar::EntryType::Symlink => {
-                    let target = entry
-                        .link_name()
-                        .map_err(|error| {
-                            errcode::with_detail(
-                                errcode::code_for_io(&error),
-                                format!("read symlink target: {error}"),
-                            )
-                        })?
-                        .ok_or_else(|| {
-                            errcode::with_detail(errcode::INCOMPLETE, "symlink target is missing")
-                        })?
-                        .into_owned();
-                    validate_link_target(
-                        path.parent().unwrap_or(Path::new("")),
-                        &path,
-                        &target,
-                        "symlink",
-                    )?;
-                    if path.components().count() == 1 {
-                        return Err(errcode::SYMLINK_REJECTED.into());
-                    }
-                }
-                _ => {
-                    return Err(errcode::with_detail(
-                        errcode::INCOMPLETE,
-                        format!("archive contains unsupported entry type: {entry_type:?}"),
-                    ));
-                }
-            }
+            validate_entry_type(&entry, entry_type, &path)?;
 
             // header().size() ignoriert die pax-größe, entry.size() nicht.
             total = total.checked_add(entry.size()).ok_or_else(|| {

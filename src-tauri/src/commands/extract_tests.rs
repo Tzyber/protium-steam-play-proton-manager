@@ -1,6 +1,7 @@
 use super::{
     check_unpack_fits, extract_archive_into_bound_parent, extract_blocking_with_tag,
-    extract_blocking_with_tag_with_hook, validate_archive_entries,
+    extract_blocking_with_tag_with_hook, link_target, validate_archive_entries,
+    validate_entry_type,
 };
 use crate::commands::download::CancelSignal;
 use crate::commands::errcode;
@@ -638,6 +639,127 @@ fn erster_durchgang_meldet_leeres_linkziel_mit_code() {
         assert!(errcode::has_code(&error, errcode::INCOMPLETE), "{error}");
         let _ = fs::remove_dir_all(source.parent().unwrap());
     }
+}
+
+// ---- helfer: link-ziel und eintragsart ----
+
+/// Baut einen tar-strom mit genau einem eintrag und gibt ihn an `run`.
+fn with_entry<R>(
+    header: &tar::Header,
+    run: impl FnOnce(&tar::Entry<'_, std::io::Cursor<&[u8]>>) -> R,
+) -> R {
+    let mut bytes = Vec::new();
+    {
+        let mut builder = tar::Builder::new(&mut bytes);
+        builder.append(header, std::io::empty()).unwrap();
+        builder.finish().unwrap();
+    }
+    let mut archive = tar::Archive::new(std::io::Cursor::new(bytes.as_slice()));
+    let mut entries = archive.entries().unwrap();
+    let entry = entries.next().unwrap().unwrap();
+    run(&entry)
+}
+
+/// A-02/A-04: `link_target` liefert das ziel eines link-eintrags und meldet
+/// ein fehlendes ziel mit `incomplete` statt mit einem rohfehler.
+#[test]
+fn link_target_liefert_ziel_und_meldet_fehlendes_ziel() {
+    let mut link = tar::Header::new_gnu();
+    link.set_path("GE-Proton11-5-x86_64/lib/libfoo.so").unwrap();
+    link.set_entry_type(tar::EntryType::Symlink);
+    link.set_link_name("libfoo.so.1").unwrap();
+    link.set_size(0);
+    link.set_cksum();
+    let target = with_entry(&link, |entry| link_target(entry, "symlink").unwrap());
+    assert_eq!(target, PathBuf::from("libfoo.so.1"));
+
+    let mut ohne_ziel = tar::Header::new_gnu();
+    ohne_ziel.set_path("GE-Proton11-5-x86_64/leer.lnk").unwrap();
+    ohne_ziel.set_entry_type(tar::EntryType::Link);
+    ohne_ziel.set_size(0);
+    ohne_ziel.set_cksum();
+    let error = with_entry(&ohne_ziel, |entry| {
+        link_target(entry, "hardlink").unwrap_err()
+    });
+    assert!(errcode::has_code(&error, errcode::INCOMPLETE), "{error}");
+    assert!(error.contains("hardlink target is missing"), "{error}");
+}
+
+/// Die vier prüfungen des ersten durchgangs liegen in `validate_entry_type`:
+/// eintragsart, verzeichnis-modus und link-ziel; codes und reihenfolge bleiben.
+#[test]
+fn validate_entry_type_prueft_art_modus_und_link() {
+    let mut regular = tar::Header::new_gnu();
+    regular.set_path("GE-Proton11-5-x86_64/version").unwrap();
+    regular.set_size(3);
+    regular.set_cksum();
+    assert!(with_entry(&regular, |entry| validate_entry_type(
+        entry,
+        tar::EntryType::Regular,
+        Path::new("GE-Proton11-5-x86_64/version")
+    ))
+    .is_ok());
+
+    // ein symlink innerhalb des baums bleibt erlaubt.
+    let mut intern = tar::Header::new_gnu();
+    intern.set_path("GE-Proton11-5-x86_64/bin/link").unwrap();
+    intern.set_entry_type(tar::EntryType::Symlink);
+    intern.set_link_name("../lib/libfoo.so").unwrap();
+    intern.set_size(0);
+    intern.set_cksum();
+    assert!(with_entry(&intern, |entry| validate_entry_type(
+        entry,
+        tar::EntryType::Symlink,
+        Path::new("GE-Proton11-5-x86_64/bin/link")
+    ))
+    .is_ok());
+
+    let dir = directory_header_with_mode("GE-Proton11-5-x86_64/lib", 0o500);
+    let error = with_entry(&dir, |entry| {
+        validate_entry_type(
+            entry,
+            tar::EntryType::Directory,
+            Path::new("GE-Proton11-5-x86_64/lib"),
+        )
+    })
+    .unwrap_err();
+    assert!(errcode::has_code(&error, errcode::INCOMPLETE), "{error}");
+    assert!(error.contains("directory mode lacks 0o700"), "{error}");
+
+    let mut top = tar::Header::new_gnu();
+    top.set_path("GE-Proton11-5-x86_64").unwrap();
+    top.set_entry_type(tar::EntryType::Symlink);
+    top.set_link_name("lib").unwrap();
+    top.set_size(0);
+    top.set_cksum();
+    let error = with_entry(&top, |entry| {
+        validate_entry_type(
+            entry,
+            tar::EntryType::Symlink,
+            Path::new("GE-Proton11-5-x86_64"),
+        )
+    })
+    .unwrap_err();
+    assert!(
+        errcode::has_code(&error, errcode::SYMLINK_REJECTED),
+        "{error}"
+    );
+
+    let mut fifo = tar::Header::new_gnu();
+    fifo.set_path("GE-Proton11-5-x86_64/fifo").unwrap();
+    fifo.set_entry_type(tar::EntryType::Fifo);
+    fifo.set_size(0);
+    fifo.set_cksum();
+    let error = with_entry(&fifo, |entry| {
+        validate_entry_type(
+            entry,
+            tar::EntryType::Fifo,
+            Path::new("GE-Proton11-5-x86_64/fifo"),
+        )
+    })
+    .unwrap_err();
+    assert!(errcode::has_code(&error, errcode::INCOMPLETE), "{error}");
+    assert!(error.contains("unsupported entry type"), "{error}");
 }
 
 /// A-04/8, pin: ein kaputter eintragskopf wird als codiertes `unreadable`

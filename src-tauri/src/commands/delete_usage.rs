@@ -222,6 +222,100 @@ fn is_account_dir_name(name: &str) -> bool {
     crate::commands::scope::is_ascii_digits(name)
 }
 
+/// Liest die Shortcut-AppIDs eines `userdata`-Eintrags: Symlink-Politik,
+/// Account-Filter und die open-/parse-Kette von `config/shortcuts.vdf`.
+/// `Ok(None)` heisst "dieser Eintrag trägt nichts bei" (kein Verzeichnis, kein
+/// Account-Name, kein `config`, keine `shortcuts.vdf`); alles andere bleibt
+/// fail-closed.
+#[cfg(target_os = "linux")]
+fn shortcut_ids_for_account<F>(
+    userdata_fd: &OwnedFd,
+    entry: &fs::DirEntry,
+    hook: &mut F,
+) -> Result<Option<HashSet<u32>>, String>
+where
+    F: FnMut(DeleteReadStage, Option<&mut std::fs::File>),
+{
+    let entry_type = entry.file_type().map_err(|error| {
+        errcode::with_detail(
+            errcode::code_for_io(&error),
+            format!("cannot inspect userdata entry: {error}"),
+        )
+    })?;
+    if entry_type.is_symlink() {
+        return Err(errcode::with_detail(
+            errcode::SYMLINK_REJECTED,
+            format!("userdata entry {} is a symlink", entry.path().display()),
+        ));
+    }
+    if !entry_type.is_dir() {
+        return Ok(None);
+    }
+
+    let name = entry.file_name();
+    let name_str = name.to_string_lossy();
+    if !is_account_dir_name(&name_str) {
+        return Ok(None);
+    }
+    let account_fd = match open_dir_at(userdata_fd.as_raw_fd(), &name) {
+        Ok(fd) => fd,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot open userdata account: {error}"),
+            ))
+        }
+    };
+    let config_fd = match open_dir_at(account_fd.as_raw_fd(), OsStr::new("config")) {
+        Ok(fd) => fd,
+        // fehlendes account/config bedeutet, dass dieser account keine
+        // shortcuts beitragen kann.
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot open userdata config: {error}"),
+            ))
+        }
+    };
+
+    hook(DeleteReadStage::ShortcutsBeforeOpen, None);
+    let mut shortcuts = match open_file_at(config_fd.as_raw_fd(), OsStr::new("shortcuts.vdf")) {
+        Ok(file) => file,
+        // fehlende shortcuts.vdf bleibt ein skip wie im bisherigen Pfad.
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(errcode::with_detail(
+                errcode::code_for_io(&error),
+                format!("cannot open shortcuts.vdf: {error}"),
+            ))
+        }
+    };
+    hook(DeleteReadStage::ShortcutsAfterOpen, Some(&mut shortcuts));
+    let bytes = read_fd_bytes_with_hook(
+        &mut shortcuts,
+        "shortcuts.vdf",
+        MAX_SHORTCUTS_VDF_BYTES,
+        hook,
+        DeleteReadStage::ShortcutsBeforeRead,
+    )
+    .map_err(|error| {
+        if errcode::has_code(&error, errcode::SIZE_LIMIT) {
+            errcode::with_detail(errcode::SIZE_LIMIT, "shortcuts.vdf")
+        } else {
+            errcode::with_detail(errcode::UNREADABLE, format!("shortcuts.vdf: {error}"))
+        }
+    })?;
+    let ids = parse_binary_shortcut_ids(&bytes).map_err(|error| {
+        errcode::with_detail(
+            errcode::UNREADABLE,
+            format!("failed to parse shortcuts.vdf: {error}"),
+        )
+    })?;
+    Ok(Some(ids))
+}
+
 #[cfg(target_os = "linux")]
 pub(super) fn read_all_shortcut_app_ids_linux_with_hook<F>(
     steam_root_fd: &OwnedFd,
@@ -257,84 +351,9 @@ where
                 format!("cannot read userdata entry: {error}"),
             )
         })?;
-        let entry_type = entry.file_type().map_err(|error| {
-            errcode::with_detail(
-                errcode::code_for_io(&error),
-                format!("cannot inspect userdata entry: {error}"),
-            )
-        })?;
-        if entry_type.is_symlink() {
-            return Err(errcode::with_detail(
-                errcode::SYMLINK_REJECTED,
-                format!("userdata entry {} is a symlink", entry.path().display()),
-            ));
+        if let Some(ids) = shortcut_ids_for_account(&userdata_fd, &entry, hook)? {
+            all_ids.extend(ids);
         }
-        if !entry_type.is_dir() {
-            continue;
-        }
-
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-        if !is_account_dir_name(&name_str) {
-            continue;
-        }
-        let account_fd = match open_dir_at(userdata_fd.as_raw_fd(), &name) {
-            Ok(fd) => fd,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => {
-                return Err(errcode::with_detail(
-                    errcode::code_for_io(&error),
-                    format!("cannot open userdata account: {error}"),
-                ))
-            }
-        };
-        let config_fd = match open_dir_at(account_fd.as_raw_fd(), OsStr::new("config")) {
-            Ok(fd) => fd,
-            // fehlendes account/config bedeutet, dass dieser account keine
-            // shortcuts beitragen kann.
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => {
-                return Err(errcode::with_detail(
-                    errcode::code_for_io(&error),
-                    format!("cannot open userdata config: {error}"),
-                ))
-            }
-        };
-
-        hook(DeleteReadStage::ShortcutsBeforeOpen, None);
-        let mut shortcuts = match open_file_at(config_fd.as_raw_fd(), OsStr::new("shortcuts.vdf")) {
-            Ok(file) => file,
-            // fehlende shortcuts.vdf bleibt ein skip wie im bisherigen Pfad.
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => {
-                return Err(errcode::with_detail(
-                    errcode::code_for_io(&error),
-                    format!("cannot open shortcuts.vdf: {error}"),
-                ))
-            }
-        };
-        hook(DeleteReadStage::ShortcutsAfterOpen, Some(&mut shortcuts));
-        let bytes = read_fd_bytes_with_hook(
-            &mut shortcuts,
-            "shortcuts.vdf",
-            MAX_SHORTCUTS_VDF_BYTES,
-            hook,
-            DeleteReadStage::ShortcutsBeforeRead,
-        )
-        .map_err(|error| {
-            if errcode::has_code(&error, errcode::SIZE_LIMIT) {
-                errcode::with_detail(errcode::SIZE_LIMIT, "shortcuts.vdf")
-            } else {
-                errcode::with_detail(errcode::UNREADABLE, format!("shortcuts.vdf: {error}"))
-            }
-        })?;
-        let ids = parse_binary_shortcut_ids(&bytes).map_err(|error| {
-            errcode::with_detail(
-                errcode::UNREADABLE,
-                format!("failed to parse shortcuts.vdf: {error}"),
-            )
-        })?;
-        all_ids.extend(ids);
     }
 
     Ok(all_ids)
@@ -364,6 +383,78 @@ fn find_apps_using_compat_tool(
         let _ = (steam_root, tool_name);
         Err(delete_inspection_unsupported())
     }
+}
+
+/// Löst eine Schlüsselkette (`base`) im Tokenstrom bis zu ihrem Block auf.
+/// `None` heisst "fehlt" oder "endet auf einem Blatt"; für den Aufrufer ist
+/// beides dasselbe: dieser Pfad trägt keine Zuordnungen.
+#[cfg(target_os = "linux")]
+fn find_block(
+    tokens: &[vdf_patch::Token],
+    base: &[&str],
+) -> Result<Option<(usize, usize)>, String> {
+    let (mut from, mut to) = (0, tokens.len());
+    for key in base {
+        let Some(entry) = vdf_patch::find_entry(tokens, from, to, key)? else {
+            return Ok(None);
+        };
+        let Some((sub_from, sub_to)) = entry.block else {
+            return Ok(None);
+        };
+        (from, to) = (sub_from, sub_to);
+    }
+    Ok(Some((from, to)))
+}
+
+/// Sammelt die AppIDs eines Zuordnungsblocks, deren `name` in `tool_names`
+/// liegt. `"0"` ist Steams globale Standard-Zuordnung, kein Spiel: sie landet
+/// nicht in `affected_apps`, sondern setzt `global_default`.
+#[cfg(target_os = "linux")]
+fn collect_tool_apps(
+    tokens: &[vdf_patch::Token],
+    from: usize,
+    to: usize,
+    tool_names: &[&str],
+    affected_apps: &mut Vec<u32>,
+    global_default: &mut bool,
+) -> Result<(), String> {
+    for app_entry in vdf_patch::scan_entries(tokens, from, to)? {
+        let vdf_patch::TokenKind::String(app_key) = &app_entry.key.kind else {
+            continue;
+        };
+        if !crate::commands::scope::is_ascii_digits(app_key) {
+            continue;
+        }
+        // appId 0 ist steams globale standard-zuordnung, kein spiel: sie wird
+        // als eigene folge gemeldet.
+        let app_id = if app_key == "0" {
+            None
+        } else {
+            Some(crate::commands::scope::parse_app_id(app_key)?)
+        };
+        let Some((sub_from, sub_to)) = app_entry.block else {
+            continue;
+        };
+        for sub in vdf_patch::scan_entries(tokens, sub_from, sub_to)? {
+            let vdf_patch::TokenKind::String(sub_key) = &sub.key.kind else {
+                continue;
+            };
+            if !sub_key.eq_ignore_ascii_case("name") {
+                continue;
+            }
+            let vdf_patch::TokenKind::String(tool) = &sub.value.kind else {
+                continue;
+            };
+            if !tool_names.contains(&tool.as_str()) {
+                continue;
+            }
+            match app_id {
+                Some(id) => affected_apps.push(id),
+                None => *global_default = true,
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
@@ -409,67 +500,18 @@ where
     let tokens = vdf_patch::tokenize(&content)
         .map_err(|error| errcode::with_context("cannot tokenize config.vdf", &error))?;
 
-    let base_paths = steam_layout::COMPAT_TOOL_MAPPING_BASE_PATHS;
-
     let mut affected_apps = Vec::new();
     let mut global_default = false;
-
-    for base in base_paths {
-        let mut curr_from = 0;
-        let mut curr_to = tokens.len();
-        let mut found = true;
-
-        for key in base {
-            match vdf_patch::find_entry(&tokens, curr_from, curr_to, key)? {
-                Some(e) => {
-                    if let Some((sub_from, sub_to)) = e.block {
-                        curr_from = sub_from;
-                        curr_to = sub_to;
-                    } else {
-                        found = false;
-                        break;
-                    }
-                }
-                None => {
-                    found = false;
-                    break;
-                }
-            }
-        }
-
-        if found {
-            let mapping_entries = vdf_patch::scan_entries(&tokens, curr_from, curr_to)?;
-            for app_entry in mapping_entries {
-                if let vdf_patch::TokenKind::String(app_key) = &app_entry.key.kind {
-                    if crate::commands::scope::is_ascii_digits(app_key) {
-                        // appId 0 ist steams globale standard-zuordnung, kein
-                        // spiel: sie wird als eigene folge gemeldet.
-                        let app_id = if app_key == "0" {
-                            None
-                        } else {
-                            Some(crate::commands::scope::parse_app_id(app_key)?)
-                        };
-                        if let Some((sub_from, sub_to)) = app_entry.block {
-                            let sub_entries = vdf_patch::scan_entries(&tokens, sub_from, sub_to)?;
-                            for sub in sub_entries {
-                                if let vdf_patch::TokenKind::String(sub_k) = &sub.key.kind {
-                                    if sub_k.eq_ignore_ascii_case("name") {
-                                        if let vdf_patch::TokenKind::String(tool) = &sub.value.kind
-                                        {
-                                            if tool_names.contains(&tool.as_str()) {
-                                                match app_id {
-                                                    Some(id) => affected_apps.push(id),
-                                                    None => global_default = true,
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+    for base in steam_layout::COMPAT_TOOL_MAPPING_BASE_PATHS {
+        if let Some((from, to)) = find_block(&tokens, base)? {
+            collect_tool_apps(
+                &tokens,
+                from,
+                to,
+                tool_names,
+                &mut affected_apps,
+                &mut global_default,
+            )?;
         }
     }
 
