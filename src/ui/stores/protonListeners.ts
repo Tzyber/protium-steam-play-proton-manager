@@ -34,7 +34,7 @@ const disposeHooks = new WeakSet<object>();
 
 /** genau die Store-teile, die der Listener-Lebenszyklus über `store.` nutzt
  *  (kein `ReturnType<typeof useProtonStore>`: das erzeugt einen zirkulären Typ). */
-export interface ProtonListenerStore {
+interface ProtonListenerStore {
   releases: GeRelease[];
   jobs: Record<string, Job>;
   activeTag: string | null;

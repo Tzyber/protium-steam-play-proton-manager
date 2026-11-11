@@ -30,7 +30,7 @@ import { useScanStore } from "./scanStore";
 /** genau die Store-teile, die diese beiden Actions über `store.` nutzen.
  *  Bewusst kein `ReturnType<typeof useCleanupStore>`: das erzeugt einen
  *  zirkulären Typ (TS7022), weil cleanupStore diese Datei importiert. */
-export interface TrashStore {
+interface TrashStore {
   trash: TrashEntry[];
   trashUnknown: string[];
   trashLibraries: TrashLibraryStatus[];

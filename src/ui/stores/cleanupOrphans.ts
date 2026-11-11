@@ -39,7 +39,7 @@ import { useScanStore } from "./scanStore";
 
 /** genau die Store-teile, die diese Actions über `store.` nutzen (kein
  *  `ReturnType<typeof useCleanupStore>`: das erzeugt einen zirkulären Typ). */
-export interface OrphanStore {
+interface OrphanStore {
   orphans: OrphanEntry[];
   /** compatdata/shadercache-Verzeichnisse, deren Inhalt nicht gelesen werden
    *  konnte – typ-genau. Eine leere Orphan-Liste ist mit diesem Zustand kein

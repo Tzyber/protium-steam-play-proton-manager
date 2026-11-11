@@ -11,7 +11,7 @@ import type { ExplainTopic } from "./explain";
 import { t } from "./i18n";
 import type { ScanStatus } from "./stores/scanStore";
 
-export function launchHintText(hint: LaunchHint): string {
+function launchHintText(hint: LaunchHint): string {
   switch (hint) {
     case "gamemode-missing-command":
       return t("drawer.launchHintGamemodeMissingCommand");
