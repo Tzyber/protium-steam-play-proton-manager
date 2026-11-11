@@ -85,24 +85,20 @@ fn is_steam_config_path(file: &Path, steam_root: &Path) -> bool {
         && comps[2].as_os_str() == "localconfig.vdf"
 }
 
-/// Bindet den angeforderten Steam-Root an den schon kanonischen Snapshot-Root,
-/// wie `delete_ops::ensure_current_steam_root`. Der gespeicherte Root wird
-/// nicht noch einmal aufgelöst: sonst folgt das Gate einem Symlink, der den
-/// Snapshot-Ordner nach der Discovery ersetzt hat.
+/// Bindet den angeforderten Steam-Root an den schon kanonischen Snapshot-Root
+/// (FR-3): der eine Vergleich für Write-Gate und Delete-Pfad. Der gespeicherte
+/// Root wird nicht noch einmal aufgelöst: sonst folgt die Bindung einem
+/// Symlink, der den Snapshot-Ordner nach der Discovery ersetzt hat.
 ///
-/// Bewusste Divergenz zu `delete_ops`: dort bildet `code_for_io` den
-/// canonicalize-fehler ab (ENOTDIR ist `unreadable`), hier bleibt er pauschal
-/// `not-found` (FR-2, benanntes Restrisiko).
-pub(super) fn canonical_allowed_steam_root(
+/// Nur die Abbildung des canonicalize-fehlers ist caller-spezifisch: das
+/// Write-Gate meldet pauschal `not-found` (FR-3, benanntes Restrisiko),
+/// `delete_ops` folgt der io-Regel (`code_for_io`).
+pub(super) fn bind_steam_root(
     steam_root: &str,
     allowed_steam_root: &Path,
+    io_error: impl FnOnce(std::io::Error) -> String,
 ) -> Result<PathBuf, String> {
-    let root = fs::canonicalize(steam_root).map_err(|error| {
-        errcode::with_detail(
-            errcode::NOT_FOUND,
-            format!("steam root canonicalize: {error}"),
-        )
-    })?;
+    let root = fs::canonicalize(steam_root).map_err(io_error)?;
     if root != allowed_steam_root {
         return Err(errcode::with_detail(
             errcode::BLOCKED_LOCATION,
@@ -110,6 +106,20 @@ pub(super) fn canonical_allowed_steam_root(
         ));
     }
     Ok(root)
+}
+
+/// Write-Gate-Fassung von `bind_steam_root`: der Prolog braucht den kanonischen
+/// Root als Rückgabe, die Ablehnung bleibt pauschal `not-found`.
+pub(super) fn canonical_allowed_steam_root(
+    steam_root: &str,
+    allowed_steam_root: &Path,
+) -> Result<PathBuf, String> {
+    bind_steam_root(steam_root, allowed_steam_root, |error| {
+        errcode::with_detail(
+            errcode::NOT_FOUND,
+            format!("steam root canonicalize: {error}"),
+        )
+    })
 }
 
 /// Öffnet das Backup-Ziel exklusiv und symlinkfrei entlang gebundener

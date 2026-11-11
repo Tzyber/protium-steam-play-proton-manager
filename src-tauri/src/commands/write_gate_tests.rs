@@ -633,6 +633,87 @@ fn write_lock_blockiert_bis_der_guard_faellt() {
 }
 
 #[test]
+fn root_bindung_liegt_in_einem_helper_und_wird_von_beiden_pfaden_genutzt() {
+    // FR-3: eine Bindung des angeforderten Roots an den Snapshot-Root. Der
+    // Helper lebt im Write-Gate, der Delete-Pfad ruft ihn; nur die Abbildung
+    // des canonicalize-fehlers bleibt aufrufer-spezifisch.
+    let gate = production_source(include_str!("write_gate.rs"));
+    let deletes = production_source(include_str!("delete_ops.rs"));
+    let zusammen = [gate, deletes].concat();
+
+    assert_eq!(
+        gate.matches("fn bind_steam_root(").count(),
+        1,
+        "der Root-Bindungshelper muss genau einmal existieren"
+    );
+    assert_eq!(
+        gate.matches("bind_steam_root(steam_root, allowed_steam_root")
+            .count(),
+        1,
+        "canonical_allowed_steam_root muss den Helper nutzen"
+    );
+    assert_eq!(
+        deletes.matches("bind_steam_root(").count(),
+        1,
+        "ensure_current_steam_root muss denselben Helper nutzen"
+    );
+    assert_eq!(
+        zusammen.matches("fs::canonicalize(steam_root)").count(),
+        1,
+        "der angeforderte Root darf genau einmal aufgelöst werden"
+    );
+    assert_eq!(
+        zusammen
+            .matches("\"steam root is not the current environment root\"")
+            .count(),
+        1,
+        "der Root-Vergleich darf nur einmal im Produktionscode stehen"
+    );
+    // caller-spezifischer io-code: pauschal `not-found` im Write-Gate, die
+    // io-Regel (`code_for_io`) im Delete-Pfad.
+    assert!(
+        gate.contains("errcode::NOT_FOUND"),
+        "das Write-Gate meldet einen nicht auflösbaren Root als not-found"
+    );
+    assert!(
+        deletes.contains("errcode::code_for_io(&error)"),
+        "der Delete-Pfad behält die io-Regel als Code"
+    );
+}
+
+#[test]
+fn canonical_allowed_steam_root_bindet_den_snapshot_root_und_lehnt_fremde_ab() {
+    let root = wsg_fixture("root-bind-codes");
+    std::fs::create_dir_all(root.join("steam")).unwrap();
+    let allowed = std::fs::canonicalize(root.join("steam")).unwrap();
+
+    // der Snapshot-Root selbst bindet (kanonische Rückgabe)
+    assert_eq!(
+        canonical_allowed_steam_root(allowed.to_str().unwrap(), &allowed).unwrap(),
+        allowed
+    );
+    // ein fremder, existierender Root trägt genau den einen Vergleich
+    let fremd = root.join("fremd");
+    std::fs::create_dir_all(&fremd).unwrap();
+    let error = canonical_allowed_steam_root(fremd.to_str().unwrap(), &allowed).unwrap_err();
+    assert!(
+        errcode::has_code(&error, errcode::BLOCKED_LOCATION)
+            && error.contains("not the current environment root"),
+        "unexpected error: {error}"
+    );
+    // ENOTDIR: das Write-Gate meldet pauschal not-found (Restrisiko, FR-3)
+    let blocker = root.join("blocker");
+    std::fs::write(&blocker, b"x").unwrap();
+    let error =
+        canonical_allowed_steam_root(blocker.join("sub").to_str().unwrap(), &allowed).unwrap_err();
+    assert!(
+        errcode::has_code(&error, errcode::NOT_FOUND),
+        "unexpected error: {error}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn backup_stempel_steigen_streng_auch_in_derselben_millisekunde() {
     let stamps: Vec<u128> = (0..64).map(|_| next_backup_timestamp()).collect();
     assert!(

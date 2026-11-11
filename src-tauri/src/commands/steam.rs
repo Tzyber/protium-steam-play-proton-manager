@@ -2,7 +2,7 @@
 // (write_gate.rs) sowie die Backup-Liste.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use tauri::Manager;
 
@@ -33,6 +33,82 @@ pub enum WriteResult {
     Unchanged,
 }
 
+/// Der gemeinsame Prolog beider Steam-Schreibpfade (FR-1, 1.9/6.3): Pfad-
+/// prüfung, optionale Account-Prüfung, App-ID, Eingabegröße, Prozess-Vorprüfung,
+/// Root-Bindung, Ziel-Kanonisierung und Write-Gate laufen in genau dieser
+/// Reihenfolge. `target` baut der Aufrufer aus `allowed_steam_root`;
+/// `canonical_allowed_steam_root` belegt, dass der gebundene Root genau dieser
+/// kanonische Snapshot-Root ist. Die Patch-Closure bekommt das kanonisierte
+/// Ziel, damit `save_compat_tool` seine Tool-Autorität daran bindet.
+pub(super) struct GuardedWriteRequest<'a, F, P>
+where
+    F: FnMut() -> Result<bool, String>,
+    P: FnOnce(&Path, &str) -> Result<Option<String>, String>,
+{
+    pub(super) steam_root: &'a str,
+    pub(super) allowed_steam_root: &'a Path,
+    pub(super) backup_dir: &'a Path,
+    /// `None`: dieser Pfad hat keinen Account (Compat-Tool).
+    pub(super) account_id: Option<&'a str>,
+    pub(super) app_id: u32,
+    pub(super) value: &'a str,
+    pub(super) value_label: &'a str,
+    pub(super) target: PathBuf,
+    pub(super) backup_name: Box<dyn Fn(u128) -> String + 'a>,
+    pub(super) process_reader: &'a mut F,
+    pub(super) patch: P,
+}
+
+pub(super) fn run_guarded_write<F, P>(
+    request: GuardedWriteRequest<'_, F, P>,
+) -> Result<WriteResult, String>
+where
+    F: FnMut() -> Result<bool, String>,
+    P: FnOnce(&Path, &str) -> Result<Option<String>, String>,
+{
+    let GuardedWriteRequest {
+        steam_root,
+        allowed_steam_root,
+        backup_dir,
+        account_id,
+        app_id,
+        value,
+        value_label,
+        target,
+        backup_name,
+        process_reader,
+        patch,
+    } = request;
+    sanitize_path(steam_root, "steam root")?;
+    // Der Account-Check gilt nur für den Launch-Pfad; `None` heißt: dieser
+    // Pfad hat keinen Account (FR-1).
+    let is_invalid_account = |id: &str| id.parse::<u64>().map_or(true, |value| value == 0);
+    if account_id.is_some_and(is_invalid_account) {
+        return Err(errcode::INVALID_ACCOUNT_ID.into());
+    }
+    crate::commands::scope::parse_app_id(&app_id.to_string())
+        .map_err(|error| errcode::with_detail(errcode::INVALID_APPID, error))?;
+    ensure_size(value, MAX_PATCH_VALUE_BYTES, value_label)?;
+    if process_reader()? {
+        return Err(errcode::STEAM_RUNNING.into());
+    }
+    let root = canonical_allowed_steam_root(steam_root, allowed_steam_root)?;
+    let canon = fs::canonicalize(&target).map_err(|e| {
+        errcode::with_detail(
+            errcode::NOT_FOUND,
+            format!("write target canonicalize: {e}"),
+        )
+    })?;
+    apply_write_gate(
+        &canon,
+        &root,
+        backup_dir,
+        backup_name,
+        process_reader,
+        |original| patch(&canon, original),
+    )
+}
+
 pub(super) fn save_launch_options_inner<F>(
     steam_root: &str,
     account_id: &str,
@@ -45,32 +121,19 @@ pub(super) fn save_launch_options_inner<F>(
 where
     F: FnMut() -> Result<bool, String>,
 {
-    sanitize_path(steam_root, "steam root")?;
-    if account_id.parse::<u64>().map_or(true, |value| value == 0) {
-        return Err(errcode::INVALID_ACCOUNT_ID.into());
-    }
-    crate::commands::scope::parse_app_id(&app_id.to_string())
-        .map_err(|error| errcode::with_detail(errcode::INVALID_APPID, error))?;
-    ensure_size(launch_options, MAX_PATCH_VALUE_BYTES, "launch options")?;
-    if process_reader()? {
-        return Err(errcode::STEAM_RUNNING.into());
-    }
-    let root = canonical_allowed_steam_root(steam_root, allowed_steam_root)?;
-    let target = steam_layout::localconfig_vdf(&root, account_id);
-    let canon = fs::canonicalize(&target).map_err(|e| {
-        errcode::with_detail(
-            errcode::NOT_FOUND,
-            format!("write target canonicalize: {e}"),
-        )
-    })?;
     let app_id_str = app_id.to_string();
-    apply_write_gate(
-        &canon,
-        &root,
+    run_guarded_write(GuardedWriteRequest {
+        steam_root,
+        allowed_steam_root,
         backup_dir,
-        |timestamp| format!("localconfig-{account_id}-{timestamp}.vdf"),
+        account_id: Some(account_id),
+        app_id,
+        value: launch_options,
+        value_label: "launch options",
+        target: steam_layout::localconfig_vdf(allowed_steam_root, account_id),
+        backup_name: Box::new(move |timestamp| format!("localconfig-{account_id}-{timestamp}.vdf")),
         process_reader,
-        |original| {
+        patch: |_canon: &Path, original: &str| {
             let path = [
                 "UserLocalConfigStore",
                 "Software",
@@ -97,7 +160,7 @@ where
                 launch_options,
             )?))
         },
-    )
+    })
 }
 
 pub(super) fn save_compat_tool_inner<F>(
@@ -111,43 +174,30 @@ pub(super) fn save_compat_tool_inner<F>(
 where
     F: FnMut() -> Result<bool, String>,
 {
-    sanitize_path(steam_root, "steam root")?;
-    crate::commands::scope::parse_app_id(&app_id.to_string())
-        .map_err(|error| errcode::with_detail(errcode::INVALID_APPID, error))?;
-    ensure_size(
-        tool_name.unwrap_or_default(),
-        MAX_PATCH_VALUE_BYTES,
-        "compat tool name",
-    )?;
-    if process_reader()? {
-        return Err(errcode::STEAM_RUNNING.into());
-    }
-    let root = canonical_allowed_steam_root(steam_root, allowed_steam_root)?;
-    let target = steam_layout::config_vdf(&root);
-    let canon = fs::canonicalize(&target).map_err(|e| {
-        errcode::with_detail(
-            errcode::NOT_FOUND,
-            format!("write target canonicalize: {e}"),
-        )
-    })?;
-    // INV-7: die tool-autorität wird am schreibziel gebunden, nicht am
-    // übergebenen root. ein präpariertes root mit eigenem compatibilitytools.d
-    // und einem config-symlink aufs echte verzeichnis würde sonst beliebige
-    // tool-namen autorisieren, während die echte config.vdf geschrieben wird.
-    let auth_root = canon
-        .parent()
-        .and_then(Path::parent)
-        .ok_or_else(|| String::from(errcode::NOT_A_STEAM_CONFIG))?;
-    #[cfg(target_os = "linux")]
-    let steam_root_fd = open_bound_root_fd(auth_root, &mut || {})?;
     let app_id_str = app_id.to_string();
-    apply_write_gate(
-        &canon,
-        &root,
+    run_guarded_write(GuardedWriteRequest {
+        steam_root,
+        allowed_steam_root,
         backup_dir,
-        |timestamp| format!("config-{app_id}-{timestamp}.vdf"),
+        account_id: None,
+        app_id,
+        value: tool_name.unwrap_or_default(),
+        value_label: "compat tool name",
+        target: steam_layout::config_vdf(allowed_steam_root),
+        backup_name: Box::new(move |timestamp| format!("config-{app_id}-{timestamp}.vdf")),
         process_reader,
-        |original| {
+        patch: |target: &Path, original: &str| {
+            // INV-7: die tool-autorität wird am schreibziel gebunden, nicht am
+            // übergebenen root. ein präpariertes root mit eigenem
+            // compatibilitytools.d und einem config-symlink aufs echte
+            // verzeichnis würde sonst beliebige tool-namen autorisieren,
+            // während die echte config.vdf geschrieben wird.
+            let auth_root = target
+                .parent()
+                .and_then(Path::parent)
+                .ok_or_else(|| String::from(errcode::NOT_A_STEAM_CONFIG))?;
+            #[cfg(target_os = "linux")]
+            let steam_root_fd = open_bound_root_fd(auth_root, &mut || {})?;
             let base = steam_layout::compat_tool_mapping_path(&app_id_str);
             let mut name_path = base.clone();
             name_path.push(steam_layout::NAME);
@@ -183,7 +233,7 @@ where
                 }
             }
         },
-    )
+    })
 }
 
 /// Meldung für eine fehlgeschlagene pfadbeschaffung der tauri-commands

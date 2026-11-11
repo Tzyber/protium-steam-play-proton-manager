@@ -320,6 +320,33 @@ where
     }
 }
 
+/// Kanonisiert eine gelistete Library über dieselbe Härtung wie die Discovery
+/// (FR-2: `libraryfolders::canonical_library` mit sanitize, is_safe_path und
+/// steamapps-Prüfung). `Ok(None)` heißt: die Library autorisiert nichts und
+/// wird wie in der Discovery übersprungen (INV-2), also bei belegter Abwesenheit
+/// und bei einem Strukturschaden der Pfadvalidierung. Ein Leseschaden des
+/// Pfads bleibt hart fail-closed — wie zuvor jeder Nicht-NotFound-Fehler der
+/// Kanonisierung.
+#[cfg(target_os = "linux")]
+fn canonical_authority_library(path: &Path) -> Result<Option<PathBuf>, String> {
+    match crate::commands::libraryfolders::canonical_library(path) {
+        Ok(canonical) => Ok(Some(canonical)),
+        Err((crate::commands::scope::LibraryUnavailableReason::ReadFailed, detail)) => {
+            Err(errcode::with_detail(
+                errcode::UNREADABLE,
+                format!("cannot canonicalize Steam library: {detail}"),
+            ))
+        }
+        Err(_) => Ok(None),
+    }
+}
+
+/// Bindet einen externen Library-Deskriptor an den vom Aufrufer bereits
+/// kanonisierten Pfad (FR-2). Die Kanonisierung ist Sache des Aufrufers
+/// (`canonical_authority_library` hier, `delete_usage` dort); ein zweiter
+/// Kanonisierungsweg in dieser Funktion wäre eine eigene Haftung ohne
+/// Aufrufer, der sie braucht. `open_bound_root_fd` prüft die Identität
+/// zwischen Stat und Open selbst.
 #[cfg(target_os = "linux")]
 pub(super) fn open_external_library_fd_with_hook<F>(
     path: &Path,
@@ -328,17 +355,9 @@ pub(super) fn open_external_library_fd_with_hook<F>(
 where
     F: FnMut(CompatAuthStage),
 {
-    let canonical = fs::canonicalize(path).map_err(|error| {
-        errcode::with_detail(
-            errcode::code_for_io(&error),
-            format!("cannot canonicalize Steam library: {error}"),
-        )
-    })?;
     // r-07: dieselbe stat-open-fstat-kette wie `fd::open_bound_root_fd`; der
     // Hook läuft dort genau zwischen Stat und Open, wie zuvor die dritte Stufe.
-    open_bound_root_fd(&canonical, &mut || {
-        hook(CompatAuthStage::ExternalLibraryBound)
-    })
+    open_bound_root_fd(path, &mut || hook(CompatAuthStage::ExternalLibraryBound))
 }
 
 #[cfg(target_os = "linux")]
@@ -396,17 +415,11 @@ where
         }
         // Eine gelistete, aber nicht gemountete Library belegt keine
         // Installation: NotFound wird übersprungen und die Suche läuft weiter
-        // (INV-2). Jeder andere Fehler bleibt hart fail-closed, ebenso ein
-        // Identitätswechsel der Library.
-        let library_canonical = match fs::canonicalize(&library) {
-            Ok(path) => path,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => {
-                return Err(errcode::with_detail(
-                    errcode::code_for_io(&error),
-                    format!("cannot canonicalize Steam library: {error}"),
-                ))
-            }
+        // (INV-2). Die Auflösung ist die der Discovery-Härtung (FR-2); jeder
+        // andere Fehler bleibt hart fail-closed, ebenso ein Identitätswechsel
+        // der Library.
+        let Some(library_canonical) = canonical_authority_library(&library)? else {
+            continue;
         };
         let library_metadata = match fs::metadata(&library_canonical) {
             Ok(metadata) => metadata,

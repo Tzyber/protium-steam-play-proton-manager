@@ -462,18 +462,12 @@ fn ensure_current_steam_root(
     steam_root: &str,
     snapshot: &EnvironmentSnapshot,
 ) -> Result<(), String> {
-    let canonical = fs::canonicalize(steam_root).map_err(|error| {
-        // FR-2: nur ein belegtes NotFound heisst "root weg". ENOTDIR oder
-        // EACCES sind lesefehler des angeforderten pfads und tragen deshalb die
-        // io-regel als code (vorher pauschal NOT_FOUND).
+    // FR-3: dieselbe Bindung wie im Write-Gate; nur der io-Code bleibt hier die
+    // io-Regel. Nur ein belegtes NotFound heißt "root weg", ENOTDIR oder
+    // EACCES sind lesefehler des angeforderten pfads.
+    crate::commands::write_gate::bind_steam_root(steam_root, &snapshot.steam_root, |error| {
         errcode::with_detail(errcode::code_for_io(&error), format!("steam root: {error}"))
     })?;
-    if canonical != snapshot.steam_root {
-        return Err(errcode::with_detail(
-            errcode::BLOCKED_LOCATION,
-            "steam root is not the current environment root",
-        ));
-    }
     Ok(())
 }
 

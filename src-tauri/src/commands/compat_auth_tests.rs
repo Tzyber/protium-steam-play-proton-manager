@@ -1,7 +1,9 @@
 use super::*;
 #[cfg(target_os = "linux")]
 use crate::commands::fd::{open_absolute_dir, open_bound_root_fd};
-use crate::commands::test_util::{write_appmanifest, wsg_fixture};
+use crate::commands::test_util::{
+    funktion_body, production_source, write_appmanifest, wsg_fixture,
+};
 use std::os::unix::fs::PermissionsExt;
 
 #[cfg(target_os = "linux")]
@@ -272,6 +274,80 @@ fn valve_libraryfolders_fehlende_vdf_nutzt_steamapps_fallback() {
     let libraries = read_library_folders_from_root_fd(&steam, &root_fd, &mut |_| {}).unwrap();
 
     assert_eq!(libraries, vec![steam.clone()]);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn valve_authority_nutzt_die_discovery_kanonisierung_fuer_beide_library_aufrufer() {
+    // FR-2: die Library-Auflösung der Compat-Autorität geht durch
+    // `libraryfolders::canonical_library`. Ein eigener `fs::canonicalize`-Weg
+    // umgeht sanitize/is_safe_path/steamapps und schlägt hier fehl. Der
+    // FD-Opener der externen Library bekommt den bereits kanonisierten Pfad
+    // und kanonisiert nicht ein zweites Mal (sein zweiter Aufrufer,
+    // `delete_usage`, übergibt ebenfalls einen kanonisierten Pfad).
+    let production = production_source(include_str!("compat_auth.rs"));
+    assert_eq!(
+        production.matches("canonical_library(").count(),
+        1,
+        "die Library-Auflösung muss die Discovery-Kanonisierung nutzen"
+    );
+    assert!(
+        !production.contains("fs::canonicalize("),
+        "kein zweiter Kanonisierungsweg in der Compat-Autorität"
+    );
+    let opener = funktion_body(production, "fn open_external_library_fd_with_hook<F>(");
+    assert!(
+        !opener.contains("canonicalize"),
+        "der FD-Opener bindet den kanonisierten Pfad: {opener}"
+    );
+    assert!(
+        opener.contains("open_bound_root_fd(path"),
+        "der FD-Opener bindet den übergebenen Pfad: {opener}"
+    );
+}
+
+/// FR-2: eine Library, die die Discovery-Härtung nicht besteht (hier:
+/// `..`-Komponente), autorisiert nichts und wird übersprungen; derselbe Pfad
+/// ohne `..` autorisiert weiterhin.
+#[cfg(target_os = "linux")]
+#[test]
+fn valve_authority_ueberspringt_library_ausserhalb_der_discovery_haftung() {
+    let (root, steam) = valve_authority_fixture("valve-authority-unsafe-library");
+    let library = root.join("library");
+    std::fs::create_dir_all(library.join("steamapps")).unwrap();
+    write_appmanifest(&library.join("steamapps"), 1493710);
+    let libraryfolders = steam.join("config/libraryfolders.vdf");
+    let root_fd = open_absolute_dir(&steam).unwrap();
+
+    let traversal = library.join("..").join("library");
+    std::fs::write(
+        &libraryfolders,
+        format!(
+            "\"libraryfolders\" {{ \"0\" {{ \"path\" \"{}\" }} }}",
+            traversal.display()
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        valve_builtin_installed_from_fds(&steam, &root_fd, 1493710, &mut |_| {}),
+        Ok(false),
+        "ein pfad mit `..` besteht die pfad-validierung nicht und autorisiert nichts"
+    );
+
+    std::fs::write(
+        &libraryfolders,
+        format!(
+            "\"libraryfolders\" {{ \"0\" {{ \"path\" \"{}\" }} }}",
+            library.display()
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        valve_builtin_installed_from_fds(&steam, &root_fd, 1493710, &mut |_| {}),
+        Ok(true),
+        "gegenprobe: derselbe pfad ohne `..` autorisiert weiterhin"
+    );
     let _ = std::fs::remove_dir_all(root);
 }
 

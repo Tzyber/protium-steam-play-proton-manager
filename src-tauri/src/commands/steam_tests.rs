@@ -1,7 +1,7 @@
 use super::*;
 use crate::commands::test_util::{
-    production_source, wire_unit_variant, write_appmanifest, wsg_env, wsg_env_at, wsg_fixture,
-    WireSerializer, WireValue,
+    funktion_body, production_source, wire_unit_variant, write_appmanifest, wsg_env, wsg_env_at,
+    wsg_fixture, WireSerializer, WireValue,
 };
 use crate::commands::write_gate::{set_write_lock_entry_probe, MAX_CONFIG_VDF_BYTES};
 use serde::ser::Serialize;
@@ -449,41 +449,33 @@ fn save_compat_tool_uebergroesse_lehnt_ab_ohne_seiteneffekt() {
 
 #[test]
 fn write_gate_dedup_beide_aufrufer_nutzen_die_gemeinsame_pipeline() {
-    // R-04: beleg des dedups. die sequenz (pfadprüfung, lock, gedeckelter read,
-    // patch, größenprüfung, steam-nachprüfung, backup, persist) existiert nur
-    // noch in `apply_write_gate`; beide aufrufer rufen sie auf und enthalten sie
-    // selbst nicht mehr. fällt ein aufrufer auf eine eigene kopie zurück, schlägt
-    // das hier fehl, bevor beide pfade auseinanderdriften (INV-1).
+    // R-04/FR-1: beleg des dedups. der prolog (pfadprüfung, argumentprüfung,
+    // eingabegröße, prozess-vorprüfung, root-bindung, ziel-kanonisierung) und
+    // die sequenz aus `apply_write_gate` existieren nur noch in
+    // `run_guarded_write`; beide aufrufer bauen nur ihre anfrage. fällt ein
+    // aufrufer auf eine eigene kopie zurück, schlägt das hier fehl, bevor beide
+    // pfade auseinanderdriften (INV-1).
     let production = production_source(include_str!("steam.rs"));
     let gate = production_source(include_str!("write_gate.rs"));
-    let launch_body = production
-        .split("fn save_launch_options_inner<F>(")
-        .nth(1)
-        .expect("save_launch_options_inner muss vorhanden sein")
-        .split("fn save_compat_tool_inner<F>(")
-        .next()
-        .expect("save_compat_tool_inner muss auf save_launch_options_inner folgen");
-    let compat_body = production
-        .split("fn save_compat_tool_inner<F>(")
-        .nth(1)
-        .expect("save_compat_tool_inner muss vorhanden sein")
-        .split("pub async fn save_launch_options(")
-        .next()
-        .expect("die tauri-commands müssen auf die inner-funktionen folgen");
-    let gate_body = gate
-        .split("fn apply_write_gate<F, P>(")
-        .nth(1)
-        .expect("apply_write_gate muss vorhanden sein")
-        .split("\n}\n")
-        .next()
-        .expect("apply_write_gate muss einen funktionsrumpf haben");
+    let prolog = funktion_body(production, "fn run_guarded_write<F, P>(");
 
-    for (name, body) in [("launch", launch_body), ("compat", compat_body)] {
-        assert!(
-            body.contains("apply_write_gate("),
-            "{name}-aufrufer muss die gemeinsame pipeline nutzen"
+    for (name, signatur) in [
+        ("launch", "fn save_launch_options_inner<F>("),
+        ("compat", "fn save_compat_tool_inner<F>("),
+    ] {
+        let body = funktion_body(production, signatur);
+        assert_eq!(
+            body.matches("run_guarded_write(").count(),
+            1,
+            "{name}-aufrufer muss den gemeinsamen prolog nutzen"
         );
         for duplikat in [
+            "sanitize_path(",
+            "parse_app_id(",
+            "ensure_size(",
+            "canonical_allowed_steam_root(",
+            "fs::canonicalize(",
+            "apply_write_gate(",
             "read_config_text_bounded(",
             "write_backup_no_follow(",
             "lock_write_target(",
@@ -491,10 +483,45 @@ fn write_gate_dedup_beide_aufrufer_nutzen_die_gemeinsame_pipeline() {
         ] {
             assert!(
                 !body.contains(duplikat),
-                "{name}-aufrufer dupliziert die pipeline ({duplikat})"
+                "{name}-aufrufer dupliziert den prolog ({duplikat})"
             );
         }
     }
+
+    // Reihenfolge und Einmaligkeit der Prolog-Schritte (FR-1).
+    let mut vorher = 0;
+    for step in [
+        "sanitize_path(steam_root, \"steam root\")",
+        "account_id.is_some_and(is_invalid_account)",
+        "parse_app_id(",
+        "ensure_size(value, MAX_PATCH_VALUE_BYTES, value_label)",
+        "process_reader()?",
+        "canonical_allowed_steam_root(steam_root, allowed_steam_root)",
+        "fs::canonicalize(&target)",
+        "apply_write_gate(",
+    ] {
+        let at = prolog
+            .find(step)
+            .unwrap_or_else(|| panic!("prolog-schritt fehlt: {step}"));
+        assert_eq!(
+            prolog.matches(step).count(),
+            1,
+            "prolog-schritt steht doppelt: {step}"
+        );
+        assert!(
+            at >= vorher,
+            "prolog-schritt in falscher reihenfolge: {step}"
+        );
+        vorher = at;
+    }
+    // die Patch-Closure sieht das kanonisierte Ziel, nicht den Rohpfad (FR-1):
+    // `save_compat_tool` leitet daraus seine Tool-Autorität ab.
+    assert!(
+        prolog.contains("patch(&canon, original)"),
+        "patch muss das kanonisierte Ziel bekommen: {prolog}"
+    );
+
+    let gate_body = funktion_body(gate, "fn apply_write_gate<F, P>(");
     assert_eq!(gate_body.matches("read_config_text_bounded(").count(), 1);
     assert_eq!(gate_body.matches("write_backup_no_follow(").count(), 1);
     assert_eq!(gate_body.matches("lock_write_target(").count(), 1);
@@ -512,6 +539,92 @@ fn write_gate_dedup_beide_aufrufer_nutzen_die_gemeinsame_pipeline() {
         1,
         "der gedeckelte read darf nur einmal im produktionscode stehen"
     );
+}
+
+/// FR-1: die beiden Pfade prüfen Account, App-ID und Eingabegröße vor jedem
+/// I/O; der Compat-Pfad hat keinen Account-Check. Ein übersprungener Check
+/// fiele hier auf einen anderen Code (etwa `not-found` aus der
+/// Ziel-Kanonisierung) statt auf den gemeinten Ablehnungsgrund.
+#[test]
+fn prolog_prueft_account_app_id_und_groesse_vor_jedem_io() {
+    let (home, cache, steam) = wsg_env("prolog-order");
+    // Ein Reader, der den Test abbricht: erreicht der Prolog die
+    // Prozess-Vorprüfung, wurde eine Argumentprüfung übersprungen.
+    let mut reader = || panic!("kein prozess-check vor den argument-prüfungen");
+
+    for account in ["abc", "0"] {
+        let error = save_launch_options_inner(
+            steam.to_str().unwrap(),
+            account,
+            620,
+            "-novid",
+            &cache,
+            &steam,
+            &mut reader,
+        )
+        .unwrap_err();
+        assert_eq!(error, errcode::INVALID_ACCOUNT_ID, "account {account}");
+    }
+    let error = save_launch_options_inner(
+        steam.to_str().unwrap(),
+        "123",
+        0,
+        "-novid",
+        &cache,
+        &steam,
+        &mut reader,
+    )
+    .unwrap_err();
+    assert!(
+        errcode::has_code(&error, errcode::INVALID_APPID),
+        "unexpected error: {error}"
+    );
+
+    let zu_gross = "x".repeat(MAX_PATCH_VALUE_BYTES as usize + 1);
+    let error = save_launch_options_inner(
+        steam.to_str().unwrap(),
+        "123",
+        620,
+        &zu_gross,
+        &cache,
+        &steam,
+        &mut reader,
+    )
+    .unwrap_err();
+    assert!(
+        errcode::has_code(&error, errcode::SIZE_LIMIT),
+        "unexpected error: {error}"
+    );
+
+    // derselbe Prolog im Compat-Pfad (ohne Account-Prüfung).
+    let error = save_compat_tool_inner(
+        steam.to_str().unwrap(),
+        0,
+        Some("GE-Proton9-28"),
+        &cache,
+        &steam,
+        &mut reader,
+    )
+    .unwrap_err();
+    assert!(
+        errcode::has_code(&error, errcode::INVALID_APPID),
+        "unexpected error: {error}"
+    );
+    let error = save_compat_tool_inner(
+        steam.to_str().unwrap(),
+        620,
+        Some(zu_gross.as_str()),
+        &cache,
+        &steam,
+        &mut reader,
+    )
+    .unwrap_err();
+    assert!(
+        errcode::has_code(&error, errcode::SIZE_LIMIT),
+        "unexpected error: {error}"
+    );
+    assert!(!cache.join("backups").exists());
+    let _ = std::fs::remove_dir_all(home.parent().unwrap());
 }
 
 /// Producer 2 der Restmenge (A-04): die pfadbeschaffung der tauri-commands

@@ -227,8 +227,11 @@ where
 /// warum sie nicht nutzbar ist (INV-2). `NotFound` ist belegte abwesenheit,
 /// ablehnungen der pfad-validierung sind strukturschäden; echte io-fehler
 /// dürfen nicht als abwesenheit gelten, sonst würde ein zugriffsfehler still
-/// übersprungen.
-fn canonical_library(path: &Path) -> Result<PathBuf, (LibraryUnavailableReason, String)> {
+/// übersprungen. Zweiter Nutzer ist die Compat-Autorität (FR-2), deshalb
+/// `pub(super)`.
+pub(super) fn canonical_library(
+    path: &Path,
+) -> Result<PathBuf, (LibraryUnavailableReason, String)> {
     let raw = path.to_string_lossy();
     // `sanitize_path` liefert seinen code bereits selbst (`blocked-location: ...`).
     // ein eigenes präfix würde ihn aus dem leitfeld drängen, `root_error` könnte
