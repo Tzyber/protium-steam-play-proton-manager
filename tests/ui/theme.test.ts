@@ -57,6 +57,7 @@ describe("Theme-Tokens: Danger-Palette (4.15)", () => {
     expect(source).toMatch(/background:\s*var\(--danger\)/);
     expect(source).toMatch(/:hover[^}]*var\(--danger-hover\)/);
     expect(ruleBlock(source, ".btn")).toContain("color: var(--on-danger)");
+    expect(source).not.toContain("#fff");
   });
 });
 
@@ -166,13 +167,7 @@ describe("P2b: Fokusring, Input-Ränder und Warnfarbe", () => {
     const source = readRepoFile("src/ui/components/ConfirmDialog.vue");
     const block = ruleBlock(source, ".btn:focus-visible, .btn.ghost:focus-visible");
     expect(block).toContain("outline: 2px solid var(--signal)");
-    expect(flattenCss(source)).not.toMatch(/outline: [^;]*var\(--signal-dim\)/);
-  });
-
-  it("ConfirmDialog .btn nutzt --on-danger statt #fff", () => {
-    const source = readRepoFile("src/ui/components/ConfirmDialog.vue");
-    expect(ruleBlock(source, ".btn")).toContain("color: var(--on-danger)");
-    expect(source).not.toContain("#fff");
+    expect(flattenCss(source)).not.toMatch(/outline:\s*[^;]*var\(--signal-dim\)/);
   });
 
   it("ConfirmDialog .backdrop nutzt --overlay", () => {
