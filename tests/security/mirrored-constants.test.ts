@@ -48,9 +48,9 @@ describe("TypeScript-/Rust-Spiegelwerte", () => {
   });
 
   it("bindet das Delete-Claim-Präfix an die Rust-Pipeline", () => {
-    const deleteOps = readFileSync(join(repo, "src-tauri/src/commands/delete_ops.rs"), "utf8");
-    const literal = deleteOps.match(/format!\(\s*"(\.protium-delete-claim-)\{\}"/);
-    expect(literal, "delete_ops.rs muss das Claim-Präfix formatieren").not.toBeNull();
+    const deleteClaim = readFileSync(join(repo, "src-tauri/src/commands/delete_claim.rs"), "utf8");
+    const literal = deleteClaim.match(/format!\(\s*"(\.protium-delete-claim-)\{\}"/);
+    expect(literal, "delete_claim.rs muss das Claim-Präfix formatieren").not.toBeNull();
     expect(literal?.[1]).toBe(DELETE_CLAIM_PREFIX);
   });
 

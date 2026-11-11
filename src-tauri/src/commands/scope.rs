@@ -1,5 +1,4 @@
 use crate::commands::errcode;
-use crate::commands::libraryfolders::read_library_folders_with_failures;
 use crate::commands::path::{
     canonicalize_nearest_ancestor, is_descendant_of, is_safe_path, next_existing_ancestor,
     sanitize_path,
@@ -11,24 +10,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use tauri::Manager;
 
+/// Der Snapshot-Aufbau lebt in `discovery`; der Pfad bleibt hier stabil, weil
+/// `discover_steam_environment` und die bestehenden Aufrufer ihn unter
+/// `scope::build_environment_snapshot` führen.
+pub(crate) use crate::commands::discovery::build_environment_snapshot;
+
 /// Obergrenze für gedeckelte Steam-Datei-Reads (16 MiB). Alle Lesepfade, die
 /// eine fremde Datei in den Speicher holen, hängen an diesem einen Wert; die
 /// sprechenden Aliase darunter dürfen ihn nicht überschreiten.
 pub(crate) const MAX_VDF_READ_BYTES: u64 = 16 * 1024 * 1024;
 pub(crate) const MAX_ENVIRONMENT_READ_BYTES: u64 = MAX_VDF_READ_BYTES;
-/// Discovery-Kandidaten für den Steam-Root, relativ zum Home. Das Write-Gate
-/// erlaubt Config-Dateien nur unter dem hier entdeckten `steam_root`, nicht
-/// unter einer zweiten fest kodierten Wurzelliste. Ein neuer Kandidat ist
-/// schreibbar, sobald die Discovery ihn auswählt.
-pub(crate) const ROOT_CANDIDATES: [&str; 6] = [
-    ".local/share/Steam",
-    ".steam/steam",
-    ".steam/root",
-    // debians `steam-installer` (debian-bug #916303); `.steam/steam` zeigt dorthin.
-    ".steam/debian-installation",
-    ".var/app/com.valvesoftware.Steam/.local/share/Steam",
-    "snap/steam/common/.local/share/Steam",
-];
 
 /// feste, backendkanonische Ausnahmen für read-only-Distro-Protonen.
 /// Beliebige Custom-Tool-Wurzeln bleiben ausgeschlossen (G-1.11).
@@ -846,125 +837,6 @@ pub(crate) fn prepare_app_dir(
     }
     restrict_dir_to_owner(&canonical);
     Ok(canonical)
-}
-
-fn build_fixed_system_compat_root(path: &Path) -> Result<Option<PathBuf>, String> {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => {
-            return Err(errcode::with_detail(
-                errcode::code_for_io(&error),
-                format!("system compat root: {error}"),
-            ))
-        }
-    };
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Err(errcode::with_detail(
-            errcode::NOT_A_DIRECTORY,
-            format!("system compat root is not a regular directory: {path:?}"),
-        ));
-    }
-    reject_symlink_components(path, true, "system compat root")?;
-    let canonical = fs::canonicalize(path).map_err(|error| {
-        errcode::with_detail(
-            errcode::code_for_io(&error),
-            format!("system compat root canonicalize: {error}"),
-        )
-    })?;
-    if canonical != path {
-        return Err(errcode::with_detail(
-            errcode::BLOCKED_LOCATION,
-            format!("system compat root changed identity: {path:?}"),
-        ));
-    }
-    if !is_safe_path(&canonical.to_string_lossy()) {
-        return Err(errcode::with_detail(
-            errcode::BLOCKED_LOCATION,
-            format!("blocked system compat root: {path:?}"),
-        ));
-    }
-    Ok(Some(canonical))
-}
-
-pub(crate) fn build_environment_snapshot(
-    home: &Path,
-    app_cache_dir: &Path,
-    app_config_dir: &Path,
-) -> Result<EnvironmentSnapshot, String> {
-    let home = fs::canonicalize(home).map_err(|error| {
-        errcode::with_detail(
-            errcode::code_for_io(&error),
-            format!("home canonicalize: {error}"),
-        )
-    })?;
-    let fixed_candidates: Vec<PathBuf> = ROOT_CANDIDATES
-        .iter()
-        .map(|relative| home.join(relative))
-        .collect();
-    let mut steam_root = None;
-    for relative in ROOT_CANDIDATES {
-        let candidate = home.join(relative);
-        if !candidate.exists() {
-            continue;
-        }
-        let canonical = fs::canonicalize(&candidate).map_err(|error| {
-            errcode::with_detail(
-                errcode::code_for_io(&error),
-                format!("steam candidate canonicalize: {error}"),
-            )
-        })?;
-        // ein alias auf ein fremdes ziel wird nie root; nur dieser kandidat
-        // entfällt, die übrigen festen kandidaten bleiben auffindbar.
-        if !fixed_candidates.iter().any(|fixed| fixed == &canonical)
-            || !is_descendant_of(&canonical, &home)
-        {
-            continue;
-        }
-        let steamapps = steam_layout::steamapps(&canonical);
-        let Ok(metadata) = fs::symlink_metadata(&steamapps) else {
-            continue;
-        };
-        if !metadata.file_type().is_symlink() && metadata.is_dir() {
-            steam_root = Some(canonical);
-            break;
-        }
-    }
-    let steam_root = steam_root.ok_or_else(|| errcode::STEAM_NOT_FOUND.to_owned())?;
-
-    let (unique, unavailable_libraries) = read_library_folders_with_failures(&steam_root)?;
-
-    // Root ist jeweils das Elternverzeichnis: fachlich die App-Basis, unter der
-    // Cache und Config liegen, nicht das Verzeichnis selbst (sonst wäre der
-    // descendant-check tautologisch).
-    let cache_root = app_cache_dir
-        .parent()
-        .ok_or_else(|| errcode::with_detail(errcode::UNAVAILABLE, "app cache: no parent root"))?;
-    let app_cache_dir = prepare_app_dir(app_cache_dir, cache_root, "app cache")?;
-    let config_root = app_config_dir
-        .parent()
-        .ok_or_else(|| errcode::with_detail(errcode::UNAVAILABLE, "app config: no parent root"))?;
-    let app_config_dir = prepare_app_dir(app_config_dir, config_root, "app config")?;
-
-    let mut system_compat_dirs = Vec::new();
-    for fixed in SYSTEM_COMPAT_DIRS {
-        let path = Path::new(fixed);
-        if let Some(canonical) = build_fixed_system_compat_root(path)? {
-            if !system_compat_dirs.contains(&canonical) {
-                system_compat_dirs.push(canonical);
-            }
-        }
-    }
-
-    Ok(EnvironmentSnapshot {
-        generation: 0,
-        steam_root,
-        libraries: unique,
-        unavailable_libraries,
-        system_compat_dirs,
-        app_cache_dir,
-        app_config_dir,
-    })
 }
 
 #[tauri::command]

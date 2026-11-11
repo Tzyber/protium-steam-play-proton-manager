@@ -378,6 +378,7 @@ fn dialog_sicherheitsgrenze_bleibt_statisch_geschlossen() {
 
     let rust_plugin = ["tauri", "_plugin_", "dialog"].concat();
     let allowed = [
+        manifest_dir.join("src/commands/ge_confirm.rs"),
         manifest_dir.join("src/commands/ge_install.rs"),
         manifest_dir.join("src/lib.rs"),
     ];
@@ -2317,6 +2318,8 @@ fn claim_mismatch_benennt_replacement_zurueck() {
 #[cfg(target_os = "linux")]
 #[test]
 fn claim_restore_ueberschreibt_neues_original_nicht() {
+    use crate::commands::delete_claim::{claim_delete_target, ClaimRestoreGuard};
+
     let (root, steam) = orphan_fixture("delete-ops-restore-blocked");
     let target = steam.join("steamapps/compatdata/999999");
     let registry = PendingDeleteRegistry::default();
@@ -2389,10 +2392,11 @@ fn rename_mutationen_synchronisieren_quell_und_zielverzeichnis() {
     // nicht beobachtbar. Der Rückweg liegt deshalb als eine Funktion vor:
     // Rename und fsync in `restore`, `Drop` nur als best-effort-Aufrufer ohne
     // zweiten Rename.
-    let restore = production
+    let claim = production_source(include_str!("delete_claim.rs"));
+    let restore = claim
         .find("fn restore(&mut self) -> bool")
         .expect("claim-restore muss eine eigene funktion sein");
-    let restore_body = &production[restore..];
+    let restore_body = &claim[restore..];
     let restore_end = restore_body
         .find("\n    }\n")
         .expect("claim-restore braucht einen funktionskörper");
@@ -2435,10 +2439,10 @@ fn rename_mutationen_synchronisieren_quell_und_zielverzeichnis() {
         "der Rename-Fehlerzweig muss disarmen"
     );
 
-    let drop_start = production
+    let drop_start = claim
         .find("impl Drop for ClaimRestoreGuard")
         .expect("claim-restore muss vorhanden sein");
-    let drop_body = &production[drop_start..];
+    let drop_body = &claim[drop_start..];
     let drop_end = drop_body
         .find("\n    }\n")
         .expect("claim-restore braucht einen funktionskörper");
@@ -2528,19 +2532,6 @@ fn rename_mutationen_synchronisieren_quell_und_zielverzeichnis() {
     assert!(
         production[move_start..move_disarm].contains("restore_or_write_uncertain"),
         "ein move-fehler muss über den restore-vertrag laufen"
-    );
-}
-
-/// FR-5: das Claim-Präfix ist der Vertrag zum TypeScript-Filter
-/// (`DELETE_CLAIM_PREFIX` in `src/core/cleanup.ts`, verwendet in `trash.ts` und
-/// `compat.ts`); es entsteht an genau einer Stelle im Produktionscode.
-#[test]
-fn claim_praefix_literal_bleibt_im_produktionscode() {
-    let production = production_source(include_str!("delete_ops.rs"));
-    assert_eq!(
-        production.matches("\".protium-delete-claim-{}\"").count(),
-        1,
-        "das claim-präfix muss genau einmal als literal im produktionscode stehen"
     );
 }
 

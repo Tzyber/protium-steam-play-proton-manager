@@ -7,20 +7,24 @@
 
 pub(crate) mod cleanup;
 pub(crate) mod compat_auth;
+pub(crate) mod delete_claim;
 pub(crate) mod delete_inspect;
 pub(crate) mod delete_ops;
 pub(crate) mod delete_usage;
 pub(crate) mod diagnostics;
+pub(crate) mod discovery;
 pub(crate) mod download;
 pub(crate) mod errcode;
 pub(crate) mod external;
 pub(crate) mod extract;
 pub(crate) mod fd;
 pub(crate) mod fs_ops;
+pub(crate) mod ge_confirm;
 pub(crate) mod ge_install;
 pub(crate) mod http_get;
 pub(crate) mod libraryfolders;
 pub(crate) mod limits;
+pub(crate) mod manifest;
 pub(crate) mod path;
 pub(crate) mod prefix;
 pub(crate) mod scope;

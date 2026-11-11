@@ -7,6 +7,9 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(target_os = "linux")]
+use crate::commands::delete_claim::restore_or_write_uncertain;
+use crate::commands::delete_claim::{claim_delete_target, ClaimRestoreGuard, ClaimedDeleteTarget};
 use crate::commands::delete_inspect::inspect_deletion_target;
 use crate::commands::delete_inspect::{DeleteConsequence, DeleteTargetType, DeletionInspection};
 use crate::commands::errcode;
@@ -25,9 +28,6 @@ fn now_ms() -> Result<u64, String> {
 
 /// renameat2-flag: kein überschreiben des ziels (RENAME_NOREPLACE).
 const RENAME_NOREPLACE_FLAG: u32 = 1;
-/// Ein Claim-Versuch endet mit EEXIST, wenn der Zufallsname kollidiert; vier
-/// Versuche deckeln die Schleife (r-11: die Zahl war ein magisches Literal).
-const CLAIM_NAME_ATTEMPTS: u32 = 4;
 pub const MAX_PENDING_DELETES: usize = 32;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -344,7 +344,7 @@ pub(super) fn open_trash_dir_for_listing_with_hook(
 }
 
 #[cfg(target_os = "linux")]
-fn delete_handle_identity(handle: &fs::File) -> Result<FdIdentity, String> {
+pub(super) fn delete_handle_identity(handle: &fs::File) -> Result<FdIdentity, String> {
     let metadata = handle.metadata().map_err(|error| {
         errcode::with_detail(
             errcode::code_for_io(&error),
@@ -358,7 +358,10 @@ fn delete_handle_identity(handle: &fs::File) -> Result<FdIdentity, String> {
 }
 
 #[cfg(target_os = "linux")]
-fn open_delete_child_handle(parent: &fs::File, name: &OsStr) -> Result<fs::File, String> {
+pub(super) fn open_delete_child_handle(
+    parent: &fs::File,
+    name: &OsStr,
+) -> Result<fs::File, String> {
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     use std::os::unix::ffi::OsStrExt;
 
@@ -387,7 +390,10 @@ fn open_delete_child_handle(parent: &fs::File, name: &OsStr) -> Result<fs::File,
 }
 
 #[cfg(not(target_os = "linux"))]
-fn open_delete_child_handle(_parent: &fs::File, _name: &OsStr) -> Result<fs::File, String> {
+pub(super) fn open_delete_child_handle(
+    _parent: &fs::File,
+    _name: &OsStr,
+) -> Result<fs::File, String> {
     Err(errcode::with_detail(
         errcode::UNSUPPORTED_PLATFORM,
         "delete target identity binding",
@@ -439,205 +445,13 @@ pub(super) fn renameat2_no_replace(
 /// Mutationsstellen statt vier kodierter und zwei roher Kopien desselben
 /// Textes (sonst erscheint derselbe Defekt in der Oberfläche einmal als
 /// „unbekannt" und einmal als „unlesbar").
-fn bound_parent(pending: &PendingDelete) -> Result<&fs::File, String> {
+pub(super) fn bound_parent(pending: &PendingDelete) -> Result<&fs::File, String> {
     pending.parent_handle.as_ref().ok_or_else(|| {
         errcode::with_detail(
             errcode::UNREADABLE,
             "pending delete has no bound parent directory",
         )
     })
-}
-
-/// Ergebnis eines erfolgreichen Claims: gebundener Handle, privater Name und
-/// der `/proc/self/fd`-Pfad für die Mutation. Existiert nur unter Linux, weil
-/// der Nicht-Linux-Stummel fail-closed ohne Claim zurückkehrt (r-18: die
-/// Struktur war unter zwei cfg-Zweigen byteidentisch doppelt definiert).
-#[cfg(target_os = "linux")]
-struct ClaimedDeleteTarget {
-    path: PathBuf,
-    handle: fs::File,
-    name: OsString,
-}
-
-#[cfg(target_os = "linux")]
-fn claim_delete_target(pending: &PendingDelete) -> Result<ClaimedDeleteTarget, String> {
-    use std::os::fd::AsRawFd;
-
-    let parent = bound_parent(pending)?;
-    let source_name = pending.target_name.as_ref().ok_or_else(|| {
-        errcode::with_detail(
-            errcode::UNREADABLE,
-            "pending delete has no bound target name",
-        )
-    })?;
-    let expected = pending.target_handle.as_ref().ok_or_else(|| {
-        errcode::with_detail(
-            errcode::UNREADABLE,
-            "pending delete has no bound target identity",
-        )
-    })?;
-    let expected_identity = delete_handle_identity(expected)?;
-
-    for _ in 0..CLAIM_NAME_ATTEMPTS {
-        let claim_name = OsString::from(format!(
-            ".protium-delete-claim-{}",
-            generate_os_random_128()?
-        ));
-        match renameat2_no_replace(parent, source_name, parent, &claim_name) {
-            Ok(()) => {
-                // Guard direkt nach dem eigenen Rename armen: scheitern das
-                // Öffnen oder der Identity-Check, wird der Claim best-effort
-                // per NOREPLACE auf den Originalnamen zurückbenannt, statt
-                // fremde Daten unter .protium-delete-claim-* liegen zu lassen.
-                let mut restore = ClaimRestoreGuard {
-                    parent,
-                    claim_name: &claim_name,
-                    original_name: source_name,
-                    armed: true,
-                };
-                let handle = open_delete_child_handle(parent, &claim_name)
-                    .map_err(|error| restore_or_write_uncertain(&mut restore, error))?;
-                let observed = delete_handle_identity(&handle)
-                    .map_err(|error| restore_or_write_uncertain(&mut restore, error))?;
-                if observed != expected_identity {
-                    return Err(if restore.restore() {
-                        errcode::with_detail(
-                            errcode::TARGET_CHANGED,
-                            "target changed before mutation; claim restored to its original name",
-                        )
-                    } else {
-                        errcode::with_detail(
-                            errcode::WRITE_UNCERTAIN,
-                            "target changed before mutation; claim restore failed or not durable",
-                        )
-                    });
-                }
-                restore.disarm();
-                drop(restore); // borrow auf claim_name endet vor dem move in das ergebnis
-                let path = PathBuf::from(format!(
-                    "/proc/self/fd/{}/{}",
-                    parent.as_raw_fd(),
-                    claim_name.to_string_lossy()
-                ));
-                return Ok(ClaimedDeleteTarget {
-                    path,
-                    handle,
-                    name: claim_name,
-                });
-            }
-            Err(error) if error.raw_os_error() == Some(libc::EEXIST) => continue,
-            Err(error) => return Err(errcode::with_detail(errcode::UNREADABLE, error)),
-        }
-    }
-    Err(errcode::with_detail(
-        errcode::UNAVAILABLE,
-        "unique claim name",
-    ))
-}
-
-#[cfg(not(target_os = "linux"))]
-fn claim_delete_target(_pending: &PendingDelete) -> Result<(), String> {
-    Err(errcode::with_detail(
-        errcode::UNSUPPORTED_PLATFORM,
-        "delete target claim",
-    ))
-}
-
-/// Rückweg für einen geclaimten, aber noch nicht mutierten Löschvorgang.
-///
-/// `claim_delete_target` benennt das Ziel vor der Mutation auf einen privaten
-/// Namen um. Scheitert ein Schritt VOR dem destruktiven Aufruf (EACCES, EBUSY,
-/// kein Platz im Trash-Ziel, Panik), läge das Verzeichnis sonst dauerhaft unter
-/// `.protium-delete-claim-*`: unsichtbar für Steam UND für Protium, weil
-/// `findOrphans` auf numerische Namen filtert. Bei compatdata bedeutet
-/// unsichtbar = Savegames verloren.
-///
-/// Der Rückweg gilt nur vor begonnener Mutation. Nach einem `remove_dir_all`
-/// ist das Ziel teilweise oder ganz weg; dann bleibt der Claim liegen und der
-/// Aufrufer meldet `write-may-have-applied` (Audit 5.1). Ein `NotFound` beim
-/// Remove ist kein Erfolg: das Kind kann mitten im Abbau verschwunden sein oder
-/// eine zweite Instanz hat den Claim zurückbenannt.
-///
-/// Der Rückweg ist NOREPLACE: ist am Originalnamen inzwischen etwas Neues
-/// entstanden, bleibt der Claim liegen, statt das Neue zu überschreiben.
-/// Best effort: ein fehlgeschlagener Rückweg darf den ursprünglichen Fehler
-/// nicht verdecken.
-///
-/// Nicht abgedeckt (per Konstruktion unerreichbar für In-Process-Code):
-/// SIGKILL oder Stromausfall im Fenster zwischen Claim und Mutation.
-struct ClaimRestoreGuard<'a> {
-    parent: &'a fs::File,
-    claim_name: &'a OsStr,
-    original_name: &'a OsStr,
-    armed: bool,
-}
-
-impl ClaimRestoreGuard<'_> {
-    /// Nach erfolgreicher Mutation existiert der Claim-Name nicht mehr
-    /// (gelöscht oder in den Trash verschoben); es gibt nichts zurückzuholen.
-    fn disarm(&mut self) {
-        self.armed = false;
-    }
-
-    /// Benennt den Claim auf den Originalnamen zurück. `true` nur bei
-    /// erfolgreichem Rename UND Verzeichnis-fsync: ohne fsync ist der Rückweg
-    /// nach einem Absturz nicht belegt, der Zustand bleibt dann unsicher.
-    fn restore(&mut self) -> bool {
-        if !self.armed {
-            return false;
-        }
-        if renameat2_no_replace(
-            self.parent,
-            self.claim_name,
-            self.parent,
-            self.original_name,
-        )
-        .is_err()
-        {
-            // Ein zweiter Versuch im `Drop` könnte einen zwischenzeitlich
-            // untergeschobenen Fremdeintrag treffen; pro Guard genau ein
-            // Rückweg, auch wenn er scheitert.
-            self.armed = false;
-            return false;
-        }
-        // `armed` fällt unabhängig vom fsync: der Claim-Name ist weg, ein
-        // zweiter Rename könnte nur noch einen fremden Namen treffen.
-        self.armed = false;
-        #[cfg(target_os = "linux")]
-        {
-            use std::os::fd::AsRawFd;
-            if crate::commands::fd::sync_dir_fd(self.parent.as_raw_fd()).is_err() {
-                return false;
-            }
-        }
-        // Der Nicht-Linux-Stummel kann nicht umbenennen; dort ist der Zweig oben
-        // unerreichbar und es gibt keinen fsync-Zweig.
-        true
-    }
-}
-
-impl Drop for ClaimRestoreGuard<'_> {
-    fn drop(&mut self) {
-        // Best effort wie der Rückweg selbst; der fsync liegt in `restore`,
-        // damit es genau eine Stelle für Rename und Sync gibt.
-        let _ = self.restore();
-    }
-}
-
-/// Nach dem Claim: ein Fehlschlag VOR der destruktiven Mutation ist nur dann
-/// harmlos, wenn der Originalname wieder steht. Gelingt der Rückweg nicht,
-/// bleibt der Claim liegen; dann ist der Zustand unsicher und darf nicht als
-/// der ursprüngliche Fehler (etwa „unlesbar, nichts passiert") zurückgehen
-/// (Audit 5.1).
-#[cfg(target_os = "linux")]
-fn restore_or_write_uncertain(restore: &mut ClaimRestoreGuard<'_>, error: String) -> String {
-    if restore.restore() {
-        return error;
-    }
-    errcode::with_detail(
-        errcode::WRITE_UNCERTAIN,
-        format!("claim restore failed: {error}"),
-    )
 }
 
 /// Bindet den angeforderten Steam-Root an den aktuellen Snapshot (F1): ein

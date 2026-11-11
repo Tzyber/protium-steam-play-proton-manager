@@ -431,13 +431,15 @@ mod tests {
     // lebt nur in dieser datei. Ein `open_absolute_dir(` und `fd_identity(` im
     // selben aufrufer wäre die alte duplizierung. Die testdateien liegen in
     // eigenen `*_tests.rs`, der hier gelesene text ist also produktion.
-    const CALLER_SOURCES: [(&str, &str); 7] = [
+    const CALLER_SOURCES: [(&str, &str); 9] = [
         ("compat_auth.rs", include_str!("compat_auth.rs")),
         ("prefix.rs", include_str!("prefix.rs")),
         ("delete_ops.rs", include_str!("delete_ops.rs")),
+        ("delete_claim.rs", include_str!("delete_claim.rs")),
         ("delete_inspect.rs", include_str!("delete_inspect.rs")),
         ("delete_usage.rs", include_str!("delete_usage.rs")),
         ("ge_install.rs", include_str!("ge_install.rs")),
+        ("manifest.rs", include_str!("manifest.rs")),
         ("write_gate.rs", include_str!("write_gate.rs")),
     ];
 
@@ -460,10 +462,15 @@ mod tests {
 
     #[test]
     fn ge_install_hat_kein_rohes_libc_open_mehr() {
-        assert!(
-            !include_str!("ge_install.rs").contains("libc::open("),
-            "ge_install: rohes libc::open statt fd::open_absolute_dir"
-        );
+        for (name, source) in [
+            ("ge_install.rs", include_str!("ge_install.rs")),
+            ("ge_confirm.rs", include_str!("ge_confirm.rs")),
+        ] {
+            assert!(
+                !source.contains("libc::open("),
+                "{name}: rohes libc::open statt fd::open_absolute_dir"
+            );
+        }
     }
 }
 
