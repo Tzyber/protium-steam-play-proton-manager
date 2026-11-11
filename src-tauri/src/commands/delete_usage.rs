@@ -214,14 +214,6 @@ fn read_all_shortcut_app_ids(steam_root: &Path) -> Result<HashSet<u32>, String> 
     }
 }
 
-/// Account-Verzeichnisse in `userdata` tragen einen ascii-digit-Namen; der
-/// Leerstring ist kein Account (2.10). Die Regel selbst steht in
-/// `scope::is_ascii_digits`.
-#[cfg(target_os = "linux")]
-fn is_account_dir_name(name: &str) -> bool {
-    crate::commands::scope::is_ascii_digits(name)
-}
-
 /// Liest die Shortcut-AppIDs eines `userdata`-Eintrags: Symlink-Politik,
 /// Account-Filter und die open-/parse-Kette von `config/shortcuts.vdf`.
 /// `Ok(None)` heisst "dieser Eintrag trägt nichts bei" (kein Verzeichnis, kein
@@ -254,7 +246,9 @@ where
 
     let name = entry.file_name();
     let name_str = name.to_string_lossy();
-    if !is_account_dir_name(&name_str) {
+    // Account-Verzeichnisse tragen einen ascii-digit-Namen; der Leerstring ist
+    // kein Account (2.10).
+    if !crate::commands::scope::is_ascii_digits(&name_str) {
         return Ok(None);
     }
     let account_fd = match open_dir_at(userdata_fd.as_raw_fd(), &name) {
@@ -422,6 +416,9 @@ fn collect_tool_apps(
         let vdf_patch::TokenKind::String(app_key) = &app_entry.key.kind else {
             continue;
         };
+        // Nicht-numerische Schlüssel (auch der leere Schlüssel `""`, den ein
+        // fremder config.vdf enthalten kann) sind keine AppID: sie werden
+        // übersprungen, der Scan läuft mit den folgenden Einträgen weiter.
         if !crate::commands::scope::is_ascii_digits(app_key) {
             continue;
         }

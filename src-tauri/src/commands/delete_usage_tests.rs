@@ -4,16 +4,6 @@ use crate::commands::fd::open_bound_root_fd;
 use crate::commands::shortcuts_bin::make_test_bin_shortcuts;
 use crate::commands::test_util::wsg_fixture;
 
-#[cfg(target_os = "linux")]
-#[test]
-fn account_name_ist_nur_ascii_digits() {
-    // 2.10: der Leerstring ist kein Account-Name. `read_dir` liefert keinen
-    // leeren Namen, deshalb prueft der Test die Regel des Guards selbst.
-    assert!(!is_account_dir_name(""));
-    assert!(!is_account_dir_name("12a"));
-    assert!(is_account_dir_name("76561198000000001"));
-}
-
 #[test]
 fn is_app_installed_in_libraries_pruefung() {
     let root = wsg_fixture("app-installed-check");
@@ -451,6 +441,27 @@ fn find_block_und_collect_tool_apps_decken_die_zuordnung_ab() {
         "name",
     ];
     assert!(find_block(&tokens, &blatt).unwrap().is_none());
+}
+
+/// Ein leerer Schlüssel unter `CompatToolMapping` (`"" { "name" … }`) ist keine
+/// AppID: er wird übersprungen, der Scan läuft mit den folgenden Einträgen
+/// weiter (kein Abbruch, keine erfundene AppID).
+#[test]
+fn find_apps_using_compat_tool_ueberspringt_leeren_zuordnungsschluessel() {
+    let root = wsg_fixture("compat-tool-empty-key");
+    let steam = root.join("steam");
+    let config_dir = steam.join("config");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(
+        config_dir.join("config.vdf"),
+        r#""InstallConfigStore" { "Software" { "Valve" { "Steam" { "CompatToolMapping" { "" { "name" "GE-Proton9-27" } "620" { "name" "GE-Proton9-27" } "730" { "name" "GE-Proton9-27" } } } } } }"#,
+    )
+    .unwrap();
+
+    let apps = find_apps_using_compat_tool(&steam, "GE-Proton9-27").unwrap();
+    assert_eq!(apps, (vec![620, 730], false));
+
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 /// Ein Zuordnungsschlüssel aus Ziffern, aber ausserhalb des appId-Bereichs,

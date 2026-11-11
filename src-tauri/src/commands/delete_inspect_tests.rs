@@ -493,6 +493,26 @@ fn trash_inspektion_erlaubt_nur_direkte_gueltige_ordner() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Ein leerer timestamp (`compatdata_123_`) ist nicht-numerisch, nicht
+/// "ausserhalb des bereichs": der code ist `unreadable`, und das detail bleibt
+/// als stabiler text gepinnt.
+#[test]
+fn leerer_trash_timestamp_traegt_unreadable_mit_stabilem_detail() {
+    let root = wsg_fixture("trash-target-empty-timestamp");
+    let dir = root.join("ziel");
+    std::fs::create_dir_all(&dir).unwrap();
+    let meta = std::fs::symlink_metadata(&dir).unwrap();
+
+    let error =
+        validate_trash_target("/lib/steamapps/.protium-trash/compatdata_123_", &meta).unwrap_err();
+    assert_eq!(
+        error,
+        "unreadable: trash target has non-numeric timestamp: "
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
 #[test]
 fn inspection_erlaubt_non_steam_shortcut_appid() {
     let root = wsg_fixture("inspect-appid-non-steam");
