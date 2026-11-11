@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { effectiveScanCoverage } from "../../core/scan/coverage";
-import type { SkipReason } from "../../core/types";
+import type { ScanWarning, SkipReason } from "../../core/types";
 import { filterWarningsByType } from "../coverageFilter";
 import { formatConfigStatus, formatLibraryReason, formatWarning } from "../coverageText";
 import type { Key } from "../i18n";
@@ -88,6 +88,86 @@ const configWarnings = computed(() =>
 const manifestWarnings = computed(() => filterWarningsByType(scan.warnings, "manifest"));
 const toolWarnings = computed(() => filterWarningsByType(scan.warnings, "compat-tool"));
 const libraryWarnings = computed(() => filterWarningsByType(scan.warnings, "library"));
+
+/** Eine Karte der Detailfläche. Reihenfolge und Texte sind fest; die
+ *  Aufmerksamkeits-Markierung kommt je Gruppe aus dem Scan. */
+type CoverageCard = {
+  key: "libraries" | "configuration" | "manifests" | "tools";
+  attention: boolean;
+  title: Key;
+  summary: string;
+  /** zusätzliche zeilen ohne summary-auszeichnung (launch-config-status). */
+  lines: string[];
+  rows: { path: string; reason?: SkipReason }[];
+  warnings: { key: string; text: string }[];
+};
+
+function warningItems(prefix: string, warnings: ScanWarning[]): { key: string; text: string }[] {
+  return warnings.map((warning, index) => ({
+    key: `${prefix}-warning-${index}`,
+    text: formatWarning(warning),
+  }));
+}
+
+const coverageCards = computed<CoverageCard[]>(() => {
+  const coverage = scan.coverage;
+  if (!coverage) return [];
+  return [
+    {
+      key: "libraries",
+      attention: libraryNeedsAttention.value,
+      title: "library.coverageLibraries",
+      summary: t("library.coverageLibrariesSummary", {
+        read: coverage.libraries.read,
+        unavailable: coverage.libraries.unavailable,
+      }),
+      lines: [],
+      rows: libraryRows.value,
+      warnings: warningItems("library", libraryWarnings.value),
+    },
+    {
+      key: "configuration",
+      attention: configNeedsAttention.value,
+      title: "library.coverageConfiguration",
+      summary: t("library.coverageConfigStatus", {
+        source: t("library.coverageCompatConfig"),
+        status: formatConfigStatus(coverage.compatConfig),
+      }),
+      lines: [
+        t("library.coverageConfigStatus", {
+          source: t("library.coverageLaunchConfig"),
+          status: formatConfigStatus(coverage.launchConfig),
+        }),
+      ],
+      rows: [],
+      warnings: warningItems("config", configWarnings.value),
+    },
+    {
+      key: "manifests",
+      attention: manifestNeedsAttention.value,
+      title: "library.coverageManifests",
+      summary: t("library.coverageCounts", {
+        read: coverage.manifests.read,
+        failed: coverage.manifests.failed,
+      }),
+      lines: [],
+      rows: [],
+      warnings: warningItems("manifest", manifestWarnings.value),
+    },
+    {
+      key: "tools",
+      attention: toolNeedsAttention.value,
+      title: "library.coverageTools",
+      summary: t("library.coverageCounts", {
+        read: coverage.tools.read,
+        failed: coverage.tools.failed,
+      }),
+      lines: [],
+      rows: [],
+      warnings: warningItems("tool", toolWarnings.value),
+    },
+  ];
+});
 </script>
 
 <template>
@@ -131,75 +211,23 @@ const libraryWarnings = computed(() => filterWarningsByType(scan.warnings, "libr
           :aria-labelledby="coverageTitleId"
         >
           <section
+            v-for="card in coverageCards"
+            :key="card.key"
             class="coverage-group coverage-card"
-            :class="libraryNeedsAttention ? 'coverage-card--attention' : 'coverage-card--complete'"
+            :class="card.attention ? 'coverage-card--attention' : 'coverage-card--complete'"
           >
-            <h2>{{ t("library.coverageLibraries") }}</h2>
-            <p class="coverage-card-summary">
-              {{ t("library.coverageLibrariesSummary", {
-                read: scan.coverage.libraries.read,
-                unavailable: scan.coverage.libraries.unavailable,
-              }) }}
-            </p>
+            <h2>{{ t(card.title) }}</h2>
+            <p class="coverage-card-summary">{{ card.summary }}</p>
+            <p v-for="(line, index) in card.lines" :key="`line-${index}`">{{ line }}</p>
             <ul>
-              <li v-for="library in libraryRows" :key="library.path">
-                <span v-if="library.reason">
-                  {{ t("library.coverageLibraryUnavailable", { path: library.path }) }}
+              <li v-for="row in card.rows" :key="row.path">
+                <span v-if="row.reason">
+                  {{ t("library.coverageLibraryUnavailable", { path: row.path }) }}
                 </span>
-                <span v-else>{{ t("library.coverageLibraryRead", { path: library.path }) }}</span>
-                <span v-if="library.reason"> · {{ formatLibraryReason(library.reason) }}</span>
+                <span v-else>{{ t("library.coverageLibraryRead", { path: row.path }) }}</span>
+                <span v-if="row.reason"> · {{ formatLibraryReason(row.reason) }}</span>
               </li>
-              <li v-for="(warning, index) in libraryWarnings" :key="`library-warning-${index}`">
-                {{ formatWarning(warning) }}
-              </li>
-            </ul>
-          </section>
-
-          <section
-            class="coverage-group coverage-card"
-            :class="configNeedsAttention ? 'coverage-card--attention' : 'coverage-card--complete'"
-          >
-            <h2>{{ t("library.coverageConfiguration") }}</h2>
-            <p class="coverage-card-summary">
-              {{ t("library.coverageConfigStatus", { source: t("library.coverageCompatConfig"), status: formatConfigStatus(scan.coverage.compatConfig) }) }}
-            </p>
-            <p>
-              {{ t("library.coverageConfigStatus", { source: t("library.coverageLaunchConfig"), status: formatConfigStatus(scan.coverage.launchConfig) }) }}
-            </p>
-            <ul>
-              <li v-for="(warning, index) in configWarnings" :key="`config-warning-${index}`">
-                {{ formatWarning(warning) }}
-              </li>
-            </ul>
-          </section>
-
-          <section
-            class="coverage-group coverage-card"
-            :class="manifestNeedsAttention ? 'coverage-card--attention' : 'coverage-card--complete'"
-          >
-            <h2>{{ t("library.coverageManifests") }}</h2>
-            <p class="coverage-card-summary">
-              {{ t("library.coverageCounts", { read: scan.coverage.manifests.read, failed: scan.coverage.manifests.failed }) }}
-            </p>
-            <ul>
-              <li v-for="(warning, index) in manifestWarnings" :key="`manifest-warning-${index}`">
-                {{ formatWarning(warning) }}
-              </li>
-            </ul>
-          </section>
-
-          <section
-            class="coverage-group coverage-card"
-            :class="toolNeedsAttention ? 'coverage-card--attention' : 'coverage-card--complete'"
-          >
-            <h2>{{ t("library.coverageTools") }}</h2>
-            <p class="coverage-card-summary">
-              {{ t("library.coverageCounts", { read: scan.coverage.tools.read, failed: scan.coverage.tools.failed }) }}
-            </p>
-            <ul>
-              <li v-for="(warning, index) in toolWarnings" :key="`tool-warning-${index}`">
-                {{ formatWarning(warning) }}
-              </li>
+              <li v-for="warning in card.warnings" :key="warning.key">{{ warning.text }}</li>
             </ul>
           </section>
         </div>

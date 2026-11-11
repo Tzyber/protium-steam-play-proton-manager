@@ -110,10 +110,14 @@ vi.mock("../../src/core/cleanup", async (importOriginal) => {
     classifyOrphans: actual.classifyOrphans,
   };
 });
-vi.mock("../../src/core/shortcuts", () => ({
-  readAllShortcutAppIds: mockReadAllShortcutAppIds,
-  SHORTCUT_ID_THRESHOLD: 2_147_483_648,
-}));
+vi.mock("../../src/core/shortcuts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/core/shortcuts")>();
+  return {
+    readAllShortcutAppIds: mockReadAllShortcutAppIds,
+    // die schwelle kommt aus dem modul statt als abgeschriebene zahl.
+    SHORTCUT_ID_THRESHOLD: actual.SHORTCUT_ID_THRESHOLD,
+  };
+});
 vi.mock("../../src/core/trash", () => ({
   findTrashEntries: mockFindTrashEntries,
 }));

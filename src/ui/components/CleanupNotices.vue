@@ -106,17 +106,6 @@ const trashBlockedNotice = () =>
 </template>
 
 <style scoped>
-.blocked {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
-  color: var(--danger-fg);
-  border-radius: var(--r-sm);
-  padding: 12px 16px;
-  font-family: var(--font-body);
-  font-size: 0.875rem;
-  margin-bottom: 16px;
-}
-
 .pathmissing {
   background: var(--bg-2);
   border: 1px solid var(--line);

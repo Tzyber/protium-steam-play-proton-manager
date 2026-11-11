@@ -8,14 +8,14 @@ function join(...parts: string[]): string {
   // `.filter(Boolean)` still und aus "/" + "steamapps" wurde "steamapps"
   // (relativ zum arbeitsverzeichnis).
   if (root === undefined || root === "" || !root.startsWith("/")) {
-    throw new Error("joinPath: root must be an absolute path");
+    throw new Error("paths: root must be an absolute path");
   }
   const segments = [root.replace(/\/+$/, "") || "/"];
   for (const part of parts.slice(1)) {
     for (const segment of part.split("/")) {
       if (segment === "" || segment === ".") continue;
       if (segment === "..") {
-        throw new Error(`joinPath: ".." segment rejected for security`);
+        throw new Error(`paths: ".." segment rejected for security`);
       }
       segments.push(segment);
     }
@@ -23,20 +23,29 @@ function join(...parts: string[]): string {
   return segments.join("/").replace(/\/\//g, "/");
 }
 
+/** Ein Eintrag `name` im absoluten verzeichnis `dir`; die drei Wrapper unten
+ *  delegieren hierher, damit die pfadregel nur einmal existiert. */
+function entryIn(dir: string, name: string): string {
+  return join(dir, name);
+}
+
+// der dateiname des lokalen cover-bildes steht vor dem objekt, das ihn nutzt.
+const LOCAL_HEADER_FILENAME = "library_header.jpg";
+
 export const paths = {
-  libraryFoldersVdf: (root: string) => join(root, "steamapps", "libraryfolders.vdf"),
+  entryIn,
   configVdf: (root: string) => join(root, "config", "config.vdf"), // mapping liegt in der root
   loginusersVdf: (root: string) => join(root, "config", "loginusers.vdf"),
   compatToolsDir: (root: string) => join(root, "compatibilitytools.d"),
   /** Verzeichnis eines einzelnen tools in compatibilitytools.d. Die UI baut den
-   *  pfad nicht mehr selbst per joinPath (INV-4, K-04). */
+   *  pfad nicht mehr selbst aus teilen (INV-4, K-04). */
   compatToolDir: (root: string, toolName: string) => join(root, "compatibilitytools.d", toolName),
   compatToolVdfIn: (baseDir: string, toolDir: string) =>
     join(baseDir, toolDir, "compatibilitytool.vdf"),
   compatToolDirIn: (baseDir: string, toolDir: string) => join(baseDir, toolDir),
-  manifestIn: (appsDir: string, entryName: string) => join(appsDir, entryName),
-  claimEntryIn: (dir: string, name: string) => join(dir, name),
-  trashEntryIn: (dir: string, name: string) => join(dir, name),
+  manifestIn: (appsDir: string, entryName: string) => entryIn(appsDir, entryName),
+  claimEntryIn: (dir: string, name: string) => entryIn(dir, name),
+  trashEntryIn: (dir: string, name: string) => entryIn(dir, name),
   userdataDir: (root: string) => join(root, "userdata"),
   userdataAccountDir: (root: string, userId: string) => join(root, "userdata", userId),
   localConfigVdf: (root: string, userId: string) =>
@@ -75,10 +84,6 @@ export const paths = {
   libraryCacheHeader: (cacheAppDir: string, hashDir: string) =>
     join(cacheAppDir, hashDir, LOCAL_HEADER_FILENAME),
 };
-
-const LOCAL_HEADER_FILENAME = "library_header.jpg";
-
-export { join as joinPath };
 
 // distro-/paket-tools (z. B. proton-cachyos); steam durchsucht diese zusätzlich.
 // spiegel zu SYSTEM_COMPAT_DIRS in src-tauri/src/commands/scope.rs

@@ -25,13 +25,19 @@ describe("Theme-Tokens: Danger-Palette (4.15)", () => {
     for (const file of DANGER_LITERAL_FILES) {
       const source = readRepoFile(file);
       expect(source, `${file} enthält noch #ff9aa0`).not.toContain("#ff9aa0");
-      expect(source, `${file} nutzt --danger-fg nicht als color`).toMatch(
-        /color:\s*var\(--danger-fg\)/,
-      );
-      expect(source, `${file} nutzt --danger nicht als Fläche`).toMatch(
-        /(?:background|border):[^;]*var\(--danger\)/,
-      );
     }
+  });
+
+  it("die gemeinsame .blocked-Form und CleanupViews Danger-Aktion nutzen die Tokens", () => {
+    // P17a/FR-1: die wortgleiche .blocked-form der drei Cleanup-Panels steht
+    // jetzt einmal in tokens.css statt dreimal in den komponenten.
+    const tokens = readRepoFile("src/ui/tokens.css");
+    expect(tokens).toMatch(/color:\s*var\(--danger-fg\)/);
+    expect(tokens).toMatch(/(?:background|border):[^;]*var\(--danger\)/);
+
+    const cleanupView = readRepoFile("src/ui/views/CleanupView.vue");
+    expect(cleanupView).toMatch(/color:\s*var\(--danger-fg\)/);
+    expect(cleanupView).toMatch(/(?:background|border):[^;]*var\(--danger\)/);
   });
 
   it("ConfirmDialog nutzt die Danger-Tokens statt eigener Literale", () => {

@@ -415,15 +415,6 @@ const tabLabel = (id: Tab) =>
 .panel { padding-top: 14px; }
 .panel:focus-visible { outline: 2px solid var(--signal); outline-offset: 4px; border-radius: var(--r-sm); }
 
-.sel-all {
-  background: none; border: 1px solid var(--line); color: var(--fg-1);
-  border-radius: var(--r-sm); padding: 8px 14px;
-  font-family: var(--font-body); font-size: 0.875rem; cursor: pointer;
-}
-.sel-all:hover:not(:disabled) { color: var(--fg-0); border-color: var(--signal-dim); }
-.sel-all:disabled { opacity: 0.55; cursor: default; }
-.sel-all:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
-
 .ignored {
   display: flex; align-items: center; gap: 10px;
   background: none; border: none; padding: 0;

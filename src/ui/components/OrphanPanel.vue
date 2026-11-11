@@ -118,30 +118,11 @@ function orphanLabel(o: OrphanEntry): string {
   border-radius: 999px; padding: 2px 9px;
 }
 
-.sel-all {
-  background: none; border: 1px solid var(--line); color: var(--fg-1);
-  border-radius: var(--r-sm); padding: 8px 14px;
-  font-family: var(--font-body); font-size: 0.875rem; cursor: pointer;
-}
-.sel-all:hover:not(:disabled) { color: var(--fg-0); border-color: var(--signal-dim); }
-.sel-all:disabled { opacity: 0.55; cursor: default; }
-.sel-all:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 .sel-all.warn:hover:not(:disabled) { border-color: var(--tier-gold); color: var(--tier-gold); }
 
 .moved-note {
   color: var(--fg-2); font-size: 0.875rem; font-family: var(--font-body);
   margin: 0 0 10px; font-style: italic;
-}
-
-.blocked {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
-  color: var(--danger-fg);
-  border-radius: var(--r-sm);
-  padding: 12px 16px;
-  font-family: var(--font-body);
-  font-size: 0.875rem;
-  margin-bottom: 16px;
 }
 
 .list { display: grid; gap: 6px; list-style: none; padding: 0; margin: 0; }

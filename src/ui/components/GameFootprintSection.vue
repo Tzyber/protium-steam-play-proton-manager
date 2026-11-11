@@ -135,47 +135,4 @@ const footprintTopics = computed<ExplainTopic[]>(() =>
 }
 .footprint-summary .k { color: var(--fg-0); }
 .footprint .hint { margin-top: 12px; }
-
-.section-label-explained {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.section-label-explained .section-label {
-  margin-bottom: 0;
-}
-.section-label {
-  margin: 0 0 14px;
-  font-size: 0.75rem;
-  letter-spacing: 0.14em;
-  color: var(--fg-1);
-  text-transform: uppercase;
-}
-
-.save {
-  flex-shrink: 0;
-  background: var(--bg-2);
-  border: 1px solid var(--signal-dim);
-  color: var(--signal-bright);
-  border-radius: var(--r-sm);
-  padding: 11px 15px;
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: 0.875rem;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s;
-}
-.save:hover:not(:disabled) { background: var(--bg-3); border-color: var(--signal); }
-.save:disabled { opacity: 0.4; cursor: default; }
-.save:focus-visible {
-  outline: 2px solid var(--signal);
-  outline-offset: 2px;
-}
-
-.hint { margin: 9px 2px 0; color: var(--fg-2); font-size: 0.8125rem; line-height: 1.55; }
-
-.k { display: block; color: var(--fg-1); font-size: 0.875rem; margin-bottom: 7px; }
 </style>
