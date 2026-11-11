@@ -110,9 +110,10 @@ impl EnvironmentSnapshot {
     }
 
     fn to_info(&self) -> EnvironmentInfo {
-        // F-05: die beiden app-wurzeln bleiben autoritaet (`roots()`), liegen
-        // aber nicht mehr im drahtvertrag; kein TS-consumer liest sie, und ein
-        // zu kurzes TS-interface darf die autoritaetsmenge nicht verdecken.
+        // F-05: die beiden app-wurzeln bleiben snapshot-felder (die App-Commands
+        // bauen ihre Pfade daraus), liegen aber nicht im drahtvertrag; kein
+        // TS-consumer liest sie, und ein zu kurzes TS-interface darf die
+        // autoritaetsmenge nicht verdecken.
         EnvironmentInfo {
             generation: self.generation,
             steam_root: self.steam_root.to_string_lossy().into_owned(),
@@ -130,16 +131,29 @@ impl EnvironmentSnapshot {
         }
     }
 
+    /// Environment-Wurzeln (FR-1): Steam-Root, Libraries und die festen
+    /// Distro-Tool-Verzeichnisse. `$APPCACHE`/`$APPCONFIG` gehoeren nicht dazu;
+    /// sie tragen Backups voller `config.vdf`-Kopien und Login-Tokens (6.2/1.14).
     fn roots(&self) -> impl Iterator<Item = &Path> {
         std::iter::once(self.steam_root.as_path())
             .chain(self.libraries.iter().map(PathBuf::as_path))
             .chain(self.system_compat_dirs.iter().map(PathBuf::as_path))
-            .chain(std::iter::once(self.app_cache_dir.as_path()))
-            .chain(std::iter::once(self.app_config_dir.as_path()))
+    }
+
+    /// App-eigene Verzeichnisse. Sie liegen ausserhalb von Steam und werden nur
+    /// von den App-Commands benutzt (`list_config_backups`, `read_log_tail`,
+    /// `prepare_app_dir`), die den Pfad aus `app.path()` bauen und nicht ueber
+    /// diese Autoritaet gehen. Die Ausnahme in `authorizes` deckt den
+    /// verschachtelten Fall: ist eine Library Elternverzeichnis von
+    /// `$APPCACHE` (portable Installation), wuerde die Library-Wurzel den Cache
+    /// sonst mitdecken.
+    fn app_roots(&self) -> impl Iterator<Item = &Path> {
+        [self.app_cache_dir.as_path(), self.app_config_dir.as_path()].into_iter()
     }
 
     pub(crate) fn authorizes(&self, path: &Path) -> bool {
         self.roots().any(|root| is_descendant_of(path, root))
+            && !self.app_roots().any(|root| is_descendant_of(path, root))
     }
 
     pub(crate) fn content_read(&self, path: &Path) -> Option<ContentRead> {

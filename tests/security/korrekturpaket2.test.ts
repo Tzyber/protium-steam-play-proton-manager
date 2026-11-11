@@ -72,14 +72,14 @@ describe("statisch belegter bypass-vertrag der tauri-konfiguration", () => {
     );
 
     // hier zählt die string-menge (objekt-permissions herausgefiltert).
+    // P12b2/FR-2: `core:path:default` und `core:event:default` stecken schon in
+    // `core:default`, `core:window:allow-show` hat keinen Webview-Nutzer (das
+    // Fenster wird nur aus Rust gezeigt). Die menge pinnt die wirksamen rechte.
     const stringPermissions = capability.permissions
       .filter((permission): permission is string => typeof permission === "string")
       .sort();
     expect(stringPermissions).toEqual([
       "core:default",
-      "core:event:default",
-      "core:path:default",
-      "core:window:allow-show",
       "fs:allow-exists",
       "fs:allow-read-text-file",
     ]);
@@ -92,9 +92,6 @@ describe("statisch belegter bypass-vertrag der tauri-konfiguration", () => {
       .sort();
     expect(identifiers).toEqual([
       "core:default",
-      "core:event:default",
-      "core:path:default",
-      "core:window:allow-show",
       "fs:allow-exists",
       "fs:allow-mkdir",
       "fs:allow-read-text-file",

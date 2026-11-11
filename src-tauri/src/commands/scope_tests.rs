@@ -94,6 +94,86 @@ fn snapshot_rejects_unregistered_user_path() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// FR-1/6.2: `$APPCACHE` und `$APPCONFIG` sind keine Environment-Wurzeln.
+/// Die Library ist hier Elternverzeichnis des Cache (portable Installation),
+/// damit die Library-Wurzel die App-Ordner sonst mitdecken wuerde: nur die
+/// App-Ausnahme in `authorizes` haelt diese Pfade draussen.
+#[test]
+fn app_cache_und_config_sind_keine_environment_wurzeln() {
+    let root = wsg_fixture("env-app-roots");
+    let library = root.join("library");
+    let cache = library.join("cache");
+    let config = root.join("config");
+    std::fs::create_dir_all(cache.join("backups")).unwrap();
+    std::fs::create_dir_all(cache.join("downloads")).unwrap();
+    std::fs::create_dir_all(&config).unwrap();
+    let state = EnvironmentState::for_test(EnvironmentSnapshot::for_test(
+        root.join("steam"),
+        vec![library.clone()],
+        Vec::new(),
+        cache.clone(),
+        config.clone(),
+    ));
+
+    for blocked in [
+        cache.as_path(),
+        cache.join("backups").as_path(),
+        cache.join("downloads").as_path(),
+        config.as_path(),
+    ] {
+        let error = state.authorize_for_test(blocked).unwrap_err();
+        assert!(
+            errcode::has_code(&error, errcode::BLOCKED_LOCATION),
+            "{blocked:?}: {error}"
+        );
+    }
+
+    // Gegenprobe: die Library-Wurzel selbst und ein Pfad daneben bleiben erlaubt.
+    std::fs::create_dir_all(library.join("steamapps")).unwrap();
+    assert!(state.authorize_for_test(&library.join("steamapps")).is_ok());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// FR-1: `environment_read_dir` autorisiert ueber `with_authorized_existing`;
+/// der Backup-Ordner mit den config.vdf-Kopien endet dort als blockade.
+#[test]
+fn environment_read_dir_ist_auf_app_backups_blockiert() {
+    let root = wsg_fixture("env-read-dir-app-backups");
+    let library = root.join("library");
+    let cache = library.join("cache");
+    let backups = cache.join("backups");
+    std::fs::create_dir_all(&backups).unwrap();
+    let state = EnvironmentState::for_test(EnvironmentSnapshot::for_test(
+        root.join("steam"),
+        vec![library.clone()],
+        Vec::new(),
+        cache.clone(),
+        root.join("config"),
+    ));
+    let dirs = [backups.clone(), cache.clone()];
+    let labels = ["environment read dir", "dir_size"];
+
+    for (label, dir) in labels.into_iter().zip(dirs.iter()) {
+        let error = state
+            .with_authorized_existing(&dir.to_string_lossy(), label, |_| Ok(()))
+            .unwrap_err();
+        assert!(
+            errcode::has_code(&error, errcode::BLOCKED_LOCATION),
+            "{label}: {error}"
+        );
+    }
+
+    // Gegenprobe auf demselben Weg: die Library bleibt lesbar.
+    let error =
+        state.with_authorized_existing(&library.to_string_lossy(), "environment read dir", |_| {
+            Ok(())
+        });
+    assert!(error.is_ok(), "{error:?}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
 #[test]
 fn discovery_replaces_old_snapshot_authority_atomically() {
     let root = std::env::temp_dir().join(format!("protium-env-swap-{}", std::process::id()));

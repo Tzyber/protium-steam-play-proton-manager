@@ -12,7 +12,7 @@ import {
   MANAGED_GE_NAME_RE,
 } from "../../src/core/geprotonNames.js";
 import { MAX_APP_ID } from "../../src/core/guards.js";
-import { SYSTEM_COMPAT_DIRS } from "../../src/core/paths.js";
+import { paths, SYSTEM_COMPAT_DIRS } from "../../src/core/paths.js";
 import { MAX_BINARY_VDF_DEPTH } from "../../src/core/shortcuts.js";
 import { formatDetail, formatError } from "../../src/ui/formatError.js";
 import { setLocale, t } from "../../src/ui/i18n/index.js";
@@ -166,6 +166,18 @@ describe("TypeScript-/Rust-Spiegelwerte", () => {
         '".protium-extract-"',
       );
     }
+  });
+
+  it("bindet den .protium-trash-Namen an steam_layout::TRASH_DIR_NAME (1.13)", () => {
+    // Der Papierkorb-name steht in beiden Sprachen: Rust legt ihn an und
+    // benennt den Loeschkandidaten hinein (delete_ops), die Webview baut
+    // denselben Pfad in paths.ts. Driftet eine Seite, zeigt die UI einen
+    // Ordner, den das Backend nie fuellt.
+    const layout = readFileSync(join(repo, "src-tauri/src/commands/steam_layout.rs"), "utf8");
+    const trashMatch = layout.match(/pub\(crate\) const TRASH_DIR_NAME: &str = "([^"]+)";/);
+    expect(trashMatch, "TRASH_DIR_NAME fehlt in steam_layout.rs").not.toBeNull();
+    expect(trashMatch?.[1]).toBe(".protium-trash");
+    expect(paths.trashDir("/tmp/library")).toBe(`/tmp/library/steamapps/${trashMatch?.[1]}`);
   });
 
   it("bindet das Delete-Batch-Limit an die Rust-Registry", () => {
