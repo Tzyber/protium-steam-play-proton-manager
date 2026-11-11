@@ -237,9 +237,6 @@ body {
   gap: 12px;
   margin-bottom: 12px;
 }
-.section-label-explained .section-label {
-  margin-bottom: 0;
-}
 .k {
   display: block;
   color: var(--fg-1);

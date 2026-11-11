@@ -115,6 +115,7 @@ const footprintTopics = computed<ExplainTopic[]>(() =>
 <style scoped>
 .footprint { margin-top: 20px; }
 .footprint .section-label { margin-bottom: 10px; }
+.footprint .section-label-explained .section-label { margin-bottom: 0; }
 .footprint-measure { margin-top: 12px; }
 .footprint-values { margin-top: 18px; }
 .footprint-row {

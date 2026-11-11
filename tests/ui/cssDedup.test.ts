@@ -40,11 +40,7 @@ const SHARED = [
   },
   {
     name: ".section-label (GameDetailDrawer/GameFootprintSection)",
-    selectors: [
-      ".section-label",
-      ".section-label-explained",
-      ".section-label-explained .section-label",
-    ],
+    selectors: [".section-label", ".section-label-explained"],
     owners: [DRAWER, FOOTPRINT],
   },
   {
@@ -84,6 +80,13 @@ describe("CSS-Dedup: geteilte Klassen (2.1, 4.13)", () => {
       }
     });
   }
+
+  it("der margin-override bleibt lokal und spezifisch", () => {
+    expect(ruleCount(tokens, ".section-label-explained .section-label")).toBe(0);
+    expect(
+      ruleCount(readRepoFile(FOOTPRINT), ".footprint .section-label-explained .section-label"),
+    ).toBe(1);
+  });
 
   it("führt .blocked und .hint nicht nach Klassennamen zusammen", () => {
     // BlockedExplanation trägt `blocked` nur als tone-marke, HistoryView und

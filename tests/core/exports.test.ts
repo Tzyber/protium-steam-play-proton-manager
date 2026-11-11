@@ -67,6 +67,19 @@ describe("Export-Klassifikation (2.4)", () => {
     expect(typeof filter.fuzzyMatch).toBe("function");
   });
 
+  it("die beim Sweep entfernten Exporte bleiben intern", () => {
+    expect(readRepoFile("src/ui/gameConfig.ts")).not.toContain("export function launchHintText");
+    for (const file of [
+      "src/ui/stores/cleanupOrphans.ts",
+      "src/ui/stores/cleanupTrash.ts",
+      "src/ui/stores/protonListeners.ts",
+    ]) {
+      expect(readRepoFile(file), file).not.toMatch(
+        /export interface (OrphanStore|TrashStore|ProtonListenerStore)/,
+      );
+    }
+  });
+
   it("die Typ-Seams bleiben erreichbar", () => {
     // Der import selbst ist die prüfung; die zuordnung hält die namen in
     // benutzung, damit `biome` sie nicht als unbenutzt entfernt.

@@ -337,6 +337,9 @@ fn canonical_authority_library(path: &Path) -> Result<Option<PathBuf>, String> {
                 format!("cannot canonicalize Steam library: {detail}"),
             ))
         }
+        // INV-2: eine library, die die pfad-validierung nicht besteht (etwa
+        // `..` oder ein symlink), autorisiert nichts und wird uebersprungen;
+        // der aufrufer prueft autoritaet/scope ohnehin erneut.
         Err(_) => Ok(None),
     }
 }

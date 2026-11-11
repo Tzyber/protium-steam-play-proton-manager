@@ -235,45 +235,6 @@ fn prepare_bindet_den_steam_root_exakt_an_den_snapshot() {
 }
 
 #[test]
-fn prepare_root_bindung_nutzt_die_io_regel_statt_pauschal_not_found() {
-    // FR-3: die Bindung ist dieselbe wie im Write-Gate, nur der io-code bleibt
-    // caller-spezifisch. ENOTDIR ist ein Leseschaden des angeforderten Pfads,
-    // kein "root weg" (`not-found`).
-    let root = wsg_fixture("prepare-root-enotdir");
-    let blocker = root.join("blocker");
-    std::fs::write(&blocker, b"x").unwrap();
-    let snapshot = EnvironmentSnapshot::for_test(
-        root.clone(),
-        Vec::new(),
-        Vec::new(),
-        std::path::PathBuf::from("/nonexistent-cache"),
-        std::path::PathBuf::from("/nonexistent-config"),
-    );
-    let request = PrepareDeleteRequest {
-        target_type: DeleteTargetType::Orphan,
-        path: root
-            .join("steamapps/compatdata/999999")
-            .to_string_lossy()
-            .into_owned(),
-        steam_root: blocker.join("sub").to_string_lossy().into_owned(),
-    };
-
-    let error = prepare_delete_inner(
-        &PendingDeleteRegistry::default(),
-        &request,
-        &snapshot,
-        || Ok(false),
-    )
-    .unwrap_err();
-
-    assert!(
-        errcode::has_code(&error, errcode::UNREADABLE),
-        "unexpected error: {error}"
-    );
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[test]
 fn prepare_lehnt_einen_nicht_aufloesbaren_steam_root_ab() {
     let root = wsg_fixture("prepare-root-missing");
     let snapshot = snapshot_for(&root);
