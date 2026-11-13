@@ -56,7 +56,7 @@ describe("P5b Gate: NoticeRail & Scroll-Owner je View", () => {
     expect(flattenCss(update)).not.toMatch(/position\s*:\s*sticky/);
   });
 
-  it("jede View hat genau einen Scroll-Owner ohne innere Doppel-Scrollbars", () => {
+  it("jede View hat genau einen Scroll-Owner; die zwei History-Panels bleiben ausgenommen", () => {
     const lib = ruleBlock(readRepoFile("src/ui/views/LibraryView.vue"), ".library");
     expect(declarationValue(lib, "overflow-y")).toBe("auto");
     expect(declarationValue(lib, "height")).toBe("100%");
@@ -72,14 +72,18 @@ describe("P5b Gate: NoticeRail & Scroll-Owner je View", () => {
     expect(declarationValue(scroller, "overflow-y")).toBe("auto");
     expect(declarationValue(ruleBlock(cv, ".actionbar"), "margin")).toBe("0");
 
+    // Stände und Protokoll sind bewusst kleine, eigenständig scrollende
+    // Panels (Nutzerentscheidung 2026-11-13): wer nur den Verlauf liest,
+    // soll nicht die ganze Seite durchscrollen müssen. .hv-body selbst
+    // scrollt nicht, sonst gäbe es drei konkurrierende Scrollflächen.
     const hv = readRepoFile("src/ui/views/HistoryView.vue");
     expect(hv).not.toMatch(/class="content"/);
-    const hvBody = ruleBlock(hv, ".hv-body");
-    expect(declarationValue(hvBody, "overflow-y")).toBe("auto");
-    expect(declarationValue(ruleBlock(hv, ".entries"), "overflow-y")).toBeUndefined();
-    expect(declarationValue(ruleBlock(hv, ".entries"), "max-height")).toBeUndefined();
-    expect(declarationValue(ruleBlock(hv, ".log"), "overflow")).toBeUndefined();
-    expect(declarationValue(ruleBlock(hv, ".log"), "overflow-y")).toBeUndefined();
+    expect(declarationValue(ruleBlock(hv, ".hv-body"), "overflow")).toBe("hidden");
+    const entries = ruleBlock(hv, ".entries");
+    expect(declarationValue(entries, "overflow-y")).toBe("auto");
+    expect(declarationValue(entries, "max-height")).toBe("168px");
+    expect(declarationValue(entries, "overscroll-behavior")).toBe("contain");
+    expect(declarationValue(ruleBlock(hv, ".log"), "overflow")).toBe("auto");
   });
 
   it("NoticeRail führt beim Mount checkForUpdate aus, auch wenn Update/Toast inaktiv sind", async () => {

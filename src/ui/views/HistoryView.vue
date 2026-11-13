@@ -170,8 +170,7 @@ onMounted(() => {
 .hv-body {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -189,7 +188,8 @@ onMounted(() => {
 }
 
 .log-block {
-  flex: 1 0 auto;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .section-bar {
@@ -245,8 +245,11 @@ onMounted(() => {
   font-size: var(--text-xs);
 }
 
-/* Stände-Liste; scrollt gemeinsam mit dem Protokoll in .hv-body. */
+/* Stände: kompakt und selbst scrollbar, damit das Protokoll erreichbar bleibt. */
 .entries {
+  max-height: 168px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   margin: 0;
   padding: var(--space-1);
   list-style: none;
@@ -271,10 +274,11 @@ onMounted(() => {
 .entry-sub { color: var(--fg-2); white-space: nowrap; }
 .empty { color: var(--fg-2); font-size: var(--text-xs); margin: 0; }
 
-/* Protokollzeilen wie im Logfile; scrollt gemeinsam mit den Ständen in .hv-body. */
+/* Protokoll: eigene Scrollfläche, Zeilen wie im Logfile. */
 .log {
-  flex: 1 0 auto;
+  flex: 1 1 auto;
   min-height: 120px;
+  overflow: auto;
   margin: 0;
   padding: var(--space-2) var(--space-1);
   list-style: none;
