@@ -41,10 +41,11 @@ const rootShort = computed(() => {
           class="nav-item"
           :class="{ active: ui.activeView === item.id }"
           type="button"
+          :title="t(item.labelKey)"
           :aria-current="ui.activeView === item.id ? 'page' : undefined"
           @click="ui.go(item.id)"
         >
-          {{ t(item.labelKey) }}
+          <span class="nav-label">{{ t(item.labelKey) }}</span>
         </button>
       </nav>
 
@@ -97,6 +98,12 @@ nav { display: flex; flex-direction: column; gap: var(--space-1); }
   font-weight: 500;
   text-align: left;
   cursor: pointer;
+}
+.nav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .nav-item:hover:not(:disabled):not(.active) { background: var(--bg-2); color: var(--fg-0); }
 .nav-item.active {

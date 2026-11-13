@@ -339,7 +339,7 @@ const coverageCards = computed<CoverageCard[]>(() => {
 .coverage-group ul { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
 .coverage-group li { padding-top: var(--space-2); border-top: 1px solid var(--line); }
 
-@media (max-width: 760px) {
+@media (max-width: 899px) {
   .coverage-details { grid-template-columns: 1fr; }
   .coverage-toggle { align-items: flex-start; flex-direction: column; gap: var(--space-2); }
 }

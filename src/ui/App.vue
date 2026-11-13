@@ -104,7 +104,10 @@ watch(
 }
 
 .app-background { height: 100%; }
-.shell { display: grid; grid-template-columns: 216px 1fr; grid-template-rows: minmax(0, 1fr); height: 100%; }
+.shell { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100%; }
+@media (max-width: 1199px) {
+  .shell { --sidebar-w: var(--sidebar-w-compact); }
+}
 
 .content {
   min-height: 0;

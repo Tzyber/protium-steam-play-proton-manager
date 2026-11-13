@@ -134,7 +134,7 @@ const visibleStatusText = computed(() =>
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: var(--space-4);
   list-style: none;
   padding: 0;

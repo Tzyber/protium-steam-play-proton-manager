@@ -93,7 +93,7 @@ onBeforeUnmount(() => {
   z-index: 50;
 }
 .dialog {
-  width: min(460px, 92vw);
+  width: min(var(--dialog-w), calc(100vw - 2 * var(--space-5)));
   background: var(--bg-1);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);

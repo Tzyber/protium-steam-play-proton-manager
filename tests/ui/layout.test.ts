@@ -3,7 +3,7 @@ import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import NoticeRail from "../../src/ui/components/NoticeRail.vue";
-import { declarationValue, flattenCss, ruleBlock } from "../support/cssRules";
+import { declarationValue, flattenCss, mediaRuleBlock, ruleBlock } from "../support/cssRules";
 import { readRepoFile } from "../support/themeTokens";
 
 const getMock = vi.fn().mockResolvedValue({ status: 200, body: "[]" });
@@ -87,5 +87,54 @@ describe("P5b Gate: NoticeRail & Scroll-Owner je View", () => {
     expect(getMock).toHaveBeenCalledTimes(1);
     expect(wrapper.find(".update-notice").exists()).toBe(false);
     expect(wrapper.find(".note.toast").exists()).toBe(false);
+  });
+});
+
+describe("P5c Gate: Card-Grid 300px, Kompakte Sidebar & Breakpoints (D3)", () => {
+  it("LibraryView .grid nutzt minmax(300px, 1fr)", () => {
+    const grid = ruleBlock(readRepoFile("src/ui/views/LibraryView.vue"), ".grid");
+    expect(declarationValue(grid, "grid-template-columns")).toBe(
+      "repeat(auto-fill, minmax(300px, 1fr))",
+    );
+  });
+
+  it("AppSidebar .nav-item schützt per Ellipsis + :title und App.vue schaltet bei 1199px kompakt", () => {
+    const sidebar = readRepoFile("src/ui/components/AppSidebar.vue");
+    expect(sidebar).toMatch(/:title="t\(item\.labelKey\)"/);
+    expect(sidebar).toMatch(/<span class="nav-label">/);
+    const navLabel = ruleBlock(sidebar, ".nav-label");
+    expect(declarationValue(navLabel, "overflow")).toBe("hidden");
+    expect(declarationValue(navLabel, "text-overflow")).toBe("ellipsis");
+    expect(declarationValue(navLabel, "white-space")).toBe("nowrap");
+
+    const app = readRepoFile("src/ui/App.vue");
+    const shell = ruleBlock(app, ".shell");
+    expect(declarationValue(shell, "grid-template-columns")).toBe(
+      "var(--sidebar-w) minmax(0, 1fr)",
+    );
+    const compactShell = mediaRuleBlock(app, "(max-width: 1199px)", ".shell");
+    expect(declarationValue(compactShell, "--sidebar-w")).toBe("var(--sidebar-w-compact)");
+  });
+
+  it("ScanCoveragePanel schaltet unter 899px auf eine Spalte statt 760px", () => {
+    const scp = readRepoFile("src/ui/components/ScanCoveragePanel.vue");
+    expect(scp).not.toContain("760px");
+    const details = mediaRuleBlock(scp, "(max-width: 899px)", ".coverage-details");
+    expect(declarationValue(details, "grid-template-columns")).toBe("1fr");
+  });
+
+  it("Drawer, ConfirmDialog und ExplainInfo begrenzen ihre Breite mit 100vw-Schutz (L11)", () => {
+    const drawer = ruleBlock(readRepoFile("src/ui/components/GameDetailDrawer.vue"), ".drawer");
+    expect(declarationValue(drawer, "width")).toBe("min(var(--drawer-w), 100vw)");
+
+    const confirm = ruleBlock(readRepoFile("src/ui/components/ConfirmDialog.vue"), ".dialog");
+    expect(declarationValue(confirm, "width")).toBe(
+      "min(var(--dialog-w), calc(100vw - 2 * var(--space-5)))",
+    );
+
+    const explain = ruleBlock(readRepoFile("src/ui/components/ExplainInfo.vue"), ".explain-dialog");
+    expect(declarationValue(explain, "width")).toBe(
+      "min(var(--dialog-w), calc(100vw - 2 * var(--space-5)))",
+    );
   });
 });

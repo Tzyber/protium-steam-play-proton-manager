@@ -165,7 +165,7 @@ watch(
 }
 
 .explain-dialog {
-  width: min(440px, 92vw);
+  width: min(var(--dialog-w), calc(100vw - 2 * var(--space-5)));
   max-height: 80vh;
   overflow-y: auto;
   overscroll-behavior: contain;

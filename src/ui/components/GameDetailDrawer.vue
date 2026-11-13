@@ -392,7 +392,7 @@ function dismissError() {
   top: 0;
   right: 0;
   height: 100%;
-  width: min(420px, 92vw);
+  width: min(var(--drawer-w), 100vw);
   background: var(--bg-1);
   border-left: 1px solid var(--line);
   box-shadow: -24px 0 60px -20px rgba(0, 0, 0, 0.6);
