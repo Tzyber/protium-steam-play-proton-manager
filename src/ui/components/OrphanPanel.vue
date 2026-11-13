@@ -106,27 +106,27 @@ function orphanLabel(o: OrphanEntry): string {
 </template>
 
 <style scoped>
-.section-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; min-height: 34px; }
+.section-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin: 0 0 var(--space-3); min-height: 34px; }
 .section {
   font-family: var(--font-display); font-size: var(--text-lg); font-weight: 600; color: var(--fg-1);
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: var(--space-3);
 }
 .section .count { color: var(--fg-2); font-family: var(--font-body); font-weight: 400; }
 .section .warn-label {
   font-family: var(--font-body); font-size: var(--text-md); color: var(--fg-1);
   border: 1px solid var(--warning-border);
-  border-radius: 999px; padding: 2px 9px;
+  border-radius: 999px; padding: var(--space-1) var(--space-2);
 }
 
 .sel-all.warn:hover:not(:disabled) { border-color: var(--warning-text); color: var(--warning-text); }
 
 .moved-note {
   color: var(--fg-2); font-size: var(--text-md); font-family: var(--font-body);
-  margin: 0 0 10px;
+  margin: 0 0 var(--space-3);
 }
 
-.list { display: grid; gap: 6px; list-style: none; padding: 0; margin: 0; }
+.list { display: grid; gap: var(--space-2); list-style: none; padding: 0; margin: 0; }
 
-.empty { color: var(--fg-2); font-family: var(--font-body); font-size: var(--text-md); padding: 32px 0; text-align: center; }
-.explain-inline { margin-left: 7px; vertical-align: middle; }
+.empty { color: var(--fg-2); font-family: var(--font-body); font-size: var(--text-md); padding: var(--space-6) 0; text-align: center; }
+.explain-inline { margin-left: var(--space-2); vertical-align: middle; }
 </style>

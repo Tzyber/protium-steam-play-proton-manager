@@ -26,8 +26,8 @@ defineProps<{
   border: 1px solid var(--line);
   border-left: 3px solid var(--error-border);
   border-radius: var(--r-md);
-  padding: 12px 16px;
-  margin-bottom: 16px;
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
 }
 
 .blocked-explanation.info {
@@ -37,24 +37,24 @@ defineProps<{
 .blocked-title {
   font-weight: 600;
   color: var(--fg-0);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
 }
 
 .blocked-intro {
   font-size: var(--text-md);
   color: var(--fg-1);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .blocked-list {
-  margin: 0 0 8px 16px;
+  margin: 0 0 var(--space-2) var(--space-4);
   padding: 0;
   font-size: var(--text-md);
   color: var(--fg-1);
 }
 
 .blocked-list li {
-  margin-bottom: 2px;
+  margin-bottom: var(--space-1);
 }
 
 .blocked-guarantee {

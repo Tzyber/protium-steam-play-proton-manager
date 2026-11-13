@@ -27,7 +27,7 @@ const confidenceText = computed(() =>
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--space-1);
   font-family: var(--font-body);
   font-size: var(--text-xs);
   font-weight: 600;
@@ -36,7 +36,7 @@ const confidenceText = computed(() =>
   color: var(--c);
   background: rgba(8, 9, 14, 0.82);
   border: 1px solid color-mix(in srgb, var(--c) 65%, transparent);
-  padding: 3px 8px 3px 7px;
+  padding: var(--space-1) var(--space-2);
   border-radius: 999px;
   box-shadow:
     0 2px 8px rgba(0, 0, 0, 0.55),

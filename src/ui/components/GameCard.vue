@@ -109,7 +109,7 @@ const { src, onError } = useCover(() => props.game);
   height: 100%;
   display: grid;
   place-items: center;
-  padding: 12px;
+  padding: var(--space-3);
   text-align: center;
   background:
     radial-gradient(120% 100% at 50% 0%, color-mix(in srgb, var(--signal) 10%, transparent), transparent 70%),
@@ -125,9 +125,9 @@ const { src, onError } = useCover(() => props.game);
 
 .overlay-top { position: absolute; top: 8px; right: 8px; }
 
-.body { padding: 12px 12px 6px; }
+.body { padding: var(--space-3) var(--space-3) var(--space-2); }
 h3 {
-  margin: 0 0 10px;
+  margin: 0 0 var(--space-3);
   font-family: var(--font-display);
   font-size: var(--text-xl);
   font-weight: 600;
@@ -136,14 +136,14 @@ h3 {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px 12px; }
+.meta { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: 0 var(--space-3) var(--space-3); }
 .chip {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--signal-bright);
   background: color-mix(in srgb, var(--signal) 12%, transparent);
   border: 1px solid var(--signal-dim);
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   border-radius: 999px;
   max-width: 62%;
   white-space: nowrap;
@@ -153,5 +153,5 @@ h3 {
 .chip.muted { color: var(--fg-2); background: transparent; border-color: var(--line); }
 .size { color: var(--fg-2); font-size: var(--text-sm); white-space: nowrap; }
 
-.meta-right { display: flex; align-items: center; gap: 8px; }
+.meta-right { display: flex; align-items: center; gap: var(--space-2); }
 </style>

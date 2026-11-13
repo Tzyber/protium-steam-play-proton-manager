@@ -46,9 +46,9 @@ function openUpdateRelease() {
   z-index: 10;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  margin: 8px 12px 0;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  margin: var(--space-2) var(--space-3) 0;
   background: color-mix(in srgb, var(--signal) 12%, var(--bg-0));
   border: 1px solid var(--signal-dim);
   border-radius: var(--r-sm);
@@ -63,7 +63,7 @@ function openUpdateRelease() {
 }
 .update-open {
   margin-left: auto;
-  padding: 6px 9px;
+  padding: var(--space-2);
   background: var(--signal);
   color: var(--on-signal);
   font-weight: 600;

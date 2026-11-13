@@ -110,19 +110,19 @@ const trashBlockedNotice = () =>
   background: var(--bg-2);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  padding: 14px 16px;
-  margin-bottom: 16px;
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
 }
-.pm-title { margin: 0 0 8px; color: var(--signal); font-size: var(--text-md); }
-.pm-list { margin: 0 0 10px; padding-left: 18px; }
+.pm-title { margin: 0 0 var(--space-2); color: var(--signal); font-size: var(--text-md); }
+.pm-list { margin: 0 0 var(--space-3); padding-left: var(--space-4); }
 .pm-list li { color: var(--fg-1); font-family: var(--font-mono); font-size: var(--text-md); line-height: var(--leading-mono); }
-.pm-note { margin: 0 0 12px; color: var(--fg-2); font-size: var(--text-md); line-height: var(--leading-body); }
+.pm-note { margin: 0 0 var(--space-3); color: var(--fg-2); font-size: var(--text-md); line-height: var(--leading-body); }
 .pm-btn {
   background: var(--signal); border: none; color: var(--on-signal);
-  border-radius: var(--r-sm); padding: 10px 15px;
+  border-radius: var(--r-sm); padding: var(--space-3) var(--space-4);
   font-family: var(--font-body); font-weight: 600; font-size: var(--text-md); cursor: pointer;
 }
 .pm-btn:hover { background: var(--signal-bright); }
 .pm-btn:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
-.explain-inline { margin-left: 7px; vertical-align: middle; }
+.explain-inline { margin-left: var(--space-2); vertical-align: middle; }
 </style>

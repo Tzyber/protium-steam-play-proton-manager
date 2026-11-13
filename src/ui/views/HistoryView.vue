@@ -157,7 +157,7 @@ onMounted(() => {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  padding: 20px 24px 0;
+  padding: var(--view-pad) var(--view-pad) 0;
   min-width: 0;
   overflow-x: hidden;
 }
@@ -167,8 +167,8 @@ onMounted(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding-bottom: 16px;
+  gap: var(--space-3);
+  padding-bottom: var(--space-4);
 }
 
 .block {
@@ -189,7 +189,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .section-bar h2 {
@@ -204,11 +204,11 @@ onMounted(() => {
 
 .actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .action {
-  padding: 4px 9px;
+  padding: var(--space-1) var(--space-2);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background: transparent;
@@ -228,8 +228,8 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin: 6px 0 10px;
+  gap: var(--space-3);
+  margin: var(--space-2) 0 var(--space-3);
 }
 
 .hint {
@@ -244,7 +244,7 @@ onMounted(() => {
   overflow-y: auto;
   overscroll-behavior: contain;
   margin: 0;
-  padding: 2px;
+  padding: var(--space-1);
   list-style: none;
   border: 1px solid var(--line-soft);
   border-radius: var(--r-sm);
@@ -255,8 +255,8 @@ onMounted(() => {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
-  padding: 3px 8px;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-2);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   line-height: var(--leading-mono);
@@ -273,7 +273,7 @@ onMounted(() => {
   min-height: 120px;
   overflow: auto;
   margin: 0;
-  padding: 6px 4px;
+  padding: var(--space-2) var(--space-1);
   list-style: none;
   border: 1px solid var(--line-soft);
   border-radius: var(--r-sm);
@@ -286,8 +286,8 @@ onMounted(() => {
 .log li {
   display: grid;
   grid-template-columns: 5.5rem 3.5rem 1fr;
-  gap: 8px;
-  padding: 0 6px;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
 }
 
 .log-time { color: var(--fg-2); }

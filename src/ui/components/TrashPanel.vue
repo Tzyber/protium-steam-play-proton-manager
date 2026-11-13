@@ -106,24 +106,24 @@ const trashTotal = computed(() => formatSizeSummary(cleanup.trash, formatKnownBy
 .libstatus {
   font-family: var(--font-mono); font-size: var(--text-md); color: var(--fg-1); line-height: var(--leading-mono);
   background: var(--bg-2); border: 1px solid var(--line);
-  border-radius: var(--r-sm); padding: 12px 16px; margin-bottom: 14px;
+  border-radius: var(--r-sm); padding: var(--space-3) var(--space-4); margin-bottom: var(--space-3);
   overflow-wrap: anywhere;
 }
 
-.pm-list { margin: 0 0 10px; padding-left: 18px; }
+.pm-list { margin: 0 0 var(--space-3); padding-left: var(--space-4); }
 .pm-list li { color: var(--fg-1); font-family: var(--font-mono); font-size: var(--text-md); line-height: var(--leading-mono); }
 
-.list { display: grid; gap: 6px; list-style: none; padding: 0; margin: 0; }
+.list { display: grid; gap: var(--space-2); list-style: none; padding: 0; margin: 0; }
 
-.empty { color: var(--fg-2); font-family: var(--font-body); font-size: var(--text-md); padding: 32px 0; text-align: center; }
+.empty { color: var(--fg-2); font-family: var(--font-body); font-size: var(--text-md); padding: var(--space-6) 0; text-align: center; }
 
-.section-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; min-height: 34px; }
+.section-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin: 0 0 var(--space-3); min-height: 34px; }
 .section {
   font-family: var(--font-display); font-size: var(--text-lg); font-weight: 600; color: var(--fg-1);
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: var(--space-3);
 }
 .section .count { color: var(--fg-2); font-family: var(--font-body); font-weight: 400; }
-.section-actions { display: flex; gap: 8px; }
+.section-actions { display: flex; gap: var(--space-2); }
 
-.explain-inline { margin-left: 7px; vertical-align: middle; }
+.explain-inline { margin-left: var(--space-2); vertical-align: middle; }
 </style>

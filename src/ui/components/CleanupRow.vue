@@ -57,13 +57,13 @@ position: relative;
      falsch, .row erbt Inter vom body, nicht Space Mono. ch in Inter (14px) ≈ 7px,
      damit wäre 9ch ≈ 63px statt 90px. 5.6rem / 4.6rem bei root 16px = 90px / 74px. */
   grid-template-columns: 20px 5.6rem minmax(0, 1fr) 5.6rem;
-  align-items: center; gap: 14px;
+  align-items: center; gap: var(--space-3);
   width: 100%; text-align: left;
   background: var(--bg-2); border: 1px solid var(--line);
-  border-radius: var(--r-sm); padding: 12px 14px; cursor: pointer;
+  border-radius: var(--r-sm); padding: var(--space-3); cursor: pointer;
   transition: border-color 0.12s, background 0.12s;
   /* damit tastatur-fokus nicht unter der sticky leiste landet */
-  scroll-margin-bottom: 80px;
+  scroll-margin-bottom: var(--space-8);
 }
 /* papierkorb: datumsspalte zwischen pfad und größe, feste breite */
 .row.with-date { grid-template-columns: 20px 5.6rem minmax(0, 1fr) 4.6rem 5.6rem; }
@@ -81,14 +81,14 @@ position: relative;
 }
 .row.on .box { border-color: var(--signal); background: var(--signal); }
 .row.on .box::after {
-  content: ""; width: 5px; height: 9px; margin-top: -2px;
+  content: ""; width: 5px; height: 9px; margin-top: calc(-1 * var(--space-half));
   border: solid var(--on-signal); border-width: 0 2px 2px 0; transform: rotate(45deg);
 }
 
 .rname { font-size: var(--text-lg); color: var(--fg-0); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sc-warn {
   display: inline-block; width: 16px; height: 16px; line-height: 1; text-align: center;
-  border-radius: 50%; font-family: var(--font-body); font-size: var(--text-sm); font-weight: 600; margin-left: 4px;
+  border-radius: 50%; font-family: var(--font-body); font-size: var(--text-sm); font-weight: 600; margin-left: var(--space-1);
   background: var(--warning-surface);
   color: var(--warning-text); border: 1px solid var(--warning-border);
 }

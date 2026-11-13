@@ -101,14 +101,14 @@ const visibleStatusText = computed(() =>
 </template>
 
 <style scoped>
-.library { padding: 20px 24px; scrollbar-gutter: stable; }
+.library { padding: var(--view-pad); scrollbar-gutter: stable; }
 
 .bar {
-  gap: 16px;
+  gap: var(--space-4);
 }
 .title .unit { color: var(--fg-2); font-family: var(--font-body); font-size: var(--text-lg); font-weight: 400; }
 
-.right { position: relative; display: flex; align-items: center; gap: 12px; }
+.right { position: relative; display: flex; align-items: center; gap: var(--space-3); }
 .status { color: var(--fg-2); font-size: var(--text-md); }
 
 .rescan {
@@ -116,7 +116,7 @@ const visibleStatusText = computed(() =>
   color: var(--on-signal);
   border: none;
   border-radius: var(--r-sm);
-  padding: 8px 14px;
+  padding: var(--space-2) var(--space-3);
   font-family: var(--font-body);
   font-weight: 600;
   font-size: var(--text-lg);
@@ -129,14 +129,14 @@ const visibleStatusText = computed(() =>
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: var(--gap);
+  gap: var(--space-4);
   list-style: none;
   padding: 0;
   margin: 0;
 }
 
 .empty {
-  padding: 60px 0;
+  padding: var(--space-7) 0;
   text-align: center;
   color: var(--fg-2);
   font-family: var(--font-body);

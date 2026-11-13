@@ -101,15 +101,15 @@ onBeforeUnmount(() => {
   z-index: 10;
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 10px 12px;
-  margin: 8px 12px 0;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  margin: var(--space-2) var(--space-3) 0;
   background: var(--error-surface);
   border: 1px solid var(--error-border);
   border-radius: var(--r-sm);
   font-family: var(--font-body);
 }
-.note-icon { color: var(--danger-fg); font-size: var(--text-md); flex-shrink: 0; margin-top: 2px; }
+.note-icon { color: var(--danger-fg); font-size: var(--text-md); flex-shrink: 0; margin-top: var(--space-1); }
 .note-msg { flex: 1; color: var(--fg-0); font-size: var(--text-md); line-height: var(--leading-body); word-break: break-word; }
 .note-copy, .note-close {
   flex-shrink: 0;

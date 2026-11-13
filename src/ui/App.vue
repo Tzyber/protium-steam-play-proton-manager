@@ -94,7 +94,7 @@ watch(
   z-index: 100;
   background: var(--signal);
   color: var(--on-signal);
-  padding: 8px 14px;
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--r-sm);
   font-family: var(--font-body);
   font-weight: 600;
@@ -123,12 +123,12 @@ watch(
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 
 /* Titelzeile aller Views: eine Quelle, damit kein View anders aussieht. */
 .bar .title h1 {
-  margin: 2px 0 0;
+  margin: var(--space-half) 0 0;
   font-family: var(--font-display);
   font-size: var(--text-3xl);
   font-weight: 600;

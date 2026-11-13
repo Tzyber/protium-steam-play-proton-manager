@@ -186,16 +186,16 @@ const statusLine = computed(() => {
 </template>
 
 <style scoped>
-.pm { padding: 20px 24px; }
-.update { position: relative; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.pm { padding: var(--view-pad); }
+.update { position: relative; display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); }
 .statusline {
   font-family: var(--font-body);
   font-size: var(--text-sm);
   color: var(--fg-1);
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
   border-radius: 999px;
   background: var(--bg-2);
   border: 1px solid var(--line);
@@ -213,37 +213,37 @@ const statusLine = computed(() => {
 .rescan {
   background: var(--bg-2); color: var(--fg-1);
   border: 1px solid var(--line); border-radius: var(--r-sm);
-  padding: 8px 14px; font-family: var(--font-body); font-size: var(--text-md); cursor: pointer;
+  padding: var(--space-2) var(--space-3); font-family: var(--font-body); font-size: var(--text-md); cursor: pointer;
 }
 .rescan:hover:not(:disabled) { color: var(--fg-0); border-color: var(--signal-dim); }
 
-.installed-heading { display: flex; align-items: baseline; gap: 8px; }
-.section { font-family: var(--font-display); font-size: var(--text-md); font-weight: 600; margin: 22px 0 10px; color: var(--fg-1); }
+.installed-heading { display: flex; align-items: baseline; gap: var(--space-2); }
+.section { font-family: var(--font-display); font-size: var(--text-md); font-weight: 600; margin: var(--space-5) 0 var(--space-3); color: var(--fg-1); }
 .section .count { color: var(--fg-2); font-family: var(--font-body); font-weight: 400; }
 
-.list { display: grid; gap: 8px; list-style: none; padding: 0; margin: 0; }
+.list { display: grid; gap: var(--space-2); list-style: none; padding: 0; margin: 0; }
 .row {
   position: relative;
-  display: flex; align-items: center; gap: 14px;
+  display: flex; align-items: center; gap: var(--space-3);
   background: var(--bg-2); border: 1px solid var(--line);
-  border-radius: var(--r-md); padding: 12px 14px;
+  border-radius: var(--r-md); padding: var(--space-3);
 }
 .rmain { flex: 1; min-width: 0; }
-.rname { font-family: var(--font-display); font-weight: 600; font-size: var(--text-md); display: flex; align-items: center; gap: 8px; }
-.rsub { color: var(--fg-2); font-size: var(--text-sm); font-weight: 400; margin-top: 3px; }
+.rname { font-family: var(--font-display); font-weight: 600; font-size: var(--text-md); display: flex; align-items: center; gap: var(--space-2); }
+.rsub { color: var(--fg-2); font-size: var(--text-sm); font-weight: 400; margin-top: var(--space-1); }
 
-.tag { font-family: var(--font-body); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-label); padding: 2px 6px; border-radius: 999px; }
-.tag.distro { color: var(--fg-2); border: 1px solid var(--line); margin-left: 8px; }
+.tag { font-family: var(--font-body); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-label); padding: var(--space-1) var(--space-2); border-radius: 999px; }
+.tag.distro { color: var(--fg-2); border: 1px solid var(--line); margin-left: var(--space-2); }
 
-.used { background: none; border: 1px solid var(--signal-dim); color: var(--signal-bright); border-radius: var(--r-sm); padding: 5px 9px; font-family: var(--font-body); font-size: var(--text-md); cursor: pointer; white-space: nowrap; }
+.used { background: none; border: 1px solid var(--signal-dim); color: var(--signal-bright); border-radius: var(--r-sm); padding: var(--space-1) var(--space-2); font-family: var(--font-body); font-size: var(--text-md); cursor: pointer; white-space: nowrap; }
 .used.muted { color: var(--fg-2); border-color: var(--line); cursor: default; }
 
-.rm { background: none; border: 1px solid var(--error-border); color: var(--danger-fg); border-radius: var(--r-sm); padding: 5px 10px; font-family: var(--font-body); font-size: var(--text-md); cursor: pointer; }
+.rm { background: none; border: 1px solid var(--error-border); color: var(--danger-fg); border-radius: var(--r-sm); padding: var(--space-1) var(--space-3); font-family: var(--font-body); font-size: var(--text-md); cursor: pointer; }
 .rm:hover:not(:disabled) { background: var(--error-surface); }
 .rm-lock { position: relative; color: var(--fg-2); font-size: var(--text-sm); }
 
-.hint { color: var(--danger-fg); font-family: var(--font-body); font-size: var(--text-xs); margin-bottom: 10px; }
-.hint--warning { color: var(--warning-text); display: flex; align-items: center; gap: 8px; }
+.hint { color: var(--danger-fg); font-family: var(--font-body); font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.hint--warning { color: var(--warning-text); display: flex; align-items: center; gap: var(--space-2); }
 .hint-close {
   flex: 0 0 32px;
   width: 32px;

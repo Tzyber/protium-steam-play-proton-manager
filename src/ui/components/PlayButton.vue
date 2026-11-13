@@ -80,14 +80,14 @@ function launch() {
   border-color: var(--signal);
   color: var(--on-signal);
   border-radius: var(--r-sm);
-  padding: 13px 14px;
+  padding: var(--space-3);
   font-family: var(--font-body);
   font-weight: 600;
   font-size: var(--text-lg);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .full svg {
   width: 15px;

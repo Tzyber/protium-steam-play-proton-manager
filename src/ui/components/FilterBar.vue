@@ -177,9 +177,9 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 14px;
-  padding: 12px 14px;
-  margin-bottom: 18px;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  margin-bottom: var(--space-4);
   background: var(--bg-1);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
@@ -189,11 +189,11 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
   position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   background: var(--bg-0);
   border: 1px solid var(--line-control);
   border-radius: var(--r-sm);
-  padding: 0 8px;
+  padding: 0 var(--space-2);
   flex: 1 1 200px;
   min-width: 160px;
 }
@@ -206,7 +206,7 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
   color: var(--fg-0);
   font-family: var(--font-body);
   font-size: var(--text-md);
-  padding: 8px 0;
+  padding: var(--space-2) 0;
 }
 /* das eingabefeld bleibt ohne outline: der container zeigt den fokus über
    :focus-within. der clear-knopf liegt in demselben container und braucht
@@ -228,11 +228,11 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
   font-size: var(--text-lg);
   min-height: 36px;
   min-width: 36px;
-  margin: 0 -8px 0 0;
+  margin: 0 calc(-1 * var(--space-2)) 0 0;
   place-items: center;
 }
 
-.group { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.group { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
 
 .seg {
   position: relative;
@@ -240,20 +240,20 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
   border: 1px solid var(--line);
   color: var(--fg-1);
   border-radius: var(--r-sm);
-  padding: 6px 10px;
+  padding: var(--space-2) var(--space-3);
   font-family: var(--font-body);
   font-size: var(--text-sm);
   cursor: pointer;
   transition: border-color 0.12s, color 0.12s, background 0.12s;
 }
-.seg.small { font-size: var(--text-xs); padding: 5px 8px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seg.small { font-size: var(--text-xs); padding: var(--space-1) var(--space-2); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .seg:hover { color: var(--fg-0); border-color: var(--signal-dim); }
 .seg.on {
   color: var(--signal-bright);
   border-color: var(--signal);
   background: color-mix(in srgb, var(--signal) 14%, transparent);
 }
-.arr { margin-left: 5px; opacity: 0.8; }
+.arr { margin-left: var(--space-1); opacity: 0.8; }
 
 .tier-pill {
   --c: var(--tier-unknown);
@@ -261,7 +261,7 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
   border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
   color: color-mix(in srgb, var(--c) 75%, var(--fg-1));
   border-radius: 999px;
-  padding: 5px 10px;
+  padding: var(--space-1) var(--space-3);
   font-family: var(--font-body);
   font-size: var(--text-xs);
   text-transform: uppercase;
@@ -281,7 +281,7 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
   border: 1px solid var(--line);
   color: var(--fg-2);
   border-radius: var(--r-sm);
-  padding: 6px 10px;
+  padding: var(--space-2) var(--space-3);
   font-family: var(--font-body);
   font-size: var(--text-xs);
   cursor: pointer;

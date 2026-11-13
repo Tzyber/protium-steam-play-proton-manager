@@ -158,8 +158,8 @@ onBeforeUnmount(() => {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 8px;
-	padding-right: 10px; /* chevron hat eigenes padding */
+	gap: var(--space-2);
+	padding-right: var(--space-3); /* chevron hat eigenes padding */
 }
 .sb-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-chevron {
@@ -181,7 +181,7 @@ onBeforeUnmount(() => {
 	/* sonst scrollt am listenende der drawer dahinter weiter */
 	overscroll-behavior: contain;
 	margin: 0;
-	padding: 4px;
+	padding: var(--space-1);
 	list-style: none;
 	background: var(--bg-2);
 	border: 1px solid var(--line-control);
@@ -189,7 +189,7 @@ onBeforeUnmount(() => {
 	box-shadow: 0 12px 32px -10px rgba(0, 0, 0, 0.5);
 }
 .sb-opt {
-	padding: 9px 11px;
+	padding: var(--space-2) var(--space-3);
 	border-radius: 4px;
 	font-size: var(--text-sm);
 	color: var(--fg-1);

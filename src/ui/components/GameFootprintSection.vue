@@ -113,16 +113,16 @@ const footprintTopics = computed<ExplainTopic[]>(() =>
 </template>
 
 <style scoped>
-.footprint { margin-top: 20px; }
-.footprint .section-label { margin-bottom: 10px; }
+.footprint { margin-top: var(--space-5); }
+.footprint .section-label { margin-bottom: var(--space-3); }
 .footprint .section-label-explained .section-label { margin-bottom: 0; }
-.footprint-measure { margin-top: 12px; }
-.footprint-values { margin-top: 18px; }
+.footprint-measure { margin-top: var(--space-3); }
+.footprint-values { margin-top: var(--space-4); }
 .footprint-row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   min-height: 28px;
   color: var(--fg-0);
   font-size: var(--text-sm);
@@ -130,10 +130,10 @@ const footprintTopics = computed<ExplainTopic[]>(() =>
 .footprint-row .k { margin: 0; color: var(--fg-1); }
 .footprint-summary {
   border-top: 1px solid var(--line-soft);
-  margin-top: 8px;
-  padding-top: 10px;
+  margin-top: var(--space-2);
+  padding-top: var(--space-3);
   font-weight: 600;
 }
 .footprint-summary .k { color: var(--fg-0); }
-.footprint .hint { margin-top: 12px; }
+.footprint .hint { margin-top: var(--space-3); }
 </style>

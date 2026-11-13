@@ -238,7 +238,7 @@ const coverageCards = computed<CoverageCard[]>(() => {
 <style scoped>
 .coverage {
   position: relative;
-  margin: 0 0 18px;
+  margin: 0 0 var(--space-4);
   background: var(--bg-1);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
@@ -253,7 +253,7 @@ const coverageCards = computed<CoverageCard[]>(() => {
 }
 .coverage-explain {
   flex: 0 0 auto;
-  margin: 0 14px 0 10px;
+  margin: 0 var(--space-3);
 }
 .coverage-toggle {
   display: flex;
@@ -261,8 +261,8 @@ const coverageCards = computed<CoverageCard[]>(() => {
   min-width: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 12px 14px;
+  gap: var(--space-4);
+  padding: var(--space-3);
   background: transparent;
   border: none;
   color: var(--fg-0);
@@ -271,7 +271,7 @@ const coverageCards = computed<CoverageCard[]>(() => {
   text-align: left;
 }
 .coverage-toggle:hover { background: var(--bg-2); }
-.coverage-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.coverage-heading { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
 .coverage-alert {
   display: grid;
   flex: 0 0 auto;
@@ -289,7 +289,7 @@ const coverageCards = computed<CoverageCard[]>(() => {
   font-size: var(--text-md);
   font-weight: 600;
 }
-.coverage-context { display: block; margin-top: 2px; color: var(--fg-2); font-size: var(--text-xs); }
+.coverage-context { display: block; margin-top: var(--space-1); color: var(--fg-2); font-size: var(--text-xs); }
 .coverage--limited .coverage-action,
 .coverage--incomplete .coverage-action { color: var(--warning-text); }
 .coverage--limited .coverage-summary,
@@ -298,7 +298,7 @@ const coverageCards = computed<CoverageCard[]>(() => {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   color: var(--fg-2);
   font-size: var(--text-sm);
   font-weight: 600;
@@ -308,8 +308,8 @@ const coverageCards = computed<CoverageCard[]>(() => {
 .coverage-details {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px 24px;
-  padding: 14px;
+  gap: var(--space-4) var(--space-5);
+  padding: var(--space-3);
   border-top: 1px solid var(--line);
   background: var(--bg-1);
   font-family: var(--font-body);
@@ -317,7 +317,7 @@ const coverageCards = computed<CoverageCard[]>(() => {
   color: var(--fg-1);
 }
 .coverage-group h2 {
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-2);
   color: var(--fg-2);
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
@@ -325,9 +325,9 @@ const coverageCards = computed<CoverageCard[]>(() => {
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
-.coverage-group p { margin: 0 0 6px; }
+.coverage-group p { margin: 0 0 var(--space-2); }
 .coverage-card {
-  padding: 12px;
+  padding: var(--space-3);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background: var(--bg-0);
@@ -336,12 +336,12 @@ const coverageCards = computed<CoverageCard[]>(() => {
 .coverage-card-summary { color: var(--fg-1); }
 .coverage-card--attention .coverage-card-summary { color: var(--warning-text); }
 .coverage-card--complete .coverage-card-summary { color: var(--success-text); }
-.coverage-group ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.coverage-group li { padding-top: 6px; border-top: 1px solid var(--line); }
+.coverage-group ul { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.coverage-group li { padding-top: var(--space-2); border-top: 1px solid var(--line); }
 
 @media (max-width: 760px) {
   .coverage-details { grid-template-columns: 1fr; }
-  .coverage-toggle { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .coverage-toggle { align-items: flex-start; flex-direction: column; gap: var(--space-2); }
 }
 
 .fade-enter-active, .fade-leave-active { transition: opacity 0.15s; }

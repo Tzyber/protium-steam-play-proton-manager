@@ -66,11 +66,11 @@ const rootShort = computed(() => {
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  padding: 18px 14px;
-  gap: 24px;
+  padding: var(--space-4) var(--space-3);
+  gap: var(--space-5);
 }
 
-.brand { display: flex; align-items: center; gap: 10px; }
+.brand { display: flex; align-items: center; gap: var(--space-3); }
 .logo {
   width: 32px; height: 32px;
   display: grid; place-items: center;
@@ -82,7 +82,7 @@ const rootShort = computed(() => {
 }
 .brand .name { font-family: var(--font-display); font-weight: 700; letter-spacing: var(--tracking-micro); font-size: var(--text-lg); }
 
-nav { display: flex; flex-direction: column; gap: 2px; }
+nav { display: flex; flex-direction: column; gap: var(--space-1); }
 .nav-item {
   display: flex;
   align-items: center;
@@ -90,7 +90,7 @@ nav { display: flex; flex-direction: column; gap: 2px; }
   background: transparent;
   border: none;
   border-radius: var(--r-sm);
-  padding: 9px 12px;
+  padding: var(--space-2) var(--space-3);
   color: var(--fg-1);
   font-family: var(--font-body);
   font-size: var(--text-md);
@@ -107,12 +107,12 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .readout {
   margin-top: auto;
   display: grid;
-  gap: 7px;
-  padding: 12px;
+  gap: var(--space-2);
+  padding: var(--space-3);
   background: var(--bg-0);
   border: 1px solid var(--line-soft);
   border-radius: var(--r-sm);
 }
-.readout .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.readout .row { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); }
 .readout .val { color: var(--fg-1); font-size: var(--text-sm); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

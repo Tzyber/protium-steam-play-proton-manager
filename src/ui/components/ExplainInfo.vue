@@ -169,7 +169,7 @@ watch(
   max-height: 80vh;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 20px;
+  padding: var(--space-5);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   background: var(--bg-1);
@@ -181,7 +181,7 @@ watch(
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 h3 {
@@ -193,7 +193,7 @@ h3 {
 
 .explain-close {
   flex: 0 0 auto;
-  padding: 4px 9px;
+  padding: var(--space-1) var(--space-2);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background: transparent;
@@ -211,12 +211,12 @@ h3 {
 
 .explain-entries {
   display: grid;
-  gap: 18px;
-  margin-top: 18px;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
 }
 
 .explain-entries h4 {
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-2);
   font-family: var(--font-display);
   font-size: var(--text-md);
   font-weight: 600;
@@ -224,7 +224,7 @@ h3 {
 
 .explain-entries dl {
   display: grid;
-  gap: 2px 10px;
+  gap: var(--space-half) var(--space-3);
   margin: 0;
   font-size: var(--text-xs);
 }
@@ -238,7 +238,7 @@ h3 {
 }
 
 .explain-entries dd {
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-2);
   color: var(--fg-1);
 }
 

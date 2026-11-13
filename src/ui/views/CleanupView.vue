@@ -366,19 +366,19 @@ const tabLabel = (id: Tab) =>
 .cv {
   display: flex; flex-direction: column;
   height: 100%; min-height: 0;
-  padding: 20px 24px 0; min-width: 0; overflow-x: hidden;
+  padding: var(--view-pad) var(--view-pad) 0; min-width: 0; overflow-x: hidden;
 }
 .scroller {
   flex: 1; min-height: 0;
   overflow-y: auto; overflow-x: hidden;
-  padding-bottom: 8px;
+  padding-bottom: var(--space-2);
 }
 
 .scan-btn {
   align-self: flex-start;
   background: var(--bg-2); color: var(--fg-1);
   border: 1px solid var(--line); border-radius: var(--r-sm);
-  padding: 10px 16px; font-family: var(--font-body); font-size: var(--text-md); cursor: pointer;
+  padding: var(--space-3) var(--space-4); font-family: var(--font-body); font-size: var(--text-md); cursor: pointer;
 
 }
 .scan-btn:hover:not(:disabled) { color: var(--fg-0); border-color: var(--signal-dim); }
@@ -388,17 +388,17 @@ const tabLabel = (id: Tab) =>
 
 /* ---- tabs ---- */
 .tabs {
-  display: flex; gap: 6px;
+  display: flex; gap: var(--space-2);
   border-bottom: 1px solid var(--line);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
   flex: 0 0 auto;
 }
 .tab {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: var(--space-2);
   background: none; border: none; border-bottom: 2px solid transparent;
   color: var(--fg-2); cursor: pointer;
   /* großzügige trefferfläche statt kompakter reiter (a11y) */
-  padding: 12px 18px;
+  padding: var(--space-3) var(--space-4);
   font-family: var(--font-body); font-size: var(--text-lg); font-weight: 600;
   margin-bottom: -1px;
 }
@@ -408,17 +408,17 @@ const tabLabel = (id: Tab) =>
 .tab-count {
   font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 400;
   color: var(--fg-2); background: var(--bg-2);
-  border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px;
+  border: 1px solid var(--line); border-radius: 999px; padding: var(--space-1) var(--space-2);
 }
 .tab.on .tab-count { color: var(--fg-1); border-color: var(--signal-dim); }
 
-.panel { padding-top: 14px; }
+.panel { padding-top: var(--space-3); }
 .panel:focus-visible { outline: 2px solid var(--signal); outline-offset: 4px; border-radius: var(--r-sm); }
 
 .ignored {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: var(--space-3);
   background: none; border: none; padding: 0;
-  margin: -4px 0 14px;
+  margin: calc(-1 * var(--space-1)) 0 var(--space-3);
   font-size: var(--text-md); color: var(--fg-2);
 }
 .ignored button {
@@ -432,19 +432,19 @@ const tabLabel = (id: Tab) =>
    abwählbar war. */
 .actionbar {
   flex: 0 0 auto;
-  display: flex; align-items: center; justify-content: space-between; gap: 14px;
-  margin: 0 -24px; padding: 14px 24px;
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  margin: 0 calc(-1 * var(--view-pad)); padding: var(--space-3) var(--view-pad);
   background: var(--bg-1);
   border-top: 1px solid var(--line);
 }
 .sel-info { font-size: var(--text-md); color: var(--fg-1); }
 /* der sperrgrund steht in der leiste, nicht als block über der liste */
 .actionbar .hint { margin-bottom: 0; }
-.actionbar-btns { display: flex; gap: 10px; }
+.actionbar-btns { display: flex; gap: var(--space-3); }
 
 .action {
   background: var(--signal); color: var(--on-signal); border: none;
-  border-radius: var(--r-sm); padding: 10px 16px;
+  border-radius: var(--r-sm); padding: var(--space-3) var(--space-4);
   font-family: var(--font-body); font-weight: 600; font-size: var(--text-md); cursor: pointer;
 }
 .action:hover:not(:disabled) { background: var(--signal-bright); }
@@ -457,7 +457,7 @@ const tabLabel = (id: Tab) =>
 }
 .action.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger-hover) 30%, transparent); }
 
-.hint { color: var(--warning-text); font-family: var(--font-body); font-size: var(--text-md); margin-bottom: 12px; }
+.hint { color: var(--warning-text); font-family: var(--font-body); font-size: var(--text-md); margin-bottom: var(--space-3); }
 
 
 </style>

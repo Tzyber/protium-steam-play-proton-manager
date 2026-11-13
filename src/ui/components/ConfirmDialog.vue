@@ -97,17 +97,17 @@ onBeforeUnmount(() => {
   background: var(--bg-1);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  padding: 20px;
+  padding: var(--space-5);
   box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.7);
 }
 h3 {
-  margin: 0 0 12px;
+  margin: 0 0 var(--space-3);
   font-family: var(--font-display);
   font-size: var(--text-xl);
   font-weight: 600;
 }
-.content { color: var(--fg-1); font-size: var(--text-sm); margin-bottom: 18px; }
-.actions { display: flex; justify-content: flex-end; gap: 10px; }
+.content { color: var(--fg-1); font-size: var(--text-sm); margin-bottom: var(--space-4); }
+.actions { display: flex; justify-content: flex-end; gap: var(--space-3); }
 /* bestätigung ist immer destruktiv (INV-6): die rote variante ist der einzige
  * bestätigungsknopf, ein neutraler zweig existiert nicht mehr. */
 .btn {
@@ -115,7 +115,7 @@ h3 {
   background: var(--danger);
   color: var(--on-danger);
   border-radius: var(--r-sm);
-  padding: 8px 14px;
+  padding: var(--space-2) var(--space-3);
   font-family: var(--font-body);
   font-weight: 600;
   font-size: var(--text-sm);
