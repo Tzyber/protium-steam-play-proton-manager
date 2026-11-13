@@ -378,7 +378,7 @@ const tabLabel = (id: Tab) =>
   align-self: flex-start;
   background: var(--bg-2); color: var(--fg-1);
   border: 1px solid var(--line); border-radius: var(--r-sm);
-  padding: 10px 16px; font-family: var(--font-body); font-size: 0.875rem; cursor: pointer;
+  padding: 10px 16px; font-family: var(--font-body); font-size: var(--text-md); cursor: pointer;
 
 }
 .scan-btn:hover:not(:disabled) { color: var(--fg-0); border-color: var(--signal-dim); }
@@ -399,14 +399,14 @@ const tabLabel = (id: Tab) =>
   color: var(--fg-2); cursor: pointer;
   /* großzügige trefferfläche statt kompakter reiter (a11y) */
   padding: 12px 18px;
-  font-family: var(--font-body); font-size: 0.9375rem; font-weight: 600;
+  font-family: var(--font-body); font-size: var(--text-lg); font-weight: 600;
   margin-bottom: -1px;
 }
 .tab:hover { color: var(--fg-1); }
 .tab:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; border-radius: var(--r-sm); }
 .tab.on { color: var(--fg-0); border-bottom-color: var(--signal); }
 .tab-count {
-  font-family: var(--font-mono); font-size: 0.8125rem; font-weight: 500;
+  font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 400;
   color: var(--fg-2); background: var(--bg-2);
   border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px;
 }
@@ -419,11 +419,11 @@ const tabLabel = (id: Tab) =>
   display: flex; align-items: center; gap: 10px;
   background: none; border: none; padding: 0;
   margin: -4px 0 14px;
-  font-size: 0.875rem; color: var(--fg-2);
+  font-size: var(--text-md); color: var(--fg-2);
 }
 .ignored button {
   background: none; border: none; padding: 0;
-  color: var(--signal); font-size: 0.875rem; cursor: pointer;
+  color: var(--signal); font-size: var(--text-md); cursor: pointer;
   text-decoration: underline; text-underline-offset: 3px;
 }
 /* footer der view: liegt außerhalb der scroll-fläche, also immer unten und
@@ -437,7 +437,7 @@ const tabLabel = (id: Tab) =>
   background: var(--bg-1);
   border-top: 1px solid var(--line);
 }
-.sel-info { font-size: 0.875rem; color: var(--fg-1); }
+.sel-info { font-size: var(--text-md); color: var(--fg-1); }
 /* der sperrgrund steht in der leiste, nicht als block über der liste */
 .actionbar .hint { margin-bottom: 0; }
 .actionbar-btns { display: flex; gap: 10px; }
@@ -445,7 +445,7 @@ const tabLabel = (id: Tab) =>
 .action {
   background: var(--signal); color: var(--on-signal); border: none;
   border-radius: var(--r-sm); padding: 10px 16px;
-  font-family: var(--font-body); font-weight: 600; font-size: 0.875rem; cursor: pointer;
+  font-family: var(--font-body); font-weight: 600; font-size: var(--text-md); cursor: pointer;
 }
 .action:hover:not(:disabled) { background: var(--signal-bright); }
 .action:disabled { opacity: 0.4; cursor: default; }
@@ -457,7 +457,7 @@ const tabLabel = (id: Tab) =>
 }
 .action.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger-hover) 30%, transparent); }
 
-.hint { color: var(--warning-text); font-family: var(--font-body); font-size: 0.875rem; margin-bottom: 12px; }
+.hint { color: var(--warning-text); font-family: var(--font-body); font-size: var(--text-md); margin-bottom: 12px; }
 
 
 </style>

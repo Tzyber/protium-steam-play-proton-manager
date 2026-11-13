@@ -125,7 +125,7 @@ const footprintTopics = computed<ExplainTopic[]>(() =>
   gap: 16px;
   min-height: 28px;
   color: var(--fg-0);
-  font-size: 0.8125rem;
+  font-size: var(--text-sm);
 }
 .footprint-row .k { margin: 0; color: var(--fg-1); }
 .footprint-summary {

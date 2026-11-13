@@ -108,12 +108,12 @@ function orphanLabel(o: OrphanEntry): string {
 <style scoped>
 .section-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; min-height: 34px; }
 .section {
-  font-family: var(--font-display); font-size: 1rem; font-weight: 600; color: var(--fg-1);
+  font-family: var(--font-display); font-size: var(--text-lg); font-weight: 600; color: var(--fg-1);
   display: flex; align-items: center; gap: 10px;
 }
-.section .count { color: var(--fg-2); font-weight: 400; }
+.section .count { color: var(--fg-2); font-family: var(--font-body); font-weight: 400; }
 .section .warn-label {
-  font-family: var(--font-body); font-size: 0.875rem; color: var(--fg-1);
+  font-family: var(--font-body); font-size: var(--text-md); color: var(--fg-1);
   border: 1px solid var(--warning-border);
   border-radius: 999px; padding: 2px 9px;
 }
@@ -121,12 +121,12 @@ function orphanLabel(o: OrphanEntry): string {
 .sel-all.warn:hover:not(:disabled) { border-color: var(--warning-text); color: var(--warning-text); }
 
 .moved-note {
-  color: var(--fg-2); font-size: 0.875rem; font-family: var(--font-body);
-  margin: 0 0 10px; font-style: italic;
+  color: var(--fg-2); font-size: var(--text-md); font-family: var(--font-body);
+  margin: 0 0 10px;
 }
 
 .list { display: grid; gap: 6px; list-style: none; padding: 0; margin: 0; }
 
-.empty { color: var(--fg-2); font-family: var(--font-body); font-size: 0.875rem; padding: 32px 0; text-align: center; }
+.empty { color: var(--fg-2); font-family: var(--font-body); font-size: var(--text-md); padding: 32px 0; text-align: center; }
 .explain-inline { margin-left: 7px; vertical-align: middle; }
 </style>

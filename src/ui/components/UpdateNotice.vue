@@ -53,7 +53,7 @@ function openUpdateRelease() {
   border: 1px solid var(--signal-dim);
   border-radius: var(--r-sm);
   color: var(--fg-0);
-  font-size: 0.84375rem;
+  font-size: var(--text-md);
 }
 .update-open, .update-close {
   border: 0;
@@ -73,7 +73,7 @@ function openUpdateRelease() {
   height: 32px;
   background: transparent;
   color: var(--fg-2);
-  font-size: 0.875rem;
+  font-size: var(--text-md);
 }
 .update-open:hover { background: var(--signal-bright); }
 .update-close:hover { color: var(--fg-0); background: color-mix(in srgb, var(--fg-1) 10%, transparent); }

@@ -77,10 +77,10 @@ const rootShort = computed(() => {
   background: var(--signal);
   color: var(--on-signal);
   border-radius: 8px;
-  font-size: 0.9375rem;
+  font-size: var(--text-lg);
   box-shadow: 0 0 18px -4px var(--signal-glow);
 }
-.brand .name { font-family: var(--font-display); font-weight: 700; letter-spacing: 0.06em; font-size: 0.9375rem; }
+.brand .name { font-family: var(--font-display); font-weight: 700; letter-spacing: var(--tracking-micro); font-size: var(--text-lg); }
 
 nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-item {
@@ -93,7 +93,7 @@ nav { display: flex; flex-direction: column; gap: 2px; }
   padding: 9px 12px;
   color: var(--fg-1);
   font-family: var(--font-body);
-  font-size: 0.875rem;
+  font-size: var(--text-md);
   font-weight: 500;
   text-align: left;
   cursor: pointer;
@@ -114,5 +114,5 @@ nav { display: flex; flex-direction: column; gap: 2px; }
   border-radius: var(--r-sm);
 }
 .readout .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.readout .val { color: var(--fg-1); font-size: 0.8125rem; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.readout .val { color: var(--fg-1); font-size: var(--text-sm); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

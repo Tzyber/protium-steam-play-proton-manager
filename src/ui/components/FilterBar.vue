@@ -198,14 +198,14 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
   min-width: 160px;
 }
 .search:focus-within { border-color: var(--signal); }
-.search .ico { color: var(--fg-2); font-size: 1.125rem; }
+.search .ico { color: var(--fg-2); font-size: var(--icon-lg); }
 .search input {
   flex: 1;
   background: transparent;
   border: none;
   color: var(--fg-0);
   font-family: var(--font-body);
-  font-size: 1rem;
+  font-size: var(--text-md);
   padding: 8px 0;
 }
 /* das eingabefeld bleibt ohne outline: der container zeigt den fokus über
@@ -225,7 +225,7 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
   color: var(--fg-2);
   cursor: pointer;
   display: grid;
-  font-size: 0.9375rem;
+  font-size: var(--text-lg);
   min-height: 36px;
   min-width: 36px;
   margin: 0 -8px 0 0;
@@ -242,11 +242,11 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
   border-radius: var(--r-sm);
   padding: 6px 10px;
   font-family: var(--font-body);
-  font-size: 0.8125rem;
+  font-size: var(--text-sm);
   cursor: pointer;
   transition: border-color 0.12s, color 0.12s, background 0.12s;
 }
-.seg.small { font-size: 0.75rem; padding: 5px 8px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seg.small { font-size: var(--text-xs); padding: 5px 8px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .seg:hover { color: var(--fg-0); border-color: var(--signal-dim); }
 .seg.on {
   color: var(--signal-bright);
@@ -263,9 +263,9 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
   border-radius: 999px;
   padding: 5px 10px;
   font-family: var(--font-body);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--tracking-micro);
   cursor: pointer;
 }
 .tier-pill.on { background: color-mix(in srgb, var(--c) 20%, transparent); color: var(--c); border-color: var(--c); }
@@ -283,7 +283,7 @@ const arrow = computed(() => (lib.sortDir === "asc" ? "↑" : "↓"));
   border-radius: var(--r-sm);
   padding: 6px 10px;
   font-family: var(--font-body);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   cursor: pointer;
 }
 .reset:hover { color: var(--fg-0); border-color: var(--signal-dim); }

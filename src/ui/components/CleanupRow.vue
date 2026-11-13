@@ -85,17 +85,17 @@ position: relative;
   border: solid var(--on-signal); border-width: 0 2px 2px 0; transform: rotate(45deg);
 }
 
-.rname { font-size: 0.9375rem; color: var(--fg-0); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rname { font-size: var(--text-lg); color: var(--fg-0); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sc-warn {
-  display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center;
-  border-radius: 50%; font-size: 0.8125rem; font-weight: 600; margin-left: 4px;
+  display: inline-block; width: 16px; height: 16px; line-height: 1; text-align: center;
+  border-radius: 50%; font-family: var(--font-body); font-size: var(--text-sm); font-weight: 600; margin-left: 4px;
   background: var(--warning-surface);
   color: var(--warning-text); border: 1px solid var(--warning-border);
 }
 .rpath {
   min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-  color: var(--fg-1); font-size: 0.875rem;
+  color: var(--fg-1); font-size: var(--text-md);
 }
-.rsize { color: var(--fg-1); font-size: 0.875rem; white-space: nowrap; text-align: right; }
-.rdate { color: var(--fg-2); font-size: 0.875rem; white-space: nowrap; text-align: right; }
+.rsize { color: var(--fg-1); font-size: var(--text-md); white-space: nowrap; text-align: right; }
+.rdate { color: var(--fg-2); font-size: var(--text-md); white-space: nowrap; text-align: right; }
 </style>

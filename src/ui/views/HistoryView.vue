@@ -195,9 +195,9 @@ onMounted(() => {
 .section-bar h2 {
   margin: 0;
   font-family: var(--font-body);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   color: var(--fg-2);
 }
@@ -213,7 +213,8 @@ onMounted(() => {
   border-radius: var(--r-sm);
   background: transparent;
   color: var(--fg-1);
-  font: 0.75rem var(--font-body);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
   cursor: pointer;
 }
 
@@ -234,7 +235,7 @@ onMounted(() => {
 .hint {
   margin: 0;
   color: var(--fg-2);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
 }
 
 /* Stände: kompakt und selbst scrollbar, damit das Protokoll erreichbar bleibt. */
@@ -257,14 +258,14 @@ onMounted(() => {
   gap: 12px;
   padding: 3px 8px;
   font-family: var(--font-mono);
-  font-size: 0.72rem;
-  line-height: 1.6;
+  font-size: var(--text-xs);
+  line-height: var(--leading-mono);
 }
 
 .entries li + li { border-top: 1px solid var(--line-soft); }
 .entry-main { color: var(--fg-1); }
 .entry-sub { color: var(--fg-2); white-space: nowrap; }
-.empty { color: var(--fg-2); font-size: 0.78rem; margin: 0; }
+.empty { color: var(--fg-2); font-size: var(--text-xs); margin: 0; }
 
 /* Protokoll: eigene Scrollfläche, Zeilen wie im Logfile. */
 .log {
@@ -278,8 +279,8 @@ onMounted(() => {
   border-radius: var(--r-sm);
   background: var(--bg-0);
   font-family: var(--font-mono);
-  font-size: 0.72rem;
-  line-height: 1.65;
+  font-size: var(--text-xs);
+  line-height: var(--leading-mono);
 }
 
 .log li {

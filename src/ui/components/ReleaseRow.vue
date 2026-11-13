@@ -89,16 +89,16 @@ function speedLabel(tag: string): string {
   border-radius: var(--r-md); padding: 12px 14px;
 }
 .rmain { flex: 1; min-width: 0; }
-.rname { font-family: var(--font-display); font-weight: 600; font-size: 0.875rem; display: flex; align-items: center; gap: 8px; }
-.rsub { color: var(--fg-2); font-size: 0.8125rem; font-weight: 600; margin-top: 3px; }
+.rname { font-family: var(--font-display); font-weight: 600; font-size: var(--text-md); display: flex; align-items: center; gap: 8px; }
+.rsub { color: var(--fg-2); font-size: var(--text-sm); font-weight: 400; margin-top: 3px; }
 
-.tag { font-family: var(--font-body); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 6px; border-radius: 999px; }
+.tag { font-family: var(--font-body); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-label); padding: 2px 6px; border-radius: 999px; }
 .tag.ok { color: var(--success-text); background: var(--success-surface); border: 1px solid var(--success-border); }
 
-.used { background: none; border: 1px solid var(--signal-dim); color: var(--signal-bright); border-radius: var(--r-sm); padding: 5px 9px; font-family: var(--font-body); font-size: 0.875rem; cursor: pointer; white-space: nowrap; }
+.used { background: none; border: 1px solid var(--signal-dim); color: var(--signal-bright); border-radius: var(--r-sm); padding: 5px 9px; font-family: var(--font-body); font-size: var(--text-md); cursor: pointer; white-space: nowrap; }
 .used.muted { color: var(--fg-2); border-color: var(--line); cursor: default; }
 
-.install { background: var(--signal); color: var(--on-signal); border: none; border-radius: var(--r-sm); padding: 7px 14px; font-family: var(--font-body); font-weight: 600; font-size: 0.8125rem; cursor: pointer; }
+.install { background: var(--signal); color: var(--on-signal); border: none; border-radius: var(--r-sm); padding: 7px 14px; font-family: var(--font-body); font-weight: 600; font-size: var(--text-sm); cursor: pointer; }
 .install:hover:not(:disabled) { background: var(--signal-bright); }
 .cancel {
   background: none;
@@ -107,7 +107,7 @@ function speedLabel(tag: string): string {
   border-radius: var(--r-sm);
   padding: 7px 12px;
   font-family: var(--font-body);
-  font-size: 0.8125rem;
+  font-size: var(--text-sm);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -126,11 +126,11 @@ function speedLabel(tag: string): string {
 @media (prefers-reduced-motion: reduce) {
   .fill--indeterminate { width: 100%; opacity: 0.4; animation: none; }
 }
-.phase { color: var(--fg-2); font-size: 0.75rem; }
+.phase { color: var(--fg-2); font-size: var(--text-xs); }
 .phase.act::before {
   content: "●";
   display: inline-block;
-  font-size: 0.9rem;
+  font-size: var(--text-md);
   line-height: 1;
   vertical-align: middle;
   margin-right: 0.35em;

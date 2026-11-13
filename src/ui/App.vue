@@ -98,7 +98,7 @@ watch(
   border-radius: var(--r-sm);
   font-family: var(--font-body);
   font-weight: 600;
-  font-size: 0.875rem;
+  font-size: var(--text-md);
   text-decoration: none;
 }
 .skip-link:focus-visible {
@@ -130,14 +130,14 @@ watch(
 .bar .title h1 {
   margin: 2px 0 0;
   font-family: var(--font-display);
-  font-size: 1.625rem;
+  font-size: var(--text-3xl);
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--tracking-display);
 }
 .bar .title .label {
   font-family: var(--font-body);
-  font-size: 0.8125rem;
-  letter-spacing: 0.14em;
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-label);
   color: var(--fg-2);
   text-transform: uppercase;
 }

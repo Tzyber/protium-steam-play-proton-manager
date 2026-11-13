@@ -123,7 +123,7 @@ describe("P2a: Basisflächen und gemeinsame Control-Form", () => {
       "border-radius": "var(--r-sm)",
       flex: "1",
       padding: "11px 13px",
-      "font-size": "0.8125rem",
+      "font-size": "var(--text-sm)",
     };
     for (const [property, value] of Object.entries(expected)) {
       expect(declarationValue(block, property), property).toBe(value);

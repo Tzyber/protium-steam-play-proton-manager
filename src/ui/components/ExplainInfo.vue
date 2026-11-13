@@ -141,7 +141,9 @@ watch(
   border-radius: 50%;
   background: transparent;
   color: var(--signal-bright);
-  font: 600 0.8rem var(--font-body);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: 600;
   line-height: 1;
   cursor: pointer;
 }
@@ -185,7 +187,7 @@ watch(
 h3 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 1.0625rem;
+  font-size: var(--text-xl);
   font-weight: 600;
 }
 
@@ -196,7 +198,8 @@ h3 {
   border-radius: var(--r-sm);
   background: transparent;
   color: var(--fg-1);
-  font: 0.75rem var(--font-body);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
   cursor: pointer;
 }
 
@@ -215,7 +218,7 @@ h3 {
 .explain-entries h4 {
   margin: 0 0 8px;
   font-family: var(--font-display);
-  font-size: 0.875rem;
+  font-size: var(--text-md);
   font-weight: 600;
 }
 
@@ -223,14 +226,14 @@ h3 {
   display: grid;
   gap: 2px 10px;
   margin: 0;
-  font-size: 0.78rem;
+  font-size: var(--text-xs);
 }
 
 .explain-entries dt {
   color: var(--fg-2);
   font-family: var(--font-mono);
-  font-size: 0.68rem;
-  letter-spacing: 0.08em;
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
 

@@ -29,9 +29,9 @@ const confidenceText = computed(() =>
   align-items: center;
   gap: 5px;
   font-family: var(--font-body);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   color: var(--c);
   background: rgba(8, 9, 14, 0.82);

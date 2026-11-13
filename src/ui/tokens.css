@@ -4,6 +4,7 @@
 
 :root {
   color-scheme: dark;
+  font-synthesis: none;
 
   /* flächen */
   --bg-0: #08090e; /* app-hintergrund */
@@ -81,6 +82,7 @@
   --tracking-micro: 0.06em;
   --tracking-label: 0.08em;
   --tracking-pill: 0.04em;
+  --tracking-tight: -0.01em;
   --tracking-display: -0.02em;
 
   /* space: 4er-basis, 8er-rhythmus */
@@ -172,8 +174,8 @@ body {
   background: var(--bg-0);
   color: var(--fg-0);
   font-family: var(--font-body);
-  font-size: 0.875rem;
-  line-height: 1.5;
+  font-size: var(--text-md);
+  line-height: var(--leading-body);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -197,9 +199,9 @@ body {
 }
 .label {
   font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.14em;
+  font-size: var(--text-sm);
+  font-weight: 400;
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   color: var(--fg-2);
 }
@@ -259,8 +261,11 @@ body {
   border-radius: var(--r-sm);
   padding: 12px 16px;
   font-family: var(--font-body);
-  font-size: 0.875rem;
+  font-size: var(--text-md);
   margin-bottom: 16px;
+}
+.blocked:not(.blocked-explanation) strong {
+  font-weight: 600;
 }
 
 /* OrphanPanel, TrashPanel, CleanupView */
@@ -271,7 +276,7 @@ body {
   border-radius: var(--r-sm);
   padding: 8px 14px;
   font-family: var(--font-body);
-  font-size: 0.875rem;
+  font-size: var(--text-md);
   cursor: pointer;
 }
 .sel-all:hover:not(:disabled) {
@@ -297,7 +302,7 @@ body {
   padding: 11px 15px;
   font-family: var(--font-body);
   font-weight: 600;
-  font-size: 0.875rem;
+  font-size: var(--text-md);
   cursor: pointer;
   white-space: nowrap;
   transition:
@@ -327,15 +332,21 @@ body {
   border-radius: var(--r-sm);
   flex: 1;
   padding: 11px 13px;
-  font-size: 0.8125rem;
+  font-size: var(--text-sm);
 }
 
 .section-label {
   margin: 0 0 14px;
-  font-size: 0.75rem;
-  letter-spacing: 0.14em;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-label);
   color: var(--fg-1);
   text-transform: uppercase;
+}
+.section-label.mono {
+  font-family: var(--font-mono);
+  font-weight: 700;
 }
 .section-label-explained {
   display: flex;
@@ -347,13 +358,13 @@ body {
 .k {
   display: block;
   color: var(--fg-1);
-  font-size: 0.875rem;
+  font-size: var(--text-md);
   margin-bottom: 7px;
 }
 .drawer .hint,
 .footprint .hint {
   margin: 9px 2px 0;
   color: var(--fg-2);
-  font-size: 0.8125rem;
-  line-height: 1.55;
+  font-size: var(--text-sm);
+  line-height: var(--leading-prose);
 }

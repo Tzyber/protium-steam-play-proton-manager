@@ -83,7 +83,7 @@ function launch() {
   padding: 13px 14px;
   font-family: var(--font-body);
   font-weight: 600;
-  font-size: 0.9375rem;
+  font-size: var(--text-lg);
   display: flex;
   align-items: center;
   justify-content: center;

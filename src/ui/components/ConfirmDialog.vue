@@ -103,10 +103,10 @@ onBeforeUnmount(() => {
 h3 {
   margin: 0 0 12px;
   font-family: var(--font-display);
-  font-size: 1.0625rem;
+  font-size: var(--text-xl);
   font-weight: 600;
 }
-.content { color: var(--fg-1); font-size: 0.8125rem; margin-bottom: 18px; }
+.content { color: var(--fg-1); font-size: var(--text-sm); margin-bottom: 18px; }
 .actions { display: flex; justify-content: flex-end; gap: 10px; }
 /* bestätigung ist immer destruktiv (INV-6): die rote variante ist der einzige
  * bestätigungsknopf, ein neutraler zweig existiert nicht mehr. */
@@ -118,7 +118,7 @@ h3 {
   padding: 8px 14px;
   font-family: var(--font-body);
   font-weight: 600;
-  font-size: 0.8125rem;
+  font-size: var(--text-sm);
   cursor: pointer;
 }
 .btn.ghost { background: transparent; color: var(--fg-1); border-color: var(--line); }

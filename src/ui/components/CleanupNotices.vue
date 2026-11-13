@@ -113,14 +113,14 @@ const trashBlockedNotice = () =>
   padding: 14px 16px;
   margin-bottom: 16px;
 }
-.pm-title { margin: 0 0 8px; color: var(--signal); font-size: 0.875rem; }
+.pm-title { margin: 0 0 8px; color: var(--signal); font-size: var(--text-md); }
 .pm-list { margin: 0 0 10px; padding-left: 18px; }
-.pm-list li { color: var(--fg-1); font-family: var(--font-mono); font-size: 0.875rem; line-height: 1.6; }
-.pm-note { margin: 0 0 12px; color: var(--fg-2); font-size: 0.875rem; line-height: 1.5; }
+.pm-list li { color: var(--fg-1); font-family: var(--font-mono); font-size: var(--text-md); line-height: var(--leading-mono); }
+.pm-note { margin: 0 0 12px; color: var(--fg-2); font-size: var(--text-md); line-height: var(--leading-body); }
 .pm-btn {
   background: var(--signal); border: none; color: var(--on-signal);
   border-radius: var(--r-sm); padding: 10px 15px;
-  font-family: var(--font-body); font-weight: 600; font-size: 0.875rem; cursor: pointer;
+  font-family: var(--font-body); font-weight: 600; font-size: var(--text-md); cursor: pointer;
 }
 .pm-btn:hover { background: var(--signal-bright); }
 .pm-btn:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }

@@ -41,7 +41,7 @@ defineProps<{
 }
 
 .blocked-intro {
-  font-size: 0.9em;
+  font-size: var(--text-md);
   color: var(--fg-1);
   margin-bottom: 8px;
 }
@@ -49,7 +49,7 @@ defineProps<{
 .blocked-list {
   margin: 0 0 8px 16px;
   padding: 0;
-  font-size: 0.9em;
+  font-size: var(--text-md);
   color: var(--fg-1);
 }
 
@@ -58,8 +58,7 @@ defineProps<{
 }
 
 .blocked-guarantee {
-  font-size: 0.85em;
+  font-size: var(--text-sm);
   color: var(--fg-2);
-  font-style: italic;
 }
 </style>

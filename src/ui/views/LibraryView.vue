@@ -106,10 +106,10 @@ const visibleStatusText = computed(() =>
 .bar {
   gap: 16px;
 }
-.title .unit { color: var(--fg-2); font-size: 0.9375rem; font-weight: 400; }
+.title .unit { color: var(--fg-2); font-family: var(--font-body); font-size: var(--text-lg); font-weight: 400; }
 
 .right { position: relative; display: flex; align-items: center; gap: 12px; }
-.status { color: var(--fg-2); font-size: 0.875rem; }
+.status { color: var(--fg-2); font-size: var(--text-md); }
 
 .rescan {
   background: var(--signal);
@@ -119,7 +119,7 @@ const visibleStatusText = computed(() =>
   padding: 8px 14px;
   font-family: var(--font-body);
   font-weight: 600;
-  font-size: 1rem;
+  font-size: var(--text-lg);
   cursor: pointer;
   transition: background 0.15s, box-shadow 0.15s;
 }

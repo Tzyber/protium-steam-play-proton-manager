@@ -405,7 +405,7 @@ function dismissError() {
   position: absolute; top: 8px; right: 8px;
   width: 44px; height: 44px;
   background: none; border: none; color: var(--fg-2);
-  font-size: 0.9375rem; cursor: pointer; z-index: 2;
+  font-size: var(--text-lg); cursor: pointer; z-index: 2;
   padding: 0; display: grid; place-items: center;
 }
 .close:hover { color: var(--fg-0); }
@@ -425,10 +425,10 @@ function dismissError() {
 }
 
 .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.head h2 { margin: 0; font-family: var(--font-display); font-size: 1.3125rem; font-weight: 600; letter-spacing: -0.02em; }
+.head h2 { margin: 0; font-family: var(--font-display); font-size: var(--text-2xl); font-weight: 600; letter-spacing: var(--tracking-display); }
 .head :deep(*) { flex-shrink: 0; }
-.meta { margin: 6px 0 2px; color: var(--fg-2); font-size: 0.875rem; }
-.meta-tier { margin: 0 0 20px; color: var(--fg-1); font-size: 0.875rem; line-height: 1.5; }
+.meta { margin: 6px 0 2px; color: var(--fg-2); font-size: var(--text-md); }
+.meta-tier { margin: 0 0 20px; color: var(--fg-1); font-size: var(--text-md); line-height: var(--leading-body); }
 .prefix-actions { margin-top: 10px; }
 .support-actions { margin-top: 16px; }
 .support-copy-status { margin-bottom: 0; }
@@ -448,15 +448,15 @@ function dismissError() {
   margin: 9px 2px 0;
   padding-left: 18px;
   color: var(--fg-2);
-  font-size: 0.8125rem;
-  line-height: 1.55;
+  font-size: var(--text-sm);
+  line-height: var(--leading-prose);
 }
 
 .pdb-link {
   display: inline-block;
   color: var(--signal-bright);
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: 700;
   text-decoration: none;
   transition: color 0.15s;
 }
@@ -472,7 +472,7 @@ function dismissError() {
   position: absolute; top: 8px; right: 8px;
   width: 32px; height: 32px;
   background: none; border: none; color: var(--fg-2);
-  font-size: 0.75rem; cursor: pointer; padding: 0; line-height: 1;
+  font-size: var(--text-xs); cursor: pointer; padding: 0; line-height: 1;
   display: grid; place-items: center;
 }
 .drawer-error-close:hover { color: var(--fg-0); }

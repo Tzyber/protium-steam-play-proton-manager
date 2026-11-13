@@ -164,7 +164,7 @@ onBeforeUnmount(() => {
 .sb-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-chevron {
 	flex-shrink: 0;
-	font-size: 0.75rem;
+	font-size: var(--text-xs);
 	color: var(--fg-2);
 	transition: transform 0.15s;
 }
@@ -191,7 +191,7 @@ onBeforeUnmount(() => {
 .sb-opt {
 	padding: 9px 11px;
 	border-radius: 4px;
-	font-size: 0.8125rem;
+	font-size: var(--text-sm);
 	color: var(--fg-1);
 	cursor: pointer;
 }
@@ -199,5 +199,5 @@ onBeforeUnmount(() => {
 .sb-opt:focus-visible,
 .sb-opt.hl { background: var(--bg-3); color: var(--fg-0); outline: none; }
 .sb-opt.on { color: var(--signal-bright); }
-.sb-opt.on::before { content: "✓ "; font-size: 0.75rem; }
+.sb-opt.on::before { content: "✓ "; font-size: var(--text-xs); }
 </style>

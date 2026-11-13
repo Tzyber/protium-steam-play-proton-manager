@@ -118,9 +118,9 @@ const { src, onError } = useCover(() => props.game);
 .fb-name {
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: 0.9375rem;
+  font-size: var(--text-lg);
   color: var(--fg-1);
-  letter-spacing: -0.01em;
+  letter-spacing: var(--tracking-tight);
 }
 
 .overlay-top { position: absolute; top: 8px; right: 8px; }
@@ -129,9 +129,9 @@ const { src, onError } = useCover(() => props.game);
 h3 {
   margin: 0 0 10px;
   font-family: var(--font-display);
-  font-size: 1.125rem;
+  font-size: var(--text-xl);
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: var(--tracking-tight);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -139,7 +139,7 @@ h3 {
 .meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px 12px; }
 .chip {
   font-family: var(--font-mono);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   color: var(--signal-bright);
   background: color-mix(in srgb, var(--signal) 12%, transparent);
   border: 1px solid var(--signal-dim);
@@ -151,7 +151,7 @@ h3 {
   text-overflow: ellipsis;
 }
 .chip.muted { color: var(--fg-2); background: transparent; border-color: var(--line); }
-.size { color: var(--fg-2); font-size: 0.8125rem; white-space: nowrap; }
+.size { color: var(--fg-2); font-size: var(--text-sm); white-space: nowrap; }
 
 .meta-right { display: flex; align-items: center; gap: 8px; }
 </style>

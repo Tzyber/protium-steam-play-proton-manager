@@ -109,8 +109,8 @@ onBeforeUnmount(() => {
   border-radius: var(--r-sm);
   font-family: var(--font-body);
 }
-.note-icon { color: var(--danger-fg); font-size: 0.875rem; flex-shrink: 0; margin-top: 2px; }
-.note-msg { flex: 1; color: var(--fg-0); font-size: 0.84375rem; line-height: 1.5; word-break: break-word; }
+.note-icon { color: var(--danger-fg); font-size: var(--text-md); flex-shrink: 0; margin-top: 2px; }
+.note-msg { flex: 1; color: var(--fg-0); font-size: var(--text-md); line-height: var(--leading-body); word-break: break-word; }
 .note-copy, .note-close {
   flex-shrink: 0;
   width: 32px;
@@ -118,7 +118,7 @@ onBeforeUnmount(() => {
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 0.875rem;
+  font-size: var(--text-md);
   padding: 0;
   color: var(--fg-2);
   border-radius: 4px;
