@@ -75,14 +75,25 @@ export const useCleanupStore = defineStore("cleanup", {
         : null,
     // Der Detailwert kommt als kanonischer Code aus dem Core; ein unbekannter
     // Rohtext faellt weg (V1), die Klassifikation bleibt sichtbar.
-    error: (s) => {
+    error(s): string | null {
       const shortcutDetail = formatDetail(s.shortcutUnreadableDetail ?? undefined);
       const shortcutError = s.shortcutUnreadable
         ? shortcutDetail
           ? t("errors.userdataUnreadableWithDetail", { detail: shortcutDetail })
           : t("errors.shortcutsUnreadable")
         : null;
-      return combineErrors([s.orphanError, shortcutError, s.trashError]);
+      // CleanupNotices zeigt Claim-Hinweise und Claim-Lesefehler bereits dediziert;
+      // trägt orphanError denselben Text (A-07), wird er hier ausgelassen.
+      const duplicatesClaimNotice =
+        s.orphanError !== null &&
+        (s.orphanError === this.incompleteDeletionsError ||
+          (s.incompleteDeletions.length > 0 &&
+            s.orphanError === t("cleanup.incompleteDeletionsTitle")));
+      return combineErrors([
+        duplicatesClaimNotice ? null : s.orphanError,
+        shortcutError,
+        s.trashError,
+      ]);
     },
     /** Alle Bereichssperren kommen aus `cleanupBlockedFlags`; sonst widersprechen
      *  sich Coverage und Löschdialog. Die Basis wird dort mit

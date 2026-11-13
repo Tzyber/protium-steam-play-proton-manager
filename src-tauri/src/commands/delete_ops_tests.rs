@@ -2264,6 +2264,33 @@ fn listing_hook_after_classify_erkennt_den_verzeichnistausch() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// P9: Pfadwechsel nach Öffnen des Trash-Deskriptors (AfterTrashOpen) wird
+/// bereits am Handle vor dem Directory-Read als `unreadable` erkannt.
+#[cfg(target_os = "linux")]
+#[test]
+fn listing_hook_after_trash_open_erkennt_den_pfadwechsel() {
+    let root = wsg_fixture("trash-listing-after-open-swap");
+    let library = root.join("library");
+    let trash = library.join("steamapps").join(TRASH_DIR_NAME);
+    std::fs::create_dir_all(&trash).unwrap();
+    let moved = root.join("echter-papierkorb");
+    let foreign = root.join("fremd");
+    std::fs::create_dir_all(&foreign).unwrap();
+
+    let (swap_trash, swap_moved, swap_foreign) = (trash.clone(), moved.clone(), foreign.clone());
+    let mut hook = move |stage: TrashListingStage| {
+        if stage == TrashListingStage::AfterTrashOpen {
+            std::fs::rename(&swap_trash, &swap_moved).unwrap();
+            std::os::unix::fs::symlink(&swap_foreign, &swap_trash).unwrap();
+        }
+    };
+
+    let error = open_trash_dir_for_listing_with_hook(&library, &mut hook).unwrap_err();
+
+    assert_eq!(error, errcode::UNREADABLE, "{error}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// Regression: Wird zwischen letzter Inspektion und Claim ein Replacement
 /// untergeschoben, claimt Protium es und erkennt den Identity-Mismatch.
 /// Der Claim-Restore benennt das Replacement best-effort per NOREPLACE auf

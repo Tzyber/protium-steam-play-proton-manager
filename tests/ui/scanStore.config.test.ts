@@ -2,6 +2,7 @@ import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ScanResult } from "../../src/core/types";
 import { setLocale } from "../../src/ui/i18n";
+import { useLibraryStore } from "../../src/ui/stores/libraryStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
 import { game, scanResult } from "../support/factories";
 
@@ -89,6 +90,32 @@ describe("scanStore.applyGameConfig", () => {
   it("ohne scan-ergebnis: kein throw", () => {
     const store = useScanStore();
     expect(() => store.applyGameConfig(42, { compatTool: "x" })).not.toThrow();
+  });
+
+  it("applyGameConfig pruned tote compatTools-filter nach erfolgtem werkzeugwechsel (P4F2)", () => {
+    const store = useScanStore();
+    store.result = fakeResult();
+    store.result.games[0] = game({ appId: 42, compatTool: "GE-Proton9-27" });
+    const lib = useLibraryStore();
+    lib.compatTools = ["GE-Proton9-27"];
+
+    store.applyGameConfig(42, { compatTool: "GE-Proton10-1" });
+
+    expect(lib.compatTools).toEqual([]);
+  });
+
+  it("applyGameConfig pruned filter nicht bei coverage incomplete (P4F2)", () => {
+    const store = useScanStore();
+    store.result = scanResult({
+      games: [game({ appId: 42, compatTool: "GE-Proton9-27" })],
+      skippedLibraries: [{ path: "/missing", reason: "read-failed" }],
+    });
+    const lib = useLibraryStore();
+    lib.compatTools = ["GE-Proton9-27"];
+
+    store.applyGameConfig(42, { compatTool: "GE-Proton10-1" });
+
+    expect(lib.compatTools).toEqual(["GE-Proton9-27"]);
   });
 });
 

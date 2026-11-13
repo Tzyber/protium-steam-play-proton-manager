@@ -379,6 +379,25 @@ describe("CleanupView incomplete deletions", () => {
     expect(wrapper.get("#cv-panel-shaders").text()).not.toContain(t("cleanup.empty"));
   });
 
+  it("rendert die claim-lesefehlermeldung nur einmal, auch wenn orphanError sie zusätzlich trägt (A-07)", async () => {
+    const store = useCleanupStore();
+    vi.spyOn(store, "scanOrphans").mockResolvedValue(undefined);
+    vi.spyOn(store, "scanTrash").mockResolvedValue(undefined);
+    const unreadablePath = "/steam/steamapps/compatdata";
+    const claimMessage = t("errors.incompleteDeletionsUnreadable", { paths: unreadablePath });
+    store.incompleteDeletionsUnreadable = [unreadablePath];
+    store.orphanError = claimMessage;
+
+    const wrapper = mount(CleanupView);
+    await wrapper.vm.$nextTick();
+
+    const alerts = wrapper
+      .findAll("[role='alert']")
+      .filter((el) => el.text().includes(claimMessage));
+    expect(alerts).toHaveLength(1);
+    expect(wrapper.text().split(claimMessage)).toHaveLength(2);
+  });
+
   it("holt cleanup-scans nach, wenn die view vor dem scan-ergebnis gemountet wurde", async () => {
     const store = useCleanupStore();
     const scan = useScanStore();

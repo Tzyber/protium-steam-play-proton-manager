@@ -122,6 +122,19 @@ describe("FilterBar proton-check", () => {
     expect(lib.sortKey).toBe("lastPlayed");
     expect(lib.sortDir).toBe("desc");
   });
+
+  it("rendert keine tool- oder library-chip-gruppe, wenn jeweils höchstens ein wert vorhanden ist (P4F3)", () => {
+    useScanStore().result = scanResult({
+      games: [
+        game({ appId: 42, library: "/only/lib", compatTool: "proton_9" }),
+        game({ appId: 43, library: "/only/lib", compatTool: "proton_9" }),
+      ],
+    });
+    const wrapper = mount(FilterBar);
+
+    expect(wrapper.find("button[title='proton_9']").exists()).toBe(false);
+    expect(wrapper.find("button[title='/only/lib']").exists()).toBe(false);
+  });
 });
 
 describe("FilterBar sortierung", () => {

@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { mount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { focusFirstFocusable, restoreFocus, trapFocus } from "../../src/ui/a11y";
 import BlockedExplanation from "../../src/ui/components/BlockedExplanation.vue";
 import ConfirmDialog from "../../src/ui/components/ConfirmDialog.vue";
+import { ruleBlock } from "../support/cssRules";
 import { tokenValues } from "../support/themeTokens";
 
 function tabEvent(shiftKey = false): KeyboardEvent {
@@ -314,5 +317,48 @@ describe("a11y Gate: Dialoge und Live-Regionen", () => {
 
     expect(wrapper.attributes("role")).toBe("status");
     expect(wrapper.text()).toContain("Es wurde nichts veraendert.");
+  });
+
+  it("jede .vue-komponente mit .sr-only hat einen positionierten vorfahren (A-08)", () => {
+    const uiRoot = join(import.meta.dirname, "../../src/ui");
+    const vueFiles: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith(".vue")) vueFiles.push(full);
+      }
+    };
+    walk(uiRoot);
+
+    const expectedAncestors: Record<string, string[]> = {
+      "components/CleanupRow.vue": [".row"],
+      "components/FilterBar.vue": [".search", ".seg"],
+      "components/GameDetailDrawer.vue": [".drawer"],
+      "components/NotificationToast.vue": [".note.toast"],
+      "components/ScanCoveragePanel.vue": [".coverage"],
+      "components/TierBadge.vue": [".tier"],
+      "views/LibraryView.vue": [".right"],
+      "views/ProtonManagerView.vue": [".update", ".row", ".rm-lock"],
+    };
+
+    const filesWithSrOnly = vueFiles
+      .filter((file) => readFileSync(file, "utf8").includes("sr-only"))
+      .map((file) => file.slice(`${uiRoot}/`.length))
+      .sort();
+
+    expect(filesWithSrOnly).toEqual(Object.keys(expectedAncestors).sort());
+
+    for (const rel of filesWithSrOnly) {
+      const source = readFileSync(join(uiRoot, rel), "utf8");
+      const style = source.match(/<style[^>]*>([\s\S]*?)<\/style>/)?.[1] ?? "";
+      for (const selector of expectedAncestors[rel] ?? []) {
+        const block = ruleBlock(style, selector);
+        expect(block, `${rel}: ${selector} block missing`).not.toBeNull();
+        expect(block, `${rel}: ${selector} must be positioned`).toMatch(
+          /\bposition\s*:\s*(?:relative|absolute|fixed)\b/,
+        );
+      }
+    }
   });
 });

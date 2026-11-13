@@ -21,8 +21,8 @@ function setup(initial: Game) {
 }
 
 /** Das spiel-objekt, wie es ein rescan liefert: gleiche appId, neue rohdaten. */
-function rescan(appId: number, compatTool: string): Game {
-  return makeGame({ appId, compatTool });
+function rescan(appId: number, compatTool: string, launchOptions = ""): Game {
+  return makeGame({ appId, compatTool, launchOptions });
 }
 
 describe("useGameConfigSave, compat-auswahl", () => {
@@ -197,5 +197,76 @@ describe("useGameConfigSave, compat-auswahl", () => {
 
     expect(compatDirty.value).toBe(false);
     expect(saveCompatTool).not.toHaveBeenCalled();
+  });
+});
+
+describe("useGameConfigSave, launchOptions (P4F1)", () => {
+  it("folgt extern geänderten launchOptions bei gleicher appId, wenn kein entwurf aktiv ist", async () => {
+    const { game, launchInput, launchDirty } = setup(rescan(42, "default", "-novid"));
+    expect(launchInput.value).toBe("-novid");
+    expect(launchDirty.value).toBe(false);
+
+    game.value = rescan(42, "default", "gamemoderun %command%");
+    await nextTick();
+
+    expect(launchInput.value).toBe("gamemoderun %command%");
+    expect(launchDirty.value).toBe(false);
+  });
+
+  it("behält einen eigenen entwurf über einen rescan hinweg und bleibt dirty", async () => {
+    const { game, launchInput, launchDirty } = setup(rescan(42, "default", "-novid"));
+
+    launchInput.value = "-novid -console";
+    expect(launchDirty.value).toBe(true);
+
+    game.value = rescan(42, "default", "--anderer-wert");
+    await nextTick();
+
+    expect(launchInput.value).toBe("-novid -console");
+    expect(launchDirty.value).toBe(true);
+  });
+
+  it("verwirft den entwurf bei externem gleichlauf oder zurück-tippen des backend-werts", async () => {
+    const { game, launchInput, launchDirty } = setup(rescan(42, "default", "-novid"));
+
+    launchInput.value = "mangohud %command%";
+    expect(launchDirty.value).toBe(true);
+
+    // backend zieht extern auf den entwurfswert nach
+    game.value = rescan(42, "default", "mangohud %command%");
+    await nextTick();
+
+    expect(launchInput.value).toBe("mangohud %command%");
+    expect(launchDirty.value).toBe(false);
+
+    // ohne entwurf kommt die nächste externe änderung an
+    game.value = rescan(42, "default", "-fullscreen");
+    await nextTick();
+    expect(launchInput.value).toBe("-fullscreen");
+    expect(launchDirty.value).toBe(false);
+
+    // zurück auf den aktuellen backend-wert getippt -> kein entwurf mehr
+    launchInput.value = "-custom";
+    expect(launchDirty.value).toBe(true);
+    launchInput.value = "-fullscreen";
+    expect(launchDirty.value).toBe(false);
+
+    game.value = rescan(42, "default", "-w 1280");
+    await nextTick();
+    expect(launchInput.value).toBe("-w 1280");
+  });
+
+  it("setzt den launchOptions-entwurf bei einem appId-wechsel zurück", async () => {
+    const { game, launchInput, launchDirty, launchState } = setup(rescan(42, "default", "-novid"));
+
+    launchInput.value = "eigener entwurf";
+    expect(launchDirty.value).toBe(true);
+
+    game.value = rescan(43, "default", "-console");
+    await nextTick();
+
+    expect(launchInput.value).toBe("-console");
+    expect(launchDirty.value).toBe(false);
+    expect(launchState.value).toEqual({ kind: "idle" });
   });
 });

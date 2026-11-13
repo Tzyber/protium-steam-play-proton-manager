@@ -10,6 +10,7 @@ import {
   cleanupBlockedFlags,
   collectInstalledAppIds,
   combineErrors,
+  confirmTitle,
   formatTrashErrors,
   hasOrphanUnavailableBase,
   hasUnreadableOrphanType,
@@ -431,5 +432,25 @@ describe("toggleInSet", () => {
     expect(set.has("a")).toBe(true);
     toggleInSet(set, "a");
     expect(set.has("a")).toBe(false);
+  });
+});
+
+describe("confirmTitle (I-6)", () => {
+  it("nutzt bei n === 1 den singular-schlüssel in de und en", () => {
+    setLocale("de");
+    expect(confirmTitle("cleanup.deleteConfirmSingle", "cleanup.deleteConfirmTitle", 1)).toBe(
+      t("cleanup.deleteConfirmSingle", { n: 1 }),
+    );
+    expect(confirmTitle("cleanup.deleteConfirmSingle", "cleanup.deleteConfirmTitle", 2)).toBe(
+      t("cleanup.deleteConfirmTitle", { n: 2 }),
+    );
+
+    setLocale("en");
+    expect(confirmTitle("cleanup.deleteConfirmSingle", "cleanup.deleteConfirmTitle", 1)).toBe(
+      t("cleanup.deleteConfirmSingle", { n: 1 }),
+    );
+    expect(confirmTitle("cleanup.deleteConfirmSingle", "cleanup.deleteConfirmTitle", 3)).toBe(
+      t("cleanup.deleteConfirmTitle", { n: 3 }),
+    );
   });
 });

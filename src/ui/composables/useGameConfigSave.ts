@@ -73,11 +73,66 @@ async function runSave(run: SaveRun): Promise<void> {
   }
 }
 
+/** Shadow-State eines Konfigurationsfelds: `null` bedeutet kein Entwurf, dann
+ *  folgt das Feld dem Backend-Stand; ein aktiver Entwurf überlebt Rescans bei
+ *  gleicher appId und löst sich erst bei Gleichlauf oder appId-Wechsel auf. */
+function useShadowField(game: Readonly<Ref<Game | null>>, readBackend: () => string) {
+  // `null` heißt kein entwurf: dann folgt das feld dem backend und eine externe
+  // änderung bei gleicher appId kommt an (Audit 1.1 / P4F1).
+  const draft = ref<string | null>(null);
+  const value = computed<string>({
+    get: () => draft.value ?? readBackend(),
+    set: (next) => {
+      draft.value = next === readBackend() ? null : next;
+    },
+  });
+  const state = ref<SaveState>({ kind: "idle" });
+  const request = useLatestRequest(() => game.value);
+
+  // Ein echter Spielwechsel (andere appId) verwirft den Entwurf. Ein Rescan
+  // tauscht dagegen das Spiel-Objekt bei gleicher appId aus; dann gehört der
+  // halb getippte Entwurf weiter dem Nutzer (U-15).
+  watch(
+    () => game.value?.appId ?? null,
+    () => {
+      draft.value = null;
+      state.value = { kind: "idle" };
+    },
+    { immediate: true },
+  );
+  watch(value, () => {
+    if (state.value.kind === "saved") state.value = { kind: "idle" };
+  });
+  // zieht das backend extern auf den entwurfswert nach (rescan, steam,
+  // protonmanager), ist der entwurf erledigt: sonst bliebe der knopf aktiv und
+  // der nächste klick schriebe denselben wert erneut durchs write-gate. ein
+  // abweichender externer wert lässt den entwurf stehen (U-15).
+  watch(readBackend, () => {
+    if (draft.value !== null && draft.value === readBackend()) {
+      draft.value = null;
+    }
+  });
+
+  function clearDraftIfSynced(submitted: string): void {
+    // erst wenn der snapshot den geschriebenen wert trägt, ist der backend-stand
+    // erreicht; sonst bliebe die anzeige auf dem alten wert (Audit 1.1).
+    if (state.value.kind === "saved" && readBackend() === submitted) {
+      draft.value = null;
+    }
+  }
+
+  return { draft, value, state, request, clearDraftIfSynced };
+}
+
 export function useGameConfigSave(game: Readonly<Ref<Game | null>>, config: GameConfigWriter) {
-  const launchInput = ref("");
-  const launchState = ref<SaveState>({ kind: "idle" });
-  const launchDirty = computed(() => launchInput.value !== (game.value?.launchOptions ?? ""));
-  const launchRequest = useLatestRequest(() => game.value);
+  function backendLaunchOptions(): string {
+    return game.value?.launchOptions ?? "";
+  }
+
+  const launch = useShadowField(game, backendLaunchOptions);
+  const launchDirty = computed(
+    () => launch.draft.value !== null && launch.value.value.trim() !== backendLaunchOptions(),
+  );
 
   /** Backend-wert als auswahl-wert: kein eintrag oder "default" steht für den
    *  leeren platzhalter der SelectBox. */
@@ -86,94 +141,46 @@ export function useGameConfigSave(game: Readonly<Ref<Game | null>>, config: Game
     return tool && tool !== "default" ? tool : "__default__";
   }
 
-  // `null` heißt kein entwurf: dann folgt das feld dem backend und eine externe
-  // änderung bei gleicher appId kommt an (Audit 1.1).
-  const compatChoice = ref<string | null>(null);
-  const compatSelected = computed<string>({
-    get: () => compatChoice.value ?? backendCompatTool(),
-    set: (value) => {
-      compatChoice.value = value === backendCompatTool() ? null : value;
-    },
-  });
-  const compatState = ref<SaveState>({ kind: "idle" });
-  const compatRequest = useLatestRequest(() => game.value);
-  const compatDirty = computed(() => compatChoice.value !== null);
-
-  // Ein echter Spielwechsel (andere appId) verwirft den Entwurf. Ein Rescan
-  // tauscht dagegen das Spiel-Objekt bei gleicher appId aus; dann gehört der
-  // halb getippte Entwurf weiter dem Nutzer (U-15).
-  watch(
-    () => game.value?.appId ?? null,
-    () => {
-      launchInput.value = game.value?.launchOptions ?? "";
-      launchState.value = { kind: "idle" };
-    },
-    { immediate: true },
-  );
-  watch(launchInput, () => {
-    if (launchState.value.kind === "saved") launchState.value = { kind: "idle" };
-  });
-
-  watch(
-    () => game.value?.appId ?? null,
-    () => {
-      compatChoice.value = null;
-      compatState.value = { kind: "idle" };
-    },
-    { immediate: true },
-  );
-  watch(compatSelected, () => {
-    if (compatState.value.kind === "saved") compatState.value = { kind: "idle" };
-  });
-  // zieht das backend extern auf den entwurfswert nach (rescan, steam,
-  // protonmanager), ist der entwurf erledigt: sonst bliebe der knopf aktiv und
-  // der nächste klick schriebe denselben wert erneut durchs write-gate. ein
-  // abweichender externer wert lässt den entwurf stehen (U-15).
-  watch(backendCompatTool, () => {
-    if (compatChoice.value !== null && compatChoice.value === backendCompatTool()) {
-      compatChoice.value = null;
-    }
-  });
+  const compat = useShadowField(game, backendCompatTool);
+  const compatDirty = computed(() => compat.draft.value !== null);
 
   async function saveLaunch(): Promise<void> {
     const g = game.value;
-    if (!g || launchState.value.kind === "saving") return;
+    if (!g || launch.state.value.kind === "saving") return;
     // dirty-vergleich und gespeicherter wert laufen beide getrimmt, sonst bliebe
     // der save-button nach dem speichern von " foo " fälschlich aktiv.
-    launchInput.value = launchInput.value.trim();
+    const submitted = launch.value.value.trim();
+    launch.value.value = submitted;
     if (!launchDirty.value) return;
     await runSave({
-      state: launchState,
-      request: launchRequest,
-      draft: () => launchInput.value,
-      write: (submitted) => config.saveLaunchOptions(g.appId, submitted),
+      state: launch.state,
+      request: launch.request,
+      draft: () => launch.value.value,
+      write: (value) => config.saveLaunchOptions(g.appId, value),
     });
+    launch.clearDraftIfSynced(submitted);
   }
 
   async function saveCompat(): Promise<void> {
     const g = game.value;
-    if (!g || compatState.value.kind === "saving" || !compatDirty.value) return;
-    const submitted = compatSelected.value;
+    if (!g || compat.state.value.kind === "saving" || !compatDirty.value) return;
+    const submitted = compat.value.value;
     await runSave({
-      state: compatState,
-      request: compatRequest,
-      draft: () => compatSelected.value,
+      state: compat.state,
+      request: compat.request,
+      draft: () => compat.value.value,
       write: (value) => config.saveCompatTool(g.appId, value === "__default__" ? null : value),
     });
-    // erst wenn der snapshot den geschriebenen wert trägt, ist der backend-stand
-    // erreicht; sonst bliebe die anzeige auf dem alten wert (Audit 1.1).
-    if (compatState.value.kind === "saved" && backendCompatTool() === submitted) {
-      compatChoice.value = null;
-    }
+    compat.clearDraftIfSynced(submitted);
   }
 
   return {
-    launchInput,
-    launchState,
+    launchInput: launch.value,
+    launchState: launch.state,
     launchDirty,
     saveLaunch,
-    compatSelected,
-    compatState,
+    compatSelected: compat.value,
+    compatState: compat.state,
     compatDirty,
     saveCompat,
   };

@@ -81,13 +81,17 @@ describe("GameDetailDrawer Speicherstatus", () => {
     await option.trigger("click");
   }
 
-  it("führt builtin- und custom-tool mit gleichem internalName nur einmal auf (U-03)", () => {
+  it("führt builtin- und custom-tool mit gleichem internalName nur einmal auf, builtin gewinnt (U-03, A-10)", () => {
     const scan = compatScanResult();
-    scan.builtinProtonsInstalled = [{ internalName: "tool-a", displayName: "Tool A" }];
+    scan.builtinProtonsInstalled = [
+      { internalName: "tool-a", displayName: "Tool A (Builtin)" },
+      { internalName: "tool-a", displayName: "Tool A (Duplicate Builtin)" },
+    ];
     const wrapper = mountDrawer(scan);
 
-    const labels = wrapper.findAll(".select-option").map((li) => li.text());
-    expect(labels.filter((label) => label === "Tool A")).toHaveLength(1);
+    const options = wrapper.findAll(".select-option");
+    const labels = options.map((li) => li.text());
+    expect(labels.filter((label) => label.startsWith("Tool A"))).toEqual(["Tool A (Builtin)"]);
     expect(labels).toContain("Tool B");
   });
 

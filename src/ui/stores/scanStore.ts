@@ -38,6 +38,20 @@ interface State {
   scanGeneration: number;
 }
 
+// gate ist "nicht unvollständig", nicht "vollständig": auch limited
+// (launch-config ambiguous/missing, compat-config missing) beschneidet,
+// weil das inventar aus result.games kommt, derselben quelle wie die
+// chips. incomplete (fehlende library, manifest-/config-fehler) darf
+// filter nicht löschen.
+function pruneFiltersForResult(result: ScanResult): void {
+  if (deriveScanCoverage(result).state !== "incomplete") {
+    useLibraryStore().pruneFilters({
+      libraries: result.games.map((g) => g.library),
+      compatTools: result.games.map((g) => g.compatTool),
+    });
+  }
+}
+
 export const useScanStore = defineStore("scan", {
   state: (): State => ({
     status: "idle",
@@ -78,17 +92,7 @@ export const useScanStore = defineStore("scan", {
         if (!isCurrent()) return;
         this.result = { steamRoot: environment.steamRoot, ...local };
         const result = this.result;
-        // gate ist "nicht unvollständig", nicht "vollständig": auch limited
-        // (launch-config ambiguous/missing, compat-config missing) beschneidet,
-        // weil das inventar aus result.games kommt, derselben quelle wie die
-        // chips. incomplete (fehlende library, manifest-/config-fehler) darf
-        // filter nicht löschen.
-        if (deriveScanCoverage(result).state !== "incomplete") {
-          useLibraryStore().pruneFilters({
-            libraries: result.games.map((g) => g.library),
-            compatTools: result.games.map((g) => g.compatTool),
-          });
-        }
+        pruneFiltersForResult(result);
         this.status = "done";
         this.scanPhase = "idle";
         logEvent(
@@ -165,6 +169,7 @@ export const useScanStore = defineStore("scan", {
         // usedBy der tools folgt dem mapping, nach dem wechsel neu aus den
         // spielen rechnen, sonst zeigt der proton-manager stale zähler.
         recomputeToolUsedBy(result.compatToolsInstalled, result.games);
+        pruneFiltersForResult(result);
       }
     },
   },
