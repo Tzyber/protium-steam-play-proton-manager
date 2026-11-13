@@ -245,7 +245,7 @@ const coverageCards = computed<CoverageCard[]>(() => {
 }
 .coverage--limited,
 .coverage--incomplete {
-  border-color: color-mix(in srgb, var(--tier-gold) 40%, var(--line));
+  border-color: var(--warning-border);
 }
 .coverage-head {
   display: flex;
@@ -279,8 +279,8 @@ const coverageCards = computed<CoverageCard[]>(() => {
   height: 28px;
   place-items: center;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--tier-gold) 15%, transparent);
-  color: var(--tier-gold);
+  background: var(--warning-surface);
+  color: var(--warning-text);
   font-weight: 700;
 }
 .coverage-summary {
@@ -291,7 +291,7 @@ const coverageCards = computed<CoverageCard[]>(() => {
 }
 .coverage-context { display: block; margin-top: 2px; color: var(--fg-2); font-size: 0.75rem; }
 .coverage--limited .coverage-action,
-.coverage--incomplete .coverage-action { color: var(--tier-gold); }
+.coverage--incomplete .coverage-action { color: var(--warning-text); }
 .coverage--limited .coverage-summary,
 .coverage--incomplete .coverage-summary { color: var(--fg-0); }
 .coverage-action {
@@ -332,10 +332,10 @@ const coverageCards = computed<CoverageCard[]>(() => {
   border-radius: var(--r-sm);
   background: var(--bg-0);
 }
-.coverage-card--attention { border-color: color-mix(in srgb, var(--tier-gold) 35%, var(--line)); }
+.coverage-card--attention { border-color: var(--warning-border); }
 .coverage-card-summary { color: var(--fg-1); }
-.coverage-card--attention .coverage-card-summary { color: var(--tier-gold); }
-.coverage-card--complete .coverage-card-summary { color: var(--tier-platinum); }
+.coverage-card--attention .coverage-card-summary { color: var(--warning-text); }
+.coverage-card--complete .coverage-card-summary { color: var(--success-text); }
 .coverage-group ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .coverage-group li { padding-top: 6px; border-top: 1px solid var(--line); }
 

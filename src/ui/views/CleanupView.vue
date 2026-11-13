@@ -457,7 +457,7 @@ const tabLabel = (id: Tab) =>
 }
 .action.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger-hover) 30%, transparent); }
 
-.hint { color: var(--tier-gold); font-family: var(--font-body); font-size: 0.875rem; margin-bottom: 12px; }
+.hint { color: var(--warning-text); font-family: var(--font-body); font-size: 0.875rem; margin-bottom: 12px; }
 
 
 </style>

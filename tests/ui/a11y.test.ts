@@ -234,6 +234,8 @@ describe("a11y Gate: berechneter Kontrast aus den Tokens", () => {
       ...onSurfaces("--danger-fg"),
       ...onSurfaces("--warning-text"),
       ...onSurfaces("--info-text"),
+      ...onSurfaces("--success-text"),
+      ["--success-text", "--success-surface"],
       ["--on-danger", "--danger"],
     ];
     for (const pair of pairs) {
@@ -251,9 +253,11 @@ describe("a11y Gate: berechneter Kontrast aus den Tokens", () => {
       ...onSurfaces("--signal"),
       ...onSurfaces("--line-control"),
       ...onSurfaces("--error-border"),
+      ...onSurfaces("--success-border"),
       ["--error-border", "--error-surface"],
       ["--warning-border", "--warning-surface"],
       ["--info-border", "--info-surface"],
+      ["--success-border", "--success-surface"],
     ];
     for (const pair of pairs) {
       const ratio = measure(pair);

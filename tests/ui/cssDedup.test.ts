@@ -92,6 +92,6 @@ describe("CSS-Dedup: geteilte Klassen (2.1, 4.13)", () => {
   it("CleanupView behält die eigene .hint-Form", () => {
     const view = readRepoFile("src/ui/views/CleanupView.vue");
     expect(ruleCount(view, ".hint")).toBe(1);
-    expect(flattenCss(view)).toMatch(/\.hint \{ [^}]*color: var\(--tier-gold\)/);
+    expect(flattenCss(view)).toMatch(/\.hint \{ [^}]*color: var\(--warning-text\)/);
   });
 });

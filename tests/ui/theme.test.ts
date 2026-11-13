@@ -182,11 +182,12 @@ describe("P2b: Fokusring, Input-Ränder und Warnfarbe", () => {
     expect(declarationValue(block, "background")).toBe("var(--overlay)");
   });
 
-  it("CleanupRow .sc-warn nutzt --warning-text", () => {
-    // FR-3.5: nur der textliteral wird getauscht, fläche und rand bleiben
-    // bis P3 auf --tier-gold.
+  it("CleanupRow .sc-warn nutzt --warning-* (P3)", () => {
     const source = readRepoFile("src/ui/components/CleanupRow.vue");
-    expect(declarationValue(ruleBlock(source, ".sc-warn"), "color")).toBe("var(--warning-text)");
+    const block = ruleBlock(source, ".sc-warn");
+    expect(declarationValue(block, "background")).toBe("var(--warning-surface)");
+    expect(declarationValue(block, "border")).toBe("1px solid var(--warning-border)");
+    expect(declarationValue(block, "color")).toBe("var(--warning-text)");
     expect(source).not.toContain("#f5d678");
   });
 });

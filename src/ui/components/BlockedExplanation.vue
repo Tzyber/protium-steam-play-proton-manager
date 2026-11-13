@@ -24,7 +24,7 @@ defineProps<{
 .blocked-explanation {
   background: var(--bg-2);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--tier-borked);
+  border-left: 3px solid var(--error-border);
   border-radius: var(--r-md);
   padding: 12px 16px;
   margin-bottom: 16px;

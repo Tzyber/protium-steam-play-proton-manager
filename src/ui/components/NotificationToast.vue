@@ -104,12 +104,12 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 10px 12px;
   margin: 8px 12px 0;
-  background: color-mix(in srgb, var(--tier-borked) 8%, var(--bg-0));
-  border: 1px solid var(--tier-borked);
+  background: var(--error-surface);
+  border: 1px solid var(--error-border);
   border-radius: var(--r-sm);
   font-family: var(--font-body);
 }
-.note-icon { color: var(--tier-borked); font-size: 0.875rem; flex-shrink: 0; margin-top: 2px; }
+.note-icon { color: var(--danger-fg); font-size: 0.875rem; flex-shrink: 0; margin-top: 2px; }
 .note-msg { flex: 1; color: var(--fg-0); font-size: 0.84375rem; line-height: 1.5; word-break: break-word; }
 .note-copy, .note-close {
   flex-shrink: 0;

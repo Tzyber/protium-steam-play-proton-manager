@@ -93,7 +93,7 @@ function speedLabel(tag: string): string {
 .rsub { color: var(--fg-2); font-size: 0.8125rem; font-weight: 600; margin-top: 3px; }
 
 .tag { font-family: var(--font-body); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 6px; border-radius: 999px; }
-.tag.ok { color: var(--tier-platinum); background: color-mix(in srgb, var(--tier-platinum) 14%, transparent); }
+.tag.ok { color: var(--success-text); background: var(--success-surface); border: 1px solid var(--success-border); }
 
 .used { background: none; border: 1px solid var(--signal-dim); color: var(--signal-bright); border-radius: var(--r-sm); padding: 5px 9px; font-family: var(--font-body); font-size: 0.875rem; cursor: pointer; white-space: nowrap; }
 .used.muted { color: var(--fg-2); border-color: var(--line); cursor: default; }
@@ -102,8 +102,8 @@ function speedLabel(tag: string): string {
 .install:hover:not(:disabled) { background: var(--signal-bright); }
 .cancel {
   background: none;
-  border: 1px solid color-mix(in srgb, var(--tier-borked) 50%, transparent);
-  color: var(--tier-borked);
+  border: 1px solid var(--error-border);
+  color: var(--danger-fg);
   border-radius: var(--r-sm);
   padding: 7px 12px;
   font-family: var(--font-body);
@@ -111,7 +111,7 @@ function speedLabel(tag: string): string {
   cursor: pointer;
   white-space: nowrap;
 }
-.cancel:hover { background: color-mix(in srgb, var(--tier-borked) 14%, transparent); }
+.cancel:hover { background: var(--error-surface); }
 
 .progress { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .track { flex: 1; max-width: 320px; height: 5px; background: var(--bg-0); border-radius: 999px; overflow: hidden; }

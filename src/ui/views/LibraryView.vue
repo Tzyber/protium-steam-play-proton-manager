@@ -141,6 +141,6 @@ const visibleStatusText = computed(() =>
   color: var(--fg-2);
   font-family: var(--font-body);
 }
-.empty.err { color: var(--tier-borked); }
+.empty.err { color: var(--danger-fg); }
 .linklike { background: none; border: none; color: var(--signal-bright); cursor: pointer; font: inherit; text-decoration: underline; }
 </style>

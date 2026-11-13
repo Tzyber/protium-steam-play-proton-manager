@@ -292,7 +292,7 @@ onMounted(() => {
 .log-time { color: var(--fg-2); }
 .log-level { color: var(--fg-2); text-transform: uppercase; }
 .log-msg { color: var(--fg-1); white-space: pre-wrap; word-break: break-word; }
-.log li.warn .log-level { color: var(--tier-gold); }
-.log li.error .log-level { color: var(--tier-borked); }
+.log li.warn .log-level { color: var(--warning-text); }
+.log li.error .log-level { color: var(--danger-fg); }
 .log li.error .log-msg { color: var(--fg-0); }
 </style>

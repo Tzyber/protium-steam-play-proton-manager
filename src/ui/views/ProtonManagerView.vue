@@ -201,9 +201,9 @@ const statusLine = computed(() => {
   border: 1px solid var(--line);
   transition: background 0.3s, border-color 0.3s, color 0.3s;
 }
-.statusline .ic { color: var(--tier-platinum); font-size: 1rem; }
-.statusline.warn { color: var(--tier-gold); }
-.statusline.warn .ic { color: var(--tier-gold); }
+.statusline .ic { color: var(--success-text); font-size: 1rem; }
+.statusline.warn { color: var(--warning-text); }
+.statusline.warn .ic { color: var(--warning-text); }
 .statusline.flash {
   color: var(--signal-bright);
   border-color: var(--signal);
@@ -238,12 +238,12 @@ const statusLine = computed(() => {
 .used { background: none; border: 1px solid var(--signal-dim); color: var(--signal-bright); border-radius: var(--r-sm); padding: 5px 9px; font-family: var(--font-body); font-size: 0.875rem; cursor: pointer; white-space: nowrap; }
 .used.muted { color: var(--fg-2); border-color: var(--line); cursor: default; }
 
-.rm { background: none; border: 1px solid color-mix(in srgb, var(--tier-borked) 45%, transparent); color: var(--tier-borked); border-radius: var(--r-sm); padding: 5px 10px; font-family: var(--font-body); font-size: 0.875rem; cursor: pointer; }
-.rm:hover:not(:disabled) { background: color-mix(in srgb, var(--tier-borked) 14%, transparent); }
+.rm { background: none; border: 1px solid var(--error-border); color: var(--danger-fg); border-radius: var(--r-sm); padding: 5px 10px; font-family: var(--font-body); font-size: 0.875rem; cursor: pointer; }
+.rm:hover:not(:disabled) { background: var(--error-surface); }
 .rm-lock { position: relative; color: var(--fg-2); font-size: 0.8125rem; }
 
-.hint { color: var(--tier-gold); font-family: var(--font-body); font-size: 0.75rem; margin-bottom: 10px; }
-.hint--warning { color: var(--tier-bronze); display: flex; align-items: center; gap: 8px; } /* bronze statt gold, von fehlermeldung unterscheidbar */
+.hint { color: var(--danger-fg); font-family: var(--font-body); font-size: 0.75rem; margin-bottom: 10px; }
+.hint--warning { color: var(--warning-text); display: flex; align-items: center; gap: 8px; }
 .hint-close {
   flex: 0 0 32px;
   width: 32px;

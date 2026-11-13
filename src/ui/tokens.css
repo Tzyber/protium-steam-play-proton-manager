@@ -42,8 +42,9 @@
   --info-text: #8f9bff; /* = --signal-bright */
   --info-surface: #12162e;
   --info-border: #5a66ae;
-  /* success entfällt: erst mit erstem verwender anlegen (reserviert: text
-     #3fb984, fläche #0d1f1a, rand #2a7f5c) */
+  --success-text: #3fb984; /* 8.04/7.55/7.06/6.37 auf bg-0..3; 6.91 auf --success-surface */
+  --success-surface: #0d1f1a;
+  --success-border: #2a7f5c; /* 4.06/3.81/3.57/3.22 auf bg-0..3; 3.49 auf --success-surface */
 
   /* Tier-Farben */
   --tier-platinum: #52d6e8;

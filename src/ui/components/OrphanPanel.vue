@@ -114,11 +114,11 @@ function orphanLabel(o: OrphanEntry): string {
 .section .count { color: var(--fg-2); font-weight: 400; }
 .section .warn-label {
   font-family: var(--font-body); font-size: 0.875rem; color: var(--fg-1);
-  border: 1px solid color-mix(in srgb, var(--tier-gold) 45%, transparent);
+  border: 1px solid var(--warning-border);
   border-radius: 999px; padding: 2px 9px;
 }
 
-.sel-all.warn:hover:not(:disabled) { border-color: var(--tier-gold); color: var(--tier-gold); }
+.sel-all.warn:hover:not(:disabled) { border-color: var(--warning-text); color: var(--warning-text); }
 
 .moved-note {
   color: var(--fg-2); font-size: 0.875rem; font-family: var(--font-body);
