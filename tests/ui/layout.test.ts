@@ -86,6 +86,22 @@ describe("P5b Gate: NoticeRail & Scroll-Owner je View", () => {
     expect(declarationValue(ruleBlock(hv, ".log"), "overflow")).toBe("auto");
   });
 
+  it("alle Views starten mit demselben Kopfabstand", () => {
+    // Der Kopfabstand lag in P5 je View anders (Library 16px, die anderen
+    // 24px); beim Viewwechsel sprang die Titelzeile dadurch um 8px.
+    for (const [file, selector] of [
+      ["src/ui/views/LibraryView.vue", ".library"],
+      ["src/ui/views/ProtonManagerView.vue", ".pm"],
+      ["src/ui/views/CleanupView.vue", ".cv"],
+      ["src/ui/views/HistoryView.vue", ".hv"],
+    ] as const) {
+      const rule = ruleBlock(readRepoFile(file), selector);
+      expect(declarationValue(rule, "padding"), `${file} ${selector}`).toMatch(
+        /^var\(--view-pad\)/,
+      );
+    }
+  });
+
   it("NoticeRail führt beim Mount checkForUpdate aus, auch wenn Update/Toast inaktiv sind", async () => {
     const wrapper = mount(NoticeRail);
     expect(getMock).toHaveBeenCalledTimes(1);

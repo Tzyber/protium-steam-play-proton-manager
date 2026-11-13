@@ -106,7 +106,9 @@ const visibleStatusText = computed(() =>
   min-height: 0;
   overflow-y: auto;
   scrollbar-gutter: stable;
-  padding: var(--space-4) var(--view-pad) var(--view-pad);
+  /* gleicher kopfabstand wie Proton/Cleanup/Verlauf: sonst springt die
+     titelzeile beim viewwechsel um 8px. */
+  padding: var(--view-pad);
 }
 
 .bar {
