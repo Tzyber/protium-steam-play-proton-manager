@@ -335,6 +335,69 @@ fn dir_size_rejects_u64_overflow_and_javascript_unsafe_sum() {
     );
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn batch_dir_sizes_with_state_misst_unterscheidet_missing_sperrt_fremde_und_begrenzt_batch() {
+    let base = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+    let root = base.join(format!("protium-batch-dir-sizes-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+
+    let library = root.join("library");
+    let existing = library.join("existing");
+    let missing = library.join("missing");
+    let outside = root.join("outside");
+    std::fs::create_dir_all(&existing).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(existing.join("data.bin"), [1u8; 5]).unwrap();
+
+    let state = EnvironmentState::for_test(EnvironmentSnapshot::for_test(
+        root.join("steam"),
+        vec![library],
+        Vec::new(),
+        root.join("cache"),
+        root.join("config"),
+    ));
+
+    let existing_key = existing.to_string_lossy().into_owned();
+    let missing_key = missing.to_string_lossy().into_owned();
+    let outside_key = outside.to_string_lossy().into_owned();
+
+    let results = batch_dir_sizes_with_state(
+        &state,
+        vec![
+            existing_key.clone(),
+            missing_key.clone(),
+            outside_key.clone(),
+        ],
+    )
+    .unwrap();
+    assert_eq!(results.len(), 3);
+    assert_eq!(
+        results.get(&existing_key),
+        Some(&DirectorySize::Measured { size_bytes: 5 })
+    );
+    assert_eq!(results.get(&missing_key), Some(&DirectorySize::Missing));
+    match results.get(&outside_key) {
+        Some(DirectorySize::Failed { detail }) => {
+            assert!(
+                errcode::has_code(detail, errcode::BLOCKED_LOCATION),
+                "unerwarteter detail: {detail}"
+            );
+        }
+        other => panic!("unauthorized path muss Failed(blocked-location) liefern: {other:?}"),
+    }
+
+    let overflow =
+        batch_dir_sizes_with_state(&state, vec![existing_key; MAX_BATCH_DIR_SIZE_PATHS + 1])
+            .unwrap_err();
+    assert!(
+        errcode::has_code(&overflow, errcode::SIZE_LIMIT),
+        "batch-cap muss size-limit-exceeded liefern: {overflow}"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn environment_exists_not_found_is_false_only_inside_snapshot() {
     let root = std::env::temp_dir().join(format!("protium-env-exists-{}", std::process::id()));

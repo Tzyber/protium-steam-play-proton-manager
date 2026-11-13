@@ -406,10 +406,27 @@ Prüfwege gelten ab dem ersten Release mit `SHA256SUMS`; die Releases bis
   dass der Tag-Commit auf `origin/main` liegt; jeder `v*`-Tag startete sonst
   einen Release aus einem beliebigen Stand. Derselbe Job wartet bis zu 75
   Minuten, bis die CI-Jobs `check`, `mutation`, `rust` und `audit` zum selben
-  Commit erfolgreich abgeschlossen sind, und bricht ab, sobald einer davon
-  fehlschlägt oder nach 10 Minuten keiner existiert; erst dann startet der
-  Build. `bench:gate` und der Mutationslauf laufen nur in der CI: das Bench-Gate ist
-  maschinengebunden und der Mutationslauf dauert ein Vielfaches des Builds.
+  Commit erfolgreich abgeschlossen sind, und bricht fail-closed ab, sobald
+  einer davon fehlschlägt oder nach 10 Minuten keiner existiert; erst dann
+  startet der Build. `bench:gate` und der Mutationslauf laufen nur in der CI:
+  das Bench-Gate ist maschinengebunden und der Mutationslauf dauert ein
+  Vielfaches des Builds.
+  - *Voraussetzungen für CI-Läufe auf dem Tag-Commit:* Der Release-Commit muss
+    der oberste Commit (Tip) des Pushs auf `main` sein (bei einem Push mehrerer
+    Commits läuft die CI nur für den neueren Tip) und mindestens eine Datei
+    außerhalb von `paths-ignore` in `.github/workflows/ci.yml` (`docs/**`,
+    `**/*.md`) ändern; ein reiner Doku-Commit löst keine CI-Läufe für
+    `$GITHUB_SHA` aus. Branch Protection und Required Status Checks auf `main`
+    bleiben davon unabhängige, externe Repository-Einstellungen außerhalb dieses
+    Workflows.
+  - *Fail-Closed-Verhalten bei Fehlern und Drift:* Der Guard verlangt bewusst
+    alle vier Jobs (`check`, `mutation`, `rust`, `audit`) ohne Ausweichpfad,
+    sodass auch Upstream-Toolchain- oder Advisory-Drift ein Release bis zur
+    Behebung blockiert. Da der Guard alle Check-Runs zu `$GITHUB_SHA` über den
+    Job-Namen abgleicht, hebt ein erfolgreicher GitHub-Actions-Re-Run einen
+    früheren fehlgeschlagenen Lauf desselben Job-Namens auf diesem Commit nicht
+    auf; die Behebung erfordert einen neuen Commit auf `main` samt neuem oder
+    neu gesetztem Tag.
 
 ### Bekannte Einschränkungen und akzeptierte Restrisiken
 

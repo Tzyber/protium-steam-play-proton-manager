@@ -80,6 +80,68 @@ fn save_launch_options_happy_write_and_backup() {
 }
 
 #[test]
+fn save_launch_options_zwei_writes_legen_zwei_getrennte_backups_an() {
+    let (home, cache, steam) = wsg_env("launch-two-backups");
+    let target = steam.join("userdata/123/config/localconfig.vdf");
+    let mut reader = || Ok(false);
+
+    let first = save_launch_options_inner(
+        steam.to_str().unwrap(),
+        "123",
+        620,
+        "-novid",
+        &cache,
+        &steam,
+        &mut reader,
+    );
+    let second = save_launch_options_inner(
+        steam.to_str().unwrap(),
+        "123",
+        620,
+        "-novid -console",
+        &cache,
+        &steam,
+        &mut reader,
+    );
+
+    assert_eq!(first.unwrap(), WriteResult::Written);
+    assert_eq!(second.unwrap(), WriteResult::Written);
+
+    let backups: Vec<_> = std::fs::read_dir(cache.join("backups"))
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .collect();
+    assert_eq!(backups.len(), 2);
+    assert_ne!(backups[0].file_name(), backups[1].file_name());
+
+    let contents: Vec<String> = backups
+        .iter()
+        .map(|entry| std::fs::read_to_string(entry.path()).unwrap())
+        .collect();
+    assert_eq!(
+        contents
+            .iter()
+            .filter(|text| text.contains("\"gamemoderun %command%\""))
+            .count(),
+        1,
+        "genau ein backup muss den ausgangszustand sichern: {contents:?}"
+    );
+    assert_eq!(
+        contents
+            .iter()
+            .filter(|text| text.contains("\"-novid\"") && !text.contains("-console"))
+            .count(),
+        1,
+        "genau ein backup muss den zwischenstand ohne -console sichern: {contents:?}"
+    );
+
+    let target_content = std::fs::read_to_string(&target).unwrap();
+    assert!(target_content.contains("\"-novid -console\""));
+
+    let _ = std::fs::remove_dir_all(home.parent().unwrap());
+}
+
+#[test]
 fn save_launch_options_empty_removes_entry() {
     let (home, cache, steam) = wsg_env("launch-empty");
     let target = steam.join("userdata/123/config/localconfig.vdf");

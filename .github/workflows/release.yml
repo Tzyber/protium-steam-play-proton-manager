@@ -47,11 +47,16 @@ jobs:
             exit 1
           fi
           echo "OK: $GITHUB_SHA liegt auf origin/main"
-      # die namen sind die job-ids aus ci.yml. fehlende oder laufende checks
-      # sind kein fehler, die CI laeuft beim push von commit und tag parallel.
-      # ein reiner doku-commit loest wegen paths-ignore keine CI aus, und ein
-      # push mehrerer commits prueft nur den letzten. gibt es nach 10 minuten
-      # keinen der vier laeufe, bricht der guard deshalb frueh ab.
+      # die namen sind die job-ids aus ci.yml (check, mutation, rust, audit).
+      # fehlende oder laufende checks sind kein fehler, die CI laeuft beim push
+      # von commit und tag parallel. ein reiner doku-commit loest wegen
+      # paths-ignore keine CI aus, und ein push mehrerer commits prueft nur den
+      # letzten. gibt es nach 10 minuten keinen der vier laeufe, bricht der
+      # guard deshalb frueh ab. der abgleich ueber den job-namen bedeutet auch,
+      # dass ein frueherer abgeschlossener nicht-gruener lauf desselben job-namens
+      # auf $GITHUB_SHA selbst nach einem erfolgreichen GitHub-Actions-Re-Run
+      # weiter blockiert; zum aufloesen sind ein neuer commit und tag auf main
+      # noetig.
       - name: CI for tag commit must be green
         if: github.event_name != 'workflow_dispatch'
         env:
@@ -84,7 +89,8 @@ jobs:
             fi
             if [ "$found" = 0 ] && [ "$api_ok" = 1 ] \
               && [ "$(date +%s)" -ge $(( start + 10 * 60 )) ]; then
-              echo "FEHLER: zu $GITHUB_SHA gibt es keine CI-Laeufe; den release-commit einzeln pushen und die CI abwarten"
+              other=$(printf '%s\n' "$runs" | awk -F'\t' 'NF && $1 != "" { print $1 }' | sort -u | tr '\n' ' ' | sed 's/ *$//')
+              echo "FEHLER: zu $GITHUB_SHA fehlen alle erwarteten CI-Laeufe (erwartet: check, mutation, rust, audit; gefunden: ${other:-keine}); den release-commit einzeln pushen und eine Datei ausserhalb von paths-ignore beruehren"
               exit 1
             fi
             if [ "$(date +%s)" -ge "$deadline" ]; then

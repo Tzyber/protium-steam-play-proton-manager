@@ -593,6 +593,31 @@ pub async fn dir_size(
 }
 
 /// Berechnet Verzeichnisgrößen sequenziell; der Vorgang ist I/O-gebunden.
+/// Synchroner Kern getrennt vom `tauri::State`-Wrapper, damit Unit-Tests
+/// den Batch-Pfad ohne Tauri-Runtime prüfen können.
+pub(crate) fn batch_dir_sizes_with_state(
+    state: &EnvironmentState,
+    paths: Vec<String>,
+) -> Result<HashMap<String, DirectorySize>, String> {
+    if paths.len() > MAX_BATCH_DIR_SIZE_PATHS {
+        return Err(errcode::with_detail(errcode::SIZE_LIMIT, "path batch"));
+    }
+    state.with_authorized_batch(&paths, |authorized| {
+        let mut result = HashMap::with_capacity(authorized.len());
+        for authorized_path in authorized {
+            let size = match authorized_path.real {
+                Err(detail) => DirectorySize::Failed { detail },
+                Ok(None) => DirectorySize::Missing,
+                Ok(Some(real)) => measure_directory(&real)
+                    .unwrap_or_else(|detail| DirectorySize::Failed { detail }),
+            };
+            result.insert(authorized_path.requested, size);
+        }
+        Ok(result)
+    })
+}
+
+/// Berechnet Verzeichnisgrößen sequenziell; der Vorgang ist I/O-gebunden.
 /// async + spawn_blocking: walkt GB-große bäume, gehört nicht auf den main-thread.
 #[tauri::command]
 pub async fn batch_dir_sizes(
@@ -600,25 +625,7 @@ pub async fn batch_dir_sizes(
     paths: Vec<String>,
 ) -> Result<HashMap<String, DirectorySize>, String> {
     let state = state.inner().clone();
-    spawn_blocking_io(move || {
-        if paths.len() > MAX_BATCH_DIR_SIZE_PATHS {
-            return Err(errcode::with_detail(errcode::SIZE_LIMIT, "path batch"));
-        }
-        state.with_authorized_batch(&paths, |authorized| {
-            let mut result = HashMap::with_capacity(authorized.len());
-            for authorized_path in authorized {
-                let size = match authorized_path.real {
-                    Err(detail) => DirectorySize::Failed { detail },
-                    Ok(None) => DirectorySize::Missing,
-                    Ok(Some(real)) => measure_directory(&real)
-                        .unwrap_or_else(|detail| DirectorySize::Failed { detail }),
-                };
-                result.insert(authorized_path.requested, size);
-            }
-            Ok(result)
-        })
-    })
-    .await
+    spawn_blocking_io(move || batch_dir_sizes_with_state(&state, paths)).await
 }
 
 /// Liefert kanonischen Pfad und `(dev, ino)` zur Library-Deduplizierung.
