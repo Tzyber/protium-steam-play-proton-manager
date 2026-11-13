@@ -101,7 +101,13 @@ const visibleStatusText = computed(() =>
 </template>
 
 <style scoped>
-.library { padding: var(--view-pad); scrollbar-gutter: stable; }
+.library {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: var(--space-4) var(--view-pad) var(--view-pad);
+}
 
 .bar {
   gap: var(--space-4);

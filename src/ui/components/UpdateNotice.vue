@@ -41,9 +41,6 @@ function openUpdateRelease() {
 
 <style scoped>
 .update-notice {
-  position: sticky;
-  top: 8px;
-  z-index: 10;
   display: flex;
   align-items: center;
   gap: var(--space-3);

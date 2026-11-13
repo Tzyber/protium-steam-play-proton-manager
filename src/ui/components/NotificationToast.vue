@@ -93,12 +93,10 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* app-weite meldung (store-notification, nicht der frühere drawer-toast): sticky
-   oben, copy-button, kein auto-dismiss im view (der store räumt nach 30s auf) */
+/* app-weite meldung (store-notification, nicht der frühere drawer-toast): oben
+   in der NoticeRail, copy-button, kein auto-dismiss im view (der store räumt nach 30s auf) */
 .note.toast {
-  position: sticky;
-  top: 8px;
-  z-index: 10;
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);

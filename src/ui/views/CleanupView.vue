@@ -366,12 +366,18 @@ const tabLabel = (id: Tab) =>
 .cv {
   display: flex; flex-direction: column;
   height: 100%; min-height: 0;
-  padding: var(--view-pad) var(--view-pad) 0; min-width: 0; overflow-x: hidden;
+  min-width: 0; overflow-x: hidden;
+  padding: var(--view-pad) 0 0;
+}
+.bar {
+  flex: 0 0 auto;
+  padding: 0 var(--view-pad);
 }
 .scroller {
   flex: 1; min-height: 0;
   overflow-y: auto; overflow-x: hidden;
-  padding-bottom: var(--space-2);
+  scrollbar-gutter: stable;
+  padding: 0 var(--view-pad) var(--space-2);
 }
 
 .scan-btn {
@@ -389,6 +395,7 @@ const tabLabel = (id: Tab) =>
 /* ---- tabs ---- */
 .tabs {
   display: flex; gap: var(--space-2);
+  padding: 0 var(--view-pad);
   border-bottom: 1px solid var(--line);
   margin-bottom: var(--space-1);
   flex: 0 0 auto;
@@ -417,7 +424,7 @@ const tabLabel = (id: Tab) =>
 
 .ignored {
   display: flex; align-items: center; gap: var(--space-3);
-  background: none; border: none; padding: 0;
+  background: none; border: none; padding: 0 var(--view-pad);
   margin: calc(-1 * var(--space-1)) 0 var(--space-3);
   font-size: var(--text-md); color: var(--fg-2);
 }
@@ -433,13 +440,13 @@ const tabLabel = (id: Tab) =>
 .actionbar {
   flex: 0 0 auto;
   display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
-  margin: 0 calc(-1 * var(--view-pad)); padding: var(--space-3) var(--view-pad);
+  margin: 0; padding: var(--space-3) var(--view-pad);
   background: var(--bg-1);
   border-top: 1px solid var(--line);
 }
 .sel-info { font-size: var(--text-md); color: var(--fg-1); }
 /* der sperrgrund steht in der leiste, nicht als block über der liste */
-.actionbar .hint { margin-bottom: 0; }
+.actionbar .hint { margin-bottom: 0; padding: 0; }
 .actionbar-btns { display: flex; gap: var(--space-3); }
 
 .action {
@@ -457,7 +464,7 @@ const tabLabel = (id: Tab) =>
 }
 .action.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger-hover) 30%, transparent); }
 
-.hint { color: var(--warning-text); font-family: var(--font-body); font-size: var(--text-md); margin-bottom: var(--space-3); }
+.hint { color: var(--warning-text); font-family: var(--font-body); font-size: var(--text-md); padding: 0 var(--view-pad); margin-bottom: var(--space-3); }
 
 
 </style>

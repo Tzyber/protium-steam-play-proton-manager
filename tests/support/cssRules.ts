@@ -35,6 +35,29 @@ export function ruleBlock(source: string, selector: string): string {
   return match[1] ?? "";
 }
 
+/** Erster exakter Regelblock innerhalb eines `@media (...)`-Blocks (klammer-balanciert). */
+export function mediaRuleBlock(source: string, mediaCondition: string, selector: string): string {
+  const flat = flattenCss(source);
+  const condFlat = flattenCss(mediaCondition)
+    .trim()
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const headerRe = new RegExp(`@media\\s*${condFlat}\\s*\\{`, "g");
+  const match = headerRe.exec(flat);
+  if (!match) throw new Error(`Media-Block nicht gefunden: ${mediaCondition}`);
+  let depth = 1;
+  let cursor = match.index + match[0].length;
+  const start = cursor;
+  while (cursor < flat.length && depth > 0) {
+    const ch = flat[cursor];
+    if (ch === "{") depth++;
+    else if (ch === "}") depth--;
+    cursor++;
+  }
+  if (depth !== 0) throw new Error(`Unbalancierter Media-Block: ${mediaCondition}`);
+  const inner = flat.slice(start, cursor - 1).trim();
+  return ruleBlock(inner, selector);
+}
+
 /** Letzter Wert einer Eigenschaft im Regelblock; eine spätere Deklaration gewinnt. */
 export function declarationValue(block: string, property: string): string | undefined {
   const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -2,8 +2,7 @@
 import { computed, nextTick, onMounted, watch } from "vue";
 import AppSidebar from "./components/AppSidebar.vue";
 import ConfirmDialogHost from "./components/ConfirmDialogHost.vue";
-import NotificationToast from "./components/NotificationToast.vue";
-import UpdateNotice from "./components/UpdateNotice.vue";
+import NoticeRail from "./components/NoticeRail.vue";
 import { t } from "./i18n";
 import { useConfirmStore } from "./stores/confirmStore";
 import { useScanStore } from "./stores/scanStore";
@@ -74,12 +73,11 @@ watch(
       <AppSidebar />
 
       <main id="main-content" class="content" tabindex="-1">
-      <UpdateNotice />
-      <NotificationToast />
-      <LibraryView v-if="ui.activeView === 'library'" />
-      <ProtonManagerView v-else-if="ui.activeView === 'proton'" />
-      <CleanupView v-else-if="ui.activeView === 'cleanup'" />
-      <HistoryView v-else-if="ui.activeView === 'history'" />
+        <NoticeRail />
+        <LibraryView v-if="ui.activeView === 'library'" />
+        <ProtonManagerView v-else-if="ui.activeView === 'proton'" />
+        <CleanupView v-else-if="ui.activeView === 'cleanup'" />
+        <HistoryView v-else-if="ui.activeView === 'history'" />
       </main>
     </div>
   </div>
@@ -110,9 +108,10 @@ watch(
 
 .content {
   min-height: 0;
-  overflow-y: scroll;
-  overflow-x: auto;
-  scrollbar-gutter: stable;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 </style>
 

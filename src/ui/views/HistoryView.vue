@@ -89,7 +89,7 @@ onMounted(() => {
       </div>
     </header>
 
-    <div class="content">
+    <div class="hv-body">
       <section class="block snapshots">
         <div class="section-bar">
           <h2>{{ t("history.snapshotsTitle") }}</h2>
@@ -157,22 +157,29 @@ onMounted(() => {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  padding: var(--view-pad) var(--view-pad) 0;
   min-width: 0;
   overflow-x: hidden;
+  padding: var(--view-pad) 0 0;
 }
 
-.content {
+.bar {
+  flex: 0 0 auto;
+  padding: 0 var(--view-pad);
+}
+
+.hv-body {
   flex: 1;
   min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding-bottom: var(--space-4);
+  gap: var(--space-4);
+  padding: 0 var(--view-pad) var(--view-pad);
 }
 
 .block {
-  min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
@@ -182,7 +189,7 @@ onMounted(() => {
 }
 
 .log-block {
-  flex: 1 1 auto;
+  flex: 1 0 auto;
 }
 
 .section-bar {
@@ -238,11 +245,8 @@ onMounted(() => {
   font-size: var(--text-xs);
 }
 
-/* Stände: kompakt und selbst scrollbar, damit das Protokoll erreichbar bleibt. */
+/* Stände-Liste; scrollt gemeinsam mit dem Protokoll in .hv-body. */
 .entries {
-  max-height: 168px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
   margin: 0;
   padding: var(--space-1);
   list-style: none;
@@ -267,11 +271,10 @@ onMounted(() => {
 .entry-sub { color: var(--fg-2); white-space: nowrap; }
 .empty { color: var(--fg-2); font-size: var(--text-xs); margin: 0; }
 
-/* Protokoll: eigene Scrollfläche, Zeilen wie im Logfile. */
+/* Protokollzeilen wie im Logfile; scrollt gemeinsam mit den Ständen in .hv-body. */
 .log {
-  flex: 1;
+  flex: 1 0 auto;
   min-height: 120px;
-  overflow: auto;
   margin: 0;
   padding: var(--space-2) var(--space-1);
   list-style: none;

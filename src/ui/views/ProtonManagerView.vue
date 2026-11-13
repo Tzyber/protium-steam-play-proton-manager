@@ -186,7 +186,13 @@ const statusLine = computed(() => {
 </template>
 
 <style scoped>
-.pm { padding: var(--view-pad); }
+.pm {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: var(--view-pad);
+}
 .update { position: relative; display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); }
 .statusline {
   font-family: var(--font-body);

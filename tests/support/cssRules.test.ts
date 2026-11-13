@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { declarationValue, flattenCss, ruleBlock, ruleCount } from "./cssRules";
+import { declarationValue, flattenCss, mediaRuleBlock, ruleBlock, ruleCount } from "./cssRules";
 import { readRepoFile } from "./themeTokens";
 
 /** FR-5: Charakterisierungs-Pin für den Regelparser. Ab dem Anlegen grün. */
@@ -68,5 +68,24 @@ describe("cssRules: Styleblock-Grenzen", () => {
     const once = flattenCss(source);
     expect(flattenCss(once)).toBe(once);
     expect(once).toBe(".a, .b { color: red; } .c { color: blue; }");
+  });
+
+  it("mediaRuleBlock liest verschachtelte Regeln im passenden @media-Block", () => {
+    const source = `
+      .shell { grid-template-columns: var(--sidebar-w) 1fr; }
+      @media (max-width: 1199px) {
+        .shell { --sidebar-w: var(--sidebar-w-compact); }
+        .other { color: red; }
+      }
+    `;
+    expect(
+      declarationValue(mediaRuleBlock(source, "(max-width: 1199px)", ".shell"), "--sidebar-w"),
+    ).toBe("var(--sidebar-w-compact)");
+    expect(declarationValue(mediaRuleBlock(source, "(max-width: 1199px)", ".other"), "color")).toBe(
+      "red",
+    );
+    expect(() => mediaRuleBlock(source, "(max-width: 999px)", ".shell")).toThrow(
+      "Media-Block nicht gefunden: (max-width: 999px)",
+    );
   });
 });
