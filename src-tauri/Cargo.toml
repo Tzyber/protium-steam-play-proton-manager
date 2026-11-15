@@ -24,7 +24,7 @@ tauri-plugin-single-instance = "2"
 getrandom = "0.4"
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
-sysinfo = "0.39"
+sysinfo = "0.40"
 # phase 3: download (stream + sha512) + tarball-extraktion
 reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls"] }
 futures-util = "0.3"
