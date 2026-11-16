@@ -1,7 +1,16 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-const root = path.resolve(import.meta.dirname, "../..");
+export function resolveRepoRoot(dir: string = import.meta.dirname): string {
+  const candidate = path.resolve(dir, "../..");
+  // Stryker kopiert den Workspace nach .stryker-tmp/sandbox-* und instrumentiert
+  // dort die Quelldateien; readRepoFile muss die uninstrumentierte Datei lesen.
+  return path.basename(path.dirname(candidate)) === ".stryker-tmp"
+    ? path.resolve(candidate, "../..")
+    : candidate;
+}
+
+const root = resolveRepoRoot();
 const cache = new Map<string, string>();
 
 export function readRepoFile(file: string): string {

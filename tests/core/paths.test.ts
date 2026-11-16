@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as pathsModule from "../../src/core/paths.js";
 import { paths, SYSTEM_COMPAT_DIRS } from "../../src/core/paths.js";
-import { readRepoFile } from "../support/themeTokens";
+import { readRepoFile, resolveRepoRoot } from "../support/themeTokens";
 
 describe("paths", () => {
   it("konstruiert Environment-Pfade ohne eigene Discovery", () => {
@@ -110,5 +110,12 @@ describe("entryIn (path-traversal-rejection)", () => {
     expect(paths.entryIn("/home/u", ".local/share")).toBe("/home/u/.local/share");
     expect(paths.entryIn("/run/media/user", "SteamLibrary")).toBe("/run/media/user/SteamLibrary");
     expect(paths.entryIn("/mnt", "games")).toBe("/mnt/games");
+  });
+});
+
+describe("resolveRepoRoot", () => {
+  it("löst innerhalb einer Stryker-Sandbox auf das echte Repo-Root auf", () => {
+    expect(resolveRepoRoot("/repo/.stryker-tmp/sandbox-123/tests/support")).toBe("/repo");
+    expect(resolveRepoRoot("/repo/tests/support")).toBe("/repo");
   });
 });
