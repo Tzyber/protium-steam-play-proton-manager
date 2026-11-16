@@ -113,13 +113,19 @@ fn read_environment_file_with_hook(
             .map_err(|error| errcode::label_error(label, &error))?;
         after_open(&mut file);
         let bytes = read_fd_bytes(&mut file, label, MAX_ENVIRONMENT_READ_BYTES, &mut |_| {})?;
+        let reduce_utf8 = |raw: Vec<u8>,
+                           reducer: fn(&str) -> Result<String, String>|
+         -> Result<Vec<u8>, String> {
+            let text = String::from_utf8(raw).map_err(|error| {
+                errcode::with_detail(errcode::UNREADABLE, format!("{label}: {error}"))
+            })?;
+            Ok(reducer(&text)?.into_bytes())
+        };
         match read {
             ContentRead::Full => Ok(bytes),
-            ContentRead::CompatToolMappingOnly => {
-                let text = String::from_utf8(bytes).map_err(|error| {
-                    errcode::with_detail(errcode::UNREADABLE, format!("{label}: {error}"))
-                })?;
-                Ok(reduce_compat_config(&text)?.into_bytes())
+            ContentRead::CompatToolMappingOnly => reduce_utf8(bytes, reduce_compat_config),
+            ContentRead::LoginUsersMostRecentOnly => {
+                reduce_utf8(bytes, vdf_patch::extract_loginusers_most_recent)
             }
         }
     })

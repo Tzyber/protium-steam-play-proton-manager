@@ -7,7 +7,8 @@ use crate::commands::errcode;
 use crate::commands::libraryfolders::read_library_folders_with_failures;
 use crate::commands::path::{is_descendant_of, is_safe_path};
 use crate::commands::scope::{
-    prepare_app_dir, reject_symlink_components, EnvironmentSnapshot, SYSTEM_COMPAT_DIRS,
+    prepare_app_dir, reject_symlink_components, EnvironmentSnapshot, LibraryUnavailable,
+    LibraryUnavailableReason, SYSTEM_COMPAT_DIRS,
 };
 use crate::commands::steam_layout;
 
@@ -109,7 +110,7 @@ pub(crate) fn build_environment_snapshot(
     }
     let steam_root = steam_root.ok_or_else(|| errcode::STEAM_NOT_FOUND.to_owned())?;
 
-    let (unique, unavailable_libraries) = read_library_folders_with_failures(&steam_root)?;
+    let (unique, mut unavailable_libraries) = read_library_folders_with_failures(&steam_root)?;
 
     // Root ist jeweils das Elternverzeichnis: fachlich die App-Basis, unter der
     // Cache und Config liegen, nicht das Verzeichnis selbst (sonst wäre der
@@ -122,6 +123,23 @@ pub(crate) fn build_environment_snapshot(
         .parent()
         .ok_or_else(|| errcode::with_detail(errcode::UNAVAILABLE, "app config: no parent root"))?;
     let app_config_dir = prepare_app_dir(app_config_dir, config_root, "app config")?;
+
+    // S-11: `$HOME` und Vorfahren von `$HOME`, `$APPCACHE` oder `$APPCONFIG`
+    // dürfen auch außerhalb des Steam-Roots nie als Library autorisiert werden.
+    let mut libraries = Vec::with_capacity(unique.len());
+    for lib in unique {
+        if is_descendant_of(&home, &lib)
+            || is_descendant_of(&app_cache_dir, &lib)
+            || is_descendant_of(&app_config_dir, &lib)
+        {
+            unavailable_libraries.push(LibraryUnavailable {
+                path: lib.to_string_lossy().into_owned(),
+                reason: LibraryUnavailableReason::ScopeFailed,
+            });
+        } else {
+            libraries.push(lib);
+        }
+    }
 
     let mut system_compat_dirs = Vec::new();
     for fixed in SYSTEM_COMPAT_DIRS {
@@ -136,7 +154,7 @@ pub(crate) fn build_environment_snapshot(
     Ok(EnvironmentSnapshot {
         generation: 0,
         steam_root,
-        libraries: unique,
+        libraries,
         unavailable_libraries,
         system_compat_dirs,
         app_cache_dir,

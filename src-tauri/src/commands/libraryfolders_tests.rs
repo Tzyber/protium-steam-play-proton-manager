@@ -567,3 +567,40 @@ fn identitaets_stat_meldet_unlesbare_libraries_als_read_failed() {
 
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// S-11: Ein Vorfahr des Steam-Roots (etwa `$HOME` mit vorhandenem
+/// `~/steamapps`) darf über `libraryfolders.vdf` nicht in `libraries`
+/// aufgenommen werden.
+#[test]
+fn read_library_folders_lehnt_vorfahr_des_steam_roots_als_scope_failed_ab() {
+    let root = wsg_fixture("lf-s11-ancestor");
+    let home = root.join("home");
+    let steam = home.join(".local/share/Steam");
+    std::fs::create_dir_all(steam.join("config")).unwrap();
+    std::fs::create_dir_all(steam.join("steamapps")).unwrap();
+    std::fs::create_dir_all(home.join("steamapps")).unwrap();
+
+    let vdf = format!(
+        "\"libraryfolders\" {{ \"0\" {{ \"path\" \"{}\" }} }}",
+        home.display()
+    );
+    std::fs::write(steam.join("config/libraryfolders.vdf"), vdf).unwrap();
+
+    let (libraries, unavailable) = read_library_folders_with_failures(&steam).unwrap();
+    let steam_canon = std::fs::canonicalize(&steam).unwrap();
+    let home_canon = std::fs::canonicalize(&home).unwrap();
+    assert_eq!(libraries, vec![steam_canon]);
+    assert!(
+        !libraries.contains(&home_canon),
+        "Vorfahr darf nicht in libraries stehen: {libraries:?}"
+    );
+    assert_eq!(
+        unavailable,
+        vec![LibraryUnavailable {
+            path: home.to_string_lossy().into_owned(),
+            reason: LibraryUnavailableReason::ScopeFailed,
+        }]
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}

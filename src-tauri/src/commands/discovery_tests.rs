@@ -208,3 +208,62 @@ fn fixed_system_compat_root_rejects_symlink_target() {
     assert!(build_fixed_system_compat_root(&raw).is_err());
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// S-11: `$HOME` sowie Vorfahren von `$HOME`, `$APPCACHE` oder `$APPCONFIG`
+/// dürfen in `build_environment_snapshot` nie als Steam-Library autorisiert
+/// werden.
+#[test]
+fn discovery_lehnt_home_und_app_dir_vorfahren_als_library_ab() {
+    use crate::commands::scope::LibraryUnavailableReason;
+    use crate::commands::test_util::wsg_fixture;
+
+    let temp = wsg_fixture("discovery-s11");
+    let home = temp.join("home");
+    let steam = home.join(".local/share/Steam");
+    let app_parent = temp.join("app-parent");
+    let cache = app_parent.join("cache");
+    let config = app_parent.join("config");
+    let valid_lib = temp.join("external-lib");
+
+    std::fs::create_dir_all(steam.join("config")).unwrap();
+    std::fs::create_dir_all(steam.join("steamapps")).unwrap();
+    std::fs::create_dir_all(home.join("steamapps")).unwrap();
+    std::fs::create_dir_all(app_parent.join("steamapps")).unwrap();
+    std::fs::create_dir_all(valid_lib.join("steamapps")).unwrap();
+
+    let vdf = format!(
+        "\"libraryfolders\" {{ \"0\" {{ \"path\" \"{}\" }} \"1\" {{ \"path\" \"{}\" }} \"2\" {{ \"path\" \"{}\" }} }}",
+        home.display(),
+        app_parent.display(),
+        valid_lib.display()
+    );
+    std::fs::write(steam.join("config/libraryfolders.vdf"), vdf).unwrap();
+
+    let snapshot = build_environment_snapshot(&home, &cache, &config).unwrap();
+    let home_canon = std::fs::canonicalize(&home).unwrap();
+    let app_parent_canon = std::fs::canonicalize(&app_parent).unwrap();
+    let valid_canon = std::fs::canonicalize(&valid_lib).unwrap();
+
+    assert!(!snapshot.libraries.contains(&home_canon));
+    assert!(!snapshot.libraries.contains(&app_parent_canon));
+    assert!(snapshot.libraries.contains(&valid_canon));
+
+    let scope_failed_paths: Vec<&str> = snapshot
+        .unavailable_libraries
+        .iter()
+        .filter(|entry| entry.reason == LibraryUnavailableReason::ScopeFailed)
+        .map(|entry| entry.path.as_str())
+        .collect();
+    assert!(
+        scope_failed_paths.contains(&home.to_string_lossy().as_ref())
+            || scope_failed_paths.contains(&home_canon.to_string_lossy().as_ref()),
+        "home muss als scope-failed abgelehnt sein: {scope_failed_paths:?}"
+    );
+    assert!(
+        scope_failed_paths.contains(&app_parent_canon.to_string_lossy().as_ref())
+            || scope_failed_paths.contains(&app_parent.to_string_lossy().as_ref()),
+        "app_parent muss als scope-failed abgelehnt sein: {scope_failed_paths:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&temp);
+}

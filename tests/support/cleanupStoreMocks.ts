@@ -63,6 +63,7 @@ const hoisted = vi.hoisted(() => {
     mockExecuteDelete: vi.fn(async (_token: string) => ({
       deletedPath: "",
     })),
+    mockCancelDelete: vi.fn(async (_token: string) => {}),
     mockBatchDirSizes: vi.fn<(paths: string[]) => Promise<Record<string, DirectorySize>>>(
       async (paths) =>
         Object.fromEntries(paths.map((path) => [path, { status: "missing" as const }])),
@@ -81,6 +82,7 @@ const {
   mockFindTrashEntries,
   mockPrepareDelete,
   mockExecuteDelete,
+  mockCancelDelete,
   mockBatchDirSizes,
   mockReadLocalConfig,
   mockIsSteamRunning,
@@ -89,6 +91,7 @@ const {
 export {
   MOCK_TOKEN_TTL_MS,
   mockBatchDirSizes,
+  mockCancelDelete,
   mockExecuteDelete,
   mockFindIncompleteDeletions,
   mockFindOrphans,
@@ -134,6 +137,7 @@ vi.mock("../../src/core/adapters/tauri", async () => {
       batchDirSizes: mockBatchDirSizes,
       prepareDelete: mockPrepareDelete,
       executeDelete: mockExecuteDelete,
+      cancelDelete: mockCancelDelete,
     },
     cache: {
       get: async (k: string) => cacheStore.get(k) ?? null,
@@ -175,6 +179,8 @@ export function resetCleanupMocks(): void {
   }));
   mockExecuteDelete.mockReset();
   mockExecuteDelete.mockResolvedValue({ deletedPath: "" });
+  mockCancelDelete.mockReset();
+  mockCancelDelete.mockResolvedValue(undefined);
   mockBatchDirSizes.mockReset();
   mockBatchDirSizes.mockImplementation(async (paths) =>
     Object.fromEntries(paths.map((path) => [path, { status: "missing" as const }])),

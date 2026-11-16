@@ -385,6 +385,7 @@ export function fakeSystem(opts?: { environment?: EnvironmentSnapshot }): System
       } catch {}
       return { deletedPath: path };
     },
+    async cancelDelete() {},
     async saveLaunchOptions() {
       throw new Error("write gate unavailable in test fixture");
     },

@@ -172,7 +172,14 @@ export async function deleteTrashEntries(
     }
   }
 
+  let tokensCancelled = false;
+  const cancelPrepared = () => {
+    if (tokensCancelled) return;
+    tokensCancelled = true;
+    for (const p of prepared) void ports.system.cancelDelete(p.token).catch(() => {});
+  };
   if (!isCurrent()) {
+    cancelPrepared();
     confirm.release(reservation);
     return;
   }
@@ -284,6 +291,7 @@ export async function deleteTrashEntries(
           );
         }
       },
+      onCancel: cancelPrepared,
       onError: (e) => {
         logError("Papierkorb leeren fehlgeschlagen", e);
         if (isCurrent()) {
@@ -296,5 +304,8 @@ export async function deleteTrashEntries(
     },
     reservation,
   );
-  if (!accepted) confirm.release(reservation);
+  if (!accepted) {
+    cancelPrepared();
+    confirm.release(reservation);
+  }
 }

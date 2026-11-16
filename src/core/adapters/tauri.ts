@@ -170,6 +170,7 @@ const system: System = {
       },
     }),
   executeDelete: (token) => invoke<DeleteResult>("execute_delete", { token }),
+  cancelDelete: (token) => invoke<void>("cancel_delete", { token }),
   saveLaunchOptions: (steamRoot, accountId, appId, launchOptions) =>
     invoke<WriteResult>("save_launch_options", {
       steamRoot,

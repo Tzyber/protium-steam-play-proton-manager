@@ -712,3 +712,142 @@ fn trash_ziel_ablehnungen_tragen_ihren_code() {
 
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// S-07: Trash-Ziele muessen direkt in `.protium-trash` einer aktuell
+/// gelisteten Steam-Library liegen; defekte gelistete Libraries (ausser
+/// `path-missing`) sperren fail-closed.
+#[test]
+fn trash_inspektion_prueft_gelistete_libraries_und_defekte_libraries_fail_closed() {
+    let root = wsg_fixture("inspect-trash-listed-libraries");
+    let steam = root.join("steam");
+    let missing = root.join("library-missing");
+    let unlisted = root.join("library-unlisted");
+    let broken = root.join("library-broken");
+
+    let listed_trash = steam.join("steamapps/.protium-trash");
+    let listed_entry = listed_trash.join("compatdata_620_100");
+    let non_numeric_entry = listed_trash.join("compatdata_abc_100");
+    let missing_entry = listed_trash.join("compatdata_620_999");
+    let unlisted_entry = unlisted.join("steamapps/.protium-trash/compatdata_620_200");
+    let nested_under_root = steam.join("sub/steamapps/.protium-trash/compatdata_620_300");
+
+    std::fs::create_dir_all(steam.join("config")).unwrap();
+    std::fs::create_dir_all(&listed_entry).unwrap();
+    std::fs::create_dir_all(&non_numeric_entry).unwrap();
+    std::fs::create_dir_all(&unlisted_entry).unwrap();
+    std::fs::create_dir_all(&nested_under_root).unwrap();
+    std::fs::create_dir_all(&broken).unwrap();
+    std::fs::write(broken.join("steamapps"), b"").unwrap();
+
+    #[cfg(unix)]
+    let symlink_entry = {
+        let link = listed_trash.join("compatdata_620_400");
+        std::os::unix::fs::symlink(&listed_entry, &link).unwrap();
+        link
+    };
+
+    let write_lf = |extra: Option<&Path>| {
+        let mut entries = format!(
+            "\"0\" {{ \"path\" \"{}\" }} \"1\" {{ \"path\" \"{}\" }}",
+            steam.display(),
+            missing.display()
+        );
+        if let Some(extra_lib) = extra {
+            entries.push_str(&format!(
+                " \"2\" {{ \"path\" \"{}\" }}",
+                extra_lib.display()
+            ));
+        }
+        std::fs::write(
+            steam.join("config/libraryfolders.vdf"),
+            format!("\"libraryfolders\" {{ {entries} }}"),
+        )
+        .unwrap();
+    };
+    let all_in_scope = |_: &Path| true;
+
+    // 1. Gelistete Library + abwesende Nachbar-Library (`path-missing`) -> Ok
+    write_lf(None);
+    let ok = inspect_deletion_target(
+        steam.to_str().unwrap(),
+        DeleteTargetType::Trash,
+        listed_entry.to_str().unwrap(),
+        &all_in_scope,
+    )
+    .unwrap();
+    assert_eq!(ok.target_type, DeleteTargetType::Trash);
+
+    // 2. Nicht-numerisch, Symlink, fehlender Ordner bleiben mit kanonischem Code abgelehnt
+    let non_num_err = inspect_deletion_target(
+        steam.to_str().unwrap(),
+        DeleteTargetType::Trash,
+        non_numeric_entry.to_str().unwrap(),
+        &all_in_scope,
+    )
+    .unwrap_err();
+    assert!(
+        errcode::has_code(&non_num_err, errcode::UNREADABLE),
+        "{non_num_err}"
+    );
+    let missing_err = inspect_deletion_target(
+        steam.to_str().unwrap(),
+        DeleteTargetType::Trash,
+        missing_entry.to_str().unwrap(),
+        &all_in_scope,
+    )
+    .unwrap_err();
+    assert!(
+        errcode::has_code(&missing_err, errcode::NOT_FOUND),
+        "{missing_err}"
+    );
+    #[cfg(unix)]
+    {
+        let symlink_err = inspect_deletion_target(
+            steam.to_str().unwrap(),
+            DeleteTargetType::Trash,
+            symlink_entry.to_str().unwrap(),
+            &all_in_scope,
+        )
+        .unwrap_err();
+        assert!(
+            errcode::has_code(&symlink_err, errcode::SYMLINK_REJECTED),
+            "{symlink_err}"
+        );
+    }
+
+    // 3. Ungelistete Library (sowohl Geschwisterpfad als auch Unterbaum unter Steam-Root) -> library-not-listed
+    for target in [&unlisted_entry, &nested_under_root] {
+        let error = inspect_deletion_target(
+            steam.to_str().unwrap(),
+            DeleteTargetType::Trash,
+            target.to_str().unwrap(),
+            &all_in_scope,
+        )
+        .unwrap_err();
+        assert!(
+            errcode::has_code(&error, errcode::LIBRARY_NOT_LISTED),
+            "{}: {error}",
+            target.display()
+        );
+    }
+
+    // 4. Defekte gelistete Library (`ScopeFailed` durch Datei statt steamapps-Ordner) -> fail-closed unavailable
+    write_lf(Some(&broken));
+    let broken_err = inspect_deletion_target(
+        steam.to_str().unwrap(),
+        DeleteTargetType::Trash,
+        listed_entry.to_str().unwrap(),
+        &all_in_scope,
+    )
+    .unwrap_err();
+    assert!(
+        errcode::has_code(&broken_err, errcode::UNAVAILABLE),
+        "{broken_err}"
+    );
+    assert!(
+        broken_err.contains(broken.to_string_lossy().as_ref()),
+        "{broken_err}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}

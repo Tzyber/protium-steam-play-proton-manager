@@ -31,6 +31,7 @@ export function stubDeletePorts(rejectPath?: string): () => void {
   const executeDelete = vi
     .spyOn(tauriPorts.system, "executeDelete")
     .mockResolvedValue({ deletedPath: "" });
+  const cancelDelete = vi.spyOn(tauriPorts.system, "cancelDelete").mockResolvedValue(undefined);
   const readShortcuts = vi
     .spyOn(shortcuts, "readAllShortcutAppIds")
     .mockResolvedValue({ status: "none" });
@@ -38,6 +39,7 @@ export function stubDeletePorts(rejectPath?: string): () => void {
     isSteamRunning.mockRestore();
     prepareDelete.mockRestore();
     executeDelete.mockRestore();
+    cancelDelete.mockRestore();
     readShortcuts.mockRestore();
   };
 }

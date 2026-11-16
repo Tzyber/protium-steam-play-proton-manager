@@ -290,11 +290,18 @@ pub(super) async fn download_stream_in_directory(
     storage: DownloadStorage<'_>,
 ) -> Result<DownloadedFile, String> {
     let client = build_client(redirect_ok)?;
-    let resp = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| errcode::with_detail(errcode::UNAVAILABLE, e))?;
+    // stall-erkennung: sowohl der initiale header-abruf (S-06) als auch jede
+    // stream-chunk-poll dürfen max. 120 s hängen, und cancel greift sofort.
+    const STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+    let resp = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => return Err(errcode::CANCELLED.to_owned()),
+        result = tokio::time::timeout(STALL_TIMEOUT, client.get(url).send()) => {
+            result
+                .map_err(|_| errcode::with_detail(errcode::INCOMPLETE, "download stalled"))?
+                .map_err(|e| errcode::with_detail(errcode::UNAVAILABLE, e))?
+        }
+    };
     if !resp.status().is_success() {
         return Err(errcode::with_detail(errcode::UNAVAILABLE, resp.status()));
     }
@@ -318,9 +325,6 @@ pub(super) async fn download_stream_in_directory(
     let content_length = resp.content_length();
     let mut downloaded: u64 = 0;
     let mut stream = resp.bytes_stream();
-
-    // stall-erkennung: jede next()-poll darf max. 120 s brauchen
-    const STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
     loop {
         // cancel weckt den body-read auch bei blockiertem stream aktiv auf

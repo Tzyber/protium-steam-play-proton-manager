@@ -464,8 +464,12 @@ fn environment_read_liefert_nur_freigegebene_inhalte() {
         "\"InstallConfigStore\"\n{\n\"Software\"\n{\n\"Valve\"\n{\n\"Steam\"\n{\n\"ConnectCache\"\n{\n\"k\"\t\"geheim\"\n}\n\"CompatToolMapping\"\n{\n\"620\"\n{\n\"name\"\t\"GE-Proton9-1\"\n}\n}\n}\n}\n}\n}\n",
     )
     .unwrap();
+    std::fs::write(
+        steam.join("config/loginusers.vdf"),
+        "\"users\"\n{\n\t\"76561198000000001\"\n\t{\n\t\t\"AccountName\"\t\"geheimer_login\"\n\t\t\"MostRecent\"\t\"1\"\n\t}\n}\n",
+    )
+    .unwrap();
     for file in [
-        "config/loginusers.vdf",
         "userdata/7/config/localconfig.vdf",
         "config/htmlcache/Cookies",
         "config/local.vdf",
@@ -488,7 +492,10 @@ fn environment_read_liefert_nur_freigegebene_inhalte() {
     let config = String::from_utf8(read("config/config.vdf").unwrap()).unwrap();
     assert!(!config.contains("geheim"), "{config}");
     assert!(config.contains("GE-Proton9-1"), "{config}");
-    assert_eq!(read("config/loginusers.vdf").unwrap(), b"x");
+    let loginusers = String::from_utf8(read("config/loginusers.vdf").unwrap()).unwrap();
+    assert!(!loginusers.contains("AccountName"), "{loginusers}");
+    assert!(!loginusers.contains("geheimer_login"), "{loginusers}");
+    assert!(loginusers.contains("MostRecent"), "{loginusers}");
     assert_eq!(read("userdata/7/config/localconfig.vdf").unwrap(), b"x");
     for rel in [
         "config/htmlcache/Cookies",

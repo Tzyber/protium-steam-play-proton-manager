@@ -138,13 +138,25 @@ pub(super) fn rename_at(
 
 /// Entfernt einen Eintrag relativ zu einem gebundenen Deskriptor.
 #[cfg(target_os = "linux")]
-pub(super) fn unlink_at(dir_fd: RawFd, name: &OsStr) -> io::Result<()> {
+fn unlink_entry_at(dir_fd: RawFd, name: &OsStr, flags: i32) -> io::Result<()> {
     let name = component_name(name)?;
-    let result = unsafe { libc::unlinkat(dir_fd, name.as_ptr(), 0) };
+    let result = unsafe { libc::unlinkat(dir_fd, name.as_ptr(), flags) };
     if result < 0 {
         return Err(io::Error::last_os_error());
     }
     Ok(())
+}
+
+/// Entfernt eine Datei oder einen Symlink relativ zu einem gebundenen Deskriptor.
+#[cfg(target_os = "linux")]
+pub(super) fn unlink_at(dir_fd: RawFd, name: &OsStr) -> io::Result<()> {
+    unlink_entry_at(dir_fd, name, 0)
+}
+
+/// Entfernt ein leeres Unterverzeichnis relativ zu einem gebundenen Deskriptor.
+#[cfg(target_os = "linux")]
+pub(super) fn unlink_dir_at(dir_fd: RawFd, name: &OsStr) -> io::Result<()> {
+    unlink_entry_at(dir_fd, name, libc::AT_REMOVEDIR)
 }
 
 #[cfg(target_os = "linux")]

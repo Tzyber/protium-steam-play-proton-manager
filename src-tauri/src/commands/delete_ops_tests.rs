@@ -63,6 +63,16 @@ fn execute_confirmed(
     execute_delete_pipeline(registry, token, &|_| true, is_steam_running)
 }
 
+#[cfg(target_os = "linux")]
+fn claimed_test_path(claimed: &ClaimedDeleteTarget, parent: &fs::File) -> std::path::PathBuf {
+    use std::os::fd::AsRawFd;
+    std::path::PathBuf::from(format!(
+        "/proc/self/fd/{}/{}",
+        parent.as_raw_fd(),
+        claimed.name.to_string_lossy()
+    ))
+}
+
 fn execute_delete_after_inspection(
     registry: &PendingDeleteRegistry,
     token: &str,
@@ -78,7 +88,7 @@ fn execute_delete_after_inspection(
         is_steam_running_fn,
         before_claim_fn,
         || {},
-        remove_dir_all_fn,
+        &mut |claimed, parent| remove_dir_all_fn(&claimed_test_path(claimed, parent)),
     )
 }
 
@@ -97,7 +107,7 @@ fn execute_delete_after_claim(
         || Ok(false),
         || {},
         after_claim_fn,
-        remove_dir_all_fn,
+        &mut |claimed, parent| remove_dir_all_fn(&claimed_test_path(claimed, parent)),
     )
 }
 
@@ -2584,4 +2594,245 @@ fn sync_deleted_parent_meldet_write_uncertain() {
         "{error}"
     );
     assert!(error.contains("test parent sync"), "{error}");
+}
+
+/// S-05: Die Produktions-Löschpipeline darf `std::fs::remove_dir_all` nicht
+/// mehr aufrufen; stattdessen läuft eine fd-gebundene Rekursion mit `st_dev`-Check.
+#[test]
+fn produktions_loeschung_nutzt_kein_std_fs_remove_dir_all() {
+    for (name, source) in [
+        ("delete_ops.rs", include_str!("delete_ops.rs")),
+        ("delete_claim.rs", include_str!("delete_claim.rs")),
+    ] {
+        let production = production_source(source);
+        assert!(
+            !production.contains("remove_dir_all("),
+            "{name} ruft im produktionscode noch remove_dir_all auf"
+        );
+    }
+}
+
+/// S-05: Die fd-gebundene Vorprüfung bricht bei abweichender `st_dev` vor dem
+/// ersten `unlink` ab (`blocked-location`), der destruktive Remove wird nullmal
+/// gerufen und `ClaimRestoreGuard` benennt den Claim sauber zurück.
+#[cfg(target_os = "linux")]
+#[test]
+fn remove_claimed_dir_bricht_bei_abweichender_st_dev_vor_erstem_unlink_ab_und_stellt_claim_wieder_her(
+) {
+    let root = wsg_fixture("delete-crossdev-precheck");
+    let steam = root.join("steam");
+    let trash = steam.join("steamapps/.protium-trash");
+    let target = trash.join("compatdata_999999_1700000000000");
+    let docs = target.join("pfx/drive_c/users/steamuser/Documents");
+    let sibling = target.join("pfx/other");
+    std::fs::create_dir_all(&docs).unwrap();
+    std::fs::create_dir_all(&sibling).unwrap();
+    std::fs::write(docs.join("save.txt"), b"important").unwrap();
+    std::fs::write(sibling.join("sibling.txt"), b"untouched").unwrap();
+
+    let registry = PendingDeleteRegistry::default();
+    let info = prepare_with_snapshot(
+        &registry,
+        &ziel_request(&steam, DeleteTargetType::Trash, &target),
+        || Ok(false),
+    )
+    .unwrap();
+    let pending = registry.0.lock().unwrap().remove(&info.token).unwrap();
+    let parent = bound_parent(&pending).unwrap();
+    let original_name = pending.target_name.as_deref().unwrap();
+    let claimed = claim_delete_target(&pending).unwrap();
+    let mut restore = ClaimRestoreGuard {
+        parent,
+        claim_name: &claimed.name,
+        original_name,
+        armed: true,
+    };
+
+    let remove_calls = Arc::new(AtomicUsize::new(0));
+    let remove_calls_spy = Arc::clone(&remove_calls);
+    let error = remove_claimed_dir(
+        &claimed,
+        parent,
+        &mut restore,
+        "trash item",
+        &mut |handle| {
+            crate::commands::delete_claim::verify_claimed_tree_no_crossdev_with_dev_fn(
+                handle,
+                &mut |name, dev| {
+                    if name == "Documents" {
+                        dev ^ 1
+                    } else {
+                        dev
+                    }
+                },
+            )
+        },
+        &mut |_claimed, _parent| {
+            remove_calls_spy.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        },
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::BLOCKED_LOCATION),
+        "unerwarteter fehler: {error}"
+    );
+    assert!(error.contains("cross-device"), "{error}");
+    assert_eq!(remove_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        std::fs::read(docs.join("save.txt")).unwrap(),
+        b"important".to_vec()
+    );
+    assert_eq!(
+        std::fs::read(sibling.join("sibling.txt")).unwrap(),
+        b"untouched".to_vec()
+    );
+    assert!(!claim_leftovers(&trash), "claim muss zurückgerollt sein");
+
+    // Auch eine einzelne Datei mit abweichendem `st_dev` (Bind-Mount auf Datei)
+    // muss vor jedem `unlink` als `blocked-location` abgelehnt werden.
+    let file_err = crate::commands::delete_claim::verify_claimed_tree_no_crossdev_with_dev_fn(
+        &open_delete_target_handle(&target).unwrap(),
+        &mut |name, dev| if name == "save.txt" { dev ^ 1 } else { dev },
+    )
+    .unwrap_err();
+    assert!(
+        errcode::has_code(&file_err, errcode::BLOCKED_LOCATION),
+        "unerwarteter fehler: {file_err}"
+    );
+    assert!(file_err.contains("cross-device"), "{file_err}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// S-05: Die Produktions-Rekursion entfernt verschachtelte Dateien, Unterordner
+/// und Symlinks vollständig, ohne dem Symlink in das externe Ziel zu folgen.
+#[cfg(target_os = "linux")]
+#[test]
+fn fd_rekursion_loescht_verschachtelten_baum_und_laesst_symlink_ziel_ausserhalb_unberuehrt() {
+    let root = wsg_fixture("delete-fd-tree-symlink");
+    let steam = root.join("steam");
+    let outside = root.join("outside-saves");
+    let target = steam.join("steamapps/.protium-trash/compatdata_999999_1700000000000");
+    let nested = target.join("pfx/drive_c/ProgramData");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(outside.join("keep.txt"), b"external").unwrap();
+    std::fs::write(nested.join("inner.bin"), b"inner").unwrap();
+    std::os::unix::fs::symlink(&outside, target.join("pfx/drive_c/link-out")).unwrap();
+    std::os::unix::fs::symlink(outside.join("keep.txt"), nested.join("file-link.txt")).unwrap();
+
+    let registry = PendingDeleteRegistry::default();
+    let info = prepare_with_snapshot(
+        &registry,
+        &ziel_request(&steam, DeleteTargetType::Trash, &target),
+        || Ok(false),
+    )
+    .unwrap();
+
+    let res = execute_confirmed(&registry, &info.token, || Ok(false)).unwrap();
+    assert_eq!(res.deleted_path, target.to_string_lossy());
+    assert!(!target.exists());
+    assert!(!claim_leftovers(target.parent().unwrap()));
+    assert_eq!(
+        std::fs::read(outside.join("keep.txt")).unwrap(),
+        b"external".to_vec()
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// S-05: Stößt `empty_dir_no_crossdev_with_dev_fn` während des Abbaus auf ein
+/// abweichendes `st_dev`, bricht die Rekursion mit `EXDEV` vor dem Inhalt des
+/// Mount-Ordners ab und `remove_claimed_dir` meldet `write-may-have-applied`.
+#[cfg(target_os = "linux")]
+#[test]
+fn fd_rekursion_meldet_exdev_waehrend_abbau_als_write_uncertain() {
+    use std::os::fd::AsRawFd;
+
+    let root = wsg_fixture("delete-crossdev-exdev");
+    let steam = root.join("steam");
+    let trash = steam.join("steamapps/.protium-trash");
+    let target = trash.join("compatdata_999999_1700000000000");
+    let mount_dir = target.join("mnt");
+    std::fs::create_dir_all(&mount_dir).unwrap();
+    std::fs::write(mount_dir.join("mounted.txt"), b"must survive").unwrap();
+
+    let registry = PendingDeleteRegistry::default();
+    let info = prepare_with_snapshot(
+        &registry,
+        &ziel_request(&steam, DeleteTargetType::Trash, &target),
+        || Ok(false),
+    )
+    .unwrap();
+    let pending = registry.0.lock().unwrap().remove(&info.token).unwrap();
+    let parent = bound_parent(&pending).unwrap();
+    let original_name = pending.target_name.as_deref().unwrap();
+    let claimed = claim_delete_target(&pending).unwrap();
+    let mut restore = ClaimRestoreGuard {
+        parent,
+        claim_name: &claimed.name,
+        original_name,
+        armed: true,
+    };
+
+    let error = remove_claimed_dir(
+        &claimed,
+        parent,
+        &mut restore,
+        "trash item",
+        &mut |_| Ok(()),
+        &mut |claimed, _parent| {
+            let root_dev = delete_handle_identity(&claimed.handle)
+                .map_err(std::io::Error::other)?
+                .dev;
+            crate::commands::delete_claim::empty_dir_no_crossdev_with_dev_fn(
+                claimed.handle.as_raw_fd(),
+                root_dev,
+                0,
+                &mut |name, dev| {
+                    if name == "mnt" {
+                        dev ^ 1
+                    } else {
+                        dev
+                    }
+                },
+            )
+        },
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&error, errcode::WRITE_UNCERTAIN),
+        "unerwarteter fehler: {error}"
+    );
+    let claim = claim_pfad(&trash);
+    assert_eq!(
+        std::fs::read(claim.join("mnt/mounted.txt")).unwrap(),
+        b"must survive".to_vec()
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// S-10: `cancel_delete` entfernt ein wartendes Token samt offenen
+/// Deskriptoren sofort aus `PendingDeleteRegistry` und bleibt idempotent.
+#[test]
+fn cancel_delete_entfernt_token_sofort_und_ist_idempotent() {
+    let (root, steam) = orphan_fixture("cancel-delete");
+    let registry = PendingDeleteRegistry::default();
+    let req = orphan_request(&steam);
+    let info = prepare_with_snapshot(&registry, &req, || Ok(false)).unwrap();
+    assert!(registry.0.lock().unwrap().contains_key(&info.token));
+
+    cancel_delete_inner(&registry, &info.token).unwrap();
+    assert!(!registry.0.lock().unwrap().contains_key(&info.token));
+
+    let err = execute_delete_pipeline(&registry, &info.token, &|_| true, || Ok(false)).unwrap_err();
+    assert!(errcode::has_code(&err, errcode::TOKEN_UNKNOWN), "{err}");
+
+    cancel_delete_inner(&registry, &info.token).unwrap();
+
+    let _ = std::fs::remove_dir_all(root);
 }

@@ -14,19 +14,29 @@ use std::process::{Command, Stdio};
 /// Pfad-Pinning: Nur den Host zu prüfen ließe
 /// jede unterseite des hosts durch (open-redirect/phishing). erlaubt sind
 /// nur die exakten pfadmuster, die die app selbst baut.
-pub(super) fn validate_external_url(url: &str) -> Result<(), String> {
+pub(super) fn validate_external_url(url: &str) -> Result<String, String> {
+    if url
+        .bytes()
+        .any(|b| b.is_ascii_whitespace() || b.is_ascii_control())
+    {
+        return Err(errcode::INVALID_URL.into());
+    }
     if let Some(app_id) = url.strip_prefix("steam://rungameid/") {
         return if crate::commands::scope::is_ascii_digits(app_id) {
-            Ok(())
+            Ok(url.to_owned())
         } else {
             Err(errcode::INVALID_APPID.into())
         };
     }
     let parsed = reqwest::Url::parse(url)
         .map_err(|error| errcode::with_detail(errcode::INVALID_URL, error))?;
-    // gemeinsame basis mit dem download-pfad (r-13); der dortige port-443-zwang
-    // gilt hier bewusst nicht.
+    // gemeinsame basis mit dem download-pfad (r-13). S-08: kein expliziter
+    // port, keine query und kein fragment (schließt ?body=-exfil über browser
+    // sowie WHATWG-whitespace-stripping aus).
     crate::commands::download::validate_https_credentials(&parsed)?;
+    if parsed.port().is_some() || parsed.query().is_some() || parsed.fragment().is_some() {
+        return Err(errcode::INVALID_URL.into());
+    }
     match parsed.host_str().map(|h| h.to_ascii_lowercase()).as_deref() {
         // protondb: nur spielseiten /app/<appId> (das frontend baut genau diese)
         Some("www.protondb.com") => {
@@ -35,7 +45,7 @@ pub(super) fn validate_external_url(url: &str) -> Result<(), String> {
                 .strip_prefix("/app/")
                 .ok_or_else(|| errcode::with_detail(errcode::INVALID_URL, "protondb path"))?;
             if crate::commands::scope::is_ascii_digits(rest) {
-                Ok(())
+                Ok(parsed.into())
             } else {
                 Err(errcode::INVALID_APPID.into())
             }
@@ -50,7 +60,7 @@ pub(super) fn validate_external_url(url: &str) -> Result<(), String> {
                     .strip_prefix(repo)
                     .is_some_and(|rest| rest.starts_with('/'));
             if ok {
-                Ok(())
+                Ok(parsed.into())
             } else {
                 Err(errcode::INVALID_URL.into())
             }
@@ -181,11 +191,11 @@ fn detached_command(program: &str, args: &[&str], target: &OsStr) -> Command {
 /// play-button und protondb-link dort nichts taten (siehe env_overrides).
 #[tauri::command]
 pub fn open_external(url: String) -> Result<(), String> {
-    validate_external_url(&url)?;
+    let validated = validate_external_url(&url)?;
 
     let mut last_err = String::new();
     for (program, args) in [("xdg-open", &[][..]), ("gio", &["open"][..])] {
-        match spawn_detached(program, args, &url) {
+        match spawn_detached(program, args, &validated) {
             Ok(()) => return Ok(()),
             Err(e) => last_err = format!("{program}: {e}"),
         }

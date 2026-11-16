@@ -268,6 +268,12 @@ export const useProtonStore = defineStore("proton", {
         });
         // bestätigungsdialog im hauptfenster; erst der klick führt das
         // löschen aus (v0.3.1-look: "{name} löschen?").
+        let cancelled = false;
+        const cancelPending = () => {
+          if (cancelled) return;
+          cancelled = true;
+          void ports.system.cancelDelete(pending.token).catch(() => {});
+        };
         const accepted = confirm.ask(
           {
             title: t("proton.removeConfirmTitle", { name: tool.name }),
@@ -283,6 +289,7 @@ export const useProtonStore = defineStore("proton", {
               }
             },
             onCancel: () => {
+              cancelPending();
               this.busyRemove = null;
             },
             onError: (e) => {
@@ -293,6 +300,7 @@ export const useProtonStore = defineStore("proton", {
           reservation,
         );
         if (!accepted) {
+          cancelPending();
           confirm.release(reservation);
           this.busyRemove = null;
         }

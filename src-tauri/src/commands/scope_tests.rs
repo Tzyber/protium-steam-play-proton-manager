@@ -298,6 +298,9 @@ fn authorized_optional_keeps_authorization_and_existence_observation_consistent(
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// S-10: `with_authorized_existing` hält den Snapshot-Mutex während `operation`
+/// nicht mehr fest; ein paralleler `replace` läuft sofort durch und wird nach
+/// Rückkehr über die Generation als `target-changed` abgelehnt.
 #[test]
 fn snapshot_replacement_waits_for_running_authorized_read() {
     use std::sync::{Arc, Barrier};
@@ -316,35 +319,92 @@ fn snapshot_replacement_waits_for_running_authorized_read() {
     let reader_release = release.clone();
     let reader_library = library_a.clone();
     let reader = thread::spawn(move || {
-        reader_state
-            .with_authorized_existing_for_test(
-                &reader_library.to_string_lossy(),
-                "concurrent read",
-                |_path| {
-                    reader_entered.wait();
-                    reader_release.wait();
-                    Ok(())
-                },
-            )
-            .unwrap();
+        reader_state.with_authorized_existing_for_test(
+            &reader_library.to_string_lossy(),
+            "concurrent read",
+            |_path| {
+                reader_entered.wait();
+                reader_release.wait();
+                Ok(())
+            },
+        )
     });
 
     entered.wait();
-    assert!(state.current_for_test().is_none());
+    let unlocked = state.current_for_test();
+    assert!(
+        unlocked.is_some(),
+        "snapshot-mutex darf während operation nicht gehalten sein"
+    );
+    assert_eq!(unlocked.unwrap().generation, 1);
 
-    let replacement_state = state.clone();
-    let replacement_root = root.clone();
-    let replacement_library_b = library_b.clone();
-    let replacement = thread::spawn(move || {
-        replacement_state.replace_for_test(snapshot(&replacement_root, &replacement_library_b));
-    });
-    assert!(state.current_for_test().is_none());
+    state.replace_for_test(snapshot(&root, &library_b));
+    assert_eq!(state.current_for_test().unwrap().generation, 2);
+
     release.wait();
-    reader.join().unwrap();
-    replacement.join().unwrap();
+    let reader_err = reader.join().unwrap().unwrap_err();
+    assert!(
+        errcode::has_code(&reader_err, errcode::TARGET_CHANGED),
+        "reader muss generationswechsel als target-changed melden: {reader_err}"
+    );
 
     assert!(state.authorize_for_test(&library_a).is_err());
     assert!(state.authorize_for_test(&library_b).is_ok());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// S-10: Auch `with_authorized_batch` gibt den Snapshot-Lock vor dem IO-Walk
+/// frei, erlaubt parallele `replace`-Aufrufe und prüft am Ende die Generation.
+#[test]
+fn with_authorized_batch_haelt_keinen_lock_waehrend_operation_und_prueft_generation() {
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    let root = wsg_fixture("env-batch-unlocked");
+    let library_a = root.join("a");
+    let library_b = root.join("b");
+    std::fs::create_dir_all(&library_a).unwrap();
+    std::fs::create_dir_all(&library_b).unwrap();
+    let state = EnvironmentState::for_test(snapshot(&root, &library_a));
+    let paths = vec![library_a.to_string_lossy().into_owned()];
+
+    // Ohne parallelen Generationswechsel bleibt der Lauf Ok.
+    state
+        .with_authorized_batch(&paths, |authorized| {
+            assert_eq!(authorized.len(), 1);
+            assert!(
+                state.current_for_test().is_some(),
+                "batch-callback muss ohne gehaltenen snapshot-mutex laufen"
+            );
+            Ok(())
+        })
+        .unwrap();
+
+    // Mit parallelem `replace_for_test` bricht der Abschluss als `target-changed` ab.
+    let entered = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let batch_state = state.clone();
+    let batch_entered = entered.clone();
+    let batch_release = release.clone();
+    let batch = thread::spawn(move || {
+        batch_state.with_authorized_batch(&paths, |_authorized| {
+            batch_entered.wait();
+            batch_release.wait();
+            Ok(())
+        })
+    });
+
+    entered.wait();
+    assert!(state.current_for_test().is_some());
+    state.replace_for_test(snapshot(&root, &library_b));
+    release.wait();
+
+    let error = batch.join().unwrap().unwrap_err();
+    assert!(
+        errcode::has_code(&error, errcode::TARGET_CHANGED),
+        "{error}"
+    );
+
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -901,8 +961,11 @@ fn content_read_folgt_den_lesern_aus_paths_ts() {
         read("/s/config/config.vdf"),
         Some(ContentRead::CompatToolMappingOnly)
     );
+    assert_eq!(
+        read("/s/config/loginusers.vdf"),
+        Some(ContentRead::LoginUsersMostRecentOnly)
+    );
     for allowed in [
-        "/s/config/loginusers.vdf",
         "/s/userdata/12/config/localconfig.vdf",
         "/s/userdata/12/config/shortcuts.vdf",
         "/s/compatibilitytools.d/GE-Proton9-1/compatibilitytool.vdf",
@@ -931,4 +994,50 @@ fn content_read_folgt_den_lesern_aus_paths_ts() {
     ] {
         assert_eq!(read(denied), None, "{denied}");
     }
+}
+
+/// S-09: Vor `symlink_metadata` und `reject_symlink_components` entscheidet der
+/// lexikalische Scope-Check. Pfade außerhalb des Snapshots oder in gesperrten
+/// Systemverzeichnissen melden unabhängig von Existenz und Typ einheitlich
+/// `blocked-location`.
+#[cfg(unix)]
+#[test]
+fn authorize_path_gibt_ausserhalb_des_snapshots_kein_existenz_oder_typ_orakel_preis() {
+    let root = wsg_fixture("s09-no-existence-oracle");
+    let library = root.join("library");
+    let outside = root.join("outside");
+    std::fs::create_dir_all(&library).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+
+    let outside_file = outside.join("secret.txt");
+    std::fs::write(&outside_file, b"secret").unwrap();
+    let outside_symlink = outside.join("link.txt");
+    std::os::unix::fs::symlink(&outside_file, &outside_symlink).unwrap();
+    let outside_missing = outside.join("missing.txt");
+
+    let state = EnvironmentState::for_test(snapshot(&root, &library));
+
+    for target in [
+        outside_file.as_path(),
+        outside_symlink.as_path(),
+        outside_missing.as_path(),
+        Path::new("/etc/nonexistent-protium-s09"),
+    ] {
+        let raw = target.to_str().unwrap();
+        let existing_err = state
+            .with_authorized_existing(raw, "s09-test", |_| Ok(()))
+            .unwrap_err();
+        assert!(
+            errcode::has_code(&existing_err, errcode::BLOCKED_LOCATION),
+            "with_authorized_existing({raw}) muss blocked-location liefern, war: {existing_err}"
+        );
+
+        let exists_err = state.environment_exists(raw).unwrap_err();
+        assert!(
+            errcode::has_code(&exists_err, errcode::BLOCKED_LOCATION),
+            "environment_exists({raw}) muss blocked-location liefern, war: {exists_err}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&root);
 }

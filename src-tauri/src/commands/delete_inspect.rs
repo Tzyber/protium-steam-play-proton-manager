@@ -230,6 +230,25 @@ impl DeleteTargetContext<'_> {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn read_verified_libraries(steam_root: &Path) -> Result<Vec<PathBuf>, String> {
+    let (libraries, unavailable) = read_library_folders_with_failures(steam_root)?;
+    // fail-closed: ein scope- oder lesefehler einer gelisteten library
+    // könnte ein installiertes spiel oder ein ziel außerhalb der erwarteten
+    // library-grenze verbergen (INV-2). nur belegte abwesenheit (`path-missing`)
+    // wird still übersprungen.
+    if let Some(entry) = unavailable
+        .iter()
+        .find(|entry| entry.reason != LibraryUnavailableReason::PathMissing)
+    {
+        return Err(errcode::with_detail(
+            errcode::UNAVAILABLE,
+            format!("library {} ({})", entry.path, entry.reason.as_str()),
+        ));
+    }
+    Ok(libraries)
+}
+
 /// Löschziel „orphan" (compatdata/shadercache), r-10: fail-closed gegen
 /// installierte Spiele, Shortcuts und gesperrte Libraries, danach die
 /// Papierkorb- bzw. Dauerlöschfolge. Code und Fehlerreihenfolge unverändert.
@@ -253,19 +272,7 @@ where
         })?)?;
     let app_id = crate::commands::scope::parse_app_id(app_id_str)?;
 
-    let (libraries, unavailable) = read_library_folders_with_failures(steam_root)?;
-    // fail-closed: ein scope- oder lesefehler einer gelisteten library
-    // könnte ein installiertes spiel verbergen (INV-2). nur belegte
-    // abwesenheit (`path-missing`) wird still übersprungen.
-    if let Some(entry) = unavailable
-        .iter()
-        .find(|entry| entry.reason != LibraryUnavailableReason::PathMissing)
-    {
-        return Err(errcode::with_detail(
-            errcode::UNAVAILABLE,
-            format!("library {} ({})", entry.path, entry.reason.as_str()),
-        ));
-    }
+    let libraries = read_verified_libraries(steam_root)?;
 
     let lib_str = crate::commands::scope::library_of(context.canon_str)?;
     let lib_path = PathBuf::from(lib_str);
@@ -310,10 +317,22 @@ where
     Ok(context.inspection(action, desc, Some(vec![app_id])))
 }
 
-/// Löschziel „trash" (r-10): nur die Namensprüfung des Papierkorb-Eintrags und
-/// die dauerhafte Löschung.
-fn inspect_trash_target(context: &DeleteTargetContext<'_>) -> Result<DeletionInspection, String> {
+/// Löschziel „trash" (r-10, S-07): Namensprüfung des Papierkorb-Eintrags,
+/// Abgleich gegen aktuell gelistete Libraries und dauerhafte Löschung.
+#[cfg(target_os = "linux")]
+fn inspect_trash_target(
+    context: &DeleteTargetContext<'_>,
+    steam_root: &Path,
+) -> Result<DeletionInspection, String> {
     validate_trash_target(context.canon_str, context.meta)?;
+    let libraries = read_verified_libraries(steam_root)?;
+    let lib_str = crate::commands::scope::library_of(context.canon_str)?;
+    if !libraries
+        .iter()
+        .any(|lib| context.canonical.parent() == Some(&steam_layout::trash_dir(lib)))
+    {
+        return Err(errcode::with_detail(errcode::LIBRARY_NOT_LISTED, lib_str));
+    }
     let description = format!(
         "permanently delete trash entry {}",
         context
@@ -472,7 +491,7 @@ where
         DeleteTargetType::Orphan => {
             inspect_orphan_target(&context, &steam_root, &steam_root_fd, hook)
         }
-        DeleteTargetType::Trash => inspect_trash_target(&context),
+        DeleteTargetType::Trash => inspect_trash_target(&context, &steam_root),
         DeleteTargetType::CompatTool => {
             inspect_compat_tool_target(&context, &steam_root, &steam_root_fd, hook)
         }

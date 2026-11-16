@@ -698,6 +698,50 @@ async fn cancel_weckt_blockierten_body_read_aktiv_auf() {
 }
 
 #[tokio::test]
+async fn download_stream_bricht_haengenden_header_send_bei_cancel_ab() {
+    // S-06: server akzeptiert TCP-verbindung, sendet aber keine HTTP-header.
+    // Ohne tokio::select! um send() wuerde cancel_download ignoriert.
+    let dest = tmp("header-stall-cancel");
+    let dest_str = dest.to_string_lossy().into_owned();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buf = [0u8; 512];
+        let _ = stream.read(&mut buf);
+        let _ = accepted_tx.send(());
+        let _ = done_rx.recv();
+    });
+    let url = format!("http://127.0.0.1:{port}/asset.tar.gz");
+    let cancel = Arc::new(CancelSignal::new());
+    let cancel_flag = Arc::clone(&cancel);
+    let task = tokio::spawn(async move {
+        download_stream(
+            &url,
+            &dest_str,
+            |_| true,
+            &cancel_flag,
+            |_, _| {},
+            MAX_DOWNLOAD_BYTES,
+        )
+        .await
+    });
+    accepted_rx.await.unwrap();
+    cancel.cancel();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(1), task).await;
+    let _ = done_tx.send(());
+    let _ = server.join();
+    let _ = std::fs::remove_dir_all(dest.parent().unwrap());
+
+    let result = result
+        .expect("cancel muss auch ein haengendes send() vor den headern aufwecken")
+        .unwrap();
+    assert_eq!(result.unwrap_err(), errcode::CANCELLED);
+}
+
+#[tokio::test]
 async fn cancel_nach_abschluss_startet_zweiten_download_normal() {
     let dest1 = tmp("stale-1");
     let url1 = serve_once(32, 32);

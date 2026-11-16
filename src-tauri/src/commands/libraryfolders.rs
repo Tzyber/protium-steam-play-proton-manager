@@ -3,7 +3,7 @@
 // gelisteten Libraries. Die Autorisierung des Environments bleibt in scope.rs.
 
 use crate::commands::errcode;
-use crate::commands::path::{is_safe_path, sanitize_path};
+use crate::commands::path::{is_descendant_of, is_safe_path, sanitize_path};
 use crate::commands::steam_layout;
 use crate::commands::vdf_patch;
 use std::collections::HashSet;
@@ -336,13 +336,22 @@ fn read_library_folders_with_hook<F>(
 where
     F: FnMut(),
 {
-    let mut libraries =
-        vec![canonical_library(steam_root).map_err(|(reason, detail)| root_error(reason, detail))?];
+    let root_canon =
+        canonical_library(steam_root).map_err(|(reason, detail)| root_error(reason, detail))?;
+    let mut libraries = vec![root_canon.clone()];
     let mut unavailable = Vec::new();
     for path in read_library_paths_with_hook(steam_root, hook)? {
         match canonical_library(&path) {
             Ok(canonical) => {
-                if !libraries.contains(&canonical) {
+                // S-11: ein echter Vorfahr des Steam-Roots (etwa `$HOME` mit
+                // `~/steamapps`) würde den gesamten Teilbaum bis hinauf zu `$HOME`
+                // autorisieren und darf nie in `libraries` landen.
+                if canonical != root_canon && is_descendant_of(&root_canon, &canonical) {
+                    unavailable.push(LibraryUnavailable {
+                        path: path.to_string_lossy().into_owned(),
+                        reason: LibraryUnavailableReason::ScopeFailed,
+                    });
+                } else if !libraries.contains(&canonical) {
                     libraries.push(canonical);
                 }
             }

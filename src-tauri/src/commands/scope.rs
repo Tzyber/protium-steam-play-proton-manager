@@ -66,6 +66,8 @@ pub(crate) enum ContentRead {
     Full,
     /// `config.vdf` trägt neben `CompatToolMapping` auch `ConnectCache`.
     CompatToolMappingOnly,
+    /// `loginusers.vdf` trägt Login-Namen; das Frontend braucht nur IDs und `MostRecent` (S-14.1).
+    LoginUsersMostRecentOnly,
 }
 
 pub(crate) struct AuthorizedBatchPath {
@@ -165,9 +167,12 @@ impl EnvironmentSnapshot {
         };
         match names(&self.steam_root).as_deref() {
             Some(["config", "config.vdf"]) => return Some(ContentRead::CompatToolMappingOnly),
-            Some(
-                ["config", "loginusers.vdf"] | ["compatibilitytools.d", _, "compatibilitytool.vdf"],
-            ) => return Some(ContentRead::Full),
+            Some(["config", "loginusers.vdf"]) => {
+                return Some(ContentRead::LoginUsersMostRecentOnly)
+            }
+            Some(["compatibilitytools.d", _, "compatibilitytool.vdf"]) => {
+                return Some(ContentRead::Full)
+            }
             Some(["userdata", id, "config", "localconfig.vdf" | "shortcuts.vdf"])
             | Some(["appcache", "librarycache", id, _, "library_header.jpg"])
                 if is_ascii_digits(id) =>
@@ -245,6 +250,14 @@ impl EnvironmentState {
     ) -> Result<AuthorizedPath, String> {
         sanitize_path(raw, label)?;
         let raw_path = Path::new(raw);
+        // S-09: vor jedem stat/lstat lexikalisch pruefen, sonst leakt der
+        // Fehlercode Existenz oder Symlink-Typ beliebiger fremder Pfade.
+        if !is_safe_path(raw) || !snapshot.authorizes(raw_path) {
+            return Err(errcode::with_detail(
+                errcode::BLOCKED_LOCATION,
+                format!("outside snapshot: {raw}"),
+            ));
+        }
         let metadata = match fs::symlink_metadata(raw_path) {
             Ok(metadata) => Some(metadata),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound && allow_missing => None,
@@ -287,6 +300,37 @@ impl EnvironmentState {
         Ok(Self::authorize_path_with_status(snapshot, raw, label, allow_missing)?.real)
     }
 
+    fn ensure_generation(&self, expected: u64) -> Result<(), String> {
+        let current = self.lock_current()?;
+        let snapshot = require_snapshot(&current)?;
+        if snapshot.generation != expected {
+            return Err(errcode::with_detail(
+                errcode::TARGET_CHANGED,
+                "environment snapshot replaced during operation",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Autorisiert unter geklontem Snapshot, gibt den Mutex vor dem potenziell
+    /// langen IO-Walk (`operation`) sofort frei und prüft nach Abschluss die
+    /// Snapshot-Generation (S-10).
+    fn run_unlocked_with_snapshot<P, T, Auth, Op>(
+        &self,
+        authorize: Auth,
+        operation: Op,
+    ) -> Result<T, String>
+    where
+        Auth: FnOnce(&EnvironmentSnapshot) -> Result<P, String>,
+        Op: FnOnce(P) -> Result<T, String>,
+    {
+        let snapshot = self.current()?;
+        let prepared = authorize(&snapshot)?;
+        let result = operation(prepared)?;
+        self.ensure_generation(snapshot.generation)?;
+        Ok(result)
+    }
+
     fn with_authorized_path<T, F>(
         &self,
         raw: &str,
@@ -297,12 +341,10 @@ impl EnvironmentState {
     where
         F: FnOnce(AuthorizedPath) -> Result<T, String>,
     {
-        // Der blocking worker hält diesen Guard bis nach dem Dateizugriff;
-        // Discovery kann alte Snapshot-Authorität nicht währenddessen fortsetzen.
-        let current = self.lock_current()?;
-        let snapshot = require_snapshot(&current)?;
-        let authorized = Self::authorize_path_with_status(snapshot, raw, label, allow_missing)?;
-        operation(authorized)
+        self.run_unlocked_with_snapshot(
+            |snapshot| Self::authorize_path_with_status(snapshot, raw, label, allow_missing),
+            operation,
+        )
     }
 
     pub(crate) fn with_authorized_existing<T, F>(
@@ -327,16 +369,19 @@ impl EnvironmentState {
     where
         F: FnOnce(PathBuf, ContentRead) -> Result<T, String>,
     {
-        let current = self.lock_current()?;
-        let snapshot = require_snapshot(&current)?;
-        let authorized = Self::authorize_path_with_status(snapshot, raw, label, false)?;
-        let read = snapshot.content_read(&authorized.real).ok_or_else(|| {
-            errcode::with_detail(
-                errcode::BLOCKED_LOCATION,
-                format!("{label}: content not readable: {raw}"),
-            )
-        })?;
-        operation(authorized.real, read)
+        self.run_unlocked_with_snapshot(
+            |snapshot| {
+                let authorized = Self::authorize_path_with_status(snapshot, raw, label, false)?;
+                let read = snapshot.content_read(&authorized.real).ok_or_else(|| {
+                    errcode::with_detail(
+                        errcode::BLOCKED_LOCATION,
+                        format!("{label}: content not readable: {raw}"),
+                    )
+                })?;
+                Ok((authorized.real, read))
+            },
+            |(real, read)| operation(real, read),
+        )
     }
 
     pub(crate) fn with_authorized_optional<T, F>(
@@ -348,26 +393,32 @@ impl EnvironmentState {
     where
         F: FnOnce(Option<PathBuf>) -> Result<T, String>,
     {
-        let current = self.lock_current()?;
-        let snapshot = require_snapshot(&current)?;
-        let authorized = Self::authorize_path_with_status(snapshot, raw, label, true)?;
-        operation(authorized.exists.then_some(authorized.real))
+        self.run_unlocked_with_snapshot(
+            |snapshot| {
+                let authorized = Self::authorize_path_with_status(snapshot, raw, label, true)?;
+                Ok(authorized.exists.then_some(authorized.real))
+            },
+            operation,
+        )
     }
 
     pub(crate) fn with_authorized_library<T, F>(&self, raw: &str, operation: F) -> Result<T, String>
     where
         F: FnOnce(PathBuf) -> Result<T, String>,
     {
-        let current = self.lock_current()?;
-        let snapshot = require_snapshot(&current)?;
-        let real = Self::authorize_path_against(snapshot, raw, "library path", false)?;
-        if !snapshot.libraries.iter().any(|library| library == &real) {
-            return Err(errcode::with_detail(
-                errcode::BLOCKED_LOCATION,
-                format!("path is not a current Steam library: {raw}"),
-            ));
-        }
-        operation(real)
+        self.run_unlocked_with_snapshot(
+            |snapshot| {
+                let real = Self::authorize_path_against(snapshot, raw, "library path", false)?;
+                if !snapshot.libraries.iter().any(|library| library == &real) {
+                    return Err(errcode::with_detail(
+                        errcode::BLOCKED_LOCATION,
+                        format!("path is not a current Steam library: {raw}"),
+                    ));
+                }
+                Ok(real)
+            },
+            operation,
+        )
     }
 
     /// autorisiert genau den aktuellen Steam-Root und dessen festen GE-Zielordner.
@@ -466,18 +517,24 @@ impl EnvironmentState {
         F: FnOnce(Vec<AuthorizedBatchPath>) -> Result<T, String>,
     {
         // Batch-Autorisierung und alle Größenläufe bilden eine Generation.
-        let current = self.lock_current()?;
-        let snapshot = require_snapshot(&current)?;
-        let mut authorized = Vec::with_capacity(paths.len());
-        for path in paths {
-            let real = Self::authorize_path_with_status(snapshot, path, "batch_dir_sizes", true)
-                .map(|authorized_path| authorized_path.exists.then_some(authorized_path.real));
-            authorized.push(AuthorizedBatchPath {
-                requested: path.clone(),
-                real,
-            });
-        }
-        operation(authorized)
+        self.run_unlocked_with_snapshot(
+            |snapshot| {
+                let mut authorized = Vec::with_capacity(paths.len());
+                for path in paths {
+                    let real =
+                        Self::authorize_path_with_status(snapshot, path, "batch_dir_sizes", true)
+                            .map(|authorized_path| {
+                                authorized_path.exists.then_some(authorized_path.real)
+                            });
+                    authorized.push(AuthorizedBatchPath {
+                        requested: path.clone(),
+                        real,
+                    });
+                }
+                Ok(authorized)
+            },
+            operation,
+        )
     }
 
     pub(crate) fn environment_exists(&self, raw: &str) -> Result<bool, String> {

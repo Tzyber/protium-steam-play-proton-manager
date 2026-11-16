@@ -997,3 +997,62 @@ fn extract_vdf_blocks_lehnt_leere_pfadliste_ab() {
         errcode::with_detail(errcode::INVALID_ID, "empty path list")
     );
 }
+
+#[test]
+fn extract_loginusers_most_recent_behaelt_nur_numerische_ids_und_most_recent() {
+    let raw = r#""users"
+{
+	"76561198000000001"
+	{
+		"AccountName"		"geheimer_login"
+		"PersonaName"		"Spieler"
+		"MostRecent"		"1"
+		"Timestamp"		"1700000000"
+	}
+	"nicht_numerisch"
+	{
+		"AccountName"		"fremder"
+		"MostRecent"		"1"
+	}
+	"76561198000000002"
+	{
+		"AccountName"		"zweiter"
+		"MostRecent"		"0"
+	}
+	"76561198000000003"
+	{
+		"AccountName"		"ohne_most_recent"
+	}
+}
+"#;
+
+    let reduced = extract_loginusers_most_recent(raw).unwrap();
+    assert!(reduced.contains("\"76561198000000001\""), "{reduced}");
+    assert!(reduced.contains("\"76561198000000002\""), "{reduced}");
+    assert!(reduced.contains("\"76561198000000003\""), "{reduced}");
+    assert!(reduced.contains("\"MostRecent\""), "{reduced}");
+    assert!(!reduced.contains("AccountName"), "{reduced}");
+    assert!(!reduced.contains("geheimer_login"), "{reduced}");
+    assert!(!reduced.contains("PersonaName"), "{reduced}");
+    assert!(!reduced.contains("Spieler"), "{reduced}");
+    assert!(!reduced.contains("zweiter"), "{reduced}");
+    assert!(!reduced.contains("nicht_numerisch"), "{reduced}");
+    assert!(!reduced.contains("ohne_most_recent"), "{reduced}");
+    assert_eq!(
+        get_vdf_value(&reduced, &["users", "76561198000000001", "MostRecent"]).unwrap(),
+        Some("1".to_string())
+    );
+    assert_eq!(
+        get_vdf_value(&reduced, &["users", "76561198000000002", "MostRecent"]).unwrap(),
+        Some("0".to_string())
+    );
+    assert_eq!(
+        get_vdf_value(&reduced, &["users", "76561198000000003", "MostRecent"]).unwrap(),
+        None
+    );
+
+    assert_eq!(
+        extract_loginusers_most_recent("\"other\" { \"k\" \"v\" }").unwrap(),
+        "\"users\"\n{\n}"
+    );
+}

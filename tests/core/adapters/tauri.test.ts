@@ -79,6 +79,14 @@ describe("Papierkorb-Listing IPC", () => {
     await expect(tauriPorts.system.listTrashEntries("/lib")).resolves.toBe(listing);
     expect(invoke).toHaveBeenCalledExactlyOnceWith("list_trash_entries", { library: "/lib" });
   });
+
+  it("leitet cancelDelete an den Rust-Command cancel_delete weiter (S-10)", async () => {
+    vi.mocked(invoke).mockClear();
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
+
+    await expect(tauriPorts.system.cancelDelete("tok-1")).resolves.toBeUndefined();
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("cancel_delete", { token: "tok-1" });
+  });
 });
 
 describe("cache-Dateiname (K-03)", () => {

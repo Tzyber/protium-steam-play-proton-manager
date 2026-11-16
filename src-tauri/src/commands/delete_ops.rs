@@ -7,9 +7,12 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
+use crate::commands::delete_claim::{claim_delete_target, ClaimRestoreGuard};
 #[cfg(target_os = "linux")]
-use crate::commands::delete_claim::restore_or_write_uncertain;
-use crate::commands::delete_claim::{claim_delete_target, ClaimRestoreGuard, ClaimedDeleteTarget};
+use crate::commands::delete_claim::{
+    remove_claimed_tree_linux, restore_or_write_uncertain, verify_claimed_tree_no_crossdev,
+    ClaimedDeleteTarget,
+};
 use crate::commands::delete_inspect::inspect_deletion_target;
 use crate::commands::delete_inspect::{DeleteConsequence, DeleteTargetType, DeletionInspection};
 use crate::commands::errcode;
@@ -602,6 +605,7 @@ where
     prepare_delete_with_inspection(registry, request, inspection)
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) fn execute_delete_pipeline(
     registry: &PendingDeleteRegistry,
     token: &str,
@@ -615,10 +619,24 @@ pub(crate) fn execute_delete_pipeline(
         is_steam_running_fn,
         || {},
         || {},
-        &mut |path: &Path| fs::remove_dir_all(path),
+        &mut |claimed, parent| remove_claimed_tree_linux(claimed, parent),
     )
 }
 
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn execute_delete_pipeline(
+    _registry: &PendingDeleteRegistry,
+    _token: &str,
+    _scope_ok: &(dyn Fn(&Path) -> bool + Send + Sync),
+    _is_steam_running_fn: impl Fn() -> Result<bool, String>,
+) -> Result<DeleteResult, String> {
+    Err(errcode::with_detail(
+        errcode::UNSUPPORTED_PLATFORM,
+        "delete pipeline requires Linux",
+    ))
+}
+
+#[cfg(target_os = "linux")]
 fn execute_delete_pipeline_inner(
     registry: &PendingDeleteRegistry,
     token: &str,
@@ -626,7 +644,7 @@ fn execute_delete_pipeline_inner(
     is_steam_running_fn: impl Fn() -> Result<bool, String>,
     before_claim_fn: impl FnOnce(),
     after_claim_fn: impl FnOnce(),
-    remove_dir_all_fn: &mut dyn FnMut(&Path) -> std::io::Result<()>,
+    remove_tree_fn: &mut dyn FnMut(&ClaimedDeleteTarget, &fs::File) -> std::io::Result<()>,
 ) -> Result<DeleteResult, String> {
     let pending = {
         let mut map = registry.0.lock().map_err(|error| {
@@ -707,7 +725,7 @@ fn execute_delete_pipeline_inner(
     }
     let deleted_path = pending.target_path.clone();
 
-    apply_delete_mutation(&pending, &claimed, now_ms, &mut restore, remove_dir_all_fn)?;
+    apply_delete_mutation(&pending, &claimed, now_ms, &mut restore, remove_tree_fn)?;
 
     // Ab hier ist die Mutation abgeschlossen; der Claim-Name ist weg.
     restore.disarm();
@@ -777,22 +795,26 @@ fn sync_deleted_parent(parent: &fs::File, label: &str) -> Result<(), String> {
     })
 }
 
-/// Kapselt jeden `remove_dir_all` der drei Löschzweige (Audit 5.1). Ein
-/// Fehlschlag nach begonnener Mutation, auch `NotFound`, ist keine unlesbare
-/// Abwesenheit: das Kind kann mitten im Abbau verschwunden sein oder eine
-/// zweite Instanz hat den Claim zurückbenannt. Der Claim bleibt deshalb liegen
-/// (Rest, typweit sichtbar), zurückgemeldet wird `write-may-have-applied` mit
-/// dem ursprünglichen Fehler.
+/// Kapselt das fd-gebundene Löschen der drei Löschzweige (Audit 5.1, S-05).
+/// Vor der ersten Mutation prüft `precheck_fn` auf identisches Dateisystem
+/// (`st_dev`); schlägt das fehl, rollt `ClaimRestoreGuard` zurück. Ein Fehlschlag
+/// nach begonnener Mutation, auch `NotFound`, ist keine unlesbare Abwesenheit:
+/// das Kind kann mitten im Abbau verschwunden sein oder eine zweite Instanz hat
+/// den Claim zurückbenannt. Der Claim bleibt deshalb liegen (Rest, typweit
+/// sichtbar), zurückgemeldet wird `write-may-have-applied` mit dem
+/// ursprünglichen Fehler.
 #[cfg(target_os = "linux")]
 fn remove_claimed_dir(
-    path: &Path,
+    claimed: &ClaimedDeleteTarget,
     parent: &fs::File,
     restore: &mut ClaimRestoreGuard<'_>,
     label: &str,
-    remove_dir_all_fn: &mut dyn FnMut(&Path) -> std::io::Result<()>,
+    precheck_fn: &mut dyn FnMut(&fs::File) -> Result<(), String>,
+    remove_tree_fn: &mut dyn FnMut(&ClaimedDeleteTarget, &fs::File) -> std::io::Result<()>,
 ) -> Result<(), String> {
+    precheck_fn(&claimed.handle).map_err(|error| restore_or_write_uncertain(restore, error))?;
     let sync_label = format!("{label} remove parent sync");
-    match remove_dir_all_fn(path) {
+    match remove_tree_fn(claimed, parent) {
         Ok(()) => {
             restore.disarm();
             // r-08: nach dem löschen den parent synchronisieren, sonst kann das
@@ -828,7 +850,7 @@ fn apply_delete_mutation(
     claimed: &ClaimedDeleteTarget,
     now_ms: u64,
     restore: &mut ClaimRestoreGuard<'_>,
-    remove_dir_all_fn: &mut dyn FnMut(&Path) -> std::io::Result<()>,
+    remove_tree_fn: &mut dyn FnMut(&ClaimedDeleteTarget, &fs::File) -> std::io::Result<()>,
 ) -> Result<(), String> {
     match pending.target_type {
         DeleteTargetType::Orphan => {
@@ -848,11 +870,12 @@ fn apply_delete_mutation(
                     let parent = bound_parent(pending)
                         .map_err(|error| restore_or_write_uncertain(restore, error))?;
                     remove_claimed_dir(
-                        &claimed.path,
+                        claimed,
                         parent,
                         restore,
                         "shadercache",
-                        remove_dir_all_fn,
+                        &mut verify_claimed_tree_no_crossdev,
+                        remove_tree_fn,
                     )?;
                 }
                 "compatdata" => {
@@ -918,22 +941,24 @@ fn apply_delete_mutation(
             let parent = bound_parent(pending)
                 .map_err(|error| restore_or_write_uncertain(restore, error))?;
             remove_claimed_dir(
-                &claimed.path,
+                claimed,
                 parent,
                 restore,
                 "trash item",
-                remove_dir_all_fn,
+                &mut verify_claimed_tree_no_crossdev,
+                remove_tree_fn,
             )?;
         }
         DeleteTargetType::CompatTool => {
             let parent = bound_parent(pending)
                 .map_err(|error| restore_or_write_uncertain(restore, error))?;
             remove_claimed_dir(
-                &claimed.path,
+                claimed,
                 parent,
                 restore,
                 "compat tool",
-                remove_dir_all_fn,
+                &mut verify_claimed_tree_no_crossdev,
+                remove_tree_fn,
             )?;
         }
     }
@@ -960,6 +985,30 @@ pub async fn prepare_delete(
         })
     })
     .await
+}
+
+/// S-10: Gibt ein vorbereitetes Token samt offenen Deskriptoren vor Ablauf der
+/// TTL frei, sobald der Bestätigungsdialog abgebrochen oder verworfen wird.
+pub(super) fn cancel_delete_inner(
+    registry: &PendingDeleteRegistry,
+    token: &str,
+) -> Result<(), String> {
+    let mut map = registry.0.lock().map_err(|error| {
+        errcode::with_detail(errcode::UNAVAILABLE, format!("mutex lock error: {error}"))
+    })?;
+    let _ = map.remove(token);
+    if let Ok(now) = now_ms() {
+        map.retain(|_, v| v.expires_at > now);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cancel_delete(
+    state: tauri::State<'_, PendingDeleteRegistry>,
+    token: String,
+) -> Result<(), String> {
+    cancel_delete_inner(&state, &token)
 }
 
 #[tauri::command]

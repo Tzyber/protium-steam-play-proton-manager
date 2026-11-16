@@ -578,6 +578,56 @@ fn extract_vdf_block(text: &str, path: &[&str]) -> Result<String, String> {
     extract_vdf_blocks(text, &[path])
 }
 
+/// Reduziert `loginusers.vdf` auf den `"users"`-Block mit numerischen
+/// Account-IDs und jeweils maximal dem skalaren Feld `"MostRecent"` (S-14.1).
+/// Login- und Anzeigenamen (`AccountName`, `PersonaName`) verlassen das Backend
+/// nicht.
+pub fn extract_loginusers_most_recent(text: &str) -> Result<String, String> {
+    let tokens = tokenize(text)?;
+    let Some(Entry {
+        block: Some((from, to)),
+        ..
+    }) = find_entry(&tokens, 0, tokens.len(), "users")?
+    else {
+        return Ok("\"users\"\n{\n}".to_string());
+    };
+    let mut user_blocks = Vec::new();
+    for entry in scan_entries(&tokens, from, to)? {
+        let TokenKind::String(user_id) = &entry.key.kind else {
+            continue;
+        };
+        if !crate::commands::scope::is_ascii_digits(user_id) {
+            continue;
+        }
+        let Some((u_from, u_to)) = entry.block else {
+            continue;
+        };
+        let most_recent = match find_entry(&tokens, u_from, u_to, "MostRecent")? {
+            Some(Entry {
+                block: None, value, ..
+            }) => match &value.kind {
+                TokenKind::String(val) => Some(val.as_str()),
+                _ => None,
+            },
+            _ => None,
+        };
+        let rendered = match most_recent {
+            Some(val) => format!(
+                "\t{}\n\t{{\n\t\t\"MostRecent\"\t\t{}\n\t}}",
+                quote(user_id),
+                quote(val)
+            ),
+            None => format!("\t{}\n\t{{\n\t}}", quote(user_id)),
+        };
+        user_blocks.push(rendered);
+    }
+    if user_blocks.is_empty() {
+        Ok("\"users\"\n{\n}".to_string())
+    } else {
+        Ok(format!("\"users\"\n{{\n{}\n}}", user_blocks.join("\n")))
+    }
+}
+
 pub fn set_vdf_value(text: &str, path: &[&str], value: &str) -> Result<String, String> {
     if path.is_empty() {
         return Err(errcode::with_detail(errcode::INVALID_ID, "empty path"));

@@ -159,6 +159,7 @@ describe("listCompatTools", () => {
         consequences: [],
       })),
       executeDelete: vi.fn(async () => ({ deletedPath: "/path" })),
+      cancelDelete: vi.fn(async () => {}),
       openExternal: vi.fn(async () => {}),
       launchGame: vi.fn(async () => {}),
       openPrefixFolder: vi.fn(async () => {}),

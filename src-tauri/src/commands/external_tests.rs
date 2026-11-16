@@ -57,6 +57,29 @@ fn external_url_pfad_pinning_github() {
 }
 
 #[test]
+fn external_url_lehnt_query_fragment_port_und_steuerzeichen_ab() {
+    assert!(validate_external_url("https://www.protondb.com/app/620?foo=bar").is_err());
+    assert!(validate_external_url("https://www.protondb.com/app/620#frag").is_err());
+    assert!(validate_external_url("https://www.protondb.com:8443/app/620").is_err());
+    assert!(validate_external_url(
+        "https://github.com/Tzyber/protium-steam-play-proton-manager/issues/new?body=secret"
+    )
+    .is_err());
+    assert!(validate_external_url(
+        "https://github.com/Tzyber/protium-steam-play-proton-manager#readme"
+    )
+    .is_err());
+    assert!(validate_external_url("\thttps://www.protondb.com/app/620").is_err());
+    assert!(validate_external_url("https://www.protondb.com/app/620\n").is_err());
+    assert!(validate_external_url("https://www.protondb.com/app/620\r").is_err());
+
+    let protondb: String = validate_external_url("https://www.protondb.com/app/620").unwrap();
+    assert_eq!(protondb, "https://www.protondb.com/app/620");
+    let steam: String = validate_external_url("steam://rungameid/570").unwrap();
+    assert_eq!(steam, "steam://rungameid/570");
+}
+
+#[test]
 fn env_overrides_filtert_nur_appdir_eintraege() {
     let appdir = "/tmp/.mount_protiumXY";
     let vars = vec![

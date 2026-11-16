@@ -373,7 +373,14 @@ export async function deleteOrphans(
       errors.push(`${entry.type}/${entry.appId}: ${formatError(e)}`);
     }
   }
+  let tokensCancelled = false;
+  const cancelPrepared = () => {
+    if (tokensCancelled) return;
+    tokensCancelled = true;
+    for (const p of prepared) void ports.system.cancelDelete(p.token).catch(() => {});
+  };
   if (!isCurrent()) {
+    cancelPrepared();
     for (const p of prepared) store.deleting.delete(p.path);
     confirm.release(reservation);
     return;
@@ -447,6 +454,7 @@ export async function deleteOrphans(
         }
       },
       onCancel: () => {
+        cancelPrepared();
         for (const p of prepared) store.deleting.delete(p.path);
       },
       onError: (e) => {
@@ -461,6 +469,7 @@ export async function deleteOrphans(
     reservation,
   );
   if (!accepted) {
+    cancelPrepared();
     for (const p of prepared) store.deleting.delete(p.path);
     confirm.release(reservation);
   }

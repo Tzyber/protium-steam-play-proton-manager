@@ -58,6 +58,7 @@ vi.doMock("../../src/core/adapters/tauri", async () => {
           consequences: [],
         })),
         executeDelete: vi.fn(async () => ({ deletedPath: "/path" })),
+        cancelDelete: vi.fn(async () => {}),
         cancelDownload: mockCancelDownload,
         onDownloadProgress: mockOnDownloadProgress,
         onInstallPhase: mockOnInstallPhase,

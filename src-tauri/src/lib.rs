@@ -133,6 +133,7 @@ pub fn run() {
             commands::download::cancel_download,
             commands::delete_ops::prepare_delete,
             commands::delete_ops::execute_delete,
+            commands::delete_ops::cancel_delete,
             commands::cleanup::list_trash_entries,
             commands::steam::save_launch_options,
             commands::steam::save_compat_tool,

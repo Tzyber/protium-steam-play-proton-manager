@@ -4,11 +4,13 @@
 // davon ab, was biome als alphabetische import-gruppierung erzwingen wuerde.
 // biome-ignore assist/source/organizeImports: mock-registrierung muss vor dem store-import laufen (T-01)
 import {
+  fakeOrphanEntry,
   fakeScan,
   fakeTrashEntries,
   fakeTrashEntry,
   MOCK_TOKEN_TTL_MS,
   mockBatchDirSizes,
+  mockCancelDelete,
   mockExecuteDelete,
   mockFindTrashEntries,
   mockPrepareDelete,
@@ -477,5 +479,49 @@ describe("cleanupStore, trash", () => {
     ]);
     expect(message).toContain("nicht gelöschte Einträge (1)");
     expect(message).toContain("unlesbar");
+  });
+
+  it("ruft cancelDelete für alle vorbereiteten Trash- und Orphan-Tokens bei Dialog-Abbruch auf (S-10)", async () => {
+    const e1 = fakeTrashEntry();
+    const e2 = fakeTrashEntry({
+      path: "/lib/steamapps/.protium-trash/compatdata_570_100",
+      name: "compatdata_570_100",
+      appId: 570,
+    });
+    const o1 = fakeOrphanEntry(1);
+    const scanStore = useScanStore();
+    scanStore.result = fakeScan([]);
+    const store = useCleanupStore();
+    store.trash = [e1, e2];
+    store.orphans = [o1];
+
+    await store.deleteTrashEntries([e1, e2]);
+    useConfirmStore().cancel();
+
+    expect(mockCancelDelete).toHaveBeenCalledTimes(2);
+    expect(mockCancelDelete).toHaveBeenNthCalledWith(1, `token-${e1.path}`);
+    expect(mockCancelDelete).toHaveBeenNthCalledWith(2, `token-${e2.path}`);
+
+    mockCancelDelete.mockClear();
+    await store.deleteOrphans([o1]);
+    useConfirmStore().cancel();
+
+    expect(mockCancelDelete).toHaveBeenCalledExactlyOnceWith(`token-${o1.path}`);
+
+    // Veraltete Generation während `prepareDelete` (`!isCurrent()`) gibt bereits
+    // vorbereitete Tokens sofort wieder frei.
+    mockCancelDelete.mockClear();
+    mockPrepareDelete.mockImplementationOnce(async (req) => {
+      store.resetForLibraryScan();
+      return {
+        token: `token-stale-${req.path}`,
+        expiresAt: Date.now() + MOCK_TOKEN_TTL_MS,
+        targetType: req.targetType,
+        targetPath: req.path,
+        consequences: [],
+      };
+    });
+    await store.deleteTrashEntries([e1]);
+    expect(mockCancelDelete).toHaveBeenCalledExactlyOnceWith(`token-stale-${e1.path}`);
   });
 });

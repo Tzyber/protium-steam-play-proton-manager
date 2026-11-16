@@ -2,12 +2,12 @@
 // (FR-1): reine Konstruktoren, keine IO, keine Validierung. Die elf
 // Produktionsdateien joinen ihre Steam-Pfade nur noch hier (FR-2).
 //
-// Nicht hier: `compatdata`, `shadercache` und der Papierkorb-Pfad. Die ersten
-// beiden werden ausschließlich als `OsStr` an die gebundene fd-Kette gegeben
-// (prefix.rs, compat_auth.rs, delete_usage.rs); den Papierkorb-Pfad baut die
-// gebundene fd-Kette in `delete_ops.rs`. Nur der Name des Papierkorbs steht
-// hier, weil Listing und Löschpfad ihn teilen. Ein PathBuf-Konstruktor ohne
-// Aufrufer wäre toter Code.
+// Nicht hier: `compatdata` und `shadercache`. Beide werden ausschließlich als
+// `OsStr` an die gebundene fd-Kette gegeben (prefix.rs, compat_auth.rs,
+// delete_usage.rs); den Papierkorb-Pfad für Schreibzugriffe baut die gebundene
+// fd-Kette in `delete_ops.rs`, während `delete_inspect.rs` (`S-07`) gegen
+// `trash_dir` abgleicht. Nur der Name des Papierkorbs steht hier, weil Listing,
+// Inspektion und Löschpfad ihn teilen.
 
 use std::path::{Path, PathBuf};
 
@@ -63,6 +63,11 @@ pub(super) fn libraryfolders_vdf(root: &Path) -> PathBuf {
 /// `<root>/steamapps/libraryfolders.vdf` (der ältere Fallback).
 pub(super) fn steamapps_libraryfolders_vdf(root: &Path) -> PathBuf {
     steamapps(root).join("libraryfolders.vdf")
+}
+
+/// `<root>/steamapps/.protium-trash`.
+pub(super) fn trash_dir(root: &Path) -> PathBuf {
+    steamapps(root).join(TRASH_DIR_NAME)
 }
 
 // ---- VDF-Schlüssel der Compat-Zuordnung ----

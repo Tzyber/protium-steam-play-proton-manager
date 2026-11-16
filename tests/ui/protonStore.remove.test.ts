@@ -109,6 +109,8 @@ describe("protonStore.remove", () => {
     vi.mocked(tauriPorts.system.executeDelete).mockResolvedValue({
       deletedPath: "/root/compatibilitytools.d/GE-Proton9-27",
     });
+    vi.mocked(tauriPorts.system.cancelDelete).mockReset();
+    vi.mocked(tauriPorts.system.cancelDelete).mockResolvedValue(undefined);
   });
 
   it("reserviert vor prepareDelete und blockiert parallele GE-entfernung", async () => {
@@ -270,5 +272,20 @@ describe("protonStore.remove", () => {
     expect(store.busyRemove).toBeNull();
     expect(store.removeError).toContain("Bestätigung ist abgelaufen");
     expect(store.loadError).toBeNull();
+  });
+
+  it("gibt das vorbereitete Token über cancelDelete frei, wenn der Dialog abgebrochen wird (S-10)", async () => {
+    const scan = useScanStore();
+    scan.result = fakeScanResult();
+    const store = useProtonStore();
+    const cancelSpy = vi.spyOn(tauriPorts.system, "cancelDelete");
+
+    await store.remove(customTool("GE-Proton9-27", { sizeBytes: 1000 }));
+    expect(useConfirmStore().pending).not.toBeNull();
+
+    useConfirmStore().cancel();
+
+    expect(cancelSpy).toHaveBeenCalledExactlyOnceWith("tok-ge");
+    expect(store.busyRemove).toBeNull();
   });
 });

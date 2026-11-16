@@ -97,6 +97,8 @@ export interface System {
   prepareDelete(request: PrepareDeleteRequest): Promise<PendingDeleteInfo>;
   /** Führt die vorbereitete Löschung nach Bestätigung im Hauptfenster aus. */
   executeDelete(token: string): Promise<DeleteResult>;
+  /** Gibt ein vorbereitetes Lösch-Token vor Ablauf der TTL frei. */
+  cancelDelete(token: string): Promise<void>;
   /** Speichert Startoptionen in `localconfig.vdf` via backendkontrolliertem Write-Gate. */
   saveLaunchOptions(
     steamRoot: string,
