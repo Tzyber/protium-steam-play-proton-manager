@@ -426,7 +426,13 @@ pub(super) fn is_steam_running_sync() -> Result<bool, String> {
     // ProcessRefreshKind::nothing() befüllt.
     let sys = System::new_with_specifics(
         RefreshKind::nothing().with_processes(ProcessRefreshKind::nothing()),
-    );
+    )
+    .map_err(|error| {
+        errcode::with_detail(
+            errcode::STEAM_CHECK_UNAVAILABLE,
+            format!("sysinfo process scan: {error}"),
+        )
+    })?;
     let own_pid = sysinfo::Pid::from_u32(std::process::id());
     steam_running_from(
         sys.processes().contains_key(&own_pid),

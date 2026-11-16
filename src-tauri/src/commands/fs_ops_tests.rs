@@ -979,8 +979,8 @@ fn is_steam_running_sync_ist_ok_genau_wenn_probe_und_eigene_pid_belegbar_sind() 
         sysinfo::RefreshKind::nothing().with_processes(sysinfo::ProcessRefreshKind::nothing()),
     );
     let eigene_pid = sysinfo::Pid::from_u32(std::process::id());
-    let erwartet =
-        probe_proc(Path::new("/proc")).is_ok() && sys.processes().contains_key(&eigene_pid);
+    let erwartet = probe_proc(Path::new("/proc")).is_ok()
+        && sys.is_ok_and(|s| s.processes().contains_key(&eigene_pid));
 
     assert_eq!(is_steam_running_sync().is_ok(), erwartet);
 }
@@ -1000,8 +1000,11 @@ fn probe_bleibt_im_scan_verdrahtet_und_meldet_read_dir_fehler() {
         "der scan muss die probe auf /proc ziehen und ihren fehler weiterreichen"
     );
     assert!(
-        scan.contains("steam_running_from(") && scan.contains("contains_key(&own_pid)"),
-        "der scan muss die sichtbare eigene PID prüfen und an steam_running_from reichen"
+        scan.contains("System::new_with_specifics")
+            && scan.contains("STEAM_CHECK_UNAVAILABLE")
+            && scan.contains("steam_running_from(")
+            && scan.contains("contains_key(&own_pid)"),
+        "der scan muss sysinfo-fehler auf STEAM_CHECK_UNAVAILABLE abbilden und die sichtbare eigene PID prüfen"
     );
 
     let probe = funktion_body(production, "fn probe_proc(root: &Path)");
