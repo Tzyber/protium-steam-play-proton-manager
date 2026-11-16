@@ -51,11 +51,11 @@ rückfrage und nur, wenn protium sich sicher ist:
 AppImage oder Debian-Paket von der [releases-seite](https://github.com/Tzyber/protium-steam-play-proton-manager/releases)
 laden. die AppImage ausführbar machen und starten:
 
-aktuelle version: `v0.11.5`.
+aktuelle version: `v0.11.6`.
 
 ```sh
-chmod +x protium_0.11.5_amd64.AppImage
-./protium_0.11.5_amd64.AppImage
+chmod +x protium_0.11.6_amd64.AppImage
+./protium_0.11.6_amd64.AppImage
 ```
 
 jedes release bringt AppImage, Debian-Paket, `SHA256SUMS` und `SHA256SUMS.asc`.
@@ -94,14 +94,14 @@ wer das nicht mag, baut selbst (siehe dev-setup). für Debian-basierte systeme
 liegt zusätzlich ein Debian-paket bei:
 
 ```sh
-sudo apt install ./protium_0.11.5_amd64.deb
+sudo apt install ./protium_0.11.6_amd64.deb
 ```
 
 startet nichts und es kommt keine fehlermeldung, fehlt meist fuse2. dann
 entweder `sudo pacman -S fuse2` oder einmalig ohne fuse starten:
 
 ```sh
-./protium_0.11.5_amd64.AppImage --appimage-extract-and-run
+./protium_0.11.6_amd64.AppImage --appimage-extract-and-run
 ```
 
 ## was es kann
@@ -345,6 +345,10 @@ die app blockieren. was sich nicht zuverlässig bestimmen lässt, heißt in der 
   blockade statt stiller freigabe, lösch-rollback ohne falsche
   unlesbar-meldung, deskriptorgebundenes papierkorb-listing und private
   log- und cache-verzeichnisse; dazu aktualisierte abhängigkeiten
+- [x] v0.11.6: überarbeitete oberfläche mit besseren kontrasten, einheitlichen
+  schriftgrößen und abständen sowie neutralen statusfarben; löschpfad mit
+  mount-prüfung über geöffnete ordner, engere pfad- und url-prüfungen und
+  aktualisierte abhängigkeiten
 
 versionshistorie steht in den [releases](https://github.com/Tzyber/protium-steam-play-proton-manager/releases).
 
