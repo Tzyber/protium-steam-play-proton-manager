@@ -186,6 +186,7 @@ export const en = {
     consequenceCompatToolAppsUnknown: "Affected apps unknown (tool VDF unreadable): {name}",
     consequenceCompatToolGlobalDefault:
       "This tool is Steam's default; games without their own assignment lose their tool",
+    consequenceUnknownEntry: "Remove entry {name}",
     winePrefixMovedNote:
       "Wine-Prefixes are moved to trash, disk space is only freed when the trash is emptied.",
     trash: "trash",

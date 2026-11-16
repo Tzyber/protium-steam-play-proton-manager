@@ -245,21 +245,62 @@ describe("localizeConsequences", () => {
     expect(lines).toEqual(["Permanently delete GE-Proton tool GE-Proton9-27 (assigned games: 2)"]);
   });
 
-  it("unbekannte struktur fällt auf den backend-string zurück", () => {
+  it("unbekannte struktur nutzt übersetzten fallback ohne backend-rohtext (A-09)", () => {
     setLocale("en");
-    const lines = localizeConsequences(
+    const enLines = localizeConsequences(
       pending({
         targetType: "orphan",
+        targetPath: "/lib/steamapps/compatdata/999",
         consequences: [
           {
-            path: "/x",
+            path: "/lib/steamapps/compatdata/620",
             action: "unexpectedAction" as "trash",
             description: "backend-autorität bleibt sichtbar",
             affectedAppIds: [1],
           },
+          {
+            path: "",
+            action: "unexpectedAction" as "trash",
+            description: "backend-autorität bleibt sichtbar",
+          },
         ],
       }),
     );
-    expect(lines).toEqual(["backend-autorität bleibt sichtbar"]);
+    expect(enLines).toEqual(["Remove entry 620", "Remove entry 999"]);
+    expect(enLines.join("\n")).not.toContain("backend-autorität bleibt sichtbar");
+
+    setLocale("de");
+    const deLines = localizeConsequences(
+      pending({
+        targetType: "orphan",
+        consequences: [
+          {
+            path: "/lib/steamapps/compatdata/620",
+            action: "unexpectedAction" as "trash",
+            description: "backend-autorität bleibt sichtbar",
+          },
+        ],
+      }),
+    );
+    expect(deLines).toEqual(["Eintrag 620 entfernen"]);
+  });
+
+  it("orphan ohne name und affectedAppIds nutzt nur den basisnamen des pfads (A-09)", () => {
+    setLocale("en");
+    const lines = localizeConsequences(
+      pending({
+        targetType: "orphan",
+        targetPath: "/lib/steamapps/compatdata/620",
+        consequences: [
+          {
+            path: "/lib/steamapps/compatdata/620",
+            action: "trash",
+            description: "Move prefix to trash",
+          },
+        ],
+      }),
+    );
+    expect(lines).toEqual(["Move prefix of 620 to trash"]);
+    expect(lines[0]).not.toContain("/lib/steamapps");
   });
 });

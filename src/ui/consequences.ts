@@ -1,9 +1,7 @@
 // Lokalisiert die Backend-Konsequenzen für den destruktiven Bestätigungsdialog.
 // Das Backend liefert in `DeleteConsequence` strukturierte Fakten (action,
-// path, affectedAppIds) plus einen rohen description-String; die Struktur
-// wird hier auf i18n-Keys gemappt. Der Backend-String bleibt als Fallback:
-// das Backend ist die Autorität für WAS passiert, das Frontend lokalisiert
-// nur die Darstellung.
+// path, affectedAppIds); die Struktur wird hier vollständig auf i18n-Keys
+// gemappt, ohne rohe Backend-Texte in die Oberfläche durchzureichen (A-09).
 import type { PendingDeleteInfo } from "../core/ports";
 import { pathBasename } from "./format";
 import { t } from "./i18n";
@@ -15,7 +13,8 @@ export function localizeConsequences(
   return pending.consequences.flatMap((c) => {
     switch (pending.targetType) {
       case "orphan": {
-        const name = targetName ?? String(c.affectedAppIds?.[0] ?? pending.targetPath);
+        const name =
+          targetName ?? String(c.affectedAppIds?.[0] ?? pathBasename(pending.targetPath));
         if (c.action === "trash") return t("cleanup.consequenceMoveToTrash", { name });
         if (c.action === "permanentDelete") {
           return t("cleanup.consequencePermanentShadercache", { name });
@@ -46,6 +45,8 @@ export function localizeConsequences(
           : lines;
       }
     }
-    return c.description;
+    return t("cleanup.consequenceUnknownEntry", {
+      name: pathBasename(c.path || pending.targetPath),
+    });
   });
 }

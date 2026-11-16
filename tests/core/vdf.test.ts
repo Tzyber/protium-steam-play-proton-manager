@@ -78,6 +78,29 @@ describe("parseVdf prototype-safety", () => {
     expect(Object.getOwnPropertyNames(parsed)).toContain("__x___proto____");
   });
 
+  it("benennt gefährliche block-keys im pre-pass auch hinter conditional oder zusatztoken um (A-16)", () => {
+    const withConditional = parseVdf(`"__proto__" [$LINUX]
+{
+  "marker" "yes"
+}`);
+    expect(Object.getOwnPropertyNames(withConditional)).toContain("__x___proto____");
+    expect(getPath(withConditional, "__x___proto____", "marker")).toBe("yes");
+
+    const bareWithConditional = parseVdf(`constructor [$LINUX]
+{
+  "marker" "yes"
+}`);
+    expect(Object.getOwnPropertyNames(bareWithConditional)).toContain("__x_constructor__");
+    expect(getPath(bareWithConditional, "__x_constructor__", "marker")).toBe("yes");
+
+    const withExtraToken = parseVdf(`"__proto__" X
+{
+  "marker" "yes"
+}`);
+    expect(Object.getOwnPropertyNames(withExtraToken)).toContain("__x___proto____");
+    expect(getPath(withExtraToken, "__x___proto____", "marker")).toBe("yes");
+  });
+
   it("neutralisiert unquotierte gefährliche block-keys (R1)", () => {
     for (const key of ["__proto__", "constructor", "prototype"] as const) {
       const marker = `bare_${key}_polluted`;
