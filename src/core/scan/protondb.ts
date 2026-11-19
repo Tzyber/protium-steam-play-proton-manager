@@ -14,7 +14,7 @@ interface EnrichProtondbOptions {
 }
 
 export async function enrichProtondb(
-  ports: Ports,
+  ports: Pick<Ports, "http" | "cache">,
   games: Game[],
   delayMs: number,
   options: EnrichProtondbOptions = {},

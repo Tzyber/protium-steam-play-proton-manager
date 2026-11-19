@@ -28,6 +28,7 @@ pub(crate) mod manifest;
 pub(crate) mod path;
 pub(crate) mod prefix;
 pub(crate) mod scope;
+pub(crate) mod settings;
 pub(crate) mod shortcuts_bin;
 pub(crate) mod steam;
 pub(crate) mod steam_layout;
@@ -192,6 +193,14 @@ mod tests {
             (
                 include_str!("steam.rs"),
                 "pub async fn open_backups_folder(",
+            ),
+            (
+                include_str!("settings.rs"),
+                "pub async fn load_app_settings(",
+            ),
+            (
+                include_str!("settings.rs"),
+                "pub async fn save_app_settings(",
             ),
         ] {
             let start = source

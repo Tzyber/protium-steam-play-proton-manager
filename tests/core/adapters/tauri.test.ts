@@ -292,3 +292,69 @@ describe("discoverSteamEnvironment IPC", () => {
     });
   });
 });
+
+describe("Settings IPC", () => {
+  beforeEach(() => {
+    vi.mocked(invoke).mockReset();
+  });
+
+  it("liefert null wenn das backend keine settings-datei findet", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(null);
+
+    await expect(tauriPorts.settings.load()).resolves.toBeNull();
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("load_app_settings");
+  });
+
+  it("reicht gespeicherten string aus load_app_settings unverändert zurück", async () => {
+    const payload = '{"language":"en","view":"proton","sortKey":"name","sortDir":"asc"}';
+    vi.mocked(invoke).mockResolvedValueOnce(payload);
+
+    await expect(tauriPorts.settings.load()).resolves.toBe(payload);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("load_app_settings");
+  });
+
+  it("sendet value an save_app_settings und liefert undefined", async () => {
+    const payload = '{"language":"de","view":"library","sortKey":"size","sortDir":"desc"}';
+    vi.mocked(invoke).mockResolvedValueOnce(undefined);
+
+    await expect(tauriPorts.settings.save(payload)).resolves.toBeUndefined();
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("save_app_settings", { value: payload });
+  });
+
+  it("rundet save und load über beide commands ohne verlust", async () => {
+    let stored: string | null = null;
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "save_app_settings") {
+        stored =
+          typeof args === "object" &&
+          args !== null &&
+          "value" in args &&
+          typeof args.value === "string"
+            ? args.value
+            : null;
+        return undefined;
+      }
+      if (command === "load_app_settings") return stored;
+      throw new Error(`unexpected command: ${command}`);
+    });
+
+    const payload = '{"language":"en","view":"cleanup","sortKey":"tier","sortDir":"asc"}';
+    await expect(tauriPorts.settings.load()).resolves.toBeNull();
+    await expect(tauriPorts.settings.save(payload)).resolves.toBeUndefined();
+    await expect(tauriPorts.settings.load()).resolves.toBe(payload);
+  });
+
+  it("reicht ipc-fehler aus load_app_settings durch", async () => {
+    vi.mocked(invoke).mockRejectedValueOnce("UNREADABLE: permission denied");
+
+    await expect(tauriPorts.settings.load()).rejects.toBe("UNREADABLE: permission denied");
+  });
+
+  it("reicht ipc-fehler aus save_app_settings durch", async () => {
+    vi.mocked(invoke).mockRejectedValueOnce("SIZE_LIMIT: app settings exceeds limit");
+
+    await expect(tauriPorts.settings.save("{}")).rejects.toBe(
+      "SIZE_LIMIT: app settings exceeds limit",
+    );
+  });
+});

@@ -23,6 +23,7 @@ export const de = {
     navCleanup: "Cleanup",
     skipToContent: "zum inhalt springen",
     brandTagline: "steam · proton",
+    language: "language",
     root: "root",
     libs: "libs",
     tools: "tools",

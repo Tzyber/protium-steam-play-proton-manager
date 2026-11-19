@@ -3,8 +3,12 @@ import { computed, nextTick, onMounted, watch } from "vue";
 import AppSidebar from "./components/AppSidebar.vue";
 import ConfirmDialogHost from "./components/ConfirmDialogHost.vue";
 import NoticeRail from "./components/NoticeRail.vue";
-import { t } from "./i18n";
+import { logError } from "./diagnostics";
+import { locale, t } from "./i18n";
+import { ports } from "./ports";
+import { serializeSettings } from "./settings";
 import { useConfirmStore } from "./stores/confirmStore";
+import { useLibraryStore } from "./stores/libraryStore";
 import { useScanStore } from "./stores/scanStore";
 import { useUiStore } from "./stores/uiStore";
 import CleanupView from "./views/CleanupView.vue";
@@ -14,6 +18,7 @@ import ProtonManagerView from "./views/ProtonManagerView.vue";
 
 const scan = useScanStore();
 const ui = useUiStore();
+const lib = useLibraryStore();
 const confirm = useConfirmStore();
 
 onMounted(() => {
@@ -62,6 +67,17 @@ watch(
       },
       { once: true },
     );
+  },
+);
+// Ohne immediate: ein erster Start ohne Datei schreibt nicht.
+watch(
+  () => [locale.value, ui.activeView, lib.sortKey, lib.sortDir] as const,
+  ([language, view, sortKey, sortDir]) => {
+    void ports.settings
+      .save(serializeSettings({ language, view, sortKey, sortDir }))
+      .catch((err) => {
+        logError("Einstellungen konnten nicht gespeichert werden", err);
+      });
   },
 );
 </script>

@@ -7,7 +7,7 @@ import { readLibraryList } from "./libraries.js";
 import { readCompatTools } from "./tools.js";
 
 export async function scanLocal(
-  ports: Ports,
+  ports: Pick<Ports, "fs" | "system">,
   environment: EnvironmentSnapshot,
 ): Promise<Omit<ScanResult, "steamRoot">> {
   const { fs, system } = ports;

@@ -1,22 +1,37 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { version as appVersion } from "../../../package.json";
-import { type Key, t } from "../i18n";
+import { type Key, type Locale, locale, setLocale, t } from "../i18n";
 import { useScanStore } from "../stores/scanStore";
 import { useUiStore, type ViewId } from "../stores/uiStore";
 import ProtiumLogo from "./ProtiumLogo.vue";
+import SelectBox from "./SelectBox.vue";
 
 const scan = useScanStore();
 const ui = useUiStore();
 
 // der key statt des übersetzten labels: t() beim aufbau würde die sprache
-// festschreiben, ein setLocale danach käme in der navigation nie an.
+// festschreiben; im template liest t() das reaktive `locale` und aktualisiert
+// die navigation sofort nach setLocale().
 const nav: { id: ViewId; labelKey: Key }[] = [
   { id: "library", labelKey: "app.navLibrary" },
   { id: "proton", labelKey: "app.navProton" },
   { id: "cleanup", labelKey: "app.navCleanup" },
   { id: "history", labelKey: "app.navHistory" },
 ];
+
+// Sprachschalter bleibt in beiden Sprachen englisch beschriftet, damit er
+// auch nach versehentlichem Wechsel eindeutig auffindbar bleibt.
+const languageOptions: { value: Locale; label: string }[] = [
+  { value: "de", label: "German" },
+  { value: "en", label: "English" },
+];
+
+function onLanguageChange(value: string) {
+  if (value === "de" || value === "en") {
+    setLocale(value);
+  }
+}
 
 const rootShort = computed(() => {
   const r = scan.result?.steamRoot;
@@ -48,6 +63,16 @@ const rootShort = computed(() => {
           <span class="nav-label">{{ t(item.labelKey) }}</span>
         </button>
       </nav>
+
+      <div class="language">
+        <label class="label" for="app-language">{{ t("app.language") }}</label>
+        <SelectBox
+          id="app-language"
+          :model-value="locale"
+          :options="languageOptions"
+          @update:model-value="onLanguageChange"
+        />
+      </div>
 
       <div class="readout">
         <div class="row"><span class="label">{{ t("app.root") }}</span><span class="mono val">{{ rootShort }}</span></div>
@@ -110,6 +135,10 @@ nav { display: flex; flex-direction: column; gap: var(--space-1); }
   background: color-mix(in srgb, var(--signal) 14%, transparent);
   color: var(--signal-bright);
   box-shadow: inset 2px 0 0 var(--signal);
+}
+.language {
+  display: grid;
+  gap: var(--space-2);
 }
 .readout {
   margin-top: auto;

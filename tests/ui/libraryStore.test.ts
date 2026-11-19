@@ -174,4 +174,32 @@ describe("libraryStore", () => {
     expect(lib.sortKey).toBe("size");
     expect(lib.sortDir).toBe("desc");
   });
+
+  it("restoreSort schreibt nur übergebene werte und nutzt DEFAULT_DIR bei fehlender richtung", () => {
+    const lib = useLibraryStore();
+
+    lib.restoreSort(undefined, undefined);
+    expect(lib.sortKey).toBe("name");
+    expect(lib.sortDir).toBe("asc");
+
+    lib.restoreSort("size");
+    expect(lib.sortKey).toBe("size");
+    expect(lib.sortDir).toBe("desc");
+
+    lib.restoreSort("size", "asc");
+    expect(lib.sortKey).toBe("size");
+    expect(lib.sortDir).toBe("asc");
+
+    lib.restoreSort("tier");
+    expect(lib.sortKey).toBe("tier");
+    expect(lib.sortDir).toBe("desc");
+
+    lib.restoreSort("lastPlayed");
+    expect(lib.sortKey).toBe("lastPlayed");
+    expect(lib.sortDir).toBe("desc");
+
+    lib.restoreSort(undefined, "asc");
+    expect(lib.sortKey).toBe("lastPlayed");
+    expect(lib.sortDir).toBe("asc");
+  });
 });

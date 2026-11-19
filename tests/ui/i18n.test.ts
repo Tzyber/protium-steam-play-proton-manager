@@ -1,20 +1,29 @@
 // @vitest-environment happy-dom
 
-import { afterEach, describe, expect, it } from "vitest";
-import { getLocale, setLocale, t } from "../../src/ui/i18n";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { computed } from "vue";
+import { getLocale, locale, setLocale, t } from "../../src/ui/i18n";
 import { de } from "../../src/ui/i18n/de";
 import { en } from "../../src/ui/i18n/en";
 
 afterEach(() => setLocale("en"));
 
 describe("i18n, locale-erkennung", () => {
-  it("getLocale liefert initialen wert (de wenn navigator 'de*', sonst en)", () => {
-    // der initiale wert hängt von navigator ab, der test prüft nur, dass
-    // es einer der beiden gültigen werte ist.
-    expect(["de", "en"]).toContain(getLocale());
+  it("startet fest mit 'en' unabhängig von navigator.language", async () => {
+    expect(getLocale()).toBe("en");
+    vi.stubGlobal("navigator", { language: "de-DE" });
+    vi.resetModules();
+    try {
+      const fresh = await import("../../src/ui/i18n");
+      expect(fresh.getLocale()).toBe("en");
+      expect(fresh.locale.value).toBe("en");
+    } finally {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
   });
 
-  it("setLocale wechselt die aktive locale (nur für tests)", () => {
+  it("setLocale wechselt die aktive locale", () => {
     setLocale("de");
     expect(getLocale()).toBe("de");
     setLocale("en");
@@ -25,6 +34,19 @@ describe("i18n, locale-erkennung", () => {
     setLocale("en");
     expect(document.documentElement.lang).toBe("en");
     setLocale("de");
+    expect(document.documentElement.lang).toBe("de");
+  });
+
+  it("locale ist reaktiv: computed-texte und html-lang folgen setLocale sofort", () => {
+    setLocale("en");
+    const cancelLabel = computed(() => t("common.cancel"));
+    expect(locale.value).toBe("en");
+    expect(cancelLabel.value).toBe(en.common.cancel);
+    expect(document.documentElement.lang).toBe("en");
+
+    setLocale("de");
+    expect(locale.value).toBe("de");
+    expect(cancelLabel.value).toBe(de.common.cancel);
     expect(document.documentElement.lang).toBe("de");
   });
 });

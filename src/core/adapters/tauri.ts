@@ -26,6 +26,7 @@ import type {
   InstallPhaseEvent,
   PendingDeleteInfo,
   Ports,
+  Settings,
   System,
   TargetArch,
   TrashListing,
@@ -254,4 +255,9 @@ const cache: Cache = {
   },
 };
 
-export const tauriPorts: Ports = { fs, http, system, cache };
+const settings: Settings = {
+  load: () => invoke<string | null>("load_app_settings"),
+  save: (value) => invoke<void>("save_app_settings", { value }),
+};
+
+export const tauriPorts: Ports = { fs, http, system, cache, settings };

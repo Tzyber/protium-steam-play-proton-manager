@@ -16,7 +16,7 @@ import { buildFakeSteam, fakeHttp, fakeSystem, memCache, nodeFs } from "../suppo
 // Integrationstest dieselben lebenden Bausteine (scanLocal +
 // enrichProtondb) mit Delay 0.
 async function scanPipelineForTest(
-  ports: Ports,
+  ports: Pick<Ports, "fs" | "http" | "system" | "cache">,
   opts: { environment: EnvironmentSnapshot; protonDbDelayMs?: number },
 ): Promise<ScanResult> {
   const local = await scanLocal(ports, opts.environment);

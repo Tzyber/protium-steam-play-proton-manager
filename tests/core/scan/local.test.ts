@@ -2,15 +2,12 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { scanLocal } from "../../../src/core/scan/local.js";
-import { buildFakeSteam, fakeHttp, fakeSystem, memCache, nodeFs } from "../../support/fakeSteam";
+import { buildFakeSteam, fakeSystem, nodeFs } from "../../support/fakeSteam";
 
 describe("scanLocal", () => {
   it("führt lokale Phasen in einem Ergebnis zusammen und lässt ProtonDB unverändert", async () => {
     const { root, environment } = await buildFakeSteam();
-    const result = await scanLocal(
-      { fs: nodeFs(), http: fakeHttp(), system: fakeSystem(), cache: memCache() },
-      environment,
-    );
+    const result = await scanLocal({ fs: nodeFs(), system: fakeSystem() }, environment);
 
     expect(result.games.map((game) => game.appId).sort((a, b) => a - b)).toEqual([570, 620, 730]);
     expect(result.games.every((game) => game.protonDb === null)).toBe(true);
@@ -36,7 +33,7 @@ describe("scanLocal", () => {
     await rm(configPath);
 
     const result = await scanLocal(
-      { fs: nodeFs(), http: fakeHttp(), system: fakeSystem(), cache: memCache() },
+      { fs: nodeFs(), system: fakeSystem() },
       { ...environment, systemCompatDirs: [] },
     );
 
@@ -63,7 +60,7 @@ describe("scanLocal", () => {
     );
 
     const result = await scanLocal(
-      { fs: nodeFs(), http: fakeHttp(), system: fakeSystem(), cache: memCache() },
+      { fs: nodeFs(), system: fakeSystem() },
       { ...environment, systemCompatDirs: [] },
     );
 
@@ -78,7 +75,7 @@ describe("scanLocal", () => {
     await writeFile(join(root, "config", "config.vdf"), '"InstallConfigStore" { kaputt');
 
     const result = await scanLocal(
-      { fs: nodeFs(), http: fakeHttp(), system: fakeSystem(), cache: memCache() },
+      { fs: nodeFs(), system: fakeSystem() },
       { ...environment, systemCompatDirs: [] },
     );
 
@@ -113,10 +110,7 @@ describe("scanLocal", () => {
       const { root, userId, environment } = await buildFakeSteam();
       await writeFile(join(root, "userdata", userId, "config", "localconfig.vdf"), broken);
 
-      const result = await scanLocal(
-        { fs: nodeFs(), http: fakeHttp(), system: fakeSystem(), cache: memCache() },
-        environment,
-      );
+      const result = await scanLocal({ fs: nodeFs(), system: fakeSystem() }, environment);
 
       expect(result.games.map((game) => game.appId).sort((a, b) => a - b)).toEqual([570, 620, 730]);
       expect(result.games.every((game) => game.launchOptions === undefined)).toBe(true);
@@ -141,10 +135,7 @@ describe("scanLocal", () => {
     const { environment } = await buildFakeSteam();
 
     await expect(
-      scanLocal(
-        { fs: nodeFs(), http: fakeHttp(), system: fakeSystem(), cache: memCache() },
-        { ...environment, ...patch },
-      ),
+      scanLocal({ fs: nodeFs(), system: fakeSystem() }, { ...environment, ...patch }),
     ).rejects.toThrow("environment snapshot is missing a current Steam root");
   });
 
@@ -158,7 +149,7 @@ describe("scanLocal", () => {
     await writeFile(configPath, reserved);
 
     const result = await scanLocal(
-      { fs: nodeFs(), http: fakeHttp(), system: fakeSystem(), cache: memCache() },
+      { fs: nodeFs(), system: fakeSystem() },
       { ...environment, systemCompatDirs: [] },
     );
 

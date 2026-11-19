@@ -95,25 +95,43 @@ const ipcCases: IpcCase[] = [
   },
 ];
 
-describe("System-Ports der UI", () => {
-  it.each(ipcCases)(
-    "$method ruft $command über ports.system",
-    async ({ call, command, args, expected }) => {
-      if (expected !== undefined) mockInvoke.mockResolvedValueOnce(expected);
-      const result = await call();
+const settingsIpcCases: IpcCase[] = [
+  {
+    method: "load",
+    call: () => ports.settings.load(),
+    command: "load_app_settings",
+    expected: '{"language":"de"}',
+  },
+  {
+    method: "save",
+    call: () => ports.settings.save('{"language":"en"}'),
+    command: "save_app_settings",
+    args: { value: '{"language":"en"}' },
+  },
+];
 
-      expect(mockInvoke).toHaveBeenCalledTimes(1);
-      if (expected !== undefined) expect(result).toBe(expected);
-      if (args === undefined) {
-        expect(mockInvoke).toHaveBeenCalledExactlyOnceWith(command);
-        return;
-      }
-      expect(mockInvoke).toHaveBeenCalledExactlyOnceWith(command, args);
-    },
-  );
+async function assertIpcCase({ call, command, args, expected }: IpcCase): Promise<void> {
+  if (expected !== undefined) mockInvoke.mockResolvedValueOnce(expected);
+  const result = await call();
+
+  expect(mockInvoke).toHaveBeenCalledTimes(1);
+  if (expected !== undefined) expect(result).toBe(expected);
+  if (args === undefined) {
+    expect(mockInvoke).toHaveBeenCalledExactlyOnceWith(command);
+    return;
+  }
+  expect(mockInvoke).toHaveBeenCalledExactlyOnceWith(command, args);
+}
+
+describe("System-Ports der UI", () => {
+  it.each(ipcCases)("$method ruft $command über ports.system", assertIpcCase);
 
   it("appVersion kommt aus der app-version des backends", async () => {
     await expect(ports.system.appVersion()).resolves.toBe("0.11.5");
     expect(mockGetVersion).toHaveBeenCalledTimes(1);
   });
+});
+
+describe("Settings-Ports der UI", () => {
+  it.each(settingsIpcCases)("$method ruft $command über ports.settings", assertIpcCase);
 });

@@ -53,6 +53,16 @@ export const useLibraryStore = defineStore("library", {
         this.sortDir = DEFAULT_DIR[key];
       }
     },
+    /** Stellt persistierte Sortierwerte wieder her; nur übergebene Felder
+     *  überschreiben den Bestandszustand, fehlende Richtung nutzt DEFAULT_DIR. */
+    restoreSort(sortKey?: SortKey, sortDir?: SortDir) {
+      if (sortKey !== undefined) {
+        this.sortKey = sortKey;
+        this.sortDir = sortDir ?? DEFAULT_DIR[sortKey];
+      } else if (sortDir !== undefined) {
+        this.sortDir = sortDir;
+      }
+    },
     toggle(kind: "tiers" | "compatTools" | "libraries", value: string) {
       const arr: string[] = this[kind];
       const i = arr.indexOf(value);

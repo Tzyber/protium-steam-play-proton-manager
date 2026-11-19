@@ -1,15 +1,16 @@
 // minimal-eigenlösung: keine vue-i18n o. ä., nur eine t()-funktion mit
-// dot-notation-keys, interpolation und fallback. locale wird einmal beim
-// start aus navigator.language abgeleitet, kein UI-toggle, keine persistenz.
+// dot-notation-keys, interpolation und fallback. locale startet fest mit
+// `"en"` und ist über `locale` (shallowRef) reaktiv umschaltbar.
 //
 // struktur: neue locale = neue datei in diesem ordner + eintrag in `tables`.
 // typ-sicherheit: die keys werden aus `de` abgeleitet, ein tippfehler ist
 // damit ein TS-fehler.
 
+import { shallowRef } from "vue";
 import { de } from "./de";
 import { en } from "./en";
 
-type Locale = "de" | "en";
+export type Locale = "de" | "en";
 
 // struktur-sync: `de` ist die wahrheit, `en` muss die gleiche form haben
 // (gleiche keys, gleiche nesting-tiefe). `Dict` ist absichtlich generisch
@@ -24,24 +25,19 @@ type Dict = DeepStringify<typeof de>;
 
 const tables: Record<Locale, Dict> = { de, en: en as DeepStringify<typeof en> };
 
-function detectLocale(): Locale {
-  if (typeof navigator === "undefined") return "en";
-  return navigator.language?.toLowerCase().startsWith("de") ? "de" : "en";
-}
+export const locale = shallowRef<Locale>("en");
 
-let activeLocale: Locale = detectLocale();
-
-/** nur für tests, produktion ruft das nie auf. hält auch das html-lang
- *  aktuell, damit screenreader zur laufzeit die richtige sprache lesen. */
+/** schaltet die aktive sprache reaktiv um und hält das html-lang aktuell,
+ *  damit screenreader zur laufzeit die richtige sprache lesen. */
 export function setLocale(l: Locale): void {
-  activeLocale = l;
+  locale.value = l;
   if (typeof document !== "undefined") {
     document.documentElement.lang = l;
   }
 }
 
 export function getLocale(): Locale {
-  return activeLocale;
+  return locale.value;
 }
 
 // dot-pfad aus einem nested-dict. liefert den string, oder undefined wenn
@@ -78,7 +74,7 @@ export type Key = DotPath<Dict>;
 
 /** übersetzt einen key. interpolations-platzhalter {name} im string werden ersetzt. */
 export function t(key: Key, params?: Record<string, string | number>): string {
-  const value = lookup(tables[activeLocale], key) ?? lookup(tables.en, key);
+  const value = lookup(tables[locale.value], key) ?? lookup(tables.en, key);
   if (value === undefined) return key; // letzter ausweg: key als literaler hinweis
   return params ? interpolate(value, params) : value;
 }

@@ -39,8 +39,6 @@ describe("scan performance fixture", () => {
         {
           fs: nodeFs(),
           system: fakeSystem(),
-          http: immediateHttp(false).http,
-          cache: createScanPerformanceCache().cache,
         },
         fixture.environment,
       );

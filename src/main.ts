@@ -7,6 +7,7 @@ import { logError, logEvent } from "./ui/diagnostics";
 import { formatError } from "./ui/formatError";
 import { getLocale, t } from "./ui/i18n";
 import { ports } from "./ui/ports";
+import { initAppSettings } from "./ui/settings";
 import { useUiStore } from "./ui/stores/uiStore";
 
 document.documentElement.lang = getLocale();
@@ -51,6 +52,10 @@ if (typeof window !== "undefined") {
     logError("Unhandled Rejection", event.reason);
   });
 }
+
+// Vor dem Start-Log und vor dem Mount laden, damit Protokoll, Fatal-Fallback
+// und erster Render bereits die gespeicherte Sprache und Ansicht verwenden.
+await initAppSettings(pinia);
 
 void ports.system
   .appVersion()

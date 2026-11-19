@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { enrichProtondb } from "../../../src/core/scan/protondb.js";
 import type { Game } from "../../../src/core/types.js";
 import { game as fixtureGame } from "../../support/factories";
-import { buildFakeSteam, fakeSystem, memCache, nodeFs } from "../../support/fakeSteam";
+import { buildFakeSteam, memCache } from "../../support/fakeSteam";
 
 /** kurzform für die spiele dieses tests; die feldliste kommt aus der geteilten
  *  fabrik, damit neue pflichtfelder nicht hier nachgezogen werden. */
@@ -18,8 +18,6 @@ describe("enrichProtondb", () => {
     const games = [game(620, root), game(570, root)];
     const calls: number[] = [];
     const ports = {
-      fs: nodeFs(),
-      system: fakeSystem(),
       cache: memCache(),
       http: {
         async get(url: string) {
@@ -61,8 +59,6 @@ describe("enrichProtondb", () => {
       );
     }
     const ports = {
-      fs: nodeFs(),
-      system: fakeSystem(),
       cache,
       http: {
         async get(url: string) {
@@ -93,8 +89,6 @@ describe("enrichProtondb", () => {
     const calls: number[] = [];
     const sleep = vi.fn(async (_ms: number) => {});
     const ports = {
-      fs: nodeFs(),
-      system: fakeSystem(),
       cache: memCache(),
       http: {
         async get(url: string) {
@@ -131,8 +125,6 @@ describe("enrichProtondb", () => {
     let settled = 0;
     await enrichProtondb(
       {
-        fs: nodeFs(),
-        system: fakeSystem(),
         cache: memCache(),
         http: {
           async get() {
@@ -159,8 +151,6 @@ describe("enrichProtondb", () => {
     let active = true;
     const run = enrichProtondb(
       {
-        fs: nodeFs(),
-        system: fakeSystem(),
         cache: memCache(),
         http: {
           async get(url: string) {
@@ -190,8 +180,6 @@ describe("enrichProtondb", () => {
     let settled = 0;
     await enrichProtondb(
       {
-        fs: nodeFs(),
-        system: fakeSystem(),
         cache: memCache(),
         http: {
           async get() {
@@ -221,8 +209,6 @@ describe("enrichProtondb", () => {
     const settled: number[] = [];
     await enrichProtondb(
       {
-        fs: nodeFs(),
-        system: fakeSystem(),
         cache: memCache(),
         http: {
           async get() {

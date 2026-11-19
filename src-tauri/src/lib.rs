@@ -41,14 +41,12 @@ pub fn run() {
                 use std::io::Write as _;
                 // Panic-Hook vor dem Fenster: ein Panic soll lokal sichtbar
                 // bleiben, auch wenn er waehrend eines Steam-Writes passiert.
-                if let Ok(data_dir) = app.path().app_local_data_dir() {
-                    if let Ok(log_dir) = commands::scope::prepare_app_dir(
-                        &data_dir.join("logs"),
-                        &data_dir,
-                        "app logs",
-                    ) {
-                        commands::diagnostics::install_panic_hook(log_dir);
-                    }
+                let log_dir_for_close = app.path().app_local_data_dir().ok().and_then(|data_dir| {
+                    commands::scope::prepare_app_dir(&data_dir.join("logs"), &data_dir, "app logs")
+                        .ok()
+                });
+                if let Some(log_dir) = &log_dir_for_close {
+                    commands::diagnostics::install_panic_hook(log_dir.clone());
                 }
                 // R4: Bestand beim Start nachziehen, damit ein 0755-Ordner aus
                 // einer aelteren Version nicht bis zum ersten Öffnen offen
@@ -61,11 +59,15 @@ pub fn run() {
                 // jedem Start, solange die Ursache bleibt.
                 let narrow =
                     |path: &std::path::Path, root: &std::path::Path, label: &str, note: &str| {
-                        if commands::scope::prepare_app_dir(path, root, label).is_err() {
-                            // `eprintln!` panikt bei geschlossenem stderr (etwa
-                            // `2>&-`): dann wuerde die Diagnose den Start
-                            // abbrechen, den sie nur begleiten soll.
-                            let _ = writeln!(std::io::stderr(), "{note}");
+                        match commands::scope::prepare_app_dir(path, root, label) {
+                            Ok(prepared) => Some(prepared),
+                            Err(_) => {
+                                // `eprintln!` panikt bei geschlossenem stderr (etwa
+                                // `2>&-`): dann wuerde die Diagnose den Start
+                                // abbrechen, den sie nur begleiten soll.
+                                let _ = writeln!(std::io::stderr(), "{note}");
+                                None
+                            }
                         }
                     };
                 if let Ok(cache_dir) = app.path().app_cache_dir() {
@@ -84,29 +86,72 @@ pub fn run() {
                         );
                     }
                 }
-                if let Ok(config_dir) = app.path().app_config_dir() {
-                    if let Some(config_root) = config_dir.parent() {
+                let config_dir_for_close =
+                    app.path().app_config_dir().ok().and_then(|config_dir| {
+                        let config_root = config_dir.parent()?;
                         narrow(
                             &config_dir,
                             config_root,
                             "app config",
                             "protium: app config permissions not narrowed",
-                        );
-                    }
-                }
+                        )
+                    });
+                let monitor_logical = app.primary_monitor().ok().flatten().map(|monitor| {
+                    let size = monitor.size();
+                    commands::settings::physical_to_logical(
+                        (size.width, size.height),
+                        monitor.scale_factor(),
+                    )
+                });
+                let saved_size = commands::settings::read_window_setting(app.handle());
+                let (width, height) = commands::settings::clamp_window_size(
+                    saved_size,
+                    commands::settings::MIN_WINDOW_SIZE,
+                    monitor_logical,
+                );
+                let (min_width, min_height) = commands::settings::MIN_WINDOW_SIZE;
                 // fenster wird hier statt in tauri.conf gebaut, weil nur der
                 // builder einen navigation-handler setzen kann: eigener origin
                 // durchlassen, alles externe blocken, externe links gehören
                 // in den system-browser (openExternal), nicht in die webview
                 // (rechtsklick-open-link liess die app sonst auf protondb.com
                 // hängen, kein zurück).
-                WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                    .title("protium")
-                    .inner_size(1280.0, 800.0)
-                    .min_inner_size(960.0, 600.0)
-                    .background_color(Color(10, 11, 17, 255))
-                    .on_navigation(|url| navigation_allowed(url, cfg!(dev)))
-                    .build()?;
+                let window =
+                    WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                        .title("protium")
+                        .inner_size(f64::from(width), f64::from(height))
+                        .min_inner_size(f64::from(min_width), f64::from(min_height))
+                        .background_color(Color(10, 11, 17, 255))
+                        .on_navigation(|url| navigation_allowed(url, cfg!(dev)))
+                        .build()?;
+                let window_handle = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { .. } = event {
+                        // WARUM best-effort ohne das Schliessen aufzuhalten: die
+                        // Fenstergroesse ist rein kosmetisch; ein Schreibfehler
+                        // darf das Beenden nie blockieren (gleiche Abwaegung wie
+                        // R-04, bewusst ohne Zaehler).
+                        if let (Some(config_dir), Ok(size), Ok(scale)) = (
+                            config_dir_for_close.as_deref(),
+                            window_handle.inner_size(),
+                            window_handle.scale_factor(),
+                        ) {
+                            if let Err(error) = commands::settings::save_window_setting_at(
+                                config_dir,
+                                (size.width, size.height),
+                                scale,
+                            ) {
+                                if let Some(log_dir) = log_dir_for_close.as_deref() {
+                                    let _ = commands::diagnostics::append_log_entry(
+                                        log_dir,
+                                        "warn",
+                                        &format!("window size save failed: {error}"),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                });
             }
             Ok(())
         })
@@ -142,6 +187,8 @@ pub fn run() {
             commands::diagnostics::log_diagnostic,
             commands::diagnostics::open_logs_folder,
             commands::diagnostics::read_log_tail,
+            commands::settings::load_app_settings,
+            commands::settings::save_app_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running protium");

@@ -28,6 +28,7 @@ export const en = {
     navCleanup: "Cleanup",
     skipToContent: "skip to content",
     brandTagline: "steam · proton",
+    language: "language",
     root: "root",
     libs: "libs",
     tools: "tools",

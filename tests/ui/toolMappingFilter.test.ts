@@ -10,7 +10,7 @@ import type { ScanResult } from "../../src/core/types";
 import { setLocale, t } from "../../src/ui/i18n";
 import { useLibraryStore } from "../../src/ui/stores/libraryStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
-import { buildFakeSteam, fakeHttp, fakeSystem, memCache, nodeFs } from "../support/fakeSteam";
+import { buildFakeSteam, fakeSystem, nodeFs } from "../support/fakeSteam";
 
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) }));
 
@@ -63,10 +63,7 @@ async function scanWithDivergentTool(dirNameMapping: boolean) {
       : mapping,
   );
 
-  return scanLocal(
-    { fs: nodeFs(), http: fakeHttp(), system: fakeSystem(), cache: memCache() },
-    fixture.environment,
-  );
+  return scanLocal({ fs: nodeFs(), system: fakeSystem() }, fixture.environment);
 }
 
 function installScanResult(result: Awaited<ReturnType<typeof scanWithDivergentTool>>): void {

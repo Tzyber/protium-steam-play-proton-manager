@@ -185,9 +185,16 @@ export interface Cache {
   set(key: string, value: string): Promise<void>;
 }
 
+/** persistente app-einstellungen als opaker string; das schema liegt in der UI (INV-5). */
+export interface Settings {
+  load(): Promise<string | null>;
+  save(value: string): Promise<void>;
+}
+
 export interface Ports {
   fs: FileSystem;
   http: Http;
   system: System;
   cache: Cache;
+  settings: Settings;
 }
