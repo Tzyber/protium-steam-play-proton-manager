@@ -567,13 +567,15 @@ describe("classifyOrphans", () => {
   });
 
   it("markiert shortcut-bereich-appIDs als potentialShortcut", () => {
-    const [shortcut, regular] = classifyOrphans(
-      [orphan(3_641_016_077, "compatdata"), orphan(999999, "compatdata")],
+    // die 2^31-kante selbst, nicht nur ein wert weit dahinter: `>` statt
+    // `>=` in classifyOrphans muss hier rot werden.
+    const [atThreshold, belowThreshold] = classifyOrphans(
+      [orphan(2_147_483_648, "compatdata"), orphan(2_147_483_647, "compatdata")],
       false,
     );
 
-    expect(shortcut?.potentialShortcut).toBe(true);
-    expect(regular?.potentialShortcut).toBeUndefined();
+    expect(atThreshold?.potentialShortcut).toBe(true);
+    expect(belowThreshold?.potentialShortcut).toBeUndefined();
   });
 
   it("behält ohne shortcut-fehler beide typen", () => {

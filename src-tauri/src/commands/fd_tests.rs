@@ -206,6 +206,20 @@ fn read_fd_bytes_lehnt_eine_datei_ueber_max_bytes_ab() {
 }
 
 #[test]
+fn read_fd_bytes_meldet_einen_internen_overflow_als_size_limit() {
+    let fixture = Fixture::new("read-overflow");
+    let path = fixture.root.join("datei");
+    fs::write(&path, b"abcd").unwrap();
+
+    let mut file = fs::File::open(&path).unwrap();
+    // R-03 (Audit 2026-11-17): `max_bytes + 1` ueberlaeuft nur bei u64::MAX;
+    // produktionsaufrufer bleiben darunter, der zweig ist nur hier erreichbar.
+    let error = read_fd_bytes(&mut file, "fixture", u64::MAX, &mut |_| {}).unwrap_err();
+
+    assert!(errcode::has_code(&error, errcode::SIZE_LIMIT), "{error}");
+}
+
+#[test]
 fn read_fd_bytes_liest_erst_nach_dem_hook() {
     let fixture = Fixture::new("read-hook");
     let path = fixture.root.join("datei");

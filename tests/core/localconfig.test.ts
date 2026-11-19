@@ -69,6 +69,29 @@ describe("findActiveUser", () => {
     const found = await findActiveUser(nodeFs(), root);
     expect(found).toEqual({ status: "selected", userId: "2", selection: "ambiguous" });
   });
+
+  it("reservierter account 0 (steamID64 = BASE) entscheidet MostRecent nicht", async () => {
+    // steamID64 76561197960265728 ist account 0 (reserviert). `>=` statt `>`
+    // in accountIdOf würde ihn als "0" zurückgeben und hier als eindeutige
+    // MostRecent-wahl durchgehen; korrekt bleibt nur der ambiguous-fallback.
+    const root = await mkdtemp(join(tmpdir(), "protium-baseuser-"));
+    for (const id of ["0", "2"]) {
+      await mkdir(join(root, "userdata", id, "config"), { recursive: true });
+      await writeFile(
+        join(root, "userdata", id, "config", "localconfig.vdf"),
+        `"UserLocalConfigStore"\n{\n}\n`,
+        "utf8",
+      );
+    }
+    await mkdir(join(root, "config"), { recursive: true });
+    await writeFile(
+      join(root, "config", "loginusers.vdf"),
+      `"users"\n{\n\t"76561197960265728"\n\t{\n\t\t"AccountName"\t\t"null"\n\t\t"MostRecent"\t\t"1"\n\t}\n}\n`,
+      "utf8",
+    );
+    const found = await findActiveUser(nodeFs(), root);
+    expect(found).toEqual({ status: "selected", userId: "0", selection: "ambiguous" });
+  });
 });
 
 describe("readAppFields", () => {

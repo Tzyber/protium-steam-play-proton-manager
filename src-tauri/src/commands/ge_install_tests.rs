@@ -429,7 +429,6 @@ fn release_identity_koppelt_tag_asset_installname_und_checksum_url() {
         "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/GE-Proton11-4/GE-Proton11-4-x86_64.tar.gz",
     )
     .unwrap();
-    assert_eq!(identity.asset_name, "GE-Proton11-4-x86_64.tar.gz");
     assert_eq!(identity.install_name, "GE-Proton11-4-x86_64");
     assert_eq!(identity.checksum_asset_name, "GE-Proton11-4-x86_64.tar.gz");
     assert_eq!(
@@ -583,13 +582,22 @@ fn cancel_nach_guard_check_verhindert_extract_mutation() {
     let _ = fs::remove_dir_all(root);
 }
 
-#[test]
-fn install_pipeline_oeffnet_downloadpfad_nicht_erneut() {
+/// Körper von `install_ge_proton_inner` bis zum nächsten Command-Attribut;
+/// gemeinsamer slice für die quelltext-pins der pipeline.
+fn pipeline_body() -> &'static str {
     let source = include_str!("ge_install.rs");
     let start = source
         .find("pub(super) async fn install_ge_proton_inner")
-        .unwrap();
-    let body = &source[start..source.find("#[tauri::command]").unwrap()];
+        .expect("install_ge_proton_inner fehlt");
+    &source[start
+        ..source
+            .find("#[tauri::command]")
+            .expect("kein #[tauri::command] nach der pipeline")]
+}
+
+#[test]
+fn install_pipeline_oeffnet_downloadpfad_nicht_erneut() {
+    let body = pipeline_body();
     assert!(!body.contains("File::open(&download_path"));
     assert!(!body.contains("cleanup_download_path"));
     assert!(!body.contains("download_file_name"));
@@ -600,6 +608,31 @@ fn install_pipeline_oeffnet_downloadpfad_nicht_erneut() {
     assert!(body.contains("= extract_in_authorized_environment("));
     assert!(body.contains("extract_blocking_with_tag_with_hook("));
     assert!(body.contains("&mut downloaded_file"));
+}
+
+/// R-01 (Audit 2026-11-17): `open_downloads_directory` macht mkdir,
+/// canonicalize und stat und gehört wie alle Nachbarschritte der Phase in den
+/// blocking-pool; auf dem Tokio-Worker würde es mitten im Download Progress
+/// und Cancel auf langsamem I/O blockieren. Der Pin schlägt an, sobald der
+/// Aufruf ausserhalb eines spawn_blocking_io-Abschnitts steht.
+#[test]
+fn open_downloads_directory_laeuft_im_blocking_pool() {
+    let body = pipeline_body();
+    let call = body
+        .find("open_downloads_directory(")
+        .expect("kein open_downloads_directory-aufruf im pipeline-koerper");
+    let spawn = body[..call]
+        .rfind("spawn_blocking_io(")
+        .expect("kein spawn_blocking_io vor dem aufruf");
+    let awaited = spawn
+        + body[spawn..]
+            .find(".await")
+            .expect("kein .await nach dem spawn");
+    assert!(
+        call < awaited,
+        "open_downloads_directory liegt nicht im blocking-pool: {}",
+        &body[call..(call + 80).min(body.len())]
+    );
 }
 
 /// R5: ein vorhandener, offen angelegter Cache und `downloads` werden beim

@@ -59,9 +59,8 @@ fn compile_target_arch() -> Result<TargetArch, String> {
     normalize_target_arch(std::env::consts::ARCH)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub(super) struct GeReleaseIdentity {
-    pub(super) asset_name: String,
     pub(super) install_name: String,
     pub(super) checksum_asset_name: String,
 }
@@ -169,8 +168,7 @@ pub(super) fn validate_release_identity(
         })?
         .to_string();
     let identity = GeReleaseIdentity {
-        asset_name: asset_name.to_string(),
-        install_name: install_name.clone(),
+        install_name,
         checksum_asset_name: asset_name.to_string(),
     };
     Ok(identity)
@@ -374,7 +372,12 @@ where
         )
     })
     .await?;
-    let (downloads_directory, expected_downloads_identity) = open_downloads_directory(cache_dir)?;
+    // R-01: mkdir/canonicalize/stat des download-ordners sind blockierende
+    // io wie die Nachbarschritte derselben Phase.
+    let cache_dir_owned = cache_dir.to_path_buf();
+    let (downloads_directory, expected_downloads_identity) =
+        crate::commands::spawn_blocking_io(move || open_downloads_directory(&cache_dir_owned))
+            .await?;
     let cancel_flag_clone = Arc::clone(&cancel_flag);
 
     // Download-Phase

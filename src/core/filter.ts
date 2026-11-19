@@ -1,4 +1,4 @@
-import type { CompatToolSource, Game, Tier } from "./types.js";
+import { type CompatToolSource, type Game, TIERS, type Tier } from "./types.js";
 
 export type SortKey = "name" | "size" | "tier" | "lastPlayed";
 export type SortDir = "asc" | "desc";
@@ -15,12 +15,16 @@ export interface LibraryQuery {
   protonCheckAppIds?: ReadonlySet<number>; // undefiniert = alle
 }
 
-// best → schlecht; kanonische reihenfolge für filter-UI und sortierung
-export const TIER_ORDER: Tier[] = ["platinum", "gold", "silver", "bronze", "borked", "unknown"];
+// best → schlecht; kanonische reihenfolge für filter-UI und sortierung.
+// Abgeleitet aus `TIERS`: eine neue stufe ist automatisch dabei und kann
+// nicht mehr nur in einer der beiden listen stehen (T-01, Audit 2026-11-17).
+export const TIER_ORDER: readonly Tier[] = TIERS;
 
-const TIER_RANK = Object.fromEntries(
-  TIER_ORDER.map((tier, i) => [tier, TIER_ORDER.length - 1 - i]),
-) as Record<Tier, number>;
+/** rang einer stufe für die tier-sortierung: position von hinten. über
+ *  `indexOf` braucht es keine rank-map mit typ-cast. */
+function tierRank(tier: Tier): number {
+  return TIER_ORDER.length - 1 - TIER_ORDER.indexOf(tier);
+}
 
 /** case-insensitiv: substring ODER subsequence (leichtgewichtiges fuzzy).
  *  export nur für den test (tests/core/filter.test.ts; K-13). */
@@ -58,9 +62,9 @@ export function filterAndSortGames(games: readonly Game[], q: LibraryQuery): Gam
       if (aVal === undefined && bVal !== undefined) return 1;
       if (aVal !== undefined && bVal === undefined) return -1;
       cmp = aVal === undefined || bVal === undefined ? 0 : aVal - bVal;
-    } else if (q.sortKey === "tier")
-      cmp = TIER_RANK[a.protonDb?.tier ?? "unknown"] - TIER_RANK[b.protonDb?.tier ?? "unknown"];
-    else cmp = a.name.localeCompare(b.name, "en", { sensitivity: "base" });
+    } else if (q.sortKey === "tier") {
+      cmp = tierRank(a.protonDb?.tier ?? "unknown") - tierRank(b.protonDb?.tier ?? "unknown");
+    } else cmp = a.name.localeCompare(b.name, "en", { sensitivity: "base" });
     // stabiler tie-break über name, damit reihenfolge nie „springt"
     if (cmp === 0) cmp = a.name.localeCompare(b.name, "en", { sensitivity: "base" });
     return cmp * dir;

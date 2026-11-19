@@ -4,7 +4,7 @@
  *  Laufzeit-Validatoren leiten daraus ab. Eine neue stufe oder ein neuer
  *  status wird hier ergänzt und ist damit überall bekannt; vorher stand
  *  dieselbe menge in vier dateien. */
-const TIERS = ["platinum", "gold", "silver", "bronze", "borked", "unknown"] as const;
+export const TIERS = ["platinum", "gold", "silver", "bronze", "borked", "unknown"] as const;
 export type Tier = (typeof TIERS)[number];
 
 const COMPAT_CONFIG_STATUSES = ["available", "missing", "unreadable"] as const;

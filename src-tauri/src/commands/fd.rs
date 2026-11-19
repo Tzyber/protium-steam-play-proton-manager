@@ -400,8 +400,10 @@ pub(super) fn read_fd_bytes(
     if length > max_bytes {
         return Err(errcode::with_detail(errcode::SIZE_LIMIT, label));
     }
+    // R-03 (Audit 2026-11-17): ein interner größenüberlauf ist ein size-limit,
+    // kein syntaktisch falscher identifier.
     let read_limit = max_bytes.checked_add(1).ok_or_else(|| {
-        errcode::with_detail(errcode::INVALID_ID, format!("{label} read limit overflows"))
+        errcode::with_detail(errcode::SIZE_LIMIT, format!("{label} read limit overflows"))
     })?;
     before_read(file);
     let mut bytes = Vec::new();

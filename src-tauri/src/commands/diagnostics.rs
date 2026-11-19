@@ -42,6 +42,11 @@ pub fn rotate_logs_if_needed(log_dir: &Path) {
                 };
                 let to = log_dir.join(format!("protium.log.{i}"));
                 if from.exists() {
+                    // R-04 (Audit 2026-11-17): best effort wie der panic-pfad -
+                    // ein fehlgeschlagenes rename darf das loggen nicht
+                    // abbrechen. Restrisiko: schlägt es dauerhaft fehl (z. b.
+                    // ist `protium.log.1` ein verzeichnis), wächst das log
+                    // ueber die 2-MiB-grenze weiter.
                     let _ = fs::rename(&from, &to);
                 }
             }
