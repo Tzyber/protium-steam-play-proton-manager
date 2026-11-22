@@ -416,7 +416,18 @@ describe("first-wins, rohstrings und prototyp-sicherheit", () => {
     expect(Object.getOwnPropertyNames(Object.prototype).join(",")).toBe(before);
   });
 
-  it("bricht bei großen offenen werten linear ab (S-01)", () => {
+  it("lehnt mehrzeilige offene quotes in allen vdfRead-einstiegen ab (S-01)", () => {
+    const open = '"AppState"\n{\n\t"name"\t"offen\n}\n';
+    expect(() => getVdfValue(open, ["AppState", "name"])).toThrow("unterminierter string");
+    expect(() => childKeys(open, ["AppState"])).toThrow("unterminierter string");
+    expect(() => isBlock(open, ["AppState"])).toThrow("unterminierter string");
+  });
+
+  // Unter Stryker laufen die tests mit coverage-instrumentation je zeichen (~1.17s > 1s).
+  // Der deterministische S-01-test oben bleibt aktiv; die wanduhr-messung läuft regulär.
+  const underMutation = process.env.STRYKER_MUTATOR_WORKER !== undefined;
+
+  it.skipIf(underMutation)("bricht bei großen offenen werten linear ab (S-01)", () => {
     const text = `"AppState"\n{\n\t"name"\t"${"x\n".repeat(200_000)}}\n`;
     const start = performance.now();
     expect(() => getVdfValue(text, ["AppState", "name"])).toThrow("unterminierter string");
