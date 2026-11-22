@@ -32,41 +32,34 @@ const {
 }));
 
 import type { DownloadProgressEvent, InstallPhaseEvent } from "../../src/core/ports";
-import { MOCK_TOKEN_TTL_MS } from "../support/cleanupStoreMocks";
 import { scanResult } from "../support/factories";
+import { MOCK_TOKEN_TTL_MS } from "../support/mockTokenTtl";
 
-// doMock statt vi.mock: cleanupStoreMocks (quelle der TTL-konstante) bringt sein
-// eigenes tauri-mock mit, und vitest behält von zwei registrierungen derselben
-// datei die zuletzt registrierte fassung. die registrierung nach den imports
-// macht diese fassung zur letzten, unabhängig von der import-reihenfolge der
-// testdateien (N-3).
-vi.doMock("../../src/core/adapters/tauri", async () => {
-  return {
-    tauriPorts: {
-      fs: {},
-      http: {
-        get: mockHttpGet,
-      },
-      system: {
-        geTargetArch: mockGeTargetArch,
-        installGeProton: mockInstallGeProton,
-        prepareDelete: vi.fn(async (req) => ({
-          token: "tok-ge",
-          expiresAt: Date.now() + MOCK_TOKEN_TTL_MS,
-          targetType: req.targetType,
-          targetPath: req.path,
-          consequences: [],
-        })),
-        executeDelete: vi.fn(async () => ({ deletedPath: "/path" })),
-        cancelDelete: vi.fn(async () => {}),
-        cancelDownload: mockCancelDownload,
-        onDownloadProgress: mockOnDownloadProgress,
-        onInstallPhase: mockOnInstallPhase,
-      },
-      cache: {},
+vi.mock("../../src/core/adapters/tauri", () => ({
+  tauriPorts: {
+    fs: {},
+    http: {
+      get: mockHttpGet,
     },
-  };
-});
+    system: {
+      geTargetArch: mockGeTargetArch,
+      installGeProton: mockInstallGeProton,
+      prepareDelete: vi.fn(async (req) => ({
+        token: "tok-ge",
+        expiresAt: Date.now() + MOCK_TOKEN_TTL_MS,
+        targetType: req.targetType,
+        targetPath: req.path,
+        consequences: [],
+      })),
+      executeDelete: vi.fn(async () => ({ deletedPath: "/path" })),
+      cancelDelete: vi.fn(async () => {}),
+      cancelDownload: mockCancelDownload,
+      onDownloadProgress: mockOnDownloadProgress,
+      onInstallPhase: mockOnInstallPhase,
+    },
+    cache: {},
+  },
+}));
 
 export const release: GeRelease = {
   tag: "GE-Proton9-27",

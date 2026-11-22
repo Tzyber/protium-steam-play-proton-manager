@@ -1,21 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { filterAndSortGames, fuzzyMatch, type LibraryQuery } from "../../src/core/filter.js";
 import type { Game, Tier } from "../../src/core/types.js";
+import { game as makeGame } from "../support/factories.js";
 
 function game(
   partial: Omit<Partial<Game>, "compatToolSource"> & { appId: number; name: string },
   compatToolSource: Game["compatToolSource"] = "default",
 ): Game {
-  return {
+  return makeGame({
     library: "/lib",
     sizeBytes: 0,
-    compatTool: "default",
     compatToolSource,
     protonDb: { tier: "unknown", confidence: "unknown" },
-    localHeader: null,
-    headerImage: null,
     ...partial,
-  };
+  });
 }
 
 const games: Game[] = [

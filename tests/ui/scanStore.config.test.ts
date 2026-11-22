@@ -1,19 +1,14 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { ScanResult } from "../../src/core/types";
 import { setLocale } from "../../src/ui/i18n";
 import { useLibraryStore } from "../../src/ui/stores/libraryStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
-import { game, scanResult } from "../support/factories";
+import { game, scanResult, scanResultWithGame } from "../support/factories";
 
 // applyGameConfig und coverage fassen den store direkt an: sie setzen
 // `store.result` selbst und lesen nur abgeleitete werte. kein lauf braucht den
 // scan-adapter oder die protondb-nachlauf-mocks aus scanStore.test.ts, deshalb
 // steht diese datei ohne `vi.mock` da.
-function fakeResult(): ScanResult {
-  return scanResult({ games: [game()] });
-}
-
 describe("scanStore.applyGameConfig", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
@@ -22,7 +17,7 @@ describe("scanStore.applyGameConfig", () => {
 
   it("schreibt launchOptions + compatTool ins passende spiel", () => {
     const store = useScanStore();
-    store.result = fakeResult();
+    store.result = scanResultWithGame();
 
     store.applyGameConfig(42, { launchOptions: "-novid", compatTool: "GE-Proton10-1" });
 
@@ -33,7 +28,7 @@ describe("scanStore.applyGameConfig", () => {
 
   it("compatTool-wechsel rechnet usedBy der tools neu", () => {
     const store = useScanStore();
-    store.result = fakeResult();
+    store.result = scanResultWithGame();
     store.result.compatToolsInstalled = [
       {
         name: "GE-Proton9-27",
@@ -62,7 +57,7 @@ describe("scanStore.applyGameConfig", () => {
 
   it("mapping-entfernen (default) nimmt das spiel aus usedBy", () => {
     const store = useScanStore();
-    store.result = fakeResult();
+    store.result = scanResultWithGame();
     store.result.compatToolsInstalled = [
       {
         name: "GE-Proton9-27",
@@ -81,7 +76,7 @@ describe("scanStore.applyGameConfig", () => {
 
   it("unbekannte appId: kein throw, kein write", () => {
     const store = useScanStore();
-    store.result = fakeResult();
+    store.result = scanResultWithGame();
 
     expect(() => store.applyGameConfig(999, { compatTool: "x" })).not.toThrow();
     expect(store.result.games[0]?.compatTool).toBe("default");
@@ -94,7 +89,7 @@ describe("scanStore.applyGameConfig", () => {
 
   it("applyGameConfig pruned tote compatTools-filter nach erfolgtem werkzeugwechsel (P4F2)", () => {
     const store = useScanStore();
-    store.result = fakeResult();
+    store.result = scanResultWithGame();
     store.result.games[0] = game({ appId: 42, compatTool: "GE-Proton9-27" });
     const lib = useLibraryStore();
     lib.compatTools = ["GE-Proton9-27"];
@@ -127,7 +122,7 @@ describe("scanStore.coverage", () => {
 
   it("leitet coverage nur für ein abgeschlossenes lokales resultat ab", () => {
     const store = useScanStore();
-    store.result = fakeResult();
+    store.result = scanResultWithGame();
 
     store.status = "scanning";
     expect(store.coverage).toBeNull();
@@ -139,7 +134,7 @@ describe("scanStore.coverage", () => {
 
   it("ändert coverage nicht durch den ProtonDB-reststatus", () => {
     const store = useScanStore();
-    store.result = fakeResult();
+    store.result = scanResultWithGame();
     store.status = "done";
     const before = store.coverage;
 

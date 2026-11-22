@@ -2,27 +2,17 @@ import { describe, expect, it } from "vitest";
 import { BLOCKLIST } from "../../src/core/blocklist.js";
 import { projectSupportFacts } from "../../src/core/support.js";
 import type { Game, ScanResult } from "../../src/core/types.js";
-import { customTool, portal2 } from "../support/factories.js";
+import { customTool, portal2, scanResult } from "../support/factories.js";
 
 function result(overrides: Partial<ScanResult> = {}): ScanResult {
-  return {
+  return scanResult({
     steamRoot: "/steam",
     libraries: ["/steam/library", "/steam/other-library"],
-    games: [],
-    compatToolsInstalled: [],
-    builtinProtonsInstalled: [],
-    defaultCompatTool: null,
-    compatConfigStatus: "available",
     steamUserId: "76561198012345678",
-    launchConfigStatus: "available",
     manifestCounts: { read: 1, failed: 0 },
     compatToolCounts: { read: 1, failed: 0 },
-    warnings: [],
-    skippedLibraries: [],
-    cleanupUnsafeLibraries: [],
-    blockedAppIds: [],
     ...overrides,
-  };
+  });
 }
 
 describe("projectSupportFacts", () => {

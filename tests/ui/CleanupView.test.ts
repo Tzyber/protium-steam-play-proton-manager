@@ -12,12 +12,12 @@ import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
 import CleanupView from "../../src/ui/views/CleanupView.vue";
+import { buttonWithText, settleView } from "../support/dom";
 import {
   orphan as makeOrphan,
   trashEntry as makeTrashEntry,
   scanResult,
 } from "../support/factories";
-import { buttonWithText, settleView } from "./CleanupView.helpers";
 
 describe("CleanupView incomplete deletions", () => {
   beforeEach(() => {

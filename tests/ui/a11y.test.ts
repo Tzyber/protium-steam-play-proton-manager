@@ -7,11 +7,8 @@ import { focusFirstFocusable, restoreFocus, trapFocus } from "../../src/ui/a11y"
 import BlockedExplanation from "../../src/ui/components/BlockedExplanation.vue";
 import ConfirmDialog from "../../src/ui/components/ConfirmDialog.vue";
 import { ruleBlock } from "../support/cssRules";
+import { tabEvent } from "../support/dom";
 import { tokenValues } from "../support/themeTokens";
-
-function tabEvent(shiftKey = false): KeyboardEvent {
-  return new KeyboardEvent("keydown", { key: "Tab", shiftKey, cancelable: true });
-}
 
 /** dialog-ähnliche struktur: zwei buttons + ein input im root. */
 function buildDialog(): {

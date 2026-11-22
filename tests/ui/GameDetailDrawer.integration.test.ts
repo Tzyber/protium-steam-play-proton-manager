@@ -8,7 +8,7 @@ import { version as appVersion } from "../../package.json";
 import type { IncompleteDeletion } from "../../src/core/cleanup";
 import type { WriteResult } from "../../src/core/ports";
 import type { Game, ScanResult } from "../../src/core/types";
-import { routeQueriesToBody } from "./drawerDom";
+import { routeQueriesToBody } from "../support/dom";
 
 const { measureGameFootprintMock, openExternalMock, openPrefixFolderMock } = vi.hoisted(() => ({
   measureGameFootprintMock: vi.fn(),
@@ -54,7 +54,12 @@ import { useConfigStore } from "../../src/ui/stores/configStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
 import { useUiStore } from "../../src/ui/stores/uiStore";
 import { formatSupportFacts } from "../../src/ui/supportText";
-import { deferred, game as makeGame } from "../support/factories";
+import {
+  customTool,
+  deferred,
+  game as makeGame,
+  scanResult as makeScanResult,
+} from "../support/factories";
 
 const marker = "fixture-secret-934";
 const privatePath = "/home/fixture-private-user/.steam/userdata/76561198012345678";
@@ -79,33 +84,21 @@ function game(overrides: Partial<Game> = {}): Game {
 }
 
 function scanResult(currentGame: Game = game(), overrides: Partial<ScanResult> = {}): ScanResult {
-  return {
+  return makeScanResult({
     steamRoot: privatePath,
     libraries: [currentGame.library],
     games: [currentGame],
     compatToolsInstalled: [
-      {
-        name: marker,
-        internalName: marker,
-        displayName: marker,
+      customTool(marker, {
         sizeBytes: 0,
         usedBy: [currentGame.appId],
-        source: "user",
-      },
+      }),
     ],
-    builtinProtonsInstalled: [],
-    defaultCompatTool: null,
-    compatConfigStatus: "available",
     steamUserId: "76561198012345678",
-    launchConfigStatus: "available",
     manifestCounts: { read: 1, failed: 0 },
     compatToolCounts: { read: 1, failed: 0 },
-    warnings: [],
-    skippedLibraries: [],
-    cleanupUnsafeLibraries: [],
-    blockedAppIds: [],
     ...overrides,
-  };
+  });
 }
 
 function seedCleanup(store: ReturnType<typeof useCleanupStore>): void {

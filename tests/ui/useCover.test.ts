@@ -13,19 +13,16 @@ vi.mock("../../src/core/adapters/tauri", () => ({
 }));
 
 import { useCover } from "../../src/ui/composables/useCover";
+import { game as makeGame } from "../support/factories";
 
 function game(appId: number, localHeader: string | null): Game {
-  return {
+  return makeGame({
     appId,
-    name: `Game ${appId}`,
     library: "/library",
     sizeBytes: 0,
-    compatTool: "default",
-    compatToolSource: "default",
-    protonDb: null,
     localHeader,
     headerImage: `https://cdn.example/${appId}.jpg`,
-  };
+  });
 }
 
 describe("useCover", () => {

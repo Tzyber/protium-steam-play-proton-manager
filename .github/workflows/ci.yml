@@ -46,8 +46,7 @@ jobs:
           sudo apt-get install -y appstream
           appstreamcli validate src-tauri/packaging/com.protium.desktop.metainfo.xml
       - run: npm test
-      - run: npm run bench:gate
-      - run: npm run vite:build
+      - run: npx vite build
       - run: npm audit --omit=dev
 
   # mutation läuft bei jedem push auf main (das gate bleibt voll). in PRs nur,

@@ -116,16 +116,8 @@ vi.mock("../../src/ui/components/TierBadge.vue", async () => ({
 }));
 
 import GameDetailDrawer from "../../src/ui/components/GameDetailDrawer.vue";
+import { routeQueriesToBody } from "../support/dom";
 import { game as makeGame, scanResult } from "../support/factories";
-import { routeQueriesToBody } from "./drawerDom";
-
-/** Pflicht-Element aus dem DOM: ein fehlendes Element lässt den Test mit
- *  klarer Meldung scheitern statt still zurückzuspringen. */
-export function requireElement(selector: string, root: ParentNode = document): HTMLElement {
-  const element = root.querySelector<HTMLElement>(selector);
-  if (!element) throw new Error(`element nicht gefunden: ${selector}`);
-  return element;
-}
 
 export function footprint(
   overrides: {

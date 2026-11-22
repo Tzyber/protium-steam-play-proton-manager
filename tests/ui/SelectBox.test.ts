@@ -4,6 +4,7 @@ import { mount } from "@vue/test-utils";
 import { afterEach, describe, expect, it } from "vitest";
 import { nextTick } from "vue";
 import SelectBox from "../../src/ui/components/SelectBox.vue";
+import { tabEvent } from "../support/dom";
 
 const options = [
   { value: "one", label: "One" },
@@ -13,15 +14,6 @@ const options = [
 afterEach(() => {
   document.body.innerHTML = "";
 });
-
-function tabEvent(shiftKey = false): KeyboardEvent {
-  return new KeyboardEvent("keydown", {
-    bubbles: true,
-    cancelable: true,
-    key: "Tab",
-    shiftKey,
-  });
-}
 
 describe("SelectBox", () => {
   it("rendert stabile, eindeutige trigger- und listbox-ids", async () => {
@@ -89,7 +81,7 @@ describe("SelectBox", () => {
     const trigger = wrapper.find("button");
     await trigger.trigger("click");
 
-    const event = tabEvent();
+    const event = tabEvent(false, true);
     trigger.element.dispatchEvent(event);
     await wrapper.vm.$nextTick();
 
@@ -102,7 +94,7 @@ describe("SelectBox", () => {
       const wrapper = mount(SelectBox, { props: { modelValue: "one", options } });
       await wrapper.find("button").trigger("click");
       const option = wrapper.find('[role="option"]');
-      const event = tabEvent(shiftKey);
+      const event = tabEvent(shiftKey, true);
 
       option.element.dispatchEvent(event);
       await wrapper.vm.$nextTick();
@@ -128,7 +120,7 @@ describe("SelectBox", () => {
       optionElement.focus();
       expect(document.activeElement).toBe(optionElement);
 
-      const event = tabEvent(shiftKey);
+      const event = tabEvent(shiftKey, true);
       optionElement.dispatchEvent(event);
       await nextTick();
       await nextTick();

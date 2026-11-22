@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { afterAll, describe, expect, it } from "vitest";
-import { CALIBRATION_NAME, formatMeasurementLine } from "../../scripts/bench-gate-lib.mjs";
 import { scanGames } from "../../src/core/scan/games.js";
 import { scanLocal } from "../../src/core/scan/local.js";
 import { enrichProtondb } from "../../src/core/scan/protondb.js";
@@ -18,11 +17,22 @@ import {
   warmScanPerformanceCache,
 } from "../support/scanPerformance";
 
+const BENCH_TAG = "[scan benchmark]";
+const CALIBRATION_NAME = "calibration";
 const MANUAL_RUNS = 5;
 const CALIBRATION_RUNS = 5;
 /** Zehntel des Haupt-Fixtures: dieselbe Arbeit, kurz genug fuer jeden Lauf. */
 const CALIBRATION_GAME_COUNT = 50;
 const output: string[] = [];
+
+function formatMeasurementLine(
+  name: string,
+  values: readonly number[],
+  medianValue: number,
+): string {
+  const max = values.length === 0 ? medianValue : Math.max(...values);
+  return `${BENCH_TAG} ${name}Ms raw=${JSON.stringify(values)} median=${medianValue} max=${max}`;
+}
 
 interface ScenarioMeasurements {
   localMs: number[];

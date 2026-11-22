@@ -3,9 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EnvironmentSnapshot } from "../../src/core/ports";
 import type { scanLocal } from "../../src/core/scan/local";
 import type { enrichProtondb } from "../../src/core/scan/protondb";
-import type { ScanResult } from "../../src/core/types";
 import { setLocale } from "../../src/ui/i18n";
-import { deferred, environment, game, scanResult } from "../support/factories";
+import { deferred, environment, game, scanResult, scanResultWithGame } from "../support/factories";
 
 const { mockDiscoverEnvironment, mockScanLocal, mockEnrichProtondb } = vi.hoisted(() => ({
   mockDiscoverEnvironment: vi.fn<() => Promise<EnvironmentSnapshot>>(async () => environment()),
@@ -34,11 +33,7 @@ vi.mock("../../src/core/scan/protondb", () => ({
 import { useLibraryStore } from "../../src/ui/stores/libraryStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
 
-function fakeResult(): ScanResult {
-  return scanResult({ games: [game()] });
-}
-
-function fakeLocalResult(result = fakeResult()): Awaited<ReturnType<typeof scanLocal>> {
+function fakeLocalResult(result = scanResultWithGame()): Awaited<ReturnType<typeof scanLocal>> {
   return {
     libraries: result.libraries,
     games: result.games,
@@ -402,13 +397,13 @@ describe("scanStore.runScan", () => {
     const oldRun = store.runScan();
     await vi.waitFor(() => expect(mockScanLocal).toHaveBeenCalledTimes(1));
     const newRun = store.runScan();
-    oldLocal.resolve(fakeLocalResult({ ...fakeResult(), steamRoot: "/old" }));
+    oldLocal.resolve(fakeLocalResult(scanResultWithGame({ steamRoot: "/old" })));
     await oldRun;
 
     expect(store.result).toBeNull();
     expect(store.status).toBe("scanning");
 
-    newLocal.resolve(fakeLocalResult({ ...fakeResult(), steamRoot: "/new" }));
+    newLocal.resolve(fakeLocalResult(scanResultWithGame({ steamRoot: "/new" })));
     await newRun;
     expect(store.result?.steamRoot).toBe("/home/u/.steam");
   });
@@ -484,7 +479,7 @@ describe("scanStore.runScan", () => {
     const store = useScanStore();
     await store.runScan();
     const original = store.result;
-    store.result = fakeResult();
+    store.result = scanResultWithGame();
     const replacement = store.result;
 
     expect(options?.shouldApply?.()).toBe(false);
@@ -513,7 +508,7 @@ describe("scanStore.runScan", () => {
   });
 
   it("null spiele starten keinen nachlauf und schließen reststatus sofort", async () => {
-    const empty = fakeResult();
+    const empty = scanResultWithGame();
     empty.games = [];
     mockScanLocal.mockResolvedValue(fakeLocalResult(empty));
     const store = useScanStore();

@@ -9,7 +9,7 @@ import {
   findSteamOwnedPrefixes,
 } from "../../src/core/cleanup.js";
 import { scanGames } from "../../src/core/scan/games.js";
-import type { OrphanEntry } from "../../src/core/types.js";
+import { orphan as makeOrphan } from "../support/factories.js";
 import { buildFakeSteam, nodeFs } from "../support/fakeSteam";
 
 async function setup() {
@@ -559,9 +559,8 @@ describe("findIncompleteDeletions", () => {
 });
 
 describe("classifyOrphans", () => {
-  const orphan = (appId: number, type: OrphanEntry["type"]): OrphanEntry => ({
-    appId,
-    type,
+  const orphan = (appId: number, type: "compatdata" | "shadercache") => ({
+    ...makeOrphan(appId, type),
     path: `/lib/steamapps/${type}/${appId}`,
     library: "/lib",
   });

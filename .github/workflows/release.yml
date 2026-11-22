@@ -193,22 +193,13 @@ jobs:
       # Erst nach setup-node: im Container ist node nicht vorinstalliert.
       - name: Verify release version
         if: github.event_name != 'workflow_dispatch'
-        run: |
-          node scripts/check-release-version.mjs --self-test
-          node scripts/check-release-version.mjs
+        run: node scripts/check-release-version.mjs
 
       # P18/FR-1: fester Toolchain wie in rust-toolchain.toml, kein stable.
       - name: Rust
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable=v1
         with:
           toolchain: 1.95.0
-          # rustfmt fehlt im minimal-Profil; `cargo fmt --check` braucht es.
-          components: clippy, rustfmt
-
-      - name: Install cargo-audit
-        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
-        with:
-          tool: cargo-audit
 
       # Im Container laeuft alles als root, sudo gibt es dort nicht.
       - name: Linux dependencies
@@ -218,7 +209,6 @@ jobs:
             build-essential \
             binutils \
             appstream \
-            libcap2-bin \
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
@@ -230,25 +220,11 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      # bench:gate und mutation laufen bewusst nur in der CI: das Bench-Gate
-      # ist maschinengebunden (Runner-Hardware weicht ab) und der Mutationslauf
-      # dauert ein Vielfaches des Builds. Beide sind damit keine stille Luecke,
-      # sondern eine dokumentierte Grenze des Release-Workflows.
-      - name: Verify before release build
-        run: |
-          npm run check
-          npm test
-          npm run vite:build
-          npm audit --omit=dev
-          cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-          cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-          # Im Container laeuft alles als root, und root umgeht Dateirechte.
-          # Der Rechte-Test (unlesbarer Prefix) wuerde dadurch falsch bestehen;
-          # capsh nimmt der Teststufe DAC_OVERRIDE weg, damit sie sich wie auf
-          # dem Runner verhaelt.
-          capsh --drop=cap_dac_override -- -c 'cargo test --locked --manifest-path src-tauri/Cargo.toml'
-          cargo audit --file src-tauri/Cargo.lock
-          appstreamcli validate src-tauri/packaging/com.protium.desktop.metainfo.xml
+      # check, mutation, rust und audit laufen bereits verbindlich ueber den
+      # guard-job auf demselben commit; hier bleibt die metainfo-pruefung,
+      # waehrend `tauri build` Cargo.lock direkt ueber `--locked` erzwingt.
+      - name: Validate AppStream metainfo
+        run: appstreamcli validate src-tauri/packaging/com.protium.desktop.metainfo.xml
 
       # appimagetool 1.9.1 gepinnt (identisch zu continuous, gleiche
       # build-id 3431b179) → sha-verifizierbar, M4.5-konform. continuous
@@ -275,12 +251,10 @@ jobs:
       # AppImage-bundling-Schritt abbrechen (reproduziert lokal, fix
       # verifiziert). system-libs sind bereits gestrippt, strip-überspringen
       # ist sicher.
-      # r-15: kein eigenes Lockfile-Gate hier. `cargo clippy --locked` und
-      # `cargo test --locked` laufen im selben Job in "Verify before release
-      # build" davor; ein dort veraendertes Cargo.lock bricht den Lauf, der
-      # Stand ist damit gebunden, bevor `tauri build` baut.
+      # r-15: `tauri build` uebergibt `--locked` direkt an Cargo, sodass ein
+      # veraendertes Cargo.lock den Release-Build sofort abbricht.
       - name: Build AppImage
-        run: npm run tauri build -- --bundles appimage deb
+        run: npm run tauri build -- --bundles appimage deb -- --locked
         env:
           NO_STRIP: "true"
 

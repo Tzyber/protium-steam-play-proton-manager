@@ -7,6 +7,7 @@ import type { GeRelease } from "../../src/core/geprotonReleases";
 import type { CompatTool } from "../../src/core/types";
 import { setLocale } from "../../src/ui/i18n";
 import { useProtonStore } from "../../src/ui/stores/protonStore";
+import { customTool } from "../support/factories";
 
 const { protonState, scanState, uiState, confirmState } = vi.hoisted(() => ({
   protonState: {
@@ -81,14 +82,7 @@ function makeRelease(tag: string, installName: string): GeRelease {
 }
 
 function makeInstalledTool(name: string): CompatTool {
-  return {
-    name,
-    internalName: name,
-    displayName: name,
-    sizeBytes: 1,
-    usedBy: [],
-    source: "user",
-  };
+  return customTool(name, { sizeBytes: 1 });
 }
 
 afterEach(() => {

@@ -51,6 +51,11 @@ export function scanResult(overrides: Partial<ScanResult> = {}): ScanResult {
   };
 }
 
+/** Scan-Ergebnis mit einem Standard-Spiel (`appId: 42`). */
+export function scanResultWithGame(overrides: Partial<ScanResult> = {}): ScanResult {
+  return scanResult({ games: [game()], ...overrides });
+}
+
 /** Backend-Snapshot, wie ihn `discover_steam_environment` im Normalfall
  *  liefert: generation 1, eine library, die die wurzel enthält. */
 export function environment(overrides: Partial<EnvironmentSnapshot> = {}): EnvironmentSnapshot {

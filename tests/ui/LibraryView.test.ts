@@ -9,15 +9,8 @@ import { setLocale, t } from "../../src/ui/i18n";
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useLibraryStore } from "../../src/ui/stores/libraryStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
+import { requireElement } from "../support/dom";
 import { game, scanResult } from "../support/factories";
-
-/** Pflicht-Element aus dem DOM: ein fehlendes Element lässt den Test mit
- *  klarer Meldung scheitern statt still zurückzuspringen. */
-function requireElement(selector: string, root: ParentNode = document): HTMLElement {
-  const element = root.querySelector<HTMLElement>(selector);
-  if (!element) throw new Error(`element nicht gefunden: ${selector}`);
-  return element;
-}
 
 // Zwei spiele: 42 braucht einen proton-check, 43 ist sauber.
 function result(overrides: Partial<ScanResult> = {}): ScanResult {

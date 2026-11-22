@@ -1,18 +1,7 @@
-import type { mount } from "@vue/test-utils";
 import { vi } from "vitest";
-import { nextTick } from "vue";
 import { tauriPorts } from "../../src/core/adapters/tauri";
 import * as shortcuts from "../../src/core/shortcuts";
 import { MOCK_TOKEN_TTL_MS } from "../support/mockTokenTtl";
-
-/** T-05: der view-flow hängt nur an Vue-Ticks und microtasks, es gibt keinen
- *  timer im pfad. Zwei Ticks plus ein microtask-drain sind deterministisch,
- *  während die früheren setTimeout(20)-Waits unter Last flakten. */
-export async function settleView(): Promise<void> {
-  await nextTick();
-  await nextTick();
-  await Promise.resolve();
-}
 
 export function stubDeletePorts(rejectPath?: string): () => void {
   const isSteamRunning = vi.spyOn(tauriPorts.system, "isSteamRunning").mockResolvedValue(false);
@@ -42,12 +31,4 @@ export function stubDeletePorts(rejectPath?: string): () => void {
     cancelDelete.mockRestore();
     readShortcuts.mockRestore();
   };
-}
-
-export function pressedRows(wrapper: ReturnType<typeof mount>, panel: string): boolean[] {
-  return wrapper.findAll(`${panel} .row`).map((row) => row.attributes("aria-pressed") === "true");
-}
-
-export function buttonWithText(wrapper: ReturnType<typeof mount>, text: string) {
-  return wrapper.findAll("button").find((button) => button.text() === text);
 }

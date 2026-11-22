@@ -355,6 +355,10 @@ mod tests {
         assert!(is_safe_path("/mnt/games"));
         assert!(is_safe_path("/run/media/user/lib"));
         assert!(is_safe_path("/tmp/build"));
+        assert!(is_safe_path("/etcfoo"));
+        assert!(is_safe_path("/proc-games"));
+        assert!(is_safe_path("/sysinfo"));
+        assert!(is_safe_path("/devices"));
     }
 
     #[test]

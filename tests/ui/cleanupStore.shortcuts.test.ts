@@ -7,6 +7,7 @@ import {
   fakeOrphanEntries,
   fakeOrphanEntry,
   fakeScan,
+  fakeScanWithGames,
   MOCK_TOKEN_TTL_MS,
   mockExecuteDelete,
   mockFindOrphans,
@@ -18,7 +19,6 @@ import {
 } from "../support/cleanupStoreMocks";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ScanResult } from "../../src/core/types";
 import * as diagnostics from "../../src/ui/diagnostics";
 import { formatError } from "../../src/ui/formatError";
 import { setLocale, t } from "../../src/ui/i18n";
@@ -26,11 +26,7 @@ import { trashDeleteBlockedText } from "../../src/ui/stores/cleanupHelpers";
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
-import { deferred, game as makeGame } from "../support/factories";
-
-function fakeScanWithGames(gameIds: number[]): ScanResult {
-  return { ...fakeScan(), games: gameIds.map((appId) => makeGame({ appId })) };
-}
+import { deferred } from "../support/factories";
 
 describe("cleanupStore, S-05 + shortcuts", () => {
   beforeEach(() => {

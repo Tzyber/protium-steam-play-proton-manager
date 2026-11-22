@@ -7,6 +7,7 @@ import {
 import { paths } from "../../src/core/paths.js";
 import type { DirectorySize, System } from "../../src/core/ports.js";
 import type { Game, LaunchConfigStatus } from "../../src/core/types.js";
+import { game as makeGame } from "../support/factories.js";
 
 type BatchResponse = unknown | ((requestedPaths: string[]) => unknown | Promise<unknown>);
 type MissingOverrides = {
@@ -15,18 +16,13 @@ type MissingOverrides = {
 };
 
 function game(overrides: Partial<Game> = {}): Game {
-  return {
-    appId: 42,
+  return makeGame({
     name: "Game Name",
     library: "/primary/library",
+    sizeBytes: undefined,
     installdir: "actual-install-dir",
-    compatTool: "default",
-    compatToolSource: "default",
-    protonDb: null,
-    localHeader: null,
-    headerImage: null,
     ...overrides,
-  };
+  });
 }
 
 function systemWith(response: BatchResponse): Pick<System, "batchDirSizes"> {

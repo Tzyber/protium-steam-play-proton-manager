@@ -1,32 +1,30 @@
 import { describe, expect, it } from "vitest";
 import { deriveProtonCheck } from "../../src/core/protoncheck.js";
 import type { CompatTool, Game, ScanResult } from "../../src/core/types.js";
+import {
+  customTool as makeCustomTool,
+  game as makeGame,
+  scanResult as makeScanResult,
+} from "../support/factories.js";
 
 const game = (
   appId: number,
   protonDb: Game["protonDb"],
   compatTool: string,
   compatToolSource: Game["compatToolSource"] = "unavailable",
-): Game => ({
-  appId,
-  name: `game-${appId}`,
-  library: "/steam",
-  sizeBytes: 0,
-  compatTool,
-  compatToolSource,
-  protonDb,
-  localHeader: null,
-  headerImage: null,
-});
+): Game =>
+  makeGame({
+    appId,
+    name: `game-${appId}`,
+    library: "/steam",
+    sizeBytes: 0,
+    compatTool,
+    compatToolSource,
+    protonDb,
+  });
 
-const customTool = (name: string, internalName = name): CompatTool => ({
-  name,
-  internalName,
-  displayName: name,
-  sizeBytes: 0,
-  usedBy: [],
-  source: "user",
-});
+const customTool = (name: string, internalName = name): CompatTool =>
+  makeCustomTool(name, { internalName, sizeBytes: 0 });
 
 const result = (
   games: Game[],
@@ -34,16 +32,14 @@ const result = (
   builtinProtonsInstalled: ScanResult["builtinProtonsInstalled"] = [],
   warnings: ScanResult["warnings"] = [],
   blockedAppIds: number[] = [],
-): Pick<
-  ScanResult,
-  "games" | "compatToolsInstalled" | "builtinProtonsInstalled" | "warnings" | "blockedAppIds"
-> => ({
-  games,
-  compatToolsInstalled,
-  builtinProtonsInstalled,
-  warnings,
-  blockedAppIds,
-});
+): ScanResult =>
+  makeScanResult({
+    games,
+    compatToolsInstalled,
+    builtinProtonsInstalled,
+    warnings,
+    blockedAppIds,
+  });
 
 describe("deriveProtonCheck", () => {
   it("liefert nur bronze, borked und explizit unbekannte tools", () => {

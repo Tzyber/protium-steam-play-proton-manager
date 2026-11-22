@@ -136,23 +136,17 @@ fn zero_app_id_bleibt_blockiert_trotz_manifest_und_prefix() {
     fixture.assert_error_for(0, "blocked", &mut |_| {});
 }
 
-/// FR-4: die u32-grenze des commands. Ohne `test`-feature ist die
-/// tauri-deserialisierung (`InvalidArgs` für nicht-zahlen) nicht aufrufbar,
-/// deshalb hält der pin die signatur fest.
+/// FR-4: die u32-grenze des commands. Compile-Time-Signaturprüfung statt
+/// Quelltext-Grep: eine Änderung von `app_id: u32` bricht den Build.
 #[test]
 fn open_prefix_folder_nimmt_die_app_id_als_zahl() {
-    let production = include_str!("prefix.rs");
-    let signatur = production
-        .split_once("pub async fn open_prefix_folder(")
-        .map(|(_, rest)| rest)
-        .expect("open_prefix_folder muss vorhanden sein")
-        .split_once(") -> Result<(), String> {")
-        .map(|(span, _)| span)
-        .expect("open_prefix_folder braucht die erwartete rückgabe");
-    assert!(
-        signatur.contains("app_id: u32"),
-        "open_prefix_folder muss app_id: u32 nehmen: {signatur}"
-    );
+    fn assert_u32_app_id<'a, F, Fut>(_f: F)
+    where
+        F: Fn(tauri::State<'a, EnvironmentState>, String, u32) -> Fut,
+        Fut: std::future::Future<Output = Result<(), String>>,
+    {
+    }
+    assert_u32_app_id(open_prefix_folder);
 }
 
 #[test]

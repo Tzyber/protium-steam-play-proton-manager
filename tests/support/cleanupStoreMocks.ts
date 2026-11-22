@@ -20,7 +20,12 @@ import type { DirectorySize, PendingDeleteInfo, PrepareDeleteRequest } from "../
 import type { readAllShortcutAppIds } from "../../src/core/shortcuts";
 import type { findTrashEntries, TrashEntry, TrashLibraryStatus } from "../../src/core/trash";
 import type { OrphanEntry, ScanResult } from "../../src/core/types";
-import { orphan as makeOrphan, trashEntry as makeTrashEntry, scanResult } from "./factories";
+import {
+  game as makeGame,
+  orphan as makeOrphan,
+  trashEntry as makeTrashEntry,
+  scanResult,
+} from "./factories";
 
 const hoisted = vi.hoisted(() => {
   // DELETE_TOKEN_TTL_SECS = 300 in src-tauri/src/commands/delete_ops.rs (siehe
@@ -223,6 +228,10 @@ export function fakeScan(
     skippedLibraries: skipped ?? [],
     cleanupUnsafeLibraries: cleanupUnsafeLibraries ?? [],
   });
+}
+
+export function fakeScanWithGames(gameIds: number[]): ScanResult {
+  return { ...fakeScan(), games: gameIds.map((appId) => makeGame({ appId })) };
 }
 
 /** Papierkorb-Eintrag mit den Werten, auf die die cleanupStore-Tests bauen;

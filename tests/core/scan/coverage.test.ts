@@ -1,26 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { deriveScanCoverage, effectiveScanCoverage } from "../../../src/core/scan/coverage.js";
 import type { ScanResult } from "../../../src/core/types.js";
+import { scanResult } from "../../support/factories.js";
 
 function result(overrides: Partial<ScanResult> = {}): ScanResult {
-  return {
+  return scanResult({
     steamRoot: "/steam",
     libraries: ["/steam", "/games"],
-    games: [],
-    compatToolsInstalled: [],
-    builtinProtonsInstalled: [],
-    defaultCompatTool: null,
-    compatConfigStatus: "available",
-    launchConfigStatus: "available",
     steamUserId: "123",
     manifestCounts: { read: 2, failed: 0 },
     compatToolCounts: { read: 1, failed: 0 },
-    warnings: [],
-    skippedLibraries: [],
-    cleanupUnsafeLibraries: [],
-    blockedAppIds: [],
     ...overrides,
-  };
+  });
 }
 
 describe("deriveScanCoverage", () => {

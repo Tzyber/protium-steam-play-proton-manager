@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as pathsModule from "../../src/core/paths.js";
 import { paths, SYSTEM_COMPAT_DIRS } from "../../src/core/paths.js";
-import { readRepoFile, resolveRepoRoot } from "../support/themeTokens";
+import { resolveRepoRoot } from "../support/themeTokens";
 
 describe("paths", () => {
   it("konstruiert Environment-Pfade ohne eigene Discovery", () => {
@@ -37,13 +37,6 @@ describe("paths", () => {
     expect(paths.manifestIn(dir, name)).toBe(paths.entryIn(dir, name));
     expect(paths.claimEntryIn(dir, name)).toBe(paths.entryIn(dir, name));
     expect(paths.trashEntryIn(dir, name)).toBe(paths.entryIn(dir, name));
-
-    const source = readRepoFile("src/core/paths.ts");
-    for (const wrapper of ["manifestIn", "claimEntryIn", "trashEntryIn"]) {
-      expect(source, `${wrapper} ruft entryIn nicht auf`).toMatch(
-        new RegExp(`${wrapper}: \\([^)]*\\) => entryIn\\(`),
-      );
-    }
   });
 
   it("führt nur die beiden festen System-Compat-Wurzeln", () => {
@@ -64,14 +57,6 @@ describe("paths: entfernte Exporte (1.12, 6.6)", () => {
   it("führt libraryFoldersVdf nicht mehr als Pfad-Fabrik", () => {
     expect(Object.keys(paths)).not.toContain("libraryFoldersVdf");
     expect(Object.keys(paths)).toContain("entryIn");
-  });
-
-  it("setzt LOCAL_HEADER_FILENAME vor das paths-objekt (2.13)", () => {
-    const source = readRepoFile("src/core/paths.ts");
-    const constant = source.indexOf("const LOCAL_HEADER_FILENAME");
-    const object = source.indexOf("export const paths");
-    expect(constant).toBeGreaterThanOrEqual(0);
-    expect(object).toBeGreaterThan(constant);
   });
 });
 

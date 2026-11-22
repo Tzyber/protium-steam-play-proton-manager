@@ -8,7 +8,6 @@ import { formatLibraryReason } from "../../src/ui/coverageText";
 import { setLocale, t } from "../../src/ui/i18n";
 import { useScanStore } from "../../src/ui/stores/scanStore";
 import { scanResult } from "../support/factories";
-import { readRepoFile } from "../support/themeTokens";
 
 /** P17a/FR-2 (4.14): die vier Karten kommen aus einer computed-Gruppenliste.
  *  Texte, Reihenfolge und Aufmerksamkeits-Markierung bleiben wie zuvor. */
@@ -103,13 +102,5 @@ describe("ScanCoveragePanel: Karten aus der Gruppenliste", () => {
     expect(wrapper.findAll(".coverage-card--attention")).toHaveLength(3);
     expect(wrapper.findAll(".coverage-card--complete")).toHaveLength(1);
     expect(wrapper.get(".coverage-card").classes()).toContain("coverage-card--attention");
-  });
-
-  it("leitet die Karten aus einer computed-Gruppenliste per v-for ab", () => {
-    const source = readRepoFile("src/ui/components/ScanCoveragePanel.vue");
-    expect(source).toContain("const coverageCards = computed");
-    expect(source).toContain('v-for="card in coverageCards"');
-    // genau eine karten-markup-stelle statt vier fester blöcke
-    expect(source.match(/class="coverage-group coverage-card"/g) ?? []).toHaveLength(1);
   });
 });

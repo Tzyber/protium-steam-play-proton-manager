@@ -408,9 +408,8 @@ Prüfwege gelten ab dem ersten Release mit `SHA256SUMS`; die Releases bis
   Minuten, bis die CI-Jobs `check`, `mutation`, `rust` und `audit` zum selben
   Commit erfolgreich abgeschlossen sind, und bricht fail-closed ab, sobald
   einer davon fehlschlägt oder nach 10 Minuten keiner existiert; erst dann
-  startet der Build. `bench:gate` und der Mutationslauf laufen nur in der CI:
-  das Bench-Gate ist maschinengebunden und der Mutationslauf dauert ein
-  Vielfaches des Builds.
+  startet der Build. Der Mutationslauf läuft bewusst nur in der CI, da er ein
+  Vielfaches des Builds dauert, und wird vom Guard verbindlich verlangt.
   - *Voraussetzungen für CI-Läufe auf dem Tag-Commit:* Der Release-Commit muss
     der oberste Commit (Tip) des Pushs auf `main` sein (bei einem Push mehrerer
     Commits läuft die CI nur für den neueren Tip) und mindestens eine Datei

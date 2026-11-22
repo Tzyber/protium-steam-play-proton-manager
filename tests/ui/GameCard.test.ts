@@ -22,20 +22,16 @@ vi.mock("../../src/ui/components/TierBadge.vue", () => ({
 }));
 
 import GameCard from "../../src/ui/components/GameCard.vue";
+import { game as makeGame } from "../support/factories";
 
 function game(overrides: Partial<Game> = {}): Game {
-  return {
-    appId: 42,
+  return makeGame({
     name: "Testspiel",
     library: "/games",
     sizeBytes: 0,
-    compatTool: "default",
-    compatToolSource: "default",
     protonDb: { tier: "gold", confidence: "strong" },
-    localHeader: null,
-    headerImage: null,
     ...overrides,
-  };
+  });
 }
 
 afterEach(() => {

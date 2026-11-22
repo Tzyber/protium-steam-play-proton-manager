@@ -5,6 +5,7 @@
 // biome-ignore assist/source/organizeImports: mock-registrierung muss vor dem store-import laufen (T-01)
 import {
   fakeScan,
+  fakeScanWithGames,
   fakeTrashEntry,
   MOCK_TOKEN_TTL_MS,
   mockBatchDirSizes,
@@ -17,17 +18,12 @@ import {
 } from "../support/cleanupStoreMocks";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ScanResult } from "../../src/core/types";
 import { formatError } from "../../src/ui/formatError";
 import { setLocale, t } from "../../src/ui/i18n";
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
-import { deferred, game as makeGame } from "../support/factories";
-
-function fakeScanWithGames(gameIds: number[]): ScanResult {
-  return { ...fakeScan(), games: gameIds.map((appId) => makeGame({ appId })) };
-}
+import { deferred } from "../support/factories";
 
 describe("cleanupStore, papierkorb-refresh nach dem löschen", () => {
   beforeEach(() => {

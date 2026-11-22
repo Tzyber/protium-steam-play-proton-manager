@@ -7,7 +7,6 @@ import {
   footprint,
   measureGameFootprintMock,
   mountDrawer,
-  requireElement,
   resetDrawerMocks,
   result,
   scanState,
@@ -17,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { nextTick } from "vue";
 import type { ProtonCheck } from "../../src/core/protoncheck";
 import { setLocale, t } from "../../src/ui/i18n";
+import { requireElement } from "../support/dom";
 import { game as makeGame, scanResult } from "../support/factories";
 
 describe("GameDetailDrawer Config-Provenienz", () => {
@@ -54,7 +54,7 @@ describe("GameDetailDrawer Config-Provenienz", () => {
     expect(de.get(".meta-tier").text()).not.toContain("läuft perfekt, out of the box");
 
     setLocale("en");
-    // die abfragen laufen über document.body (Teleport, siehe drawerDom.ts):
+    // die abfragen laufen über document.body (Teleport, siehe tests/support/dom.ts):
     // der erste mount muss weg, sonst trifft .meta-tier den alten drawer.
     de.unmount();
     document.body.innerHTML = "";

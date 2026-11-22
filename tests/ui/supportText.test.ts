@@ -3,27 +3,16 @@ import { projectSupportFacts, type SupportInput } from "../../src/core/support.j
 import type { ScanResult } from "../../src/core/types.js";
 import { setLocale } from "../../src/ui/i18n/index.js";
 import { formatSupportFacts } from "../../src/ui/supportText.js";
-import { customTool, portal2 } from "../support/factories";
+import { customTool, portal2, scanResult } from "../support/factories";
 
 function result(overrides: Partial<ScanResult> = {}): ScanResult {
-  return {
+  return scanResult({
     steamRoot: "/steam",
     libraries: ["/steam/library"],
-    games: [],
-    compatToolsInstalled: [],
-    builtinProtonsInstalled: [],
-    defaultCompatTool: null,
-    compatConfigStatus: "available",
-    steamUserId: null,
-    launchConfigStatus: "available",
     manifestCounts: { read: 1, failed: 0 },
     compatToolCounts: { read: 1, failed: 0 },
-    warnings: [],
-    skippedLibraries: [],
-    cleanupUnsafeLibraries: [],
-    blockedAppIds: [],
     ...overrides,
-  };
+  });
 }
 
 afterEach(() => setLocale("en"));
