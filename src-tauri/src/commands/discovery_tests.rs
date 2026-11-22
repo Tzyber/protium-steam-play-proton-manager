@@ -41,7 +41,11 @@ fn discovery_rejects_root_symlink_outside_home() {
 
     let result =
         build_environment_snapshot(&home, &home.join("app-cache"), &home.join("app-config"));
-    assert!(result.unwrap_err().contains("steam-not-found"));
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("steam-root-symlink-unsupported"),
+        "expected steam-root-symlink-unsupported, got: {err}"
+    );
 
     let _ = std::fs::remove_dir_all(home);
     let _ = std::fs::remove_dir_all(outside);
@@ -142,7 +146,11 @@ fn discovery_rejects_alias_to_documents_fake_steam() {
 
     let result =
         build_environment_snapshot(&home, &home.join("app-cache"), &home.join("app-config"));
-    assert!(result.unwrap_err().contains("steam-not-found"));
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("steam-root-symlink-unsupported"),
+        "expected steam-root-symlink-unsupported, got: {err}"
+    );
     let _ = std::fs::remove_dir_all(home);
 }
 

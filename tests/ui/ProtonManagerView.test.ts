@@ -21,6 +21,7 @@ const { protonState, scanState, uiState, confirmState } = vi.hoisted(() => ({
     jobs: {},
     activeTag: null as string | null,
     busyRemove: null as string | null,
+    extractLeftovers: [] as string[],
     warning: null,
     init: vi.fn(async () => {}),
     loadReleases: vi.fn(async () => {}),
@@ -28,6 +29,7 @@ const { protonState, scanState, uiState, confirmState } = vi.hoisted(() => ({
     queueInstall: vi.fn(),
     cancel: vi.fn(async () => {}),
     remove: vi.fn(),
+    removeLeftover: vi.fn(),
   },
   scanState: {
     games: [],
@@ -307,6 +309,26 @@ describe("ProtonManagerView statuszeile", () => {
       vi.useRealTimers();
     }
   });
+
+  it("zeigt offline ohne cache als noch nie aktualisiert statt gerade eben", () => {
+    setLocale("de");
+    protonState.lastSource = "offline";
+    protonState.lastFetchedAt = null;
+    try {
+      const wrapper = mount(ProtonManagerView);
+      expect(wrapper.text()).toContain("offline · noch nie aktualisiert");
+      expect(wrapper.text()).not.toContain("gerade eben");
+      wrapper.unmount();
+
+      setLocale("en");
+      const enWrapper = mount(ProtonManagerView);
+      expect(enWrapper.text()).toContain("offline · never updated");
+      enWrapper.unmount();
+    } finally {
+      protonState.lastSource = null;
+      protonState.lastFetchedAt = null;
+    }
+  });
 });
 
 describe("ProtonManagerView fehlerzuordnung (A-05)", () => {
@@ -347,6 +369,26 @@ describe("ProtonManagerView fehlerzuordnung (A-05)", () => {
       "keine releases erreichbar",
     );
     expect(wrapper.find('[data-testid="remove-error"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("bietet bei extraktionsresten einen entfernen-knopf je rest an", async () => {
+    setLocale("de");
+    const prevReserved = confirmState.reserved;
+    confirmState.reserved = false;
+    protonState.loadError = "install fehlgeschlagen";
+    protonState.extractLeftovers = [".protium-extract-123-abc"];
+    protonState.removeLeftover.mockClear();
+
+    const wrapper = mount(ProtonManagerView);
+    const btn = wrapper.get('[data-testid="remove-leftover"]');
+    expect(btn.text()).toContain(".protium-extract-123-abc");
+    await btn.trigger("click");
+    expect(protonState.removeLeftover).toHaveBeenCalledExactlyOnceWith(".protium-extract-123-abc");
+
+    confirmState.reserved = prevReserved;
+    protonState.extractLeftovers = [];
+    protonState.loadError = null;
     wrapper.unmount();
   });
 });

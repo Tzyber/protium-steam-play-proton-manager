@@ -44,6 +44,8 @@ export function localizeConsequences(
           ? [...lines, t("cleanup.consequenceCompatToolGlobalDefault")]
           : lines;
       }
+      case "extractLeftover":
+        return t("cleanup.consequenceExtractLeftover", { name: pathBasename(c.path) });
     }
     return t("cleanup.consequenceUnknownEntry", {
       name: pathBasename(c.path || pending.targetPath),

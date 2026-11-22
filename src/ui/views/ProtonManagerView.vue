@@ -60,17 +60,32 @@ onBeforeUnmount(() => {
 
 const statusLine = computed(() => {
   if (proton.loading) return null;
-  if (proton.lastFetchedAt == null) return null;
-  const when = relativeTime(proton.lastFetchedAt, now.value);
+  if (proton.lastSource == null) return null;
   const n = proton.releases.length;
   switch (proton.lastSource) {
     case "fresh":
       return { icon: "✓", text: t("proton.statusUpdated", { n }), ok: true };
     case "not-modified":
     case "cache":
-      return { icon: "✓", text: t("proton.statusCurrent", { when }), ok: true };
+      return proton.lastFetchedAt == null
+        ? null
+        : {
+            icon: "✓",
+            text: t("proton.statusCurrent", {
+              when: relativeTime(proton.lastFetchedAt, now.value),
+            }),
+            ok: true,
+          };
     case "offline":
-      return { icon: "⚠", text: t("proton.statusOffline", { when }), ok: false };
+      return proton.lastFetchedAt == null
+        ? { icon: "⚠", text: t("proton.statusOfflineNever"), ok: false }
+        : {
+            icon: "⚠",
+            text: t("proton.statusOffline", {
+              when: relativeTime(proton.lastFetchedAt, now.value),
+            }),
+            ok: false,
+          };
     default:
       return null;
   }
@@ -172,6 +187,20 @@ const statusLine = computed(() => {
     <!-- verfügbar -->
     <h3 class="section">{{ t("proton.geReleases") }}</h3>
     <div v-if="proton.loadError" class="hint" role="alert" data-testid="releases-error">{{ proton.loadError }}</div>
+    <div v-if="proton.extractLeftovers.length" class="leftovers">
+      <button
+        v-for="name in proton.extractLeftovers"
+        :key="name"
+        class="rm"
+        type="button"
+        data-testid="remove-leftover"
+        :disabled="removeBlocked"
+        :aria-busy="proton.busyRemove === name"
+        @click="proton.removeLeftover(name)"
+      >
+        {{ proton.busyRemove === name ? "…" : t("proton.removeLeftover", { name }) }}
+      </button>
+    </div>
     <div v-if="proton.warning" class="hint hint--warning" role="status">
       {{ proton.warning.msg }}
       <button type="button" class="hint-close" :aria-label="t('drawer.close')" @click="proton.clearWarning()">×</button>
@@ -249,6 +278,7 @@ const statusLine = computed(() => {
 .rm-lock { position: relative; color: var(--fg-2); font-size: var(--text-sm); }
 
 .hint { color: var(--danger-fg); font-family: var(--font-body); font-size: var(--text-xs); margin-bottom: var(--space-3); }
+.leftovers { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); }
 .hint--warning { color: var(--warning-text); display: flex; align-items: center; gap: var(--space-2); }
 .hint-close {
   flex: 0 0 32px;

@@ -52,6 +52,8 @@ describe("projectSupportFacts", () => {
       compatToolAvailability: "available",
       protonDbTier: "gold",
       footprint: { status: "complete", sizeBytes: 4096 },
+      prefixPresence: "unknown",
+      shaderCachePresence: "unknown",
       externalCompatdata: "detected",
       cleanup: {
         scanInProgress: false,
@@ -79,6 +81,36 @@ describe("projectSupportFacts", () => {
       manifestsFailed: 2,
       toolsFailed: 1,
     });
+  });
+
+  it("projiziert Existenz von Wine-Prefix und Shadercache aus dem Footprint", () => {
+    const currentGame = portal2();
+    const scan = result({ games: [currentGame] });
+    const present = projectSupportFacts({
+      game: currentGame,
+      result: scan,
+      footprint: {
+        summary: { status: "complete", sizeBytes: 4096 },
+        compatdata: { status: "measured", sizeBytes: 2048 },
+        shadercache: { status: "missing" },
+        compatdataNotChecked: false,
+      },
+    });
+    expect(present.prefixPresence).toBe("present");
+    expect(present.shaderCachePresence).toBe("missing");
+
+    const unchecked = projectSupportFacts({
+      game: currentGame,
+      result: scan,
+      footprint: {
+        summary: { status: "partial", sizeBytes: 1024 },
+        compatdata: { status: "missing" },
+        shadercache: { status: "failed" },
+        compatdataNotChecked: true,
+      },
+    });
+    expect(unchecked.prefixPresence).toBe("unknown");
+    expect(unchecked.shaderCachePresence).toBe("unknown");
   });
 
   it.each(["manifestCounts", "compatToolCounts"] as const)(

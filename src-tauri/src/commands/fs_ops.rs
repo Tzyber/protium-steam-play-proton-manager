@@ -570,14 +570,29 @@ fn probe_exe_not_resolvable(exe: &Path) -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "linux")]
+const EXCLUDED_STEAM_PROCESS_NAMES: &[&str] = &[];
+
+#[cfg(target_os = "linux")]
+fn is_steam_process_name_with_exclusions(name: &OsStr, excluded: &[&str]) -> bool {
+    let bytes = name.as_bytes();
+    if excluded
+        .iter()
+        .any(|entry| bytes.eq_ignore_ascii_case(entry.as_bytes()))
+    {
+        return false;
+    }
+    bytes
+        .windows(5)
+        .any(|window| window.eq_ignore_ascii_case(b"steam"))
+}
+
 /// Namensvergleich auf den rohbytes: `steam` in beliebiger schreibweise,
 /// ohne String-kopie und ohne lowercase-puffer pro prozess. Prozessnamen
 /// können nicht-UTF-8 sein; `as_bytes()` liest sie verlustfrei.
 #[cfg(target_os = "linux")]
 fn is_steam_process_name(name: &OsStr) -> bool {
-    name.as_bytes()
-        .windows(5)
-        .any(|window| window.eq_ignore_ascii_case(b"steam"))
+    is_steam_process_name_with_exclusions(name, EXCLUDED_STEAM_PROCESS_NAMES)
 }
 
 #[tauri::command]

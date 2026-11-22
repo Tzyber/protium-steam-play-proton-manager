@@ -926,7 +926,7 @@ fn prozessscan_prueft_namen_ohne_string_allokation() {
 
     let matcher = funktion_body(
         production,
-        "fn is_steam_process_name(name: &OsStr) -> bool {",
+        "fn is_steam_process_name_with_exclusions(name: &OsStr, excluded: &[&str]) -> bool {",
     );
     for erwartet in [
         "as_bytes()",
@@ -938,11 +938,21 @@ fn prozessscan_prueft_namen_ohne_string_allokation() {
             "matcher ohne {erwartet}: {matcher}"
         );
     }
-    for verboten in ["to_lowercase", "to_string", "into_owned", "collect"] {
-        assert!(
-            !matcher.contains(verboten),
-            "matcher allokiert (`{verboten}`): {matcher}"
-        );
+    let wrapper = funktion_body(
+        production,
+        "fn is_steam_process_name(name: &OsStr) -> bool {",
+    );
+    assert!(
+        wrapper.contains("is_steam_process_name_with_exclusions("),
+        "is_steam_process_name muss an is_steam_process_name_with_exclusions delegieren: {wrapper}"
+    );
+    for body in [matcher, wrapper] {
+        for verboten in ["to_lowercase", "to_string", "into_owned", "collect"] {
+            assert!(
+                !body.contains(verboten),
+                "matcher allokiert (`{verboten}`): {body}"
+            );
+        }
     }
 }
 
@@ -975,6 +985,28 @@ fn steam_running_from_verlangt_sichtbare_eigene_pid_und_steam_namen() {
             "{namen:?}"
         );
     }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn prozess_exclude_liste_blendet_bekannte_helfer_case_insensitiv_aus() {
+    assert!(EXCLUDED_STEAM_PROCESS_NAMES.is_empty());
+    assert!(is_steam_process_name_with_exclusions(
+        OsStr::new("steam"),
+        EXCLUDED_STEAM_PROCESS_NAMES
+    ));
+    assert!(is_steam_process_name_with_exclusions(
+        OsStr::new("steamwebhelper"),
+        &["steamos-manager"]
+    ));
+    assert!(!is_steam_process_name_with_exclusions(
+        OsStr::new("steamos-manager"),
+        &["steamos-manager"]
+    ));
+    assert!(!is_steam_process_name_with_exclusions(
+        OsStr::new("STEAMOS-MANAGER"),
+        &["steamos-manager"]
+    ));
 }
 
 #[cfg(target_os = "linux")]

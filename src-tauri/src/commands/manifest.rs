@@ -108,15 +108,18 @@ pub(super) fn read_app_manifest_with_hook(
             format!("cannot parse manifest {manifest_name}: {error}"),
         ))
     };
-    let internal_id = vdf_patch::get_vdf_value(&content, &["AppState", "appid"])
+    let internal_id = match vdf_patch::get_vdf_value(&content, &["AppState", "appid"])
         .map_err(parse_error)?
-        .or(vdf_patch::get_vdf_value(&content, &["AppState", "AppId"]).map_err(parse_error)?)
-        .ok_or_else(|| {
-            unreadable(errcode::with_detail(
-                errcode::UNREADABLE,
-                format!("manifest {manifest_name} has no AppState appid"),
-            ))
-        })?;
+    {
+        Some(id) => Some(id),
+        None => vdf_patch::get_vdf_value(&content, &["AppState", "AppId"]).map_err(parse_error)?,
+    }
+    .ok_or_else(|| {
+        unreadable(errcode::with_detail(
+            errcode::UNREADABLE,
+            format!("manifest {manifest_name} has no AppState appid"),
+        ))
+    })?;
     let internal_id = crate::commands::scope::parse_app_id(internal_id.trim()).map_err(|_| {
         unreadable(errcode::with_detail(
             errcode::UNREADABLE,

@@ -187,6 +187,7 @@ export const en = {
     consequenceCompatToolAppsUnknown: "Affected apps unknown (tool VDF unreadable): {name}",
     consequenceCompatToolGlobalDefault:
       "This tool is Steam's default; games without their own assignment lose their tool",
+    consequenceExtractLeftover: "Permanently delete incomplete extraction leftover {name}",
     consequenceUnknownEntry: "Remove entry {name}",
     winePrefixMovedNote:
       "Wine-Prefixes are moved to trash, disk space is only freed when the trash is emptied.",
@@ -252,11 +253,14 @@ export const en = {
     removeConfirmTitle: "Delete {name}?",
     removeFailed: "delete failed: {msg}",
     removeSteamRunning: "delete refused: Steam is running. Quit Steam and retry.",
+    removeLeftover: "remove leftover {name}",
+    removeLeftoverConfirmTitle: "Delete leftover {name}?",
     removeKeepsPrefixes: "Game compatdata prefixes are kept; this frees no disk space.",
     noScanResult: "no scan result, scan the library first",
     statusUpdated: "updated · {n} releases · just now",
     statusCurrent: "current · last checked {when}",
     statusOffline: "offline · as of {when}",
+    statusOfflineNever: "offline · never updated",
   },
   phase: {
     queued: "queued",
@@ -327,6 +331,7 @@ export const en = {
     supportCopyError: "Technical information could not be copied.",
     protondbLink: "view on protondb ↗",
     protondbLookup: "check on protondb ↗",
+    protondbLoading: "loading ProtonDB…",
     protondbOpenFailed: "could not open protondb: {error}",
     protondbHint:
       "reports with operating system, proton version and notes from other players. data from protondb (ODbL).",
@@ -465,6 +470,10 @@ export const en = {
     footprintComplete: "Known footprint: {size} [local measurement and existence check]",
     footprintPartial: "Known footprint: {size} (partial) [local measurement and existence check]",
     footprintNotMeasured: "Known footprint: not measured",
+    prefixPresence: "Wine prefix: {state}",
+    shaderCachePresence: "Shader cache: {state}",
+    presencePresent: "present",
+    presenceMissing: "missing",
     externalCompatdataDetected: "External compatdata hint: detected [launch options]",
     externalCompatdataNotDetected: "External compatdata hint: not set [launch options]",
     externalCompatdataUnknown: "External compatdata hint: unknown [launch options]",
@@ -496,6 +505,8 @@ export const en = {
     codes: {
       steamRunning: "Steam is currently running. Please close Steam before making changes.",
       steamNotFound: "No Steam installation found.",
+      steamRootSymlinkUnsupported:
+        "The Steam directory is a symbolic link pointing to an unsupported location.",
       steamCheckUnavailable:
         "Steam status cannot be checked; writing and deleting stay locked, except for the trash.",
       handlerUnavailable: "No suitable system handler available.",
@@ -514,6 +525,8 @@ export const en = {
       notASteamConfig: "The file is not a Steam configuration file.",
       unknownTool: "The compatibility tool is not installed or not authorized.",
       sizeLimitExceeded: "The file is larger than the allowed limit.",
+      tooLargeForTrash:
+        "The entry contains too many files for the trash and was blocked for safety.",
       sizeInvalid: "A measured size is invalid. The listing stays incomplete.",
       sizeMissing: "A measured size is missing. The listing stays incomplete.",
       notFound: "Not found.",

@@ -460,6 +460,112 @@ fn next_backup_timestamp() -> u128 {
     u128::from(now.max(previous.saturating_add(1)))
 }
 
+#[cfg(target_os = "linux")]
+const MAX_BACKUPS_PER_TARGET: usize = 5;
+#[cfg(target_os = "linux")]
+const MAX_BACKUPS_PER_KIND: usize = 200;
+
+#[cfg(target_os = "linux")]
+fn kind_bucket(kind: crate::commands::steam::ConfigBackupKind) -> usize {
+    match kind {
+        crate::commands::steam::ConfigBackupKind::Localconfig => 0,
+        crate::commands::steam::ConfigBackupKind::Config => 1,
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct BackupCandidate {
+    file_name: String,
+    target_id: String,
+    timestamp_ms: u64,
+}
+
+#[cfg(target_os = "linux")]
+fn prune_backups_in_dir_with_unlink(
+    backup_dir: &Path,
+    keep_file_name: &str,
+    unlink: &mut dyn FnMut(RawFd, &OsStr) -> io::Result<()>,
+) -> Result<(), String> {
+    let base_fd = open_absolute_dir(backup_dir).map_err(|error| error.to_string())?;
+    let dir_fd = fd::open_dir_at(base_fd.as_raw_fd(), OsStr::new("backups"))
+        .map_err(|error| error.to_string())?;
+    let proc_dir = Path::new("/proc/self/fd").join(dir_fd.as_raw_fd().to_string());
+    let entries = fs::read_dir(&proc_dir).map_err(|error| error.to_string())?;
+
+    let mut by_kind: [Vec<BackupCandidate>; 2] = [Vec::new(), Vec::new()];
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_file() {
+            continue;
+        }
+        let os_name = entry.file_name();
+        let Ok(snapshot) = fd::entry_snapshot_at(dir_fd.as_raw_fd(), &os_name) else {
+            continue;
+        };
+        if snapshot.kind != fd::DirEntryKind::Other {
+            continue;
+        }
+        let Some(file_name) = os_name.to_str() else {
+            continue;
+        };
+        let Some((kind, target_id, timestamp_ms)) =
+            crate::commands::steam::parse_backup_file_name(file_name)
+        else {
+            continue;
+        };
+        by_kind[kind_bucket(kind)].push(BackupCandidate {
+            file_name: file_name.to_string(),
+            target_id,
+            timestamp_ms,
+        });
+    }
+
+    let mut to_delete: Vec<String> = Vec::new();
+    for mut group in by_kind {
+        group.sort_by(|a, b| {
+            let a_is_keep = a.file_name == keep_file_name;
+            let b_is_keep = b.file_name == keep_file_name;
+            b_is_keep
+                .cmp(&a_is_keep)
+                .then_with(|| b.timestamp_ms.cmp(&a.timestamp_ms))
+                .then_with(|| b.file_name.cmp(&a.file_name))
+        });
+
+        let mut per_target_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        let mut kind_kept = 0usize;
+        for item in group {
+            let target_count = per_target_counts.entry(item.target_id).or_insert(0);
+            if *target_count < MAX_BACKUPS_PER_TARGET && kind_kept < MAX_BACKUPS_PER_KIND {
+                *target_count += 1;
+                kind_kept += 1;
+            } else if item.file_name != keep_file_name {
+                to_delete.push(item.file_name);
+            }
+        }
+    }
+
+    if to_delete.is_empty() {
+        return Ok(());
+    }
+    for file_name in to_delete {
+        unlink(dir_fd.as_raw_fd(), OsStr::new(&file_name)).map_err(|error| error.to_string())?;
+    }
+    sync_dir_fd(dir_fd.as_raw_fd()).map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn prune_backups_in_dir(backup_dir: &Path, keep_file_name: &str) -> Result<(), String> {
+    #[cfg(test)]
+    if let Some(err) = BACKUP_PRUNE_PROBE.with(|slot| slot.borrow().clone()) {
+        return Err(err);
+    }
+    let mut unlink = fd::unlink_at;
+    prune_backups_in_dir_with_unlink(backup_dir, keep_file_name, &mut unlink)
+}
+
 /// Gemeinsames Grundgerüst beider Steam-Config-Schreibpfade (INV-1):
 /// Pfadprüfung, Lock, gedeckelter Read, Patch, Größenprüfung,
 /// Steam-Läuft-Nachprüfung, Backup und atomarer Write. Die Aufrufer liefern
@@ -508,7 +614,8 @@ where
     }
     ensure_size(&patched, MAX_CONFIG_VDF_BYTES, "patched config")?;
 
-    let backup_rel = Path::new("backups").join(backup_name(next_backup_timestamp()));
+    let backup_file_name = backup_name(next_backup_timestamp());
+    let backup_rel = Path::new("backups").join(&backup_file_name);
     if process_reader()? {
         return Err(errcode::STEAM_RUNNING.into());
     }
@@ -518,6 +625,12 @@ where
     if let Err(e) = write_result {
         return Err(e.to_string());
     }
+
+    // Best-Effort-Aufraeumen alter Backups: der konfigurierte Write ist zu diesem
+    // Zeitpunkt bereits crash-durable gelandet; ein Fehler hier darf `Written` nie
+    // in einen Fehler umdeuten.
+    #[cfg(target_os = "linux")]
+    let _ = prune_backups_in_dir(backup_dir, &backup_file_name);
 
     Ok(WriteResult::Written)
 }
@@ -529,6 +642,28 @@ where
 thread_local! {
     static WRITE_LOCK_ENTRY_PROBE: std::cell::RefCell<Option<std::sync::mpsc::Sender<()>>> =
         const { std::cell::RefCell::new(None) };
+    static BACKUP_PRUNE_PROBE: std::cell::RefCell<Option<String>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(super) struct BackupPruneProbeGuard;
+
+#[cfg(test)]
+impl Drop for BackupPruneProbeGuard {
+    fn drop(&mut self) {
+        BACKUP_PRUNE_PROBE.with(|slot| {
+            slot.borrow_mut().take();
+        });
+    }
+}
+
+#[cfg(test)]
+pub(super) fn inject_backup_prune_error(message: &str) -> BackupPruneProbeGuard {
+    BACKUP_PRUNE_PROBE.with(|slot| {
+        *slot.borrow_mut() = Some(message.to_string());
+    });
+    BackupPruneProbeGuard
 }
 
 #[cfg(test)]

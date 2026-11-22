@@ -222,7 +222,11 @@ function dismissError() {
         </div>
         <p class="meta mono">{{ formatBytes(game.sizeBytes) }} · {{ t("drawer.metaAppId", { appId: game.appId }) }}</p>
         <p class="meta-tier">
-          {{ tierName(game.protonDb?.tier ?? "unknown") }}
+          {{
+            game.protonDb === null && scan.protonDbRemaining > 0
+              ? t("drawer.protondbLoading")
+              : tierName(game.protonDb?.tier ?? "unknown")
+          }}
           <ExplainInfo
             :label="t('explain.topics.protondb.title')"
             :topics="['protondb']"

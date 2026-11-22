@@ -14,10 +14,12 @@ import {
   mockFindTrashEntries,
   mockIsSteamRunning,
   mockPrepareDelete,
+  mockReadLocalConfig,
   resetCleanupMocks,
 } from "../support/cleanupStoreMocks";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as vdfRead from "../../src/core/vdfRead";
 import { formatError } from "../../src/ui/formatError";
 import { setLocale, t } from "../../src/ui/i18n";
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
@@ -411,5 +413,41 @@ describe("cleanupStore, orphan-scanfehler beim löschen", () => {
     await store.deleteOrphans([kept]);
     useConfirmStore().cancel();
     expect(store.orphanError).toBeNull();
+  });
+});
+
+describe("cleanupStore, readOrphanNames", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    setLocale("de");
+    resetCleanupMocks();
+  });
+
+  it("liest namen für 50 orphans in einem einzigen VDF-tokenize-lauf (2.11)", async () => {
+    const appBlocks = Array.from(
+      { length: 50 },
+      (_, i) =>
+        `\t\t\t\t\t"${1000 + i}"\n\t\t\t\t\t{\n\t\t\t\t\t\t"name"\t\t"Game ${i}"\n\t\t\t\t\t}`,
+    ).join("\n");
+    mockReadLocalConfig.mockResolvedValueOnce(
+      `"UserLocalConfigStore"\n{\n\t"Software"\n\t{\n\t\t"Valve"\n\t\t{\n\t\t\t"Steam"\n\t\t\t{\n\t\t\t\t"Apps"\n\t\t\t\t{\n${appBlocks}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n}\n`,
+    );
+    const spy = vi.spyOn(vdfRead, "getVdfChildFieldValues");
+    const store = useCleanupStore();
+    store.orphans = Array.from({ length: 50 }, (_, i) => ({
+      appId: 1000 + i,
+      type: "compatdata" as const,
+      path: `/lib/compatdata/${1000 + i}`,
+      library: "/lib",
+    }));
+
+    const names = await store.readOrphanNames({ ...fakeScan([]), steamUserId: "12345" });
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(mockReadLocalConfig).toHaveBeenCalledTimes(1);
+    expect(Object.keys(names)).toHaveLength(50);
+    expect(names["/lib/compatdata/1000"]).toBe("Game 0");
+    expect(names["/lib/compatdata/1049"]).toBe("Game 49");
+    spy.mockRestore();
   });
 });

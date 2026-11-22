@@ -370,13 +370,18 @@ describe("fetchReleases", () => {
     expect(res.releases).toHaveLength(2);
   });
 
-  it("offline ohne cache → [] statt throw", async () => {
+  it("offline ohne cache → [] und fetchedAt: null statt now()", async () => {
     const http: Http = {
       get() {
         return Promise.reject(new Error("offline"));
       },
     };
-    expect((await fetchReleases(http, memCache(), X86_64)).releases).toEqual([]);
+    const res = await fetchReleases(http, memCache(), X86_64, () => 1_700_000_000_000);
+    expect(res).toEqual({
+      releases: [],
+      fetchedAt: null,
+      source: "offline",
+    });
   });
 });
 

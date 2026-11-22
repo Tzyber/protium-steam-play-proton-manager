@@ -338,6 +338,7 @@ fn delete_enums_tragen_die_bisherigen_wire_namen() {
         (DeleteTargetType::Orphan, "orphan"),
         (DeleteTargetType::Trash, "trash"),
         (DeleteTargetType::CompatTool, "compatTool"),
+        (DeleteTargetType::ExtractLeftover, "extractLeftover"),
     ] {
         assert_eq!(
             wire_unit_variant(value.serialize(WireSerializer).unwrap()),
@@ -847,6 +848,106 @@ fn trash_inspektion_prueft_gelistete_libraries_und_defekte_libraries_fail_closed
     assert!(
         broken_err.contains(broken.to_string_lossy().as_ref()),
         "{broken_err}"
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn inspect_extract_leftover_prueft_muster_ort_symlink_und_aktiven_install() {
+    let root = wsg_fixture("inspect-extract-leftover");
+    let steam = root.join("steam");
+    let tools = steam.join("compatibilitytools.d");
+    let valid = tools.join(format!("{}999999-abc123", steam_layout::EXTRACT_PREFIX));
+    let real_suffix = tools.join(format!(
+        "{}999999-{}",
+        steam_layout::EXTRACT_PREFIX,
+        crate::commands::path::random_suffix()
+    ));
+    let invalid_name = tools.join("GE-Proton9-27");
+    let bad_pid = tools.join(format!("{}0-abc", steam_layout::EXTRACT_PREFIX));
+    let bad_hyphen = tools.join(format!("{}999999-abc--def", steam_layout::EXTRACT_PREFIX));
+    let outside = steam.join(format!("{}999999-abc123", steam_layout::EXTRACT_PREFIX));
+    std::fs::create_dir_all(&valid).unwrap();
+    std::fs::create_dir_all(&real_suffix).unwrap();
+    std::fs::create_dir_all(&invalid_name).unwrap();
+    std::fs::create_dir_all(&bad_pid).unwrap();
+    std::fs::create_dir_all(&bad_hyphen).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    let scope = |path: &Path| path.starts_with(&steam);
+
+    for good in [&valid, &real_suffix] {
+        let inspection = inspect_deletion_target(
+            steam.to_str().unwrap(),
+            DeleteTargetType::ExtractLeftover,
+            good.to_str().unwrap(),
+            &scope,
+        )
+        .unwrap();
+        assert_eq!(inspection.consequences.len(), 1);
+        assert_eq!(
+            inspection.consequences[0].action,
+            DeleteAction::PermanentDelete
+        );
+    }
+
+    for bad in [&invalid_name, &bad_pid, &bad_hyphen] {
+        let err = inspect_deletion_target(
+            steam.to_str().unwrap(),
+            DeleteTargetType::ExtractLeftover,
+            bad.to_str().unwrap(),
+            &scope,
+        )
+        .unwrap_err();
+        assert!(errcode::has_code(&err, errcode::BLOCKED), "{bad:?}: {err}");
+    }
+
+    let loc_err = inspect_deletion_target(
+        steam.to_str().unwrap(),
+        DeleteTargetType::ExtractLeftover,
+        outside.to_str().unwrap(),
+        &scope,
+    )
+    .unwrap_err();
+    assert!(
+        errcode::has_code(&loc_err, errcode::BLOCKED_LOCATION),
+        "{loc_err}"
+    );
+
+    #[cfg(unix)]
+    {
+        let link = tools.join(format!("{}999999-link1", steam_layout::EXTRACT_PREFIX));
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+        let sym_err = inspect_deletion_target(
+            steam.to_str().unwrap(),
+            DeleteTargetType::ExtractLeftover,
+            link.to_str().unwrap(),
+            &scope,
+        )
+        .unwrap_err();
+        assert!(
+            errcode::has_code(&sym_err, errcode::SYMLINK_REJECTED),
+            "{sym_err}"
+        );
+    }
+
+    let own_leftover = tools.join(format!(
+        "{}{}-active1",
+        steam_layout::EXTRACT_PREFIX,
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&own_leftover).unwrap();
+    let _active = crate::commands::ge_install::enter_active_ge_install_for_test();
+    let active_err = inspect_deletion_target(
+        steam.to_str().unwrap(),
+        DeleteTargetType::ExtractLeftover,
+        own_leftover.to_str().unwrap(),
+        &scope,
+    )
+    .unwrap_err();
+    assert!(
+        errcode::has_code(&active_err, errcode::BLOCKED),
+        "{active_err}"
     );
 
     let _ = std::fs::remove_dir_all(root);

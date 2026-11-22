@@ -2,6 +2,7 @@ use std::fs;
 use std::future::Future;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -323,6 +324,32 @@ pub(super) struct InstallSinks<P, H, C> {
     pub(super) confirm_unverified: C,
 }
 
+static ACTIVE_GE_INSTALLS: AtomicUsize = AtomicUsize::new(0);
+
+pub(crate) struct ActiveInstallGuard;
+
+impl ActiveInstallGuard {
+    fn enter() -> Self {
+        ACTIVE_GE_INSTALLS.fetch_add(1, Ordering::AcqRel);
+        Self
+    }
+}
+
+impl Drop for ActiveInstallGuard {
+    fn drop(&mut self) {
+        ACTIVE_GE_INSTALLS.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+pub(crate) fn has_active_ge_install() -> bool {
+    ACTIVE_GE_INSTALLS.load(Ordering::Acquire) > 0
+}
+
+#[cfg(test)]
+pub(crate) fn enter_active_ge_install_for_test() -> ActiveInstallGuard {
+    ActiveInstallGuard::enter()
+}
+
 pub(super) async fn install_ge_proton_inner<P, H, C, ConfirmFut>(
     job: InstallJob<'_>,
     sinks: InstallSinks<P, H, C>,
@@ -333,6 +360,7 @@ where
     C: FnMut(UnverifiedConfirmationRequest) -> ConfirmFut,
     ConfirmFut: Future<Output = Result<bool, String>>,
 {
+    let _active_install = ActiveInstallGuard::enter();
     let InstallJob {
         steam_root,
         target_arch,
@@ -374,32 +402,45 @@ where
     .await?;
     // R-01: mkdir/canonicalize/stat des download-ordners sind blockierende
     // io wie die Nachbarschritte derselben Phase.
-    let cache_dir_owned = cache_dir.to_path_buf();
-    let (downloads_directory, expected_downloads_identity) =
-        crate::commands::spawn_blocking_io(move || open_downloads_directory(&cache_dir_owned))
-            .await?;
-    let cancel_flag_clone = Arc::clone(&cancel_flag);
+    let (expected_checksum, (downloaded_file, stream_hash)) = prepare_checksum_then_download(
+        release_tag,
+        &identity,
+        &cancel_flag,
+        dialog_locale,
+        |url, cancel| async move { fetch_sha512_text(&url, cancel).await },
+        confirm_unverified,
+        || async {
+            let cache_dir_owned = cache_dir.to_path_buf();
+            let (downloads_directory, expected_downloads_identity) =
+                crate::commands::spawn_blocking_io(move || {
+                    open_downloads_directory(&cache_dir_owned)
+                })
+                .await?;
+            let cancel_flag_clone = Arc::clone(&cancel_flag);
 
-    // Download-Phase
-    let stream_hash = crate::commands::download::download_stream_in_directory(
-        download_url,
-        |u| validate_redirect_url(u).is_ok(),
-        &cancel_flag_clone,
-        &mut on_progress,
-        DownloadStorage {
-            max_bytes: MAX_DOWNLOAD_BYTES,
-            directory: DownloadDirectoryBinding {
-                file: &downloads_directory,
-                identity: expected_downloads_identity,
-            },
-            #[cfg(test)]
-            before_open: None,
+            // Download-Phase
+            let stream_hash = crate::commands::download::download_stream_in_directory(
+                download_url,
+                |u| validate_redirect_url(u).is_ok(),
+                &cancel_flag_clone,
+                &mut on_progress,
+                DownloadStorage {
+                    max_bytes: MAX_DOWNLOAD_BYTES,
+                    directory: DownloadDirectoryBinding {
+                        file: &downloads_directory,
+                        identity: expected_downloads_identity,
+                    },
+                    #[cfg(test)]
+                    before_open: None,
+                },
+            )
+            .await?;
+
+            Ok((stream_hash.file, stream_hash.hash))
         },
     )
     .await?;
 
-    let downloaded_file = stream_hash.file;
-    let stream_hash = stream_hash.hash;
     cancel_before_extract(&cancel_flag)?;
 
     on_phase("verifying", false);
@@ -407,11 +448,8 @@ where
     let (result_status, mut downloaded_file) = verify_downloaded_artifact(
         downloaded_file,
         stream_hash,
-        release_tag,
-        &identity,
+        expected_checksum,
         &cancel_flag,
-        dialog_locale,
-        confirm_unverified,
     )
     .await?;
 
@@ -560,6 +598,7 @@ fn resolve_ge_install_targets(
                 }
             }
             if !leftovers.is_empty() {
+                leftovers.sort();
                 return Err(errcode::with_detail(
                     errcode::INCOMPLETE,
                     format!(
@@ -660,26 +699,117 @@ fn open_downloads_directory(cache_dir: &Path) -> Result<(fs::File, (u64, u64)), 
     Ok((directory, expected_identity))
 }
 
-/// Phase „Verify": holt die Prüfsumme, vergleicht sie mit dem Stream-Hash und
-/// liest die Datei zur Kontrolle vollständig von Disk (Hash-Swap/TOCTOU). Gibt
-/// den Status und den an den Anfang zurückgesetzten Handle zurück.
-async fn verify_downloaded_artifact<ConfirmFut>(
-    mut downloaded_file: fs::File,
-    stream_hash: String,
+/// Ergebnis der vorgezogenen Prüfsummen-Auflösung vor dem Download.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ExpectedChecksum {
+    Expected(String),
+    UnverifiedConfirmed,
+}
+
+/// Löst die erwartete SHA512-Prüfsumme (oder eine bestätigte unverified-Freigabe)
+/// noch vor dem Archiv-Download auf.
+async fn resolve_expected_checksum_with_fetcher<Fetch, FetchFut, Confirm, ConfirmFut>(
     release_tag: &str,
     identity: &GeReleaseIdentity,
     cancel_flag: &Arc<CancelSignal>,
     dialog_locale: DialogLocale,
-    confirm_unverified: impl FnMut(UnverifiedConfirmationRequest) -> ConfirmFut,
-) -> Result<(InstallGeResult, fs::File), String>
+    mut fetch_sha512: Fetch,
+    confirm_unverified: Confirm,
+) -> Result<ExpectedChecksum, String>
 where
+    Fetch: FnMut(String, Arc<CancelSignal>) -> FetchFut,
+    FetchFut: Future<Output = Result<String, Sha512FetchError>>,
+    Confirm: FnMut(UnverifiedConfirmationRequest) -> ConfirmFut,
     ConfirmFut: Future<Output = Result<bool, String>>,
 {
     // Die Checksum-URL wird aus der backendvalidierten Release-Identität abgeleitet.
     let checksum_url = checksum_url(release_tag, identity);
-    let result_status = match fetch_sha512_text(&checksum_url, Arc::clone(cancel_flag)).await {
+    match fetch_sha512(checksum_url.clone(), Arc::clone(cancel_flag)).await {
         Ok(hash_text) => {
             let expected_hash = parse_sha512_hash(&hash_text, &identity.checksum_asset_name)?;
+            if cancel_flag.is_cancelled() {
+                return Err(errcode::CANCELLED.into());
+            }
+            Ok(ExpectedChecksum::Expected(expected_hash))
+        }
+        Err(error) if is_missing_checksum_asset(&error) => {
+            let confirmed = confirm_unverified_installation(
+                release_tag,
+                &identity.install_name,
+                &checksum_url,
+                dialog_locale,
+                confirm_unverified,
+            )
+            .await
+            .map_err(|error| {
+                errcode::with_detail(
+                    errcode::UNAVAILABLE,
+                    format!("unverified installation confirmation failed: {error}"),
+                )
+            })?;
+            if cancel_flag.is_cancelled() {
+                return Err(errcode::CANCELLED.into());
+            }
+            if !confirmed {
+                return Err(errcode::UNVERIFIED_REJECTED.into());
+            }
+            Ok(ExpectedChecksum::UnverifiedConfirmed)
+        }
+        Err(Sha512FetchError::Cancelled) => Err(errcode::CANCELLED.into()),
+        Err(error) => Err(errcode::with_detail(errcode::CHECKSUM_FAILED, error)),
+    }
+}
+
+async fn prepare_checksum_then_download<
+    Fetch,
+    FetchFut,
+    Confirm,
+    ConfirmFut,
+    Download,
+    DownloadFut,
+    T,
+>(
+    release_tag: &str,
+    identity: &GeReleaseIdentity,
+    cancel_flag: &Arc<CancelSignal>,
+    dialog_locale: DialogLocale,
+    fetch_sha512: Fetch,
+    confirm_unverified: Confirm,
+    run_download: Download,
+) -> Result<(ExpectedChecksum, T), String>
+where
+    Fetch: FnMut(String, Arc<CancelSignal>) -> FetchFut,
+    FetchFut: Future<Output = Result<String, Sha512FetchError>>,
+    Confirm: FnMut(UnverifiedConfirmationRequest) -> ConfirmFut,
+    ConfirmFut: Future<Output = Result<bool, String>>,
+    Download: FnOnce() -> DownloadFut,
+    DownloadFut: Future<Output = Result<T, String>>,
+{
+    let expected = resolve_expected_checksum_with_fetcher(
+        release_tag,
+        identity,
+        cancel_flag,
+        dialog_locale,
+        fetch_sha512,
+        confirm_unverified,
+    )
+    .await?;
+    let downloaded = run_download().await?;
+    Ok((expected, downloaded))
+}
+
+/// Phase „Verify": vergleicht die vorab ermittelte Prüfsumme mit dem
+/// Stream-Hash und liest die Datei zur Kontrolle vollständig von Disk
+/// (Hash-Swap/TOCTOU). Gibt den Status und den an den Anfang zurückgesetzten
+/// Handle zurück.
+async fn verify_downloaded_artifact(
+    mut downloaded_file: fs::File,
+    stream_hash: String,
+    expected: ExpectedChecksum,
+    cancel_flag: &Arc<CancelSignal>,
+) -> Result<(InstallGeResult, fs::File), String> {
+    let result_status = match expected {
+        ExpectedChecksum::Expected(expected_hash) => {
             if cancel_flag.is_cancelled() {
                 return Err(errcode::CANCELLED.into());
             }
@@ -712,32 +842,7 @@ where
             };
             InstallGeResult::Verified
         }
-        Err(error) if is_missing_checksum_asset(&error) => {
-            let confirmed = confirm_unverified_installation(
-                release_tag,
-                &identity.install_name,
-                &checksum_url,
-                dialog_locale,
-                confirm_unverified,
-            )
-            .await
-            .map_err(|error| {
-                errcode::with_detail(
-                    errcode::UNAVAILABLE,
-                    format!("unverified installation confirmation failed: {error}"),
-                )
-            })?;
-            if !confirmed {
-                return Err(errcode::UNVERIFIED_REJECTED.into());
-            }
-            InstallGeResult::Unverified
-        }
-        Err(Sha512FetchError::Cancelled) => {
-            return Err(errcode::CANCELLED.into());
-        }
-        Err(error) => {
-            return Err(errcode::with_detail(errcode::CHECKSUM_FAILED, error));
-        }
+        ExpectedChecksum::UnverifiedConfirmed => InstallGeResult::Unverified,
     };
     Ok((result_status, downloaded_file))
 }

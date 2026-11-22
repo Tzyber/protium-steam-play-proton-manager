@@ -29,11 +29,13 @@ const CODE_KINDS: Record<string, ProtiumErrorKind> = {
   // nicht". Er blockiert schreiben/löschen, trägt aber eine eigene klasse.
   "steam-check-unavailable": "unavailable",
   "steam-not-found": "not-found",
+  "steam-root-symlink-unsupported": "blocked",
   "blocked-location": "blocked",
   "not-a-steam-config": "blocked",
   "unknown-tool": "blocked",
   "tool-already-exists": "blocked",
   "size-limit-exceeded": "incomplete",
+  "too-large-for-trash": "blocked",
   "not-found": "not-found",
   "not-a-directory": "unreadable",
   "symlink-rejected": "blocked",

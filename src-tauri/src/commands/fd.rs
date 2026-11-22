@@ -22,13 +22,13 @@ use crate::commands::errcode;
 // create_exclusive_at, open_absolute_dir und open_file_at setzten sie sonst
 // je lokal an (n-07), jede änderung an einem flag müsste an vier stellen
 // mitlaufen.
-const O_RDONLY: i32 = 0;
-const O_WRONLY: i32 = 1;
-const O_CREAT: i32 = 0o100;
-const O_EXCL: i32 = 0o200;
-const O_DIRECTORY: i32 = 0o200000;
-const O_NOFOLLOW: i32 = 0o400000;
-const O_CLOEXEC: i32 = 0o2000000;
+const O_RDONLY: i32 = libc::O_RDONLY;
+const O_WRONLY: i32 = libc::O_WRONLY;
+const O_CREAT: i32 = libc::O_CREAT;
+const O_EXCL: i32 = libc::O_EXCL;
+const O_DIRECTORY: i32 = libc::O_DIRECTORY;
+const O_NOFOLLOW: i32 = libc::O_NOFOLLOW;
+const O_CLOEXEC: i32 = libc::O_CLOEXEC;
 
 #[cfg(target_os = "linux")]
 pub(super) fn component_name(component: &OsStr) -> io::Result<CString> {

@@ -288,4 +288,46 @@ describe("protonStore.remove", () => {
     expect(cancelSpy).toHaveBeenCalledExactlyOnceWith("tok-ge");
     expect(store.busyRemove).toBeNull();
   });
+
+  it("erkennt extraktionsreste bei incomplete-fehler und entfernt sie über delete-pipeline", async () => {
+    const scan = useScanStore();
+    scan.result = fakeScanResult();
+    const store = useProtonStore();
+    const prepareSpy = vi.spyOn(tauriPorts.system, "prepareDelete");
+    const executeSpy = vi.spyOn(tauriPorts.system, "executeDelete");
+    mockInstallGeProton.mockRejectedValueOnce(
+      new Error(
+        "incomplete: incomplete extraction leftovers found: .protium-extract-4210-18b9f3c2d1e0a400-1072-1, .protium-extract-456-def; remove them manually",
+      ),
+    );
+    store.releases = [release];
+    store.queueInstall(release);
+    await vi.waitFor(() => {
+      expect(store.jobs[release.tag]).toBeUndefined();
+    });
+
+    expect(store.extractLeftovers).toEqual([
+      ".protium-extract-4210-18b9f3c2d1e0a400-1072-1",
+      ".protium-extract-456-def",
+    ]);
+
+    await store.removeLeftover("../evil");
+    expect(prepareSpy).not.toHaveBeenCalled();
+
+    await store.removeLeftover(".protium-extract-4210-18b9f3c2d1e0a400-1072-1");
+    await useConfirmStore().confirm();
+    expect(prepareSpy).toHaveBeenCalledWith({
+      targetType: "extractLeftover",
+      path: "/root/compatibilitytools.d/.protium-extract-4210-18b9f3c2d1e0a400-1072-1",
+      steamRoot: "/root",
+    });
+    expect(executeSpy).toHaveBeenCalledWith("tok-ge");
+    expect(store.extractLeftovers).toEqual([".protium-extract-456-def"]);
+    expect(store.loadError).not.toBeNull();
+
+    await store.removeLeftover(".protium-extract-456-def");
+    await useConfirmStore().confirm();
+    expect(store.extractLeftovers).toEqual([]);
+    expect(store.loadError).toBeNull();
+  });
 });

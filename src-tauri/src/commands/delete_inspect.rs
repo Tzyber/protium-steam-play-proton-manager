@@ -40,6 +40,7 @@ pub enum DeleteTargetType {
     Orphan,
     Trash,
     CompatTool,
+    ExtractLeftover,
 }
 
 /// Löschfolge eines Ziels (FR-2). Der Wire-Name kommt aus dem serde-Rename.
@@ -415,6 +416,63 @@ where
 }
 
 #[cfg(target_os = "linux")]
+fn parse_extract_leftover_pid(name: &str) -> Option<u32> {
+    let rest = name.strip_prefix(steam_layout::EXTRACT_PREFIX)?;
+    let (pid_str, suffix) = rest.split_once('-')?;
+    if pid_str.is_empty() || !pid_str.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let pid = pid_str.parse::<u32>().ok().filter(|&p| p > 0)?;
+    if suffix.is_empty()
+        || !suffix
+            .split('-')
+            .all(|seg| !seg.is_empty() && seg.bytes().all(|b| b.is_ascii_alphanumeric()))
+    {
+        return None;
+    }
+    Some(pid)
+}
+
+#[cfg(target_os = "linux")]
+fn inspect_extract_leftover_target(
+    context: &DeleteTargetContext<'_>,
+    steam_root: &Path,
+) -> Result<DeletionInspection, String> {
+    if !context.meta.is_dir() {
+        return Err(errcode::NOT_A_DIRECTORY.into());
+    }
+    let expected_parent = steam_layout::compatibilitytools(steam_root);
+    if context.canonical.parent() != Some(&expected_parent) {
+        return Err(errcode::with_detail(
+            errcode::BLOCKED_LOCATION,
+            "extract leftover must be directly inside compatibilitytools.d",
+        ));
+    }
+    let name = context
+        .canonical
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| errcode::with_detail(errcode::BLOCKED, "invalid leftover folder name"))?;
+    let Some(pid) = parse_extract_leftover_pid(name) else {
+        return Err(errcode::with_detail(
+            errcode::BLOCKED,
+            format!("not an incomplete extraction leftover: {name}"),
+        ));
+    };
+    if pid == std::process::id() && crate::commands::ge_install::has_active_ge_install() {
+        return Err(errcode::with_detail(
+            errcode::BLOCKED,
+            "extraction currently active in this process",
+        ));
+    }
+    Ok(context.inspection(
+        DeleteAction::PermanentDelete,
+        format!("permanently delete incomplete extraction leftover {name}"),
+        None,
+    ))
+}
+
+#[cfg(target_os = "linux")]
 fn inspect_deletion_target_linux_with_hook<F>(
     steam_root_str: &str,
     target_type: DeleteTargetType,
@@ -495,6 +553,7 @@ where
         DeleteTargetType::CompatTool => {
             inspect_compat_tool_target(&context, &steam_root, &steam_root_fd, hook)
         }
+        DeleteTargetType::ExtractLeftover => inspect_extract_leftover_target(&context, &steam_root),
     }
 }
 

@@ -3,6 +3,7 @@ import type { Cache, Http } from "./ports.js";
 import { asTier, type Tier } from "./types.js";
 
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const NOT_FOUND_TTL_MS = 24 * 60 * 60 * 1000;
 
 // Spiegel zu PROTONDB_SUMMARY_PREFIX in http_get.rs (`www`, nicht Apex), sonst
 // lehnt das Backend die URL ab. export nur für den spiegel-test
@@ -18,6 +19,7 @@ interface CacheEntry {
   tier: Tier;
   confidence: string;
   fetchedAt: number;
+  noReport?: true;
 }
 
 interface ProtonDbSummary {
@@ -43,16 +45,17 @@ export class ProtonDbClient {
         const entry: unknown = JSON.parse(cached);
         // shape-prüfung statt blindem cast (K-14): ein fremd geformter cache
         // wird wie ein miss behandelt. tier normalisiert, confidence-typ geprüft.
-        if (
-          isRecord(entry) &&
-          typeof entry.fetchedAt === "number" &&
-          this.now() - entry.fetchedAt < TTL_MS
-        ) {
-          return {
-            tier: asTier(entry.tier),
-            confidence: typeof entry.confidence === "string" ? entry.confidence : "unknown",
-            fromCache: true,
-          };
+        if (isRecord(entry) && typeof entry.fetchedAt === "number") {
+          const ttl = entry.noReport === true ? NOT_FOUND_TTL_MS : TTL_MS;
+          if (this.now() - entry.fetchedAt < ttl) {
+            return entry.noReport === true
+              ? { tier: "unknown", confidence: "unknown", fromCache: true }
+              : {
+                  tier: asTier(entry.tier),
+                  confidence: typeof entry.confidence === "string" ? entry.confidence : "unknown",
+                  fromCache: true,
+                };
+          }
         }
       }
     } catch {
@@ -61,7 +64,21 @@ export class ProtonDbClient {
 
     try {
       const res = await this.http.get(`${PROTONDB_API_BASE}/${appId}.json`);
-      if (!res.ok) return null; // insb. 404 = kein report
+      if (res.status === 404) {
+        const entry: CacheEntry = {
+          tier: "unknown",
+          confidence: "unknown",
+          fetchedAt: this.now(),
+          noReport: true,
+        };
+        try {
+          await this.cache.set(key, JSON.stringify(entry));
+        } catch {
+          // cache-schreibfehler darf fehlenden report nicht als fehler melden
+        }
+        return null;
+      }
+      if (!res.ok) return null;
       // ein Nicht-Objekt ist kein report, sondern nur JSON dieser form (INV-3);
       // ohne die prüfung würde aus einer zahl ein report mit tier "unknown".
       const body: unknown = JSON.parse(res.text);

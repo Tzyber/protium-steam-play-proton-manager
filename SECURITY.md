@@ -27,7 +27,10 @@ Rust-Backend.
 `discover_steam_environment` ist ein no-arg-Backend-Command. Rust löst die
 festen Steam-Root-Kandidaten aus dem Backend-Home auf, liest
 `libraryfolders.vdf` selbst und ersetzt atomar den aktuellen kanonischen
-Environment-Snapshot. Steam-Root, Libraries und System-Compat-Tools sind
+Environment-Snapshot. Zeigt ein bestehender Root-Kandidat per Symlink auf ein
+Ziel außerhalb der festen Kandidaten unter `$HOME` und wird kein gültiger
+Kandidat gefunden, bricht Discovery mit `steam-root-symlink-unsupported` (samt
+Zielpfad im Detail) ab. Steam-Root, Libraries und System-Compat-Tools sind
 danach ausschließlich über snapshotautorisierte Backend-Reads erreichbar.
 
 Die einzigen System-Compat-Wurzeln sind
@@ -198,6 +201,17 @@ Papierkorb-Löschen; ein Löschrest im Papierkorb sperrt denselben Bereich, ein
 unlesbarer Claim-Ort (`incompleteDeletionsUnreadable`) sperrt
 bereichsübergreifend fail-closed.
 
+Für abgebrochene GE-Extraktionen in `compatibilitytools.d` (`.protium-extract-<pid>-<suffix>`)
+existiert `DeleteTargetType::ExtractLeftover` als gezielte manuelle
+Entfernung über dieselbe `prepare_delete`/`execute_delete`-Pipeline. Die
+Inspektion erzwingt unmittelbare Kindschaft unter `compatibilitytools.d`,
+Symlink-Freiheit, das segmentierte PID-/Suffix-Muster aus `EXTRACT_PREFIX` und
+`random_suffix()` sowie die Sperre gegen die eigene PID während einer aktiven
+GE-Installation (`ACTIVE_GE_INSTALLS`). Vor dem Verschieben von `compatdata` in
+`.protium-trash` prüft das Backend zusätzlich `MAX_ENTRIES` und Systemgrenzen;
+bei Überschreitung bricht es vor dem Trash-Move mit `too-large-for-trash` ab und
+benennt den Claim über `ClaimRestoreGuard` zurück.
+
 Es gibt kein separates Confirm-Fenster, keine `confirm_window_*`-Commands und
 keine dedizierte Confirm-Capability. `tauri-plugin-dialog` bleibt ausschließlich
 für die native Warnbestätigung im GE-Installationspfad ohne Prüfsumme aktiv.
@@ -265,11 +279,13 @@ Directory-Symlink und Device-/Inode-Identität werden geprüft. Es gibt keinen
 sichtbaren Pfad und keine Unlink-Naht. Streamwrite, SHA512-Hash, Seek und beide
 Tar-Pässe verwenden denselben Owned-Handle; zwischen Hash und Extraktion wird
 kein Pfad neu geöffnet. Ein fremder gleicher Pfad ist weder Quelle noch
-Löschziel. Die SHA512-URL leitet Rust aus Tag und
-autorisiertem Asset ab. Nur ein echter HTTP-404 dieses Ziels erlaubt nach
-nativer `Warning`-/`OkCancel`-Bestätigung den Status `Unverified`; andere
-HTTP-, Netzwerk-, Parse- oder Hashfehler bleiben fail-closed. Cancel weckt
-einen blockierten SHA-Abruf aktiv auf und räumt Descriptor sowie Registry auf.
+Löschziel. Die SHA512-URL leitet Rust aus Tag und autorisiertem Asset ab und ruft sie
+noch vor `open_downloads_directory` und dem Download-Stream ab. Nur ein echter
+HTTP-404 dieses Ziels erlaubt vorab nach nativer `Warning`-/`OkCancel`-Bestätigung
+(mit anschließender Abbruch-Nachprüfung) den Download im Status `Unverified`;
+andere HTTP-, Netzwerk-, Parse- oder Hashfehler bleiben fail-closed und brechen
+vor jedem Datentransfer ab. Cancel weckt einen blockierten SHA-Abruf aktiv auf
+und räumt Descriptor sowie Registry auf.
 
 ### VDF-Write-Gate und Compat-Tool-Autorität
 
@@ -331,6 +347,11 @@ Vorgang fail-closed enden. Die Daten werden vor dem Rename gefsynct, das
 Parent-Verzeichnis danach. Das Backup wird ebenfalls über
 no-follow-Deskriptoren geschrieben; sowohl seine Datei als auch der
 Verzeichniseintrag und neu angelegte Backup-Verzeichnisse werden synchronisiert.
+Nach einem erfolgreichen atomaren Target-Write räumt das Gate im Backup-Ordner
+best-effort über gebundene `O_NOFOLLOW`-Deskriptoren ältere Backups ab (`5`
+neueste pro `(kind, target_id)` und maximal `200` pro `kind`), schont dabei
+immer das gerade geschriebene Backup, unparsbare Dateien und Symlinks und
+belässt bei Prune-Fehlern die Rückgabe bei `WriteResult::Written`.
 Bei erfolgreichem Abschluss ist nach einem Stromausfall damit entweder der
 alte oder der neue vollständige Stand durable; eine leere oder verkürzte
 Config durch den Ausfall selbst ist ausgeschlossen. Ein Fehler vor dem Rename meldet,

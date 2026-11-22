@@ -53,12 +53,29 @@ export function isLocalConfigParseable(localConfigText: string): { detail: strin
   }
 }
 
+/** spielnamen für mehrere appIds aus steams localconfig (`Apps/<appId>/name`) in einem tokenize-lauf. */
+export function readAppNames(
+  localConfigText: string,
+  appIds: readonly number[],
+): Map<number, string> {
+  const requested = new Set(appIds);
+  const result = new Map<number, string>();
+  if (requested.size === 0) return result;
+  const { values } = getVdfChildFieldValues(localConfigText, APPS_PATH, ["name"]);
+  for (const [key, fields] of values) {
+    const appId = parseSafeAppId(key);
+    if (appId === null || !requested.has(appId)) continue;
+    const name = fields.get("name");
+    if (name && name.trim() !== "") result.set(appId, name);
+  }
+  return result;
+}
+
 /** spielname aus steams localconfig (Apps/<appId>/name). steam pflegt die
  *  einträge auch für deinstallierte spiele weiter, daher die quelle für
  *  namen in der cleanup-liste. undefined = kein eintrag. */
 export function readAppName(localConfigText: string, appId: number): string | undefined {
-  const name = getVdfValue(localConfigText, [...APPS_PATH, String(appId), "name"]);
-  return name && name.trim() !== "" ? name : undefined;
+  return readAppNames(localConfigText, [appId]).get(appId);
 }
 
 // steamID64 → accountID (= userdata-ordnername); nur individuelle accounts.

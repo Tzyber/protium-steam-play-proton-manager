@@ -185,6 +185,7 @@ export const de = {
     consequenceCompatToolAppsUnknown: "Betroffene Apps unbekannt (Tool-VDF nicht lesbar): {name}",
     consequenceCompatToolGlobalDefault:
       "Das Tool ist in Steam als Standard gesetzt; Spiele ohne eigene Zuordnung verlieren ihr Tool",
+    consequenceExtractLeftover: "Unvollständigen Extraktionsrest {name} dauerhaft löschen",
     consequenceUnknownEntry: "Eintrag {name} entfernen",
     winePrefixMovedNote:
       "Wine-Prefixes werden in den papierkorb verschoben, speicherplatz wird erst beim leeren des papierkorbs frei.",
@@ -251,12 +252,15 @@ export const de = {
     removeConfirmTitle: "{name} löschen?",
     removeFailed: "löschen fehlgeschlagen: {msg}",
     removeSteamRunning: "löschen abgelehnt: steam läuft. steam beenden und erneut versuchen.",
+    removeLeftover: "Rest {name} entfernen",
+    removeLeftoverConfirmTitle: "Extraktionsrest {name} löschen?",
     removeKeepsPrefixes:
       "Die compatdata-Prefixes der Spiele bleiben erhalten; dadurch wird kein Speicher frei.",
     noScanResult: "kein scan-ergebnis, erst library scannen",
     statusUpdated: "aktualisiert · {n} releases · gerade eben",
     statusCurrent: "aktuell · zuletzt geprüft {when}",
     statusOffline: "offline · letzter stand {when}",
+    statusOfflineNever: "offline · noch nie aktualisiert",
   },
   phase: {
     queued: "wartet",
@@ -329,6 +333,7 @@ export const de = {
     supportCopyError: "Technische Infos konnten nicht kopiert werden.",
     protondbLink: "auf protondb ansehen ↗",
     protondbLookup: "auf protondb nachsehen ↗",
+    protondbLoading: "ProtonDB lädt…",
     protondbOpenFailed: "protondb konnte nicht geöffnet werden: {error}",
     protondbHint:
       "reports mit betriebssystem, proton-version und notizen anderer spieler. daten von protondb (ODbL).",
@@ -466,6 +471,10 @@ export const de = {
     footprintComplete: "Bekannt belegt: {size} [lokale Messung und Existenzprüfung]",
     footprintPartial: "Bekannt belegt: {size} (teilweise) [lokale Messung und Existenzprüfung]",
     footprintNotMeasured: "Bekannt belegt: nicht gemessen",
+    prefixPresence: "Wine-Prefix: {state}",
+    shaderCachePresence: "Shadercache: {state}",
+    presencePresent: "vorhanden",
+    presenceMissing: "nicht vorhanden",
     externalCompatdataDetected: "Externer Compatdata-Hinweis: vorhanden [Startoptionen]",
     externalCompatdataNotDetected: "Externer Compatdata-Hinweis: nicht gesetzt [Startoptionen]",
     externalCompatdataUnknown: "Externer Compatdata-Hinweis: unbekannt [Startoptionen]",
@@ -497,6 +506,8 @@ export const de = {
     codes: {
       steamRunning: "Steam läuft gerade. Bitte Steam beenden, um Änderungen vorzunehmen.",
       steamNotFound: "Keine Steam-Installation gefunden.",
+      steamRootSymlinkUnsupported:
+        "Der Steam-Ordner ist ein symbolischer Link auf einen nicht unterstützten Ort.",
       steamCheckUnavailable:
         "Steam-Status ist nicht prüfbar; Schreiben und Löschen bleiben gesperrt, ausgenommen ist nur der Papierkorb.",
       handlerUnavailable: "Kein passender System-Handler verfügbar.",
@@ -515,6 +526,8 @@ export const de = {
       notASteamConfig: "Die Datei ist keine Steam-Konfigurationsdatei.",
       unknownTool: "Das Compatibility Tool ist nicht installiert oder nicht freigegeben.",
       sizeLimitExceeded: "Die Datei ist größer als das erlaubte Limit.",
+      tooLargeForTrash:
+        "Der Eintrag enthält zu viele Dateien für den Papierkorb und wurde aus Sicherheitsgründen blockiert.",
       sizeInvalid: "Eine gemessene Größe ist ungültig. Die Anzeige bleibt unvollständig.",
       sizeMissing: "Eine gemessene Größe fehlt. Die Anzeige bleibt unvollständig.",
       notFound: "Nicht gefunden.",

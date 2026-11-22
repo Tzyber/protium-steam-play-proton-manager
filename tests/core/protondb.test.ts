@@ -54,9 +54,61 @@ describe("ProtonDbClient", () => {
     expect(calls).toBe(1);
   });
 
-  it("404 → null (→ aufrufer setzt unknown, INV-3)", async () => {
-    const c = new ProtonDbClient(fakeHttp(), memCache());
+  it("404 → negativ gecacht für 24h und nach ablauf neu angefragt", async () => {
+    let calls = 0;
+    let now = 0;
+    const http = {
+      async get() {
+        calls++;
+        return { status: 404, ok: false, text: "", headers: {} };
+      },
+    };
+    const c = new ProtonDbClient(http, memCache(), () => now);
+
     expect(await c.getSummary(1)).toBeNull();
+    expect(calls).toBe(1);
+
+    now = 23 * 60 * 60 * 1000;
+    expect(await c.getSummary(1)).toEqual({
+      tier: "unknown",
+      confidence: "unknown",
+      fromCache: true,
+    });
+    expect(calls).toBe(1);
+
+    now = 25 * 60 * 60 * 1000;
+    expect(await c.getSummary(1)).toBeNull();
+    expect(calls).toBe(2);
+  });
+
+  it("5xx und netzwerkfehler werden nicht negativ gecacht", async () => {
+    let serverCalls = 0;
+    const serverErrClient = new ProtonDbClient(
+      {
+        async get() {
+          serverCalls++;
+          return { status: 500, ok: false, text: "", headers: {} };
+        },
+      },
+      memCache(),
+    );
+    expect(await serverErrClient.getSummary(620)).toBeNull();
+    expect(await serverErrClient.getSummary(620)).toBeNull();
+    expect(serverCalls).toBe(2);
+
+    let throwCalls = 0;
+    const throwClient = new ProtonDbClient(
+      {
+        async get() {
+          throwCalls++;
+          throw new Error("offline");
+        },
+      },
+      memCache(),
+    );
+    expect(await throwClient.getSummary(620)).toBeNull();
+    expect(await throwClient.getSummary(620)).toBeNull();
+    expect(throwCalls).toBe(2);
   });
 
   it("werfender HTTP-Aufruf → null (offline, INV-3)", async () => {

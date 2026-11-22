@@ -1,4 +1,4 @@
-import type { GameFootprint } from "./footprint.js";
+import type { FootprintPart, GameFootprint } from "./footprint.js";
 import { hasExternalCompatdata } from "./footprint.js";
 import { isRecord, validAppId, validNonNegativeInteger } from "./guards.js";
 import { deriveProtonCheck, isCompatToolPresent } from "./protoncheck.js";
@@ -20,6 +20,7 @@ import {
 
 type SupportToolAvailability = "available" | "not-recognized" | "unknown";
 type SupportExternalCompatdata = "detected" | "not-detected" | "unknown";
+type SupportPartPresence = "present" | "missing" | "unknown";
 
 interface SupportCleanupInput {
   scanning?: boolean;
@@ -51,7 +52,10 @@ interface SupportFootprintFacts {
 export interface SupportInput {
   game: Game;
   result: ScanResult;
-  footprint?: Pick<GameFootprint, "summary"> | null;
+  footprint?:
+    | (Pick<GameFootprint, "summary"> &
+        Partial<Pick<GameFootprint, "compatdata" | "shadercache" | "compatdataNotChecked">>)
+    | null;
   cleanup?: SupportCleanupInput;
 }
 
@@ -72,6 +76,8 @@ export interface SupportFacts {
   compatToolAvailability: SupportToolAvailability;
   protonDbTier: Tier;
   footprint: SupportFootprintFacts;
+  prefixPresence: SupportPartPresence;
+  shaderCachePresence: SupportPartPresence;
   externalCompatdata: SupportExternalCompatdata;
   cleanup: SupportCleanupFacts;
 }
@@ -132,6 +138,16 @@ function projectCompatTool(
   };
 }
 
+function projectPartPresence(
+  part: FootprintPart | undefined,
+  notChecked: boolean,
+): SupportPartPresence {
+  if (notChecked || part === undefined) return "unknown";
+  if (part.status === "measured") return "present";
+  if (part.status === "missing") return "missing";
+  return "unknown";
+}
+
 function projectFootprint(
   footprint: Pick<GameFootprint, "summary"> | null | undefined,
 ): SupportFootprintFacts {
@@ -190,6 +206,11 @@ export function projectSupportFacts(input: SupportInput): SupportFacts {
     ...tool,
     protonDbTier,
     footprint: projectFootprint(input.footprint),
+    prefixPresence: projectPartPresence(
+      input.footprint?.compatdata,
+      !input.footprint || input.footprint.compatdataNotChecked === true,
+    ),
+    shaderCachePresence: projectPartPresence(input.footprint?.shadercache, !input.footprint),
     externalCompatdata:
       launchConfig !== "available"
         ? "unknown"

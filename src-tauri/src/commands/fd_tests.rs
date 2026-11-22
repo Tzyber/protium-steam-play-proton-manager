@@ -465,3 +465,47 @@ fn open_or_create_dir_at_folgt_keinem_symlink() {
         .file_type()
         .is_symlink());
 }
+
+#[test]
+fn o_flags_kommen_aus_libc_und_open_helpers_lehnen_symlinks_ab() {
+    assert_eq!(O_RDONLY, libc::O_RDONLY);
+    assert_eq!(O_WRONLY, libc::O_WRONLY);
+    assert_eq!(O_CREAT, libc::O_CREAT);
+    assert_eq!(O_EXCL, libc::O_EXCL);
+    assert_eq!(O_DIRECTORY, libc::O_DIRECTORY);
+    assert_eq!(O_NOFOLLOW, libc::O_NOFOLLOW);
+    assert_eq!(O_CLOEXEC, libc::O_CLOEXEC);
+
+    let production = crate::commands::test_util::production_source(include_str!("fd.rs"));
+    for libc_name in [
+        "libc::O_RDONLY",
+        "libc::O_WRONLY",
+        "libc::O_CREAT",
+        "libc::O_EXCL",
+        "libc::O_DIRECTORY",
+        "libc::O_NOFOLLOW",
+        "libc::O_CLOEXEC",
+    ] {
+        assert!(
+            production.contains(libc_name),
+            "fd.rs muss {libc_name} aus libc beziehen"
+        );
+    }
+
+    let fixture = Fixture::new("open-symlink");
+    let root_fd = fixture.absolute_fd();
+    let target_dir = fixture.root.join("ziel-dir");
+    let target_file = fixture.root.join("ziel-file");
+    fs::create_dir_all(&target_dir).unwrap();
+    fs::write(&target_file, b"ok").unwrap();
+    symlink(&target_dir, fixture.bound_dir().join("dir-link")).unwrap();
+    symlink(&target_file, fixture.bound_dir().join("file-link")).unwrap();
+
+    let dir_err = open_dir_at(root_fd.as_raw_fd(), OsStr::new("dir-link")).unwrap_err();
+    assert!(matches!(
+        dir_err.raw_os_error(),
+        Some(libc::ELOOP) | Some(libc::ENOTDIR)
+    ));
+    let file_err = open_file_at(root_fd.as_raw_fd(), OsStr::new("file-link")).unwrap_err();
+    assert_eq!(file_err.raw_os_error(), Some(libc::ELOOP));
+}

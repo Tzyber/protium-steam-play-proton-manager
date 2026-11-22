@@ -191,11 +191,14 @@ oberfläche auf deutsch und englisch, key-parität durch einen test abgesichert.
 - **Discovery**: `discover_steam_environment` löst ausschließlich feste
   Kandidaten aus dem Backend-Home auf und liest Libraries selbst aus
   `libraryfolders.vdf`; externe Library-Pfade werden nicht aus der Webview
-  übernommen. Ein Symlink-Kandidat, der auf einen anderen Ort zeigt, wird
-  übersprungen.
-- **Symlinks**: Root- und Library-Symlinks werden backendseitig kanonisiert und
-  bei jeder Environment-Leseoperation erneut gegen den aktuellen Snapshot
-  geprüft.
+  übernommen. Ein Root-Symlink wird nur akzeptiert, wenn er auf einen der
+  übrigen festen Kandidaten unter `$HOME` zeigt; zeigt er auf ein fremdes
+  Ziel und fehlt ein gültiger fester Kandidat, bricht Discovery mit
+  `steam-root-symlink-unsupported` ab.
+- **Symlinks**: Root-Symlinks sind auf feste Kandidaten unter `$HOME`
+  beschränkt; Library-Pfade aus `libraryfolders.vdf` werden backendseitig
+  kanonisiert und bei jeder Environment-Leseoperation erneut gegen den
+  aktuellen Snapshot geprüft.
 
 snap (`~/snap/steam/`) ist ab 0.1.7 enthalten, aber nur gegen fixtures
 getestet. auf einem echten snap-system hat das noch niemand verifiziert.
@@ -374,15 +377,6 @@ danach, wenn es sich lohnt:
 
 ganz zum schluss, und nur wenn überhaupt: ein Paket im AUR, damit Arch-Nutzer
 protium über ihren Paketmanager installieren können. Kein Termin, keine Zusage.
-
-## offene punkte
-
-kleine Wartungspunkte, abarbeitung bei gelegenheit, keine priorität:
-
-- die Existenz von Prefix und Shadercache im Support-Beleg nennen
-- „lädt noch" statt „keine Bewertung", solange ProtonDB nachlädt
-- Ladezeit der Cover bei großen Bibliotheken
-- Spiele ohne ProtonDB-Report nicht bei jedem Scan erneut fragen
 
 ## status
 

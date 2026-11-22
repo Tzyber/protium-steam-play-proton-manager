@@ -124,6 +124,17 @@ function cleanupLines(facts: SupportFacts): string[] {
   return lines;
 }
 
+function presenceLabel(presence: SupportFacts["prefixPresence"]): string {
+  switch (presence) {
+    case "present":
+      return t("support.presencePresent");
+    case "missing":
+      return t("support.presenceMissing");
+    case "unknown":
+      return t("support.unknown");
+  }
+}
+
 export function formatSupportFacts(facts: SupportFacts, appVersion: string): string {
   const lines = [
     t("support.product", { version: appVersion }),
@@ -160,6 +171,8 @@ export function formatSupportFacts(facts: SupportFacts, appVersion: string): str
       ? t("support.protonDbUnknown")
       : t("support.protonDb", { tier: tierLabel(facts.protonDbTier) }),
     footprintLine(facts),
+    t("support.prefixPresence", { state: presenceLabel(facts.prefixPresence) }),
+    t("support.shaderCachePresence", { state: presenceLabel(facts.shaderCachePresence) }),
     externalCompatdataLine(facts),
     ...cleanupLines(facts),
     "",

@@ -778,3 +778,178 @@ fn config_read_ist_an_den_gebundenen_parent_angebunden() {
         "config-read darf nicht pfadbasiert öffnen"
     );
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn backup_retention_haelt_max_5_pro_ziel_und_behalt_das_gerade_geschriebene() {
+    let (_home, cache, steam) = wsg_env("backup-retention-per-target");
+    let target = steam.join("config/config.vdf");
+    std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+    std::fs::write(&target, "\"InstallConfigStore\" { \"v\" \"0\" }").unwrap();
+    let backups_dir = cache.join("backups");
+    std::fs::create_dir_all(&backups_dir).unwrap();
+    for ts in 1..=6u64 {
+        std::fs::write(backups_dir.join(format!("config-620-{ts}.vdf")), "old").unwrap();
+    }
+
+    let mut reader = || Ok(false);
+    let result = apply_write_gate(
+        &target,
+        &steam,
+        &cache,
+        |ts| format!("config-620-{ts}.vdf"),
+        &mut reader,
+        |_| Ok(Some("\"InstallConfigStore\" { \"v\" \"1\" }".to_string())),
+    )
+    .unwrap();
+    assert_eq!(result, WriteResult::Written);
+
+    let mut entries: Vec<String> = std::fs::read_dir(&backups_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    entries.sort();
+    assert_eq!(entries.len(), 5, "genau 5 backups erwartet: {entries:?}");
+    assert!(!entries.contains(&"config-620-1.vdf".to_string()));
+    assert!(!entries.contains(&"config-620-2.vdf".to_string()));
+    assert!(entries.contains(&"config-620-3.vdf".to_string()));
+    assert!(entries.contains(&"config-620-6.vdf".to_string()));
+
+    let _ = std::fs::remove_dir_all(steam.parent().unwrap());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn backup_retention_haelt_max_200_pro_kind_und_schont_fremde_dateien() {
+    let (_home, cache, steam) = wsg_env("backup-retention-per-kind");
+    let target = steam.join("config/config.vdf");
+    std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+    std::fs::write(&target, "\"InstallConfigStore\" { \"v\" \"0\" }").unwrap();
+    let backups_dir = cache.join("backups");
+    std::fs::create_dir_all(&backups_dir).unwrap();
+
+    // 205 gueltige config-backups ueber verschiedene target_ids (max 5 je id)
+    for index in 1..=205u64 {
+        let app_id = 1000 + (index / 2);
+        std::fs::write(
+            backups_dir.join(format!("config-{app_id}-{index}.vdf")),
+            "old",
+        )
+        .unwrap();
+    }
+    // anderer kind bleibt unangetastet
+    std::fs::write(backups_dir.join("localconfig-111-1.vdf"), "lc1").unwrap();
+    std::fs::write(backups_dir.join("localconfig-111-2.vdf"), "lc2").unwrap();
+    // unparsbarer name bleibt unangetastet
+    std::fs::write(backups_dir.join("not-a-backup.txt"), "keep").unwrap();
+    // symlink mit gueltigem namen darf weder geloescht noch gefolgt werden
+    let victim = cache.join("victim.txt");
+    std::fs::write(&victim, "victim").unwrap();
+    std::os::unix::fs::symlink(&victim, backups_dir.join("config-999-1.vdf")).unwrap();
+
+    let mut reader = || Ok(false);
+    let result = apply_write_gate(
+        &target,
+        &steam,
+        &cache,
+        |ts| format!("config-888-{ts}.vdf"),
+        &mut reader,
+        |_| Ok(Some("\"InstallConfigStore\" { \"v\" \"1\" }".to_string())),
+    )
+    .unwrap();
+    assert_eq!(result, WriteResult::Written);
+
+    let names: Vec<String> = std::fs::read_dir(&backups_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    let config_count = names.iter().filter(|n| n.starts_with("config-")).count();
+    let localconfig_count = names
+        .iter()
+        .filter(|n| n.starts_with("localconfig-"))
+        .count();
+    assert_eq!(config_count, 200, "genau 200 config-backups erwartet");
+    assert_eq!(localconfig_count, 2, "localconfig bleibt unangetastet");
+    assert!(names.contains(&"not-a-backup.txt".to_string()));
+    assert!(!names.contains(&"config-1000-1.vdf".to_string()));
+    assert!(!names.contains(&"config-1003-6.vdf".to_string()));
+    assert!(names.contains(&"config-1003-7.vdf".to_string()));
+    assert!(backups_dir
+        .join("config-999-1.vdf")
+        .symlink_metadata()
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "victim");
+
+    let _ = std::fs::remove_dir_all(steam.parent().unwrap());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn backup_prune_fehler_laesst_apply_write_gate_written_zurueckgeben() {
+    let (_home, cache, steam) = wsg_env("backup-prune-error");
+    let target = steam.join("config/config.vdf");
+    std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+    std::fs::write(&target, "\"InstallConfigStore\" { \"v\" \"0\" }").unwrap();
+
+    let _guard = inject_backup_prune_error("simulated prune failure");
+    let mut reader = || Ok(false);
+    let result = apply_write_gate(
+        &target,
+        &steam,
+        &cache,
+        |ts| format!("config-620-{ts}.vdf"),
+        &mut reader,
+        |_| Ok(Some("\"InstallConfigStore\" { \"v\" \"1\" }".to_string())),
+    );
+    assert_eq!(result.unwrap(), WriteResult::Written);
+    assert!(std::fs::read_to_string(&target)
+        .unwrap()
+        .contains("\"v\" \"1\""));
+
+    let _ = std::fs::remove_dir_all(steam.parent().unwrap());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn backup_retention_haelt_das_gerade_geschriebene_auch_bei_zukunftsstempeln() {
+    let (_home, cache, steam) = wsg_env("backup-retention-clock-skew");
+    let target = steam.join("config/config.vdf");
+    std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+    std::fs::write(&target, "\"InstallConfigStore\" { \"v\" \"0\" }").unwrap();
+    let backups_dir = cache.join("backups");
+    std::fs::create_dir_all(&backups_dir).unwrap();
+    for ts in 9_000_000_000_001u64..=9_000_000_000_006u64 {
+        std::fs::write(backups_dir.join(format!("config-620-{ts}.vdf")), "future").unwrap();
+    }
+
+    let mut reader = || Ok(false);
+    let result = apply_write_gate(
+        &target,
+        &steam,
+        &cache,
+        |ts| format!("config-620-{ts}.vdf"),
+        &mut reader,
+        |_| Ok(Some("\"InstallConfigStore\" { \"v\" \"1\" }".to_string())),
+    )
+    .unwrap();
+    assert_eq!(result, WriteResult::Written);
+
+    let entries: Vec<String> = std::fs::read_dir(&backups_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(entries.len(), 5, "{entries:?}");
+    // Das gerade geschriebene Backup hat einen kleineren Zeitstempel und muss trotzdem bleiben.
+    assert!(entries
+        .iter()
+        .any(|name| name != "config-620-9000000000003.vdf"
+            && !name.starts_with("config-620-9000000")));
+
+    let _ = std::fs::remove_dir_all(steam.parent().unwrap());
+}

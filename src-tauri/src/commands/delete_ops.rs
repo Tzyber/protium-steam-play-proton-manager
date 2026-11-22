@@ -852,6 +852,25 @@ fn apply_delete_mutation(
     restore: &mut ClaimRestoreGuard<'_>,
     remove_tree_fn: &mut dyn FnMut(&ClaimedDeleteTarget, &fs::File) -> std::io::Result<()>,
 ) -> Result<(), String> {
+    apply_delete_mutation_with_precheck(
+        pending,
+        claimed,
+        now_ms,
+        restore,
+        &mut verify_claimed_tree_no_crossdev,
+        remove_tree_fn,
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn apply_delete_mutation_with_precheck(
+    pending: &PendingDelete,
+    claimed: &ClaimedDeleteTarget,
+    now_ms: u64,
+    restore: &mut ClaimRestoreGuard<'_>,
+    precheck_fn: &mut dyn FnMut(&fs::File) -> Result<(), String>,
+    remove_tree_fn: &mut dyn FnMut(&ClaimedDeleteTarget, &fs::File) -> std::io::Result<()>,
+) -> Result<(), String> {
     match pending.target_type {
         DeleteTargetType::Orphan => {
             let canon_str = pending.canonical_path.to_string_lossy();
@@ -874,11 +893,25 @@ fn apply_delete_mutation(
                         parent,
                         restore,
                         "shadercache",
-                        &mut verify_claimed_tree_no_crossdev,
+                        precheck_fn,
                         remove_tree_fn,
                     )?;
                 }
                 "compatdata" => {
+                    if let Err(error) = precheck_fn(&claimed.handle) {
+                        let mapped = if errcode::has_code(&error, errcode::SIZE_LIMIT) {
+                            let prefix = format!("{}: ", errcode::SIZE_LIMIT);
+                            match error.strip_prefix(&prefix) {
+                                Some(detail) => {
+                                    errcode::with_detail(errcode::TOO_LARGE_FOR_TRASH, detail)
+                                }
+                                None => errcode::TOO_LARGE_FOR_TRASH.into(),
+                            }
+                        } else {
+                            error
+                        };
+                        return Err(restore_or_write_uncertain(restore, mapped));
+                    }
                     let lib_str = crate::commands::scope::library_of(&canon_str)
                         .map_err(|error| restore_or_write_uncertain(restore, error))?;
                     let trash_parent = open_trash_dir(Path::new(lib_str), &mut || {})
@@ -937,29 +970,18 @@ fn apply_delete_mutation(
                 }
             }
         }
-        DeleteTargetType::Trash => {
+        DeleteTargetType::Trash
+        | DeleteTargetType::CompatTool
+        | DeleteTargetType::ExtractLeftover => {
+            let label = match pending.target_type {
+                DeleteTargetType::Trash => "trash item",
+                DeleteTargetType::CompatTool => "compat tool",
+                DeleteTargetType::ExtractLeftover => "extract leftover",
+                DeleteTargetType::Orphan => unreachable!(),
+            };
             let parent = bound_parent(pending)
                 .map_err(|error| restore_or_write_uncertain(restore, error))?;
-            remove_claimed_dir(
-                claimed,
-                parent,
-                restore,
-                "trash item",
-                &mut verify_claimed_tree_no_crossdev,
-                remove_tree_fn,
-            )?;
-        }
-        DeleteTargetType::CompatTool => {
-            let parent = bound_parent(pending)
-                .map_err(|error| restore_or_write_uncertain(restore, error))?;
-            remove_claimed_dir(
-                claimed,
-                parent,
-                restore,
-                "compat tool",
-                &mut verify_claimed_tree_no_crossdev,
-                remove_tree_fn,
-            )?;
+            remove_claimed_dir(claimed, parent, restore, label, precheck_fn, remove_tree_fn)?;
         }
     }
     Ok(())

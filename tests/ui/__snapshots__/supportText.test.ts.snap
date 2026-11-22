@@ -13,6 +13,8 @@ Zugeordnetes Tool: unbekannt [Zuordnung: nicht verfügbar]
 Tool verfügbar: unbekannt [lokaler Scan]
 ProtonDB-Tier: unbekannt
 Bekannt belegt: nicht gemessen
+Wine-Prefix: unbekannt
+Shadercache: unbekannt
 Externer Compatdata-Hinweis: unbekannt [Startoptionen]
 Bereinigung: kein Befund im vorhandenen Anzeigestand (keine Blockade, keine abgebrochene Löschung; Aktualität und Freigabe unbekannt)
 
@@ -29,6 +31,8 @@ Zugeordnetes Tool: GE-Proton10-12 [explizite Zuordnung]
 Tool verfügbar: ja [lokaler Scan]
 ProtonDB-Tier: Platinum [Community-Befund]
 Bekannt belegt: 46.9 GB [lokale Messung und Existenzprüfung]
+Wine-Prefix: unbekannt
+Shadercache: unbekannt
 Externer Compatdata-Hinweis: nicht gesetzt [Startoptionen]
 Bereinigung: kein Befund im vorhandenen Anzeigestand (keine Blockade, keine abgebrochene Löschung; Aktualität und Freigabe unbekannt)
 
@@ -48,6 +52,8 @@ Assigned tool: unknown [Mapping: not available]
 Tool available: unknown [local scan]
 ProtonDB tier: unknown
 Known footprint: not measured
+Wine prefix: unknown
+Shader cache: unknown
 External compatdata hint: unknown [launch options]
 Cleanup: no findings in the displayed state (no blockade, no incomplete deletion; freshness and clearance unknown)
 
@@ -64,6 +70,8 @@ Assigned tool: GE-Proton10-12 [explicit mapping]
 Tool available: yes [local scan]
 ProtonDB tier: Platinum [community finding]
 Known footprint: 46.9 GB [local measurement and existence check]
+Wine prefix: unknown
+Shader cache: unknown
 External compatdata hint: not set [launch options]
 Cleanup: no findings in the displayed state (no blockade, no incomplete deletion; freshness and clearance unknown)
 

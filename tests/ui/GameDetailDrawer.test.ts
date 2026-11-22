@@ -62,6 +62,31 @@ describe("GameDetailDrawer Config-Provenienz", () => {
     expect(en.get(".meta-tier").text()).toContain("Borked");
   });
 
+  it("zeigt ladehinweis für ProtonDB solange protonDb null und nachlauf aktiv ist", () => {
+    const pendingScan = scanResult({
+      games: [
+        makeGame({ appId: 42, protonDb: null }),
+        ...result("available", "default", "default", null).games,
+      ],
+    });
+    setLocale("de");
+    scanState.protonDbRemaining = 2;
+    const de = mountDrawer(pendingScan);
+    expect(de.get(".meta-tier").text()).toContain("ProtonDB lädt…");
+    de.unmount();
+    document.body.innerHTML = "";
+
+    setLocale("en");
+    const en = mountDrawer(pendingScan);
+    expect(en.get(".meta-tier").text()).toContain("loading ProtonDB…");
+    en.unmount();
+    document.body.innerHTML = "";
+
+    scanState.protonDbRemaining = 0;
+    const done = mountDrawer(pendingScan);
+    expect(done.get(".meta-tier").text()).toContain("Unknown");
+  });
+
   it.each([
     {
       label: "explizit",

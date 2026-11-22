@@ -165,13 +165,14 @@ describe("configStore.saveLaunchOptions", () => {
     expect(game?.launchOptions).toBe("-console");
   });
 
-  it("verwirft den wert, wenn zwischenzeitlich neu gescannt wurde (N6)", async () => {
+  it("wendet den wert nach rescan an, wenn steamRoot und steamUserId gleich blieben", async () => {
     const scanStore = useScanStore();
     scanStore.result = fakeScanResult();
+    const runScanSpy = vi.spyOn(scanStore, "runScan").mockResolvedValue();
     const config = useConfigStore();
     const { tauriPorts } = await import("../../src/core/adapters/tauri");
 
-    // der write läuft noch, als der rescan den snapshot ersetzt
+    // der write läuft noch, als ein rescan dasselbe environment neu lädt
     vi.mocked(tauriPorts.system.saveLaunchOptions).mockImplementationOnce(async () => {
       scanStore.result = scanResult({
         games: [game({ appId: 730, launchOptions: "frischer-wert" })],
@@ -184,8 +185,62 @@ describe("configStore.saveLaunchOptions", () => {
     const r = await config.saveLaunchOptions(730, "gamemoderun %command%");
 
     expect(r).toBe("written");
-    // der neue snapshot darf die änderung aus dem alten environment nicht zeigen
-    expect(scanStore.result?.games[0]?.launchOptions).toBe("frischer-wert");
+    expect(scanStore.result?.games[0]?.launchOptions).toBe("gamemoderun %command%");
+    expect(runScanSpy).not.toHaveBeenCalled();
+  });
+
+  it("stößt nach snapshot-wechsel von root oder account einen rescan an", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScanResult();
+    const runScanSpy = vi.spyOn(scanStore, "runScan").mockResolvedValue();
+    const config = useConfigStore();
+    const { tauriPorts } = await import("../../src/core/adapters/tauri");
+
+    vi.mocked(tauriPorts.system.saveLaunchOptions).mockImplementationOnce(async () => {
+      scanStore.result = scanResult({
+        steamRoot: "/other-steam",
+        games: [game({ appId: 730, launchOptions: "frischer-wert" })],
+        steamUserId: "12345",
+      });
+      scanStore.scanGeneration += 1;
+      return "written";
+    });
+
+    await config.saveLaunchOptions(730, "gamemoderun %command%");
+    expect(runScanSpy).toHaveBeenCalledTimes(1);
+
+    runScanSpy.mockClear();
+    vi.mocked(tauriPorts.system.saveCompatTool).mockImplementationOnce(async () => {
+      scanStore.result = scanResult({
+        steamRoot: "/other-steam",
+        games: [game({ appId: 730, compatTool: "default" })],
+        steamUserId: "99999",
+      });
+      scanStore.scanGeneration += 1;
+      return "written";
+    });
+
+    await config.saveCompatTool(730, "GE-Proton9-27");
+    expect(runScanSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("stößt rescan an, wenn während des writes bereits ein neuer scan läuft", async () => {
+    const scanStore = useScanStore();
+    scanStore.result = fakeScanResult();
+    const runScanSpy = vi.spyOn(scanStore, "runScan").mockResolvedValue();
+    const config = useConfigStore();
+    const { tauriPorts } = await import("../../src/core/adapters/tauri");
+
+    vi.mocked(tauriPorts.system.saveLaunchOptions).mockImplementationOnce(async () => {
+      // runScan() hat scanGeneration und status="scanning" gesetzt, aber scan.result
+      // zeigt noch auf denselben alten Snapshot bis scanLocal() zurückkehrt.
+      scanStore.status = "scanning";
+      scanStore.scanGeneration += 1;
+      return "written";
+    });
+
+    await config.saveLaunchOptions(730, "gamemoderun %command%");
+    expect(runScanSpy).toHaveBeenCalledTimes(1);
   });
 
   it("wendet den wert bei unverändertem snapshot weiterhin an", async () => {

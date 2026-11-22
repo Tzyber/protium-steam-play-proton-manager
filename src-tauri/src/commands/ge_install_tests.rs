@@ -140,6 +140,25 @@ fn extract_pipeline_mappt_nur_den_inneren_fehler_auf_seinen_code() {
     );
 }
 
+#[test]
+fn install_pipeline_prueft_checksum_vor_download() {
+    let production = crate::commands::test_util::production_source(include_str!("ge_install.rs"));
+    let body = normalisiert(crate::commands::test_util::funktion_body(
+        production,
+        "async fn install_ge_proton_inner",
+    ));
+    let preflight = body
+        .find("prepare_checksum_then_download(")
+        .expect("install_ge_proton_inner muss prepare_checksum_then_download nutzen");
+    let download = body
+        .find("download_stream_in_directory(")
+        .expect("install_ge_proton_inner muss download_stream_in_directory aufrufen");
+    assert!(
+        preflight < download,
+        "checksum-pruefung muss vor dem download starten"
+    );
+}
+
 fn ge_archive(root: &Path) -> fs::File {
     let mut bytes = Vec::new();
     {
@@ -917,4 +936,188 @@ fn eintragsfehler_im_toolverzeichnis_wird_kodiert() {
     .unwrap_err();
 
     assert!(errcode::has_code(&error, errcode::UNREADABLE), "{error}");
+}
+
+#[tokio::test]
+async fn prepare_checksum_lehnt_404_ohne_bestaetigung_vor_download_ab() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let identity = GeReleaseIdentity {
+        install_name: "GE-Proton11-5".to_string(),
+        checksum_asset_name: "GE-Proton11-5.tar.gz".to_string(),
+    };
+    let cancel = Arc::new(CancelSignal::new());
+    let downloads = Arc::new(AtomicUsize::new(0));
+    let downloads_spy = Arc::clone(&downloads);
+
+    let err = prepare_checksum_then_download(
+        "GE-Proton11-5",
+        &identity,
+        &cancel,
+        DialogLocale::De,
+        |_, _| async { Err(Sha512FetchError::Http(404)) },
+        |_| std::future::ready(Ok(false)),
+        || async move {
+            downloads_spy.fetch_add(1, Ordering::SeqCst);
+            Ok::<(), String>(())
+        },
+    )
+    .await
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&err, errcode::UNVERIFIED_REJECTED),
+        "{err}"
+    );
+    assert_eq!(downloads.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn prepare_checksum_laedt_nach_404_bestaetigung_und_verifiziert_unverified() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let temp_dir = std::env::temp_dir().join(format!("test-ge-404-ok-{}", random_suffix()));
+    fs::create_dir_all(&temp_dir).unwrap();
+    let archive_path = temp_dir.join("archive.tar.gz");
+    fs::write(&archive_path, b"payload").unwrap();
+
+    let identity = GeReleaseIdentity {
+        install_name: "GE-Proton11-5".to_string(),
+        checksum_asset_name: "GE-Proton11-5.tar.gz".to_string(),
+    };
+    let cancel = Arc::new(CancelSignal::new());
+    let downloads = Arc::new(AtomicUsize::new(0));
+    let downloads_spy = Arc::clone(&downloads);
+    let path_for_dl = archive_path.clone();
+
+    let (expected, file) = prepare_checksum_then_download(
+        "GE-Proton11-5",
+        &identity,
+        &cancel,
+        DialogLocale::De,
+        |_, _| async { Err(Sha512FetchError::Http(404)) },
+        |_| std::future::ready(Ok(true)),
+        || async move {
+            downloads_spy.fetch_add(1, Ordering::SeqCst);
+            Ok::<fs::File, String>(fs::File::open(&path_for_dl).unwrap())
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(downloads.load(Ordering::SeqCst), 1);
+    assert_eq!(expected, ExpectedChecksum::UnverifiedConfirmed);
+    let (status, _) = verify_downloaded_artifact(file, String::new(), expected, &cancel)
+        .await
+        .unwrap();
+    assert_eq!(status, InstallGeResult::Unverified);
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[tokio::test]
+async fn prepare_checksum_bricht_bei_http_500_und_defektem_hash_vor_download_ab() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let identity = GeReleaseIdentity {
+        install_name: "GE-Proton11-5".to_string(),
+        checksum_asset_name: "GE-Proton11-5.tar.gz".to_string(),
+    };
+    let cancel = Arc::new(CancelSignal::new());
+    let downloads = Arc::new(AtomicUsize::new(0));
+
+    let dl = Arc::clone(&downloads);
+    let http_err = prepare_checksum_then_download(
+        "GE-Proton11-5",
+        &identity,
+        &cancel,
+        DialogLocale::En,
+        |_, _| async { Err(Sha512FetchError::Http(500)) },
+        |_| std::future::ready(Ok(true)),
+        || async move {
+            dl.fetch_add(1, Ordering::SeqCst);
+            Ok::<(), String>(())
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        errcode::has_code(&http_err, errcode::CHECKSUM_FAILED),
+        "{http_err}"
+    );
+
+    let dl = Arc::clone(&downloads);
+    let parse_err = prepare_checksum_then_download(
+        "GE-Proton11-5",
+        &identity,
+        &cancel,
+        DialogLocale::En,
+        |_, _| async { Ok("broken-checksum-line".to_string()) },
+        |_| std::future::ready(Ok(true)),
+        || async move {
+            dl.fetch_add(1, Ordering::SeqCst);
+            Ok::<(), String>(())
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        errcode::has_code(&parse_err, errcode::CHECKSUM_FAILED),
+        "{parse_err}"
+    );
+    assert_eq!(downloads.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn prepare_checksum_laedt_bei_gueltigem_hash_und_verifiziert_auf_disk() {
+    use std::io::Read as _;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let temp_dir = std::env::temp_dir().join(format!("test-ge-hash-ok-{}", random_suffix()));
+    fs::create_dir_all(&temp_dir).unwrap();
+    let archive_path = temp_dir.join("archive.tar.gz");
+    let content = b"ge-proton-verified-payload";
+    fs::write(&archive_path, content).unwrap();
+    let mut hasher = Sha512::new();
+    hasher.update(content);
+    let hex_hash: String = hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+
+    let identity = GeReleaseIdentity {
+        install_name: "GE-Proton11-5".to_string(),
+        checksum_asset_name: "GE-Proton11-5.tar.gz".to_string(),
+    };
+    let cancel = Arc::new(CancelSignal::new());
+    let downloads = Arc::new(AtomicUsize::new(0));
+    let dl = Arc::clone(&downloads);
+    let path_for_dl = archive_path.clone();
+    let sum_line = format!("{hex_hash}  GE-Proton11-5.tar.gz\n");
+
+    let (expected, file) = prepare_checksum_then_download(
+        "GE-Proton11-5",
+        &identity,
+        &cancel,
+        DialogLocale::De,
+        |_, _| {
+            let line = sum_line.clone();
+            async move { Ok(line) }
+        },
+        |_| std::future::ready(Ok(false)),
+        || async move {
+            dl.fetch_add(1, Ordering::SeqCst);
+            Ok::<fs::File, String>(fs::File::open(&path_for_dl).unwrap())
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(downloads.load(Ordering::SeqCst), 1);
+    let (status, mut verified_file) = verify_downloaded_artifact(file, hex_hash, expected, &cancel)
+        .await
+        .unwrap();
+    assert_eq!(status, InstallGeResult::Verified);
+    let mut roundtrip = Vec::new();
+    verified_file.read_to_end(&mut roundtrip).unwrap();
+    assert_eq!(roundtrip, content);
+
+    let _ = fs::remove_dir_all(&temp_dir);
 }

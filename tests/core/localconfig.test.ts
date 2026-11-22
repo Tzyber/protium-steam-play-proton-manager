@@ -6,6 +6,7 @@ import {
   findActiveUser,
   isLocalConfigParseable,
   readAppFields,
+  readAppNames,
 } from "../../src/core/localconfig.js";
 import { getVdfValue, VdfPatchError } from "../../src/core/vdfRead.js";
 import { buildFakeSteam, nodeFs } from "../support/fakeSteam.js";
@@ -280,5 +281,43 @@ describe("localconfig-strukturprobe", () => {
     const text = `"UserLocalConfigStore"\n{\n\t"LaunchOptions"\t\t"ohne ende`;
     expect(isLocalConfigParseable(text)).toEqual({ detail: "unterminierter string" });
     expect(() => readAppFields(text)).toThrow(new VdfPatchError("unterminierter string"));
+  });
+});
+
+describe("readAppNames", () => {
+  it("liest namen fuer mehrere appIds in einem sammelzugriff", () => {
+    const text = `"UserLocalConfigStore"
+{
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"Apps"
+				{
+					"620"
+					{
+						"name"		"Portal 2"
+					}
+					"730"
+					{
+						"name"		"Counter-Strike 2"
+					}
+					"440"
+					{
+						"name"		"   "
+					}
+				}
+			}
+		}
+	}
+}`;
+    expect(readAppNames(text, [620, 730, 440, 999])).toEqual(
+      new Map([
+        [620, "Portal 2"],
+        [730, "Counter-Strike 2"],
+      ]),
+    );
   });
 });

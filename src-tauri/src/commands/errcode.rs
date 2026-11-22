@@ -25,12 +25,14 @@ pub(crate) const STEAM_RUNNING: &str = "steam-running";
 /// und Löschen bleiben gesperrt, nur der Papierkorb ist ausgenommen.
 pub(crate) const STEAM_CHECK_UNAVAILABLE: &str = "steam-check-unavailable";
 pub(crate) const STEAM_NOT_FOUND: &str = "steam-not-found";
+pub(crate) const STEAM_ROOT_SYMLINK_UNSUPPORTED: &str = "steam-root-symlink-unsupported";
 pub(crate) const INVALID_ACCOUNT_ID: &str = "invalid-account-id";
 pub(crate) const BLOCKED_LOCATION: &str = "blocked-location";
 pub(crate) const NOT_A_STEAM_CONFIG: &str = "not-a-steam-config";
 pub(crate) const UNKNOWN_TOOL: &str = "unknown-tool";
 pub(crate) const TOOL_EXISTS: &str = "tool-already-exists";
 pub(crate) const SIZE_LIMIT: &str = "size-limit-exceeded";
+pub(crate) const TOO_LARGE_FOR_TRASH: &str = "too-large-for-trash";
 
 pub(crate) const NOT_FOUND: &str = "not-found";
 pub(crate) const TOKEN_EXPIRED: &str = "token-expired";
@@ -113,7 +115,7 @@ pub(crate) fn code_for_io(error: &std::io::Error) -> &'static str {
 /// Alle Codes dieser Datei. Die Liste ist die Vollstaendigkeitsklammer fuer
 /// die Frage "ist das ein bekannter Code?": driftet eine Konstante gegen sie,
 /// faellt das im Test `all_codes_spiegelt_jede_code_konstante_der_datei` auf.
-pub(crate) const ALL_CODES: [&str; 38] = [
+pub(crate) const ALL_CODES: [&str; 40] = [
     INVALID_APPID,
     INVALID_VALUE,
     INVALID_URL,
@@ -125,12 +127,14 @@ pub(crate) const ALL_CODES: [&str; 38] = [
     STEAM_RUNNING,
     STEAM_CHECK_UNAVAILABLE,
     STEAM_NOT_FOUND,
+    STEAM_ROOT_SYMLINK_UNSUPPORTED,
     INVALID_ACCOUNT_ID,
     BLOCKED_LOCATION,
     NOT_A_STEAM_CONFIG,
     UNKNOWN_TOOL,
     TOOL_EXISTS,
     SIZE_LIMIT,
+    TOO_LARGE_FOR_TRASH,
     NOT_FOUND,
     TOKEN_EXPIRED,
     TOKEN_UNKNOWN,

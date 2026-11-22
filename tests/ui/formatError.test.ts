@@ -12,6 +12,10 @@ describe("formatError (B1)", () => {
     expect(formatError("tool-already-exists")).toContain("Tool existiert am Zielort bereits");
     expect(formatError("target-changed")).toContain("Ziel hat sich");
     expect(formatError("cancelled")).toContain("abgebrochen");
+    expect(formatError("steam-root-symlink-unsupported: /tmp/evil")).toContain(
+      "nicht unterstützten Ort",
+    );
+    expect(formatError("too-large-for-trash")).toContain("zu viele Dateien");
   });
 
   it("formatiert bekannte Fehlercodes auf Englisch", () => {
@@ -20,6 +24,8 @@ describe("formatError (B1)", () => {
     expect(formatError("steam-not-found")).toContain("No Steam installation found");
     expect(formatError("handler-unavailable")).toContain("No suitable system handler");
     expect(formatError("tool-already-exists")).toContain("Tool already exists");
+    expect(formatError("steam-root-symlink-unsupported")).toContain("symbolic link");
+    expect(formatError("too-large-for-trash")).toContain("too many files");
   });
 
   it("formatiert die live-ablehnungen der löschinspektion ohne rohtext", () => {

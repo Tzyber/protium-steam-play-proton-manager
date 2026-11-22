@@ -1,11 +1,12 @@
 import { defineStore } from "pinia";
+import { EXTRACT_TEMP_PREFIX } from "../../core/compat";
 import { ProtiumError } from "../../core/errors";
 import { errText, parseError } from "../../core/errtext";
 import { type FetchSource, fetchReleases, installRelease } from "../../core/geproton";
 import { isManagedGeName } from "../../core/geprotonNames";
 import type { GeRelease } from "../../core/geprotonReleases";
 import { paths } from "../../core/paths";
-import type { InstallPhase as Phase } from "../../core/ports";
+import type { PendingDeleteInfo, InstallPhase as Phase } from "../../core/ports";
 import type { CompatTool } from "../../core/types";
 import { localizeConsequences } from "../consequences";
 import { logError, logEvent } from "../diagnostics";
@@ -57,6 +58,24 @@ function removeErrorText(e: unknown): string {
     : t("proton.removeFailed", { msg: formatError(e) });
 }
 
+function isValidExtractLeftoverName(name: string): boolean {
+  if (!name.startsWith(EXTRACT_TEMP_PREFIX)) return false;
+  return /^[1-9][0-9]*-[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*$/.test(
+    name.slice(EXTRACT_TEMP_PREFIX.length),
+  );
+}
+
+function parseExtractLeftovers(e: unknown): string[] {
+  const parsed = parseError(e);
+  const prefix = "incomplete extraction leftovers found: ";
+  if (parsed.code !== "incomplete" || !parsed.detail?.startsWith(prefix)) return [];
+  const listPart = parsed.detail.slice(prefix.length).split(";")[0] ?? "";
+  return listPart
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(isValidExtractLeftoverName);
+}
+
 interface State {
   releases: GeRelease[];
   loading: boolean;
@@ -72,6 +91,7 @@ interface State {
   queue: string[]; // wartende tags (max 1 aktiv)
   activeTag: string | null;
   busyRemove: string | null;
+  extractLeftovers: string[];
   listenerReady: boolean;
   /** warnung an den installierten release gebunden, nicht an den job, der job
    *  wird nach erfolgreichem install gelöscht. überschreiben statt reset. */
@@ -90,6 +110,7 @@ export const useProtonStore = defineStore("proton", {
     queue: [],
     activeTag: null,
     busyRemove: null,
+    extractLeftovers: [],
     listenerReady: false,
     warning: null,
   }),
@@ -224,6 +245,7 @@ export const useProtonStore = defineStore("proton", {
         });
         await scan.runScan(); // frische compatToolsInstalled + usedBy
         this.loadError = null; // stale fehlermeldung eines früheren fehlschlags
+        this.extractLeftovers = [];
         if (warned) {
           logEvent("warn", `GE-Pruefsumme nicht verfuegbar (${tag})`);
           this.warning = { tag, msg: t("proton.checksumUnavailable", { tag }) };
@@ -239,6 +261,7 @@ export const useProtonStore = defineStore("proton", {
             parsed.code === "tool-already-exists"
               ? t("proton.installExists", { tag })
               : t("proton.installFailed", { tag, msg: formatError(e) });
+          this.extractLeftovers = parsed.code === "incomplete" ? parseExtractLeftovers(e) : [];
         }
         delete this.jobs[tag];
       } finally {
@@ -247,27 +270,28 @@ export const useProtonStore = defineStore("proton", {
       }
     },
 
-    async remove(tool: CompatTool) {
-      const scan = useScanStore();
-      const steamRoot = scan.result?.steamRoot;
-      if (!steamRoot || tool.source !== "user" || !isManagedGeName(tool.name)) return;
+    async confirmCompatDirDelete(options: {
+      steamRoot: string;
+      targetType: "compatTool" | "extractLeftover";
+      name: string;
+      title: string;
+      message: (pending: PendingDeleteInfo) => string;
+      afterExecute: () => Promise<void>;
+    }) {
       const confirm = useConfirmStore();
       const reservation = confirm.reserve();
       if (reservation === null) return;
       // ein neuer versuch ersetzt die meldung des vorigen; sie bleibt sonst
       // stehen, bis der nutzer erneut löscht (A-05).
       this.removeError = null;
-      this.busyRemove = tool.name;
+      this.busyRemove = options.name;
       try {
-        // NUR für GE-tools aufrufen (distro-tools gehören dem paketmanager)
-        const toolDir = paths.compatToolDir(steamRoot, tool.name);
+        const targetDir = paths.compatToolDir(options.steamRoot, options.name);
         const pending = await ports.system.prepareDelete({
-          targetType: "compatTool",
-          path: toolDir,
-          steamRoot,
+          targetType: options.targetType,
+          path: targetDir,
+          steamRoot: options.steamRoot,
         });
-        // bestätigungsdialog im hauptfenster; erst der klick führt das
-        // löschen aus (v0.3.1-look: "{name} löschen?").
         let cancelled = false;
         const cancelPending = () => {
           if (cancelled) return;
@@ -276,14 +300,14 @@ export const useProtonStore = defineStore("proton", {
         };
         const accepted = confirm.ask(
           {
-            title: t("proton.removeConfirmTitle", { name: tool.name }),
-            message: [...localizeConsequences(pending), t("proton.removeKeepsPrefixes")].join("\n"),
+            title: options.title,
+            message: options.message(pending),
           },
           {
             onSuccess: async () => {
               try {
                 await ports.system.executeDelete(pending.token);
-                await scan.runScan();
+                await options.afterExecute();
               } finally {
                 this.busyRemove = null;
               }
@@ -309,6 +333,45 @@ export const useProtonStore = defineStore("proton", {
         this.removeError = removeErrorText(e);
         this.busyRemove = null;
       }
+    },
+
+    async remove(tool: CompatTool) {
+      const scan = useScanStore();
+      const steamRoot = scan.result?.steamRoot;
+      if (!steamRoot || tool.source !== "user" || !isManagedGeName(tool.name)) return;
+      await this.confirmCompatDirDelete({
+        steamRoot,
+        // NUR für GE-tools aufrufen (distro-tools gehören dem paketmanager)
+        targetType: "compatTool",
+        name: tool.name,
+        // bestätigungsdialog im hauptfenster; erst der klick führt das
+        // löschen aus (v0.3.1-look: "{name} löschen?").
+        title: t("proton.removeConfirmTitle", { name: tool.name }),
+        message: (pending) =>
+          [...localizeConsequences(pending), t("proton.removeKeepsPrefixes")].join("\n"),
+        afterExecute: async () => {
+          await scan.runScan();
+        },
+      });
+    },
+
+    async removeLeftover(leftoverName: string) {
+      const scan = useScanStore();
+      const steamRoot = scan.result?.steamRoot;
+      if (!steamRoot || !isValidExtractLeftoverName(leftoverName)) return;
+      await this.confirmCompatDirDelete({
+        steamRoot,
+        targetType: "extractLeftover",
+        name: leftoverName,
+        title: t("proton.removeLeftoverConfirmTitle", { name: leftoverName }),
+        message: (pending) => localizeConsequences(pending).join("\n"),
+        afterExecute: async () => {
+          this.extractLeftovers = this.extractLeftovers.filter((item) => item !== leftoverName);
+          if (this.extractLeftovers.length === 0) {
+            this.loadError = null;
+          }
+        },
+      });
     },
   },
 });

@@ -204,6 +204,21 @@ describe.each(["de", "en"] as const)("kompakter Support-Beleg in %s", (locale) =
     expect(text.split("\n\n")).toHaveLength(3);
   });
 
+  it("nennt Existenz von Prefix und Shadercache im Support-Beleg", () => {
+    const text = render({
+      footprint: {
+        summary: { status: "complete", sizeBytes: 1024 },
+        compatdata: { status: "measured", sizeBytes: 512 },
+        shadercache: { status: "missing" },
+        compatdataNotChecked: false,
+      },
+    });
+    expect(text).toContain(locale === "de" ? "Wine-Prefix: vorhanden" : "Wine prefix: present");
+    expect(text).toContain(
+      locale === "de" ? "Shadercache: nicht vorhanden" : "Shader cache: missing",
+    );
+  });
+
   it.each([
     ["missing", "nicht gefunden", "not found"],
     ["unreadable", "unlesbar", "unreadable"],

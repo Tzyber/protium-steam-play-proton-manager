@@ -123,7 +123,7 @@ export interface System {
   openLogsFolder(): Promise<void>;
 }
 
-type DeleteTargetType = "orphan" | "trash" | "compatTool";
+type DeleteTargetType = "orphan" | "trash" | "compatTool" | "extractLeftover";
 
 export interface PrepareDeleteRequest {
   targetType: DeleteTargetType;

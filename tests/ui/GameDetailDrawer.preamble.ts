@@ -23,6 +23,7 @@ const {
     protonChecks: [] as ProtonCheck[],
     status: "done" as "idle" | "scanning" | "done" | "not-found" | "error",
     scanGeneration: 1,
+    protonDbRemaining: 0,
   },
   uiState: {
     selectedAppId: 42 as number | null,
@@ -63,6 +64,7 @@ export function resetDrawerMocks(): void {
   scanState.protonChecks = [];
   scanState.status = "done";
   scanState.scanGeneration = 1;
+  scanState.protonDbRemaining = 0;
   cleanupState.scanning = false;
   cleanupState.trashScanning = false;
   cleanupState.prefixUnavailable = false;

@@ -325,7 +325,7 @@ pub struct ConfigBackupEntry {
     pub size_bytes: u64,
 }
 
-pub(super) fn parse_backup_file_name(name: &str) -> Option<(ConfigBackupKind, String, u64)> {
+pub(crate) fn parse_backup_file_name(name: &str) -> Option<(ConfigBackupKind, String, u64)> {
     let stem = name.strip_suffix(".vdf")?;
     let parts: Vec<&str> = stem.split('-').collect();
     if parts.len() != 3 {

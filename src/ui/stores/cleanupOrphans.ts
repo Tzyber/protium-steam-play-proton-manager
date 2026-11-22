@@ -14,7 +14,7 @@ import {
 } from "../../core/cleanup";
 import { blockedReport } from "../../core/cleanupBlocked";
 import { isString, isValidAppId, requireArrayOf } from "../../core/guards";
-import { readAppName } from "../../core/localconfig";
+import { readAppNames } from "../../core/localconfig";
 import { paths } from "../../core/paths";
 import { readAllShortcutAppIds, type ShortcutResult } from "../../core/shortcuts";
 import type { OrphanEntry, ScanResult } from "../../core/types";
@@ -76,14 +76,18 @@ export async function readOrphanNames(
   store: OrphanStore,
   result: ScanResult,
 ): Promise<Record<string, string>> {
-  if (!result.steamUserId) return {};
+  if (!result.steamUserId || store.orphans.length === 0) return {};
   try {
     const text = await ports.fs.readTextFile(
       paths.localConfigVdf(result.steamRoot, result.steamUserId),
     );
+    const byId = readAppNames(
+      text,
+      store.orphans.map((o) => o.appId),
+    );
     const names: Record<string, string> = {};
     for (const o of store.orphans) {
-      const name = readAppName(text, o.appId);
+      const name = byId.get(o.appId);
       if (name) names[o.path] = name;
     }
     return names;

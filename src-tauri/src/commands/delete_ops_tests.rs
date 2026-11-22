@@ -2836,3 +2836,84 @@ fn cancel_delete_entfernt_token_sofort_und_ist_idempotent() {
 
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn compatdata_trash_move_bricht_bei_entry_limit_vor_move_ab_und_stellt_claim_wieder_her() {
+    let (root, steam) = orphan_fixture("compatdata-too-large-for-trash");
+    let target = steam.join("steamapps/compatdata/999999");
+    let trash = steam.join("steamapps/.protium-trash");
+
+    let registry = PendingDeleteRegistry::default();
+    let info = prepare_with_snapshot(&registry, &orphan_request(&steam), || Ok(false)).unwrap();
+    let pending = registry.0.lock().unwrap().remove(&info.token).unwrap();
+    let parent = bound_parent(&pending).unwrap();
+    let original_name = pending.target_name.as_deref().unwrap();
+    let claimed = claim_delete_target(&pending).unwrap();
+    let mut restore = ClaimRestoreGuard {
+        parent,
+        claim_name: &claimed.name,
+        original_name,
+        armed: true,
+    };
+
+    let err = apply_delete_mutation_with_precheck(
+        &pending,
+        &claimed,
+        1_700_000_000_000,
+        &mut restore,
+        &mut |_| {
+            Err(errcode::with_detail(
+                errcode::SIZE_LIMIT,
+                "delete walk entries",
+            ))
+        },
+        &mut |_claimed, _parent| Ok(()),
+    )
+    .unwrap_err();
+
+    assert!(
+        errcode::has_code(&err, errcode::TOO_LARGE_FOR_TRASH),
+        "unerwarteter fehler: {err}"
+    );
+    assert!(target.exists(), "compatdata muss wiederhergestellt sein");
+    assert!(
+        !claim_leftovers(target.parent().unwrap()),
+        "kein claim darf liegenbleiben"
+    );
+    assert!(!trash.exists(), ".protium-trash darf nicht entstanden sein");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn prepare_und_execute_entfernt_extract_leftover_dauerhaft() {
+    let (root, steam) = orphan_fixture("extract-leftover-delete");
+    let leftover = steam.join("compatibilitytools.d").join(format!(
+        "{}999999-stale1",
+        crate::commands::steam_layout::EXTRACT_PREFIX
+    ));
+    std::fs::create_dir_all(leftover.join("sub")).unwrap();
+    std::fs::write(leftover.join("sub/file.bin"), b"partial").unwrap();
+
+    let registry = PendingDeleteRegistry::default();
+    let req = PrepareDeleteRequest {
+        target_type: DeleteTargetType::ExtractLeftover,
+        path: leftover.to_str().unwrap().to_string(),
+        steam_root: steam.to_str().unwrap().to_string(),
+    };
+    let info = prepare_with_snapshot(&registry, &req, || Ok(false)).unwrap();
+    assert_eq!(info.target_type, DeleteTargetType::ExtractLeftover);
+    assert_eq!(info.consequences.len(), 1);
+    assert_eq!(
+        info.consequences[0].action,
+        crate::commands::delete_inspect::DeleteAction::PermanentDelete
+    );
+
+    let result = execute_confirmed(&registry, &info.token, || Ok(false)).unwrap();
+    assert_eq!(result.deleted_path, leftover.to_string_lossy());
+    assert!(!leftover.exists());
+
+    let _ = std::fs::remove_dir_all(root);
+}

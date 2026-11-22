@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import type { Game } from "../../core/types";
 import { useCover } from "../composables/useCover";
 import { formatBytes } from "../format";
@@ -10,11 +11,12 @@ import TierBadge from "./TierBadge.vue";
 const props = defineProps<{ game: Game }>();
 const ui = useUiStore();
 
-const { src, onError } = useCover(() => props.game);
+const cardRef = ref<HTMLElement | null>(null);
+const { src, onError } = useCover(() => props.game, cardRef);
 </script>
 
 <template>
-  <article class="card">
+  <article ref="cardRef" class="card">
     <button
       class="card-main"
       type="button"

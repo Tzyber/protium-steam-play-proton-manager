@@ -22,7 +22,7 @@ export type FetchSource = "cache" | "not-modified" | "fresh" | "offline";
 
 interface FetchResult {
   releases: GeRelease[];
-  fetchedAt: number; // letzter echter github-kontakt
+  fetchedAt: number | null; // letzter echter github-kontakt
   source: FetchSource;
 }
 
@@ -34,13 +34,10 @@ async function writeCache(cache: Cache, cacheKey: string, entry: CacheEntry): Pr
   }
 }
 
-function offlineResult(
-  cached: (CacheEntry & { releases: GeRelease[] }) | null,
-  now: () => number,
-): FetchResult {
+function offlineResult(cached: (CacheEntry & { releases: GeRelease[] }) | null): FetchResult {
   return {
     releases: cached?.releases ?? [],
-    fetchedAt: cached?.fetchedAt ?? now(),
+    fetchedAt: cached?.fetchedAt ?? null,
     source: "offline",
   };
 }
@@ -97,7 +94,7 @@ export async function fetchReleases(
     }
     if (!res.ok) {
       // 403/rate-limit → letzter stand
-      return offlineResult(cached, now);
+      return offlineResult(cached);
     }
 
     const at = now();
@@ -109,7 +106,7 @@ export async function fetchReleases(
     });
     return { releases, fetchedAt: at, source: "fresh" };
   } catch {
-    return offlineResult(cached, now);
+    return offlineResult(cached);
   }
 }
 

@@ -137,4 +137,65 @@ describe("useCover", () => {
     create.mockRestore();
     revoke.mockRestore();
   });
+
+  it("wartet mit rootEl bis IntersectionObserver schneidet und trennt danach", async () => {
+    mockReadFile.mockClear();
+    const create = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:cover-lazy");
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    mockReadFile.mockResolvedValue(new Uint8Array([7]));
+
+    let observerCb: IntersectionObserverCallback | undefined;
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    const ctorArgs: IntersectionObserverInit[] = [];
+    const OriginalIO = globalThis.IntersectionObserver;
+    class FakeObserver {
+      constructor(cb: IntersectionObserverCallback, init?: IntersectionObserverInit) {
+        observerCb = cb;
+        if (init) ctorArgs.push(init);
+      }
+      observe = observe;
+      disconnect = disconnect;
+      unobserve = vi.fn();
+      takeRecords = vi.fn(() => []);
+      root = null;
+      rootMargin = "";
+      thresholds = [];
+    }
+    vi.stubGlobal("IntersectionObserver", FakeObserver);
+
+    try {
+      const current = ref<Game | null>(game(88, "/library/88.jpg"));
+      let exposed: ReturnType<typeof useCover> | undefined;
+      const host = mount({
+        setup() {
+          const rootEl = ref<HTMLElement | null>(null);
+          exposed = useCover(() => current.value, rootEl);
+          return { rootEl };
+        },
+        template: '<div ref="rootEl" />',
+      });
+      await nextTick();
+      if (!exposed) throw new Error("useCover not mounted");
+
+      expect(ctorArgs[0]?.rootMargin).toBe("200px");
+      expect(observe).toHaveBeenCalledTimes(1);
+      expect(mockReadFile).not.toHaveBeenCalled();
+      expect(exposed.src.value).toBeNull();
+
+      observerCb?.(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      );
+      await vi.waitFor(() => expect(exposed?.src.value).toBe("blob:cover-lazy"));
+      expect(mockReadFile).toHaveBeenCalledWith("/library/88.jpg");
+      expect(disconnect).toHaveBeenCalled();
+
+      host.unmount();
+    } finally {
+      vi.stubGlobal("IntersectionObserver", OriginalIO);
+      create.mockRestore();
+      revoke.mockRestore();
+    }
+  });
 });

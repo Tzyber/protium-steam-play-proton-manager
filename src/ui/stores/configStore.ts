@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { ProtiumError, SteamRunningError } from "../../core/errors";
 import { parseError } from "../../core/errtext";
 import type { WriteResult } from "../../core/ports";
+import type { ScanResult } from "../../core/types";
 import { logError, logEvent } from "../diagnostics";
 import { t } from "../i18n";
 import { ports } from "../ports";
@@ -30,6 +31,28 @@ function isSameSnapshot(snapshot: unknown, generation: number): boolean {
   return scan.result === snapshot && scan.scanGeneration === generation;
 }
 
+async function applyOrRescan(
+  snapshot: ScanResult,
+  generation: number,
+  appId: number,
+  patch: { launchOptions?: string; compatTool?: string },
+  changedLog: string,
+): Promise<void> {
+  const scan = useScanStore();
+  const current = scan.result;
+  const sameEnvironment =
+    scan.status !== "scanning" &&
+    current !== null &&
+    current.steamRoot === snapshot.steamRoot &&
+    current.steamUserId === snapshot.steamUserId;
+  if (isSameSnapshot(snapshot, generation) || sameEnvironment) {
+    scan.applyGameConfig(appId, patch);
+    return;
+  }
+  logEvent("info", changedLog);
+  await scan.runScan();
+}
+
 // Einziger Weg von der UI zu Steam-Dateien; das Write-Gate liegt im Backend.
 export const useConfigStore = defineStore("config", {
   actions: {
@@ -55,11 +78,13 @@ export const useConfigStore = defineStore("config", {
           appId,
           value,
         );
-        if (isSameSnapshot(snapshot, generation)) {
-          scan.applyGameConfig(appId, { launchOptions: value });
-        } else {
-          logEvent("info", "Startoptionen geschrieben, Snapshot hat sich geändert");
-        }
+        await applyOrRescan(
+          snapshot,
+          generation,
+          appId,
+          { launchOptions: value },
+          "Startoptionen geschrieben, Snapshot hat sich geändert",
+        );
         return r;
       } catch (e: unknown) {
         return mapWriteError(e);
@@ -80,11 +105,13 @@ export const useConfigStore = defineStore("config", {
           throw new ProtiumError("not-found", "no-scan-result", t("errors.noScanResult"));
         }
         const r = await ports.system.saveCompatTool(snapshot.steamRoot, appId, internalName);
-        if (isSameSnapshot(snapshot, generation)) {
-          scan.applyGameConfig(appId, { compatTool: internalName ?? "default" });
-        } else {
-          logEvent("info", "Compat-Tool geschrieben, Snapshot hat sich geändert");
-        }
+        await applyOrRescan(
+          snapshot,
+          generation,
+          appId,
+          { compatTool: internalName ?? "default" },
+          "Compat-Tool geschrieben, Snapshot hat sich geändert",
+        );
         return r;
       } catch (e: unknown) {
         return mapWriteError(e);

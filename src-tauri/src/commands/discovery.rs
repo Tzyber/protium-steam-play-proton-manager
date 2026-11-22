@@ -81,6 +81,7 @@ pub(crate) fn build_environment_snapshot(
         .map(|relative| home.join(relative))
         .collect();
     let mut steam_root = None;
+    let mut skipped_symlink_target: Option<PathBuf> = None;
     for relative in ROOT_CANDIDATES {
         let candidate = home.join(relative);
         if !candidate.exists() {
@@ -97,6 +98,7 @@ pub(crate) fn build_environment_snapshot(
         if !fixed_candidates.iter().any(|fixed| fixed == &canonical)
             || !is_descendant_of(&canonical, &home)
         {
+            skipped_symlink_target.get_or_insert(canonical);
             continue;
         }
         let steamapps = steam_layout::steamapps(&canonical);
@@ -108,7 +110,16 @@ pub(crate) fn build_environment_snapshot(
             break;
         }
     }
-    let steam_root = steam_root.ok_or_else(|| errcode::STEAM_NOT_FOUND.to_owned())?;
+    let steam_root = steam_root.ok_or_else(|| match skipped_symlink_target {
+        Some(target) => errcode::with_detail(
+            errcode::STEAM_ROOT_SYMLINK_UNSUPPORTED,
+            format!(
+                "steam root symlink points outside supported candidates ({})",
+                target.display()
+            ),
+        ),
+        None => errcode::STEAM_NOT_FOUND.to_owned(),
+    })?;
 
     let (unique, mut unavailable_libraries) = read_library_folders_with_failures(&steam_root)?;
 

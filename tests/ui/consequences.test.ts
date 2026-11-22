@@ -303,4 +303,40 @@ describe("localizeConsequences", () => {
     expect(lines).toEqual(["Move prefix of 620 to trash"]);
     expect(lines[0]).not.toContain("/lib/steamapps");
   });
+
+  it("extraktionsrest nutzt lokalisierten dauerhaft-löschen-text", () => {
+    setLocale("de");
+    expect(
+      localizeConsequences(
+        pending({
+          targetType: "extractLeftover",
+          targetPath: "/root/compatibilitytools.d/.protium-extract-123-abc",
+          consequences: [
+            {
+              path: "/root/compatibilitytools.d/.protium-extract-123-abc",
+              action: "permanentDelete",
+              description: "backend text",
+            },
+          ],
+        }),
+      ),
+    ).toEqual(["Unvollständigen Extraktionsrest .protium-extract-123-abc dauerhaft löschen"]);
+
+    setLocale("en");
+    expect(
+      localizeConsequences(
+        pending({
+          targetType: "extractLeftover",
+          targetPath: "/root/compatibilitytools.d/.protium-extract-123-abc",
+          consequences: [
+            {
+              path: "/root/compatibilitytools.d/.protium-extract-123-abc",
+              action: "permanentDelete",
+              description: "backend text",
+            },
+          ],
+        }),
+      ),
+    ).toEqual(["Permanently delete incomplete extraction leftover .protium-extract-123-abc"]);
+  });
 });
