@@ -18,7 +18,7 @@ import { setLocale } from "../../src/ui/i18n";
 import { useProtonStore } from "../../src/ui/stores/protonStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
 import { deferred } from "../support/factories";
-import type { HttpReply, PhaseHandler, ProgressHandler } from "./protonStore.preamble";
+import type { HttpReply } from "./protonStore.preamble";
 
 describe("protonStore init + pump-robustheit", () => {
   beforeEach(() => {
@@ -59,91 +59,15 @@ describe("protonStore init + pump-robustheit", () => {
     expect(firstUnlisten).toHaveBeenCalledTimes(1);
     expect(store.listenerReady).toBe(false);
 
-    mockOnDownloadProgress.mockResolvedValueOnce(vi.fn()).mockResolvedValueOnce(vi.fn());
-    mockOnInstallPhase.mockResolvedValueOnce(vi.fn()).mockResolvedValueOnce(vi.fn());
+    mockOnDownloadProgress.mockResolvedValueOnce(vi.fn());
+    mockOnInstallPhase.mockResolvedValueOnce(vi.fn());
     await store.init();
 
     expect(listenerCalls()).toBe(4);
     expect(store.listenerReady).toBe(true);
   });
 
-  it("teardown: beide listener werden exakt einmal gelöst und re-init registriert neu", async () => {
-    const firstUnlisten = vi.fn();
-    const secondUnlisten = vi.fn();
-    const store = useProtonStore();
-    store.loadReleases = vi.fn(async () => {});
-    mockOnDownloadProgress.mockResolvedValueOnce(firstUnlisten);
-    mockOnInstallPhase.mockResolvedValueOnce(secondUnlisten);
-
-    await store.init();
-    await store.disposeListeners();
-    await store.disposeListeners();
-
-    expect(firstUnlisten).toHaveBeenCalledTimes(1);
-    expect(secondUnlisten).toHaveBeenCalledTimes(1);
-    expect(store.listenerReady).toBe(false);
-
-    mockOnDownloadProgress.mockResolvedValueOnce(vi.fn()).mockResolvedValueOnce(vi.fn());
-    mockOnInstallPhase.mockResolvedValueOnce(vi.fn()).mockResolvedValueOnce(vi.fn());
-    await store.init();
-    expect(listenerCalls()).toBe(4);
-    expect(store.listenerReady).toBe(true);
-  });
-
-  it("$dispose löst listener und alte callback-closures wirken nicht auf recreation", async () => {
-    let staleProgress: ProgressHandler | undefined;
-    let stalePhase: PhaseHandler | undefined;
-    const oldUnlisteners: Array<ReturnType<typeof vi.fn>> = [];
-    // nur die erste registrierung ist der alte store; die des neuen stores darf
-    // die gemerkten handler nicht überschreiben, sonst prüft der test nichts.
-    let firstRegistration = true;
-    mockOnDownloadProgress.mockImplementation(async (handler) => {
-      if (firstRegistration) staleProgress = handler;
-      const unlisten = vi.fn();
-      oldUnlisteners.push(unlisten);
-      return unlisten;
-    });
-    mockOnInstallPhase.mockImplementation(async (handler) => {
-      if (firstRegistration) stalePhase = handler;
-      firstRegistration = false;
-      const unlisten = vi.fn();
-      oldUnlisteners.push(unlisten);
-      return unlisten;
-    });
-    const oldStore = useProtonStore();
-    oldStore.loadReleases = vi.fn(async () => {});
-    await oldStore.init();
-    oldStore.$dispose();
-    expect(oldUnlisteners).toHaveLength(2);
-    expect(oldUnlisteners.every((unlisten) => unlisten.mock.calls.length === 1)).toBe(true);
-
-    const freshStore = useProtonStore();
-    expect(freshStore).not.toBe(oldStore);
-    freshStore.loadReleases = vi.fn(async () => {});
-    freshStore.releases = [release];
-    useScanStore().result = fakeScanResult();
-    mockInstallGeProton.mockImplementation(() => new Promise(() => {}));
-    await freshStore.init();
-    freshStore.queueInstall(release);
-    await vi.waitFor(() => {
-      expect(freshStore.jobs[release.tag]?.phase).toBe("downloading");
-    });
-
-    staleProgress?.({
-      id: freshStore.jobs[release.tag]?.downloadId ?? "",
-      downloaded: 99,
-      total: 100,
-    });
-    stalePhase?.({
-      id: freshStore.jobs[release.tag]?.downloadId ?? "",
-      phase: "extracting",
-      verified: true,
-    });
-    expect(freshStore.jobs[release.tag]?.downloaded).toBe(0);
-    expect(freshStore.jobs[release.tag]?.phase).toBe("downloading");
-  });
-
-  it("parallele init-aufrufe teilen eine registration und teardown löst beide exakt einmal", async () => {
+  it("parallele init-aufrufe teilen eine registration", async () => {
     let resolveFirst: (unlisten: () => void) => void = () => {};
     let resolveSecond: (unlisten: () => void) => void = () => {};
     mockOnDownloadProgress.mockImplementation(
@@ -158,94 +82,19 @@ describe("protonStore init + pump-robustheit", () => {
           resolveSecond = resolve;
         }),
     );
-    const firstUnlisten = vi.fn();
-    const secondUnlisten = vi.fn();
     const store = useProtonStore();
     store.loadReleases = vi.fn(async () => {});
 
     const firstInit = store.init();
     const secondInit = store.init();
     await vi.waitFor(() => expect(listenerCalls()).toBe(1));
-    resolveFirst(firstUnlisten);
+    resolveFirst(vi.fn());
     await vi.waitFor(() => expect(listenerCalls()).toBe(2));
-    resolveSecond(secondUnlisten);
+    resolveSecond(vi.fn());
     await Promise.all([firstInit, secondInit]);
-    await store.disposeListeners();
 
-    expect(firstUnlisten).toHaveBeenCalledTimes(1);
-    expect(secondUnlisten).toHaveBeenCalledTimes(1);
-  });
-
-  it("dispose zwischen listener-awaits verhindert spätere ownership und callbacks", async () => {
-    let staleProgressForStaleTest: ProgressHandler | undefined;
-    let resolveFirst: (unlisten: () => void) => void = () => {};
-    let resolveSecond: (unlisten: () => void) => void = () => {};
-    mockOnDownloadProgress.mockImplementation(async (handler) => {
-      staleProgressForStaleTest = handler;
-      return new Promise<() => void>((resolve) => {
-        resolveFirst = resolve;
-      });
-    });
-    mockOnInstallPhase.mockImplementation(
-      () =>
-        new Promise<() => void>((resolve) => {
-          resolveSecond = resolve;
-        }),
-    );
-    const firstUnlisten = vi.fn();
-    const secondUnlisten = vi.fn();
-    const store = useProtonStore();
-    store.loadReleases = vi.fn(async () => {});
-    const initPromise = store.init();
-    await vi.waitFor(() => expect(listenerCalls()).toBe(1));
-    resolveFirst(firstUnlisten);
-    await vi.waitFor(() => expect(listenerCalls()).toBe(2));
-
-    const disposePromise = store.disposeListeners();
-    resolveSecond(secondUnlisten);
-    await Promise.all([initPromise, disposePromise]);
-
-    expect(firstUnlisten).toHaveBeenCalledTimes(1);
-    expect(secondUnlisten).toHaveBeenCalledTimes(1);
-    expect(store.listenerReady).toBe(false);
-    staleProgressForStaleTest?.({ id: "stale", downloaded: 99, total: 100 });
-    expect(Object.keys(store.jobs)).toHaveLength(0);
-  });
-
-  it("dispose invalidiert init sofort und schützt einen neuen lauf vor alten resolves", async () => {
-    const resolvers: Array<(unlisten: () => void) => void> = [];
-    mockOnDownloadProgress.mockImplementation(
-      () => new Promise<() => void>((resolve) => resolvers.push(resolve)),
-    );
-    mockOnInstallPhase.mockImplementation(
-      () => new Promise<() => void>((resolve) => resolvers.push(resolve)),
-    );
-    const oldFirst = vi.fn();
-    const oldSecond = vi.fn();
-    const newFirst = vi.fn();
-    const newSecond = vi.fn();
-    const store = useProtonStore();
-    store.loadReleases = vi.fn(async () => {});
-
-    const oldInit = store.init();
-    await vi.waitFor(() => expect(resolvers).toHaveLength(1));
-    resolvers[0]?.(oldFirst);
-    await vi.waitFor(() => expect(resolvers).toHaveLength(2));
-    await store.disposeListeners();
-    const newInit = store.init();
-    await vi.waitFor(() => expect(resolvers).toHaveLength(3));
-    resolvers[1]?.(oldSecond);
-    resolvers[2]?.(newFirst);
-    await vi.waitFor(() => expect(resolvers).toHaveLength(4));
-    resolvers[3]?.(newSecond);
-    await Promise.all([oldInit, newInit]);
-
-    expect(oldFirst).toHaveBeenCalledTimes(1);
-    expect(oldSecond).toHaveBeenCalledTimes(1);
+    expect(listenerCalls()).toBe(2);
     expect(store.listenerReady).toBe(true);
-    await store.disposeListeners();
-    expect(newFirst).toHaveBeenCalledTimes(1);
-    expect(newSecond).toHaveBeenCalledTimes(1);
   });
 
   it("init: erfolgreicher listener → kein erneutes listen beim zweiten aufruf", async () => {

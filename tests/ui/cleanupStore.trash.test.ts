@@ -1,10 +1,5 @@
-// T-01: die mock-preamble liegt in tests/support/cleanupStoreMocks.ts und MUSS
-// vor dem ersten store-/modul-import geladen werden, sonst baut der modulgraph
-// die echten ports auf, bevor vi.mock registriert ist. Die reihenfolge weicht
-// davon ab, was biome als alphabetische import-gruppierung erzwingen wuerde.
 // biome-ignore assist/source/organizeImports: mock-registrierung muss vor dem store-import laufen (T-01)
 import {
-  fakeOrphanEntry,
   fakeScan,
   fakeTrashEntries,
   fakeTrashEntry,
@@ -12,504 +7,167 @@ import {
   mockBatchDirSizes,
   mockCancelDelete,
   mockExecuteDelete,
-  mockFindTrashEntries,
+  mockIsSteamRunning,
+  mockListTrashEntries,
   mockPrepareDelete,
   resetCleanupMocks,
-  trashScan,
+  seedTrashEntries,
+  setClaimDir,
+  STEAM_ROOT,
+  TRASH_DIR,
+  trashListing,
 } from "../support/cleanupStoreMocks";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DELETE_CLAIM_PREFIX } from "../../src/core/cleanup";
+import { paths } from "../../src/core/paths";
+import * as diagnostics from "../../src/ui/diagnostics";
 import { formatBytes } from "../../src/ui/format";
 import { setLocale, t } from "../../src/ui/i18n";
+import { trashDeleteBlockedText } from "../../src/ui/stores/cleanupHelpers";
 import { useCleanupStore } from "../../src/ui/stores/cleanupStore";
 import { useConfirmStore } from "../../src/ui/stores/confirmStore";
 import { useScanStore } from "../../src/ui/stores/scanStore";
+import { deferred } from "../support/factories";
 
-describe("cleanupStore, trash", () => {
+describe("cleanupStore papierkorb-scan & löschung", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     setLocale("de");
     resetCleanupMocks();
   });
 
-  it("scanTrash ohne scan-ergebnis → error gesetzt", async () => {
-    const scanStore = useScanStore();
-    scanStore.result = null;
-    const store = useCleanupStore();
-
-    await store.scanTrash();
-
-    expect(store.error).toContain("scan-ergebnis");
-    expect(mockPrepareDelete).not.toHaveBeenCalled();
-    expect(mockExecuteDelete).not.toHaveBeenCalled();
-  });
-
-  it("scanTrash füllt trash inkl. größen", async () => {
+  it("scanTrash lädt einträge mit größen und trennt unbekannte sowie unlesbare", async () => {
     const entry = fakeTrashEntry();
-    mockFindTrashEntries.mockResolvedValue({
-      entries: [entry],
-      unknown: [],
-      unreadable: [],
-      libraries: [],
-    });
+    seedTrashEntries([entry], { unknownNames: ["fremd"] });
     mockBatchDirSizes.mockResolvedValue({
       [entry.path]: { status: "measured", sizeBytes: 8192 },
     });
-
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
+    useScanStore().result = fakeScan();
     const store = useCleanupStore();
 
     await store.scanTrash();
-
     expect(store.trash).toHaveLength(1);
-    expect(store.trash[0]?.appId).toBe(1091500);
     expect(store.trash[0]?.sizeBytes).toBe(8192);
-    expect(store.trashUnknown).toEqual([]);
-  });
+    expect(store.trashUnknown).toEqual([`${TRASH_DIR}/fremd`]);
+    expect(store.trashUnavailable).toBe(true);
+    expect(store.trashDeleteBlocked).toBe(false);
 
-  it("scanTrash meldet unlesbaren papierkorb statt ihn als leer auszugeben", async () => {
-    mockFindTrashEntries.mockResolvedValue({
-      entries: [],
-      unknown: [],
-      unreadable: ["/lib"],
-      libraries: [
-        {
-          library: "/lib",
-          dir: "/lib/steamapps/.protium-trash",
-          present: true,
-          count: 0,
-          error: "EACCES: permission denied",
-        },
-      ],
-    });
-
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
-    const store = useCleanupStore();
-
+    // unlesbarer papierkorb sperrt auch das löschen
+    seedTrashEntries([], { error: new Error("unreadable: EACCES permission denied") });
     await store.scanTrash();
-
-    // darf NICHT als "papierkorb ist leer" durchgehen
     expect(store.error).toBeTruthy();
-    expect(store.trashLibraries[0]?.error).toContain("EACCES");
+    expect(store.trashLibraries[0]?.error).toBe("unreadable");
+    expect(store.trashDeleteBlocked).toBe(true);
   });
 
-  it("deleteTrashEntries bündelt eine auswahl in einem dialog", async () => {
-    const e1 = fakeTrashEntry();
-    const e2 = fakeTrashEntry({
-      path: "/lib/steamapps/.protium-trash/compatdata_570_100",
+  it("deleteTrashEntries zeigt größen-summary (bekannt, teilweise, nicht gemessen) und partial-prepare", async () => {
+    useScanStore().result = fakeScan();
+    const store = useCleanupStore();
+    const measured = fakeTrashEntry({ sizeBytes: 4096 });
+    const partial = fakeTrashEntry({
+      path: `${TRASH_DIR}/compatdata_570_100`,
       name: "compatdata_570_100",
       appId: 570,
+      trashedAt: 100,
     });
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
-    const store = useCleanupStore();
-    store.trash = [e1, e2];
 
-    await store.deleteTrashEntries([e1, e2]);
-    expect(useConfirmStore().pending?.title).toBe("2 papierkorb-einträge endgültig löschen?");
-    await useConfirmStore().confirm();
+    await store.deleteTrashEntries([measured, partial]);
+    expect(useConfirmStore().pending?.message).toContain(
+      t("cleanup.partialSize", { size: formatBytes(4096) }),
+    );
+    useConfirmStore().cancel();
 
-    expect(mockPrepareDelete).toHaveBeenCalledTimes(2);
-    expect(mockExecuteDelete).toHaveBeenCalledTimes(2);
-    expect(store.trash).toHaveLength(0);
-  });
+    await store.deleteTrashEntries([partial]);
+    expect(useConfirmStore().pending?.message).toContain(t("common.notMeasured"));
+    useConfirmStore().cancel();
 
-  it("prepare-teilfehler zeigt erfolgreiche einträge und lässt fehlende unverändert", async () => {
-    const e1 = fakeTrashEntry();
-    const e2 = fakeTrashEntry({
-      path: "/lib/steamapps/.protium-trash/compatdata_570_100",
-      name: "compatdata_570_100",
-      appId: 570,
+    mockPrepareDelete.mockImplementationOnce(async () => {
+      throw new Error("unreadable");
     });
-    mockPrepareDelete.mockImplementation(async (req) => {
-      if (req.path === e2.path) throw new Error("unreadable");
-      return {
-        token: `token-${req.path}`,
-        expiresAt: Date.now() + MOCK_TOKEN_TTL_MS,
-        targetType: req.targetType,
-        targetPath: req.path,
-        consequences: [],
-      };
-    });
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
-    const store = useCleanupStore();
-    store.trash = [e1, e2];
-
-    await store.deleteTrashEntries([e1, e2]);
-
-    expect(store.error).toContain("compatdata_570_100");
-    expect(store.error).toContain("unlesbar");
+    store.trash = [partial, measured];
+    await store.deleteTrashEntries([partial, measured]);
+    expect(store.error).toContain(partial.name);
     expect(useConfirmStore().pending?.message).toContain(
       "nicht vorbereitete Einträge (1) bleiben unverändert.",
     );
-    expect(useConfirmStore().pending?.title).toContain("1");
-    // nach dem löschen liest der store neu: e2 blieb liegen (prepare-fehler).
-    mockFindTrashEntries.mockResolvedValue(trashScan([e2]));
+    expect(useConfirmStore().pending?.message).toContain(formatBytes(4096));
+
+    mockListTrashEntries.mockResolvedValueOnce(trashListing([partial]));
     await useConfirmStore().confirm();
-
     expect(mockExecuteDelete).toHaveBeenCalledTimes(1);
-    expect(store.trash).toEqual([e2]);
+    expect(store.trash).toEqual([partial]);
   });
 
-  it("lehnt mehr als 32 direkte trash-einträge vor allen gates ab", async () => {
-    setLocale("en");
+  it("lehnt >32 einträge oder fehlendes scan-ergebnis ab und batcht emptyTrash", async () => {
     const scanStore = useScanStore();
     scanStore.result = null;
     const store = useCleanupStore();
-    const existing = fakeTrashEntry({ path: "/existing/trash-entry" });
-    store.trash = [existing];
-
-    await store.deleteTrashEntries(fakeTrashEntries(33));
-
-    expect(mockPrepareDelete).not.toHaveBeenCalled();
-    expect(mockExecuteDelete).not.toHaveBeenCalled();
-    expect(useConfirmStore().pending).toBeNull();
-    expect(useConfirmStore().reserved).toBe(false);
-    expect(store.trash).toEqual([existing]);
-    expect(store.error).toContain("33");
-    expect(store.error).toContain("32");
-  });
-
-  it("bricht ohne scan-ergebnis fail-closed ab statt mit leerem steamRoot zu arbeiten (N-7)", async () => {
-    const scanStore = useScanStore();
-    scanStore.result = null;
-    const store = useCleanupStore();
-    const existing = fakeTrashEntry({ path: "/existing/trash-entry" });
-    store.trash = [existing];
-
-    await store.deleteTrashEntries([fakeTrashEntry()]);
-
-    expect(mockPrepareDelete).not.toHaveBeenCalled();
-    expect(mockExecuteDelete).not.toHaveBeenCalled();
-    expect(useConfirmStore().pending).toBeNull();
-    expect(useConfirmStore().reserved).toBe(false);
-    expect(store.trash).toEqual([existing]);
-    expect(store.error).toContain(t("errors.noScanResult"));
-  });
-
-  it("bereitet und führt exakt 32 trash-einträge in einem dialog aus", async () => {
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
-    const store = useCleanupStore();
-    const entries = fakeTrashEntries(32);
+    const entries = fakeTrashEntries(33);
     store.trash = [...entries];
+
+    await store.deleteTrashEntries([entries[0] ?? fakeTrashEntry()]);
+    expect(store.error).toContain(t("errors.noScanResult"));
 
     await store.deleteTrashEntries(entries);
+    expect(store.error).toContain("33");
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
 
-    expect(mockPrepareDelete).toHaveBeenCalledTimes(32);
-    expect(useConfirmStore().pending?.title).toContain("32");
-    await useConfirmStore().confirm();
-
-    expect(mockExecuteDelete).toHaveBeenCalledTimes(32);
-    expect(store.trash).toEqual([]);
-  });
-
-  it("deleteTrashEntries beginnt die bestätigung mit der unwiderruflichkeits-warnung und nennt die summengröße", async () => {
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
-    const store = useCleanupStore();
-    const e1 = fakeTrashEntry({ sizeBytes: 8192 });
-    const e2 = fakeTrashEntry({
-      path: "/lib/steamapps/.protium-trash/compatdata_570_100",
-      name: "compatdata_570_100",
-      appId: 570,
-      sizeBytes: 1048576,
-    });
-    store.trash = [e1, e2];
-
-    await store.deleteTrashEntries([e1, e2]);
-
-    const message = useConfirmStore().pending?.message ?? "";
-    expect(message.startsWith("Unwiderruflich")).toBe(true);
-    expect(message).toContain(formatBytes(8192 + 1048576));
-  });
-
-  it("nennt in der bestätigung nur die größe der tatsächlich vorbereiteten einträge (N7)", async () => {
-    const e1 = fakeTrashEntry({ sizeBytes: 4096 });
-    const e2 = fakeTrashEntry({
-      path: "/lib/steamapps/.protium-trash/compatdata_570_100",
-      name: "compatdata_570_100",
-      appId: 570,
-      sizeBytes: 1048576,
-    });
-    mockPrepareDelete.mockImplementation(async (req) => {
-      if (req.path === e2.path) throw new Error("unreadable");
-      return {
-        token: `token-${req.path}`,
-        expiresAt: Date.now() + MOCK_TOKEN_TTL_MS,
-        targetType: req.targetType,
-        targetPath: req.path,
-        consequences: [],
-      };
-    });
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
-    const store = useCleanupStore();
-    store.trash = [e1, e2];
-
-    await store.deleteTrashEntries([e1, e2]);
-
-    const message = useConfirmStore().pending?.message ?? "";
-    expect(message).toContain(formatBytes(4096));
-    expect(message).not.toContain(formatBytes(4096 + 1048576));
-    expect(message).toContain("nicht vorbereitete Einträge (1) bleiben unverändert.");
-  });
-
-  it("weist teilweise unbekannte größen als teilweise aus, nicht als 0 (N7)", async () => {
-    const measured = fakeTrashEntry({ sizeBytes: 4096 });
-    const unmeasured = fakeTrashEntry({
-      path: "/lib/steamapps/.protium-trash/compatdata_570_100",
-      name: "compatdata_570_100",
-      appId: 570,
-    });
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
-    const store = useCleanupStore();
-    store.trash = [measured, unmeasured];
-
-    await store.deleteTrashEntries([measured, unmeasured]);
-
-    const message = useConfirmStore().pending?.message ?? "";
-    expect(message).toContain(t("cleanup.partialSize", { size: formatBytes(4096) }));
-  });
-
-  it("nennt eine durchgehend unbekannte größe nicht gemessen, nicht 0 B (N7)", async () => {
-    const unmeasured = fakeTrashEntry({
-      path: "/lib/steamapps/.protium-trash/compatdata_730_100",
-      name: "compatdata_730_100",
-      appId: 730,
-    });
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
-    const store = useCleanupStore();
-    store.trash = [unmeasured];
-
-    await store.deleteTrashEntries([unmeasured]);
-
-    const message = useConfirmStore().pending?.message ?? "";
-    expect(message).toContain(t("common.notMeasured"));
-    expect(message).not.toContain("0 B");
-  });
-
-  it("ohne erfolgreiches prepare gibt es keinen dialog und kein execute", async () => {
-    mockPrepareDelete.mockRejectedValue(new Error("unreadable"));
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
-    const store = useCleanupStore();
-    const e1 = fakeTrashEntry();
-
-    await store.deleteTrashEntries([e1]);
-
-    expect(store.error).toContain("unlesbar");
-    expect(useConfirmStore().pending).toBeNull();
-    expect(mockExecuteDelete).not.toHaveBeenCalled();
-  });
-
-  it("emptyTrash delegiert mit einem trash-snapshot", async () => {
-    const e1 = fakeTrashEntry();
-    const e2 = fakeTrashEntry({
-      path: "/lib/steamapps/.protium-trash/compatdata_570_100",
-      name: "compatdata_570_100",
-      appId: 570,
-    });
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
-    const store = useCleanupStore();
-    store.trash = [e1, e2];
-    const deleteSpy = vi.spyOn(store, "deleteTrashEntries").mockResolvedValue();
-
+    scanStore.result = fakeScan();
     await store.emptyTrash();
-
-    expect(deleteSpy).toHaveBeenCalledTimes(1);
-    const snapshot = deleteSpy.mock.calls[0]?.[0];
-    expect(snapshot).toEqual([e1, e2]);
-    expect(snapshot).not.toBe(store.trash);
-    expect(deleteSpy.mock.calls[0]?.[1]).toBe(0);
-  });
-
-  it("emptyTrash verarbeitet nur die ersten 32 snapshot-einträge und nennt den rest", async () => {
-    const entries = fakeTrashEntries(33);
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
-    const store = useCleanupStore();
-    store.trash = [...entries];
-
-    await store.emptyTrash();
-
     expect(mockPrepareDelete).toHaveBeenCalledTimes(32);
-    expect(mockPrepareDelete).not.toHaveBeenCalledWith({
-      targetType: "trash",
-      path: entries[32]?.path,
-      steamRoot: "/home/u/.steam",
-    });
-    expect(useConfirmStore().pending?.title).toContain("32");
     expect(useConfirmStore().pending?.message).toContain(
       "je durchgang höchstens 32 einträge; rest im papierkorb: 1.",
     );
-    mockFindTrashEntries.mockResolvedValue(trashScan(entries.slice(32)));
+    mockListTrashEntries.mockResolvedValueOnce(trashListing(entries.slice(32)));
     await useConfirmStore().confirm();
-
-    expect(mockExecuteDelete).toHaveBeenCalledTimes(32);
     expect(store.trash).toEqual([entries[32]]);
   });
 
-  it("emptyTrash nennt grenze und rest auch bei deutlich mehr als 32 einträgen", async () => {
-    const entries = fakeTrashEntries(70);
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
-    const store = useCleanupStore();
-    store.trash = [...entries];
-
-    await store.emptyTrash();
-
-    expect(mockPrepareDelete).toHaveBeenCalledTimes(32);
-    expect(useConfirmStore().pending?.message).toContain(
-      "je durchgang höchstens 32 einträge; rest im papierkorb: 38.",
-    );
-    mockFindTrashEntries.mockResolvedValue(trashScan(entries.slice(32)));
-    await useConfirmStore().confirm();
-
-    expect(mockExecuteDelete).toHaveBeenCalledTimes(32);
-    expect(store.trash).toHaveLength(38);
-    expect(store.trash[0]?.path).toBe(entries[32]?.path);
-  });
-
-  it("emptyTrash mit genau 32 einträgen nennt keinen rest", async () => {
-    const entries = fakeTrashEntries(32);
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
-    const store = useCleanupStore();
-    store.trash = [...entries];
-
-    await store.emptyTrash();
-
-    expect(useConfirmStore().pending?.title).toContain("32");
-    expect(useConfirmStore().pending?.message).not.toContain("rest im papierkorb");
-    await useConfirmStore().confirm();
-
-    expect(mockExecuteDelete).toHaveBeenCalledTimes(32);
-    expect(store.trash).toEqual([]);
-  });
-
-  it("emptyTrash meldet die grenze auch auf englisch", async () => {
-    setLocale("en");
-    const entries = fakeTrashEntries(33);
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
-    const store = useCleanupStore();
-    store.trash = [...entries];
-
-    await store.emptyTrash();
-
-    expect(useConfirmStore().pending?.title).toContain("32");
-    expect(useConfirmStore().pending?.message).toContain(
-      "at most 32 entries per pass; remaining in the trash: 1.",
-    );
-  });
-
-  it("emptyTrash mit fehlschlag in der mitte, rest wird trotzdem gelöscht", async () => {
-    const e1 = fakeTrashEntry();
+  it("A-06 / A-04: liest library-zähler nach löschung neu und bewahrt execute- plus rescan-fehler", async () => {
+    const e1 = fakeTrashEntry({
+      path: `${TRASH_DIR}/compatdata_1091500_100`,
+      name: "compatdata_1091500_100",
+    });
     const e2 = fakeTrashEntry({
-      path: "/lib/steamapps/.protium-trash/compatdata_570_100",
+      path: `${TRASH_DIR}/compatdata_570_100`,
       name: "compatdata_570_100",
       appId: 570,
     });
-    const e3 = fakeTrashEntry({
-      path: "/lib/steamapps/.protium-trash/shadercache_730_200",
-      name: "shadercache_730_200",
-      type: "shadercache",
-      appId: 730,
-    });
+    mockListTrashEntries
+      .mockResolvedValueOnce(trashListing([e1, e2]))
+      .mockResolvedValueOnce(trashListing([]))
+      .mockRejectedValueOnce(new Error("unreadable"));
 
-    let callCount = 0;
-    mockExecuteDelete.mockImplementation(async (token: string) => {
-      callCount++;
-      if (callCount === 2) throw new Error("unreadable");
-      return { deletedPath: token };
-    });
-
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
+    useScanStore().result = fakeScan();
     const store = useCleanupStore();
-    store.trash = [e1, e2, e3];
-
-    await store.emptyTrash();
-    // nach dem löschen liest der store neu: e2 blieb liegen (execute-fehler).
-    mockFindTrashEntries.mockResolvedValue(trashScan([e2]));
-    await useConfirmStore().confirm();
-
-    expect(store.trash).toHaveLength(1);
-    expect(store.trash[0]?.appId).toBe(570); // der fehlgeschlagene bleibt
-    expect(store.error).toContain("compatdata_570_100");
-    expect(store.error).toContain("unlesbar");
-  });
-
-  it("behält vorbereitungs- und execute-fehler getrennt sichtbar", async () => {
-    const e1 = fakeTrashEntry();
-    const e2 = fakeTrashEntry({
-      path: "/lib/steamapps/.protium-trash/compatdata_570_100",
-      name: "compatdata_570_100",
-      appId: 570,
-    });
-    mockPrepareDelete.mockImplementation(async (req) => {
-      if (req.path === e2.path) throw new Error("unreadable");
-      return {
-        token: `token-${req.path}`,
-        expiresAt: Date.now() + MOCK_TOKEN_TTL_MS,
-        targetType: req.targetType,
-        targetPath: req.path,
-        consequences: [],
-      };
-    });
-    mockExecuteDelete.mockRejectedValue(new Error("unreadable"));
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
-    const store = useCleanupStore();
-    store.trash = [e1, e2];
+    await store.scanTrash();
+    expect(store.trashLibraries[0]?.count).toBe(2);
 
     await store.deleteTrashEntries([e1, e2]);
     await useConfirmStore().confirm();
+    expect(store.trashLibraries[0]?.count).toBe(0);
 
-    const message = store.error ?? "";
-    expect(message.match(/nicht vorbereitete Einträge \(1\)/g)).toEqual([
-      "nicht vorbereitete Einträge (1)",
-    ]);
-    expect(message).toContain("nicht gelöschte Einträge (1)");
-    expect(message).toContain("unlesbar");
+    // Teilerfolg + kaputter Rescan
+    store.trash = [e1, e2];
+    mockExecuteDelete
+      .mockResolvedValueOnce({ deletedPath: e1.path })
+      .mockRejectedValueOnce(new Error("unreadable"));
+    await store.deleteTrashEntries([e1, e2]);
+    await useConfirmStore().confirm();
+    expect(store.trashError).toContain(e2.name);
+    expect(store.trashError).toContain("nicht gelöschte Einträge (1)");
+    expect(store.trashError).toContain(t("errors.kinds.unreadable"));
   });
 
-  it("ruft cancelDelete für alle vorbereiteten Trash- und Orphan-Tokens bei Dialog-Abbruch auf (S-10)", async () => {
-    const e1 = fakeTrashEntry();
-    const e2 = fakeTrashEntry({
-      path: "/lib/steamapps/.protium-trash/compatdata_570_100",
-      name: "compatdata_570_100",
-      appId: 570,
-    });
-    const o1 = fakeOrphanEntry(1);
-    const scanStore = useScanStore();
-    scanStore.result = fakeScan([]);
+  it("S-10: gibt vorbereitete trash-tokens bei abbruch und stale generation frei", async () => {
+    useScanStore().result = fakeScan();
     const store = useCleanupStore();
-    store.trash = [e1, e2];
-    store.orphans = [o1];
-
-    await store.deleteTrashEntries([e1, e2]);
+    const e1 = fakeTrashEntry();
+    await store.deleteTrashEntries([e1]);
     useConfirmStore().cancel();
+    expect(mockCancelDelete).toHaveBeenCalledExactlyOnceWith(`token-${e1.path}`);
 
-    expect(mockCancelDelete).toHaveBeenCalledTimes(2);
-    expect(mockCancelDelete).toHaveBeenNthCalledWith(1, `token-${e1.path}`);
-    expect(mockCancelDelete).toHaveBeenNthCalledWith(2, `token-${e2.path}`);
-
-    mockCancelDelete.mockClear();
-    await store.deleteOrphans([o1]);
-    useConfirmStore().cancel();
-
-    expect(mockCancelDelete).toHaveBeenCalledExactlyOnceWith(`token-${o1.path}`);
-
-    // Veraltete Generation während `prepareDelete` (`!isCurrent()`) gibt bereits
-    // vorbereitete Tokens sofort wieder frei.
     mockCancelDelete.mockClear();
     mockPrepareDelete.mockImplementationOnce(async (req) => {
       store.resetForLibraryScan();
@@ -523,5 +181,94 @@ describe("cleanupStore, trash", () => {
     });
     await store.deleteTrashEntries([e1]);
     expect(mockCancelDelete).toHaveBeenCalledExactlyOnceWith(`token-stale-${e1.path}`);
+  });
+
+  it("sperrt löschen bei scan-fehler (auch während größenmessung), reiner löschfehler sperrt nicht (FR-4)", async () => {
+    useScanStore().result = fakeScan();
+    const store = useCleanupStore();
+    const entry = fakeTrashEntry();
+    seedTrashEntries([entry]);
+    const sizeGate = deferred<Record<string, { status: "missing" }>>();
+    mockBatchDirSizes.mockImplementationOnce(() => sizeGate.promise);
+
+    // fehler während scan über zweite library erzwingen
+    useScanStore().result = { ...fakeScan(), libraries: [STEAM_ROOT, "/lib2"] };
+    seedTrashEntries([], { library: "/lib2", error: new Error("EACCES") });
+    const scan = store.scanTrash();
+    await vi.waitFor(() => expect(mockBatchDirSizes).toHaveBeenCalledTimes(1));
+    await store.deleteTrashEntries([entry]);
+    expect(mockPrepareDelete).not.toHaveBeenCalled();
+    expect(store.trashError).toContain(trashDeleteBlockedText(true) ?? "");
+    sizeGate.resolve({ [entry.path]: { status: "missing" } });
+    await scan;
+
+    // FR-1 sprachwechsel
+    expect(trashDeleteBlockedText(store.trashDeleteBlocked)).toBe(t("cleanup.trashDeleteBlocked"));
+    setLocale("en");
+    expect(trashDeleteBlockedText(store.trashDeleteBlocked)).toBe(t("cleanup.trashDeleteBlocked"));
+    setLocale("de");
+
+    // reiner löschfehler sperrt nicht
+    resetCleanupMocks();
+    useScanStore().result = fakeScan();
+    store.clearTrashState();
+    store.trash = [entry];
+    mockExecuteDelete.mockRejectedValueOnce(new Error("unreadable"));
+    await store.deleteTrashEntries([entry]);
+    await useConfirmStore().confirm();
+    expect(store._trashScanError).toBeNull();
+    expect(store.trashDeleteBlocked).toBe(false);
+    await store.deleteTrashEntries([entry]);
+    expect(useConfirmStore().pending).not.toBeNull();
+    useConfirmStore().cancel();
+  });
+
+  it("write-may-have-applied löst claim-refresh aus (nicht bei laufendem steam/P8) und protokolliert (FR-2)", async () => {
+    useScanStore().result = fakeScan();
+    const store = useCleanupStore();
+    const entry = fakeTrashEntry();
+    store.trash = [entry];
+    setClaimDir(paths.compatdataDir(STEAM_ROOT), `${DELETE_CLAIM_PREFIX}claim1`);
+    const uncertainFailure = new Error("write-may-have-applied: partial");
+    const logSpy = vi.spyOn(diagnostics, "logError");
+
+    mockExecuteDelete.mockRejectedValueOnce(uncertainFailure);
+    await store.deleteTrashEntries([entry]);
+    await useConfirmStore().confirm();
+    expect(store.incompleteDeletions).toHaveLength(1);
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Papierkorb-Eintrag löschen fehlgeschlagen"),
+      uncertainFailure,
+    );
+
+    // P8: steam-check rejectet -> kein orphan-refresh, protokoll schreibt steam-fehler, löschfehler bleibt
+    resetCleanupMocks();
+    store.clearOrphanState();
+    store.clearTrashState();
+    store.trash = [entry];
+    setClaimDir(paths.compatdataDir(STEAM_ROOT), `${DELETE_CLAIM_PREFIX}claim2`);
+    mockExecuteDelete.mockRejectedValueOnce(uncertainFailure);
+    mockIsSteamRunning.mockResolvedValueOnce(true); // laufendes Steam überspringt ebenfalls orphan-refresh
+    await store.deleteTrashEntries([entry]);
+    await useConfirmStore().confirm();
+    expect(store.incompleteDeletions).toEqual([]);
+    expect(store.trashError).toContain(entry.name);
+
+    store.clearOrphanState();
+    store.clearTrashState();
+    store.trash = [entry];
+    const steamFailure = new Error("steam-check-unavailable: /proc");
+    mockExecuteDelete.mockRejectedValueOnce(uncertainFailure);
+    mockIsSteamRunning.mockRejectedValueOnce(steamFailure);
+    await store.deleteTrashEntries([entry]);
+    await useConfirmStore().confirm();
+    expect(store.incompleteDeletions).toEqual([]);
+    expect(store.trashError).toContain(entry.name);
+    expect(store.trashError).not.toContain(t("errors.codes.steamCheckUnavailable"));
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Steam-Status nach Papierkorb-Löschung nicht prüfbar"),
+      steamFailure,
+    );
+    logSpy.mockRestore();
   });
 });

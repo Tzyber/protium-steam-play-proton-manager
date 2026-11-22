@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from "vue";
+import CleanupActionBar from "../components/CleanupActionBar.vue";
 import CleanupNotices from "../components/CleanupNotices.vue";
 import OrphanPanel from "../components/OrphanPanel.vue";
 import TrashPanel from "../components/TrashPanel.vue";
@@ -8,13 +9,10 @@ import { logError } from "../diagnostics";
 import { formatKnownBytes } from "../format";
 import { t } from "../i18n";
 import { bySizeDesc, formatSizeSummary } from "../sizeSummary";
-import { trashDeleteBlockedText } from "../stores/cleanupHelpers";
 import { useCleanupStore } from "../stores/cleanupStore";
-import { useConfirmStore } from "../stores/confirmStore";
 import { useScanStore } from "../stores/scanStore";
 
 const cleanup = useCleanupStore();
-const confirm = useConfirmStore();
 const scan = useScanStore();
 
 // ---- tabs ----
@@ -139,18 +137,12 @@ function deleteShadersAll() {
 }
 
 const busy = computed(() => cleanup.scanning || cleanup.deleting.size > 0);
-const destructiveBusy = computed(() => busy.value || confirm.reserved || confirm.busy);
 
 // ---- papierkorb ----
 
 const trashSelectedSize = computed(() => displaySize(trashSelection.selectedEntries));
 
 const trashDeleting = ref(false);
-
-/** Sperrtext des Papierkorbs. Bewusst eine Funktion und kein computed: der Text
- *  wird bei jedem render neu übersetzt, damit ein Sprachwechsel den stehenden
- *  Sperrfakt mitnimmt (FR-1). Übersetzt wird nur in `cleanupHelpers`. */
-const trashBlockedText = () => trashDeleteBlockedText(cleanup.trashDeleteBlocked);
 
 /** all: der „papierkorb leeren“-knopf (löscht alles, unabhängig von der
  *  auswahl); sonst nur die ausgewählten einträge. */
@@ -294,66 +286,21 @@ const tabLabel = (id: Tab) =>
 
     </div>
 
-    <!-- footer: außerhalb der scroll-fläche, deshalb immer am unteren rand und
-         nie über einer listenzeile. bezieht sich nur auf den sichtbaren tab. -->
-    <div v-if="tab !== 'trash' && selectedHere.length + tabCount(tab) > 0" class="actionbar">
-      <span class="sel-info" aria-live="polite" data-testid="orphan-selected-info">
-        {{ t("cleanup.selectedInfo", { n: selectedHere.length, size: selectedHereSize }) }}
-      </span>
-      <div class="actionbar-btns">
-        <button
-          v-if="tab === 'shaders' && shadercacheOrphans.length"
-          class="action"
-          type="button"
-          :disabled="destructiveBusy || deleteBlockedHere"
-          @click="deleteShadersAll"
-        >
-          {{ t("cleanup.cleanAllShaders") }}
-        </button>
-        <button
-          class="action danger"
-          type="button"
-          :disabled="destructiveBusy || deleteBlockedHere || !selectedHere.length"
-          @click="confirmDeleteOrphans"
-        >
-          {{ t("cleanup.deleteSelected", { n: selectedHere.length }) }}
-        </button>
-      </div>
-    </div>
-
-    <div v-if="tab === 'trash' && cleanup.trash.length" class="actionbar">
-      <span class="sel-info" aria-live="polite" data-testid="trash-selected-info">
-        {{ t("cleanup.selectedInfo", { n: trashSelection.selectedEntries.length, size: trashSelectedSize }) }}
-      </span>
-      <span
-        v-if="cleanup.trashDeleteBlocked"
-        class="hint"
-        role="alert"
-        data-testid="trash-delete-blocked"
-      >
-        {{ trashBlockedText() }}
-      </span>
-      <div class="actionbar-btns">
-        <button
-          class="action"
-          type="button"
-          :disabled="!trashSelection.selectedEntries.length || trashDeleting || confirm.reserved || confirm.busy || cleanup.trashDeleteBlocked"
-          :title="trashBlockedText() ?? undefined"
-          @click="deleteTrashEntries(false)"
-        >
-          {{ t("cleanup.trashDeleteEntry") }}
-        </button>
-        <button
-          class="action danger"
-          type="button"
-          :disabled="!cleanup.trash.length || trashDeleting || confirm.reserved || confirm.busy || cleanup.trashDeleteBlocked"
-          :title="trashBlockedText() ?? undefined"
-          @click="deleteTrashEntries(true)"
-        >
-          {{ t("cleanup.trashEmpty") }}
-        </button>
-      </div>
-    </div>
+    <CleanupActionBar
+      :tab="tab"
+      :selected-count="selectedHere.length"
+      :selected-size="selectedHereSize"
+      :total-tab-count="tabCount(tab)"
+      :has-shaders="shadercacheOrphans.length > 0"
+      :busy="busy"
+      :delete-blocked-here="deleteBlockedHere"
+      :trash-selected-count="trashSelection.selectedEntries.length"
+      :trash-selected-size="trashSelectedSize"
+      :trash-deleting="trashDeleting"
+      @delete-shaders-all="deleteShadersAll"
+      @confirm-delete-orphans="confirmDeleteOrphans"
+      @delete-trash="deleteTrashEntries"
+    />
 
   </section>
 </template>
@@ -433,37 +380,6 @@ const tabLabel = (id: Tab) =>
   color: var(--signal); font-size: var(--text-md); cursor: pointer;
   text-decoration: underline; text-underline-offset: 3px;
 }
-/* footer der view: liegt außerhalb der scroll-fläche, also immer unten und
-   niemals über einer listenzeile. vorher war das position:sticky mit negativem
-   margin, dadurch verdeckte die leiste die letzte zeile, die dann nicht mehr
-   abwählbar war. */
-.actionbar {
-  flex: 0 0 auto;
-  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
-  margin: 0; padding: var(--space-3) var(--view-pad);
-  background: var(--bg-1);
-  border-top: 1px solid var(--line);
-}
-.sel-info { font-size: var(--text-md); color: var(--fg-1); }
-/* der sperrgrund steht in der leiste, nicht als block über der liste */
-.actionbar .hint { margin-bottom: 0; padding: 0; }
-.actionbar-btns { display: flex; gap: var(--space-3); }
-
-.action {
-  background: var(--signal); color: var(--on-signal); border: none;
-  border-radius: var(--r-sm); padding: var(--space-3) var(--space-4);
-  font-family: var(--font-body); font-weight: 600; font-size: var(--text-md); cursor: pointer;
-}
-.action:hover:not(:disabled) { background: var(--signal-bright); }
-.action:disabled { opacity: 0.4; cursor: default; }
-.action:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
-.action.danger {
-  background: color-mix(in srgb, var(--danger) 18%, transparent);
-  color: var(--danger-fg);
-  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
-}
-.action.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger-hover) 30%, transparent); }
-
 .hint { color: var(--warning-text); font-family: var(--font-body); font-size: var(--text-md); padding: 0 var(--view-pad); margin-bottom: var(--space-3); }
 
 

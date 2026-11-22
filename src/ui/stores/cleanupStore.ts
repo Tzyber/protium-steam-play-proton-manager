@@ -1,11 +1,16 @@
 import { defineStore } from "pinia";
 import type { IncompleteDeletion, OrphanUnreadable, SteamOwnedPrefix } from "../../core/cleanup";
+import {
+  type CleanupBlockedFlags,
+  cleanupBlockedFlags,
+  hasUnreadableOrphanType,
+} from "../../core/cleanupGate";
 import type { TrashEntry, TrashLibraryStatus } from "../../core/trash";
 import type { OrphanEntry, ScanResult } from "../../core/types";
 import { formatDetail } from "../formatError";
 import { t } from "../i18n";
 import { ports } from "../ports";
-import { cleanupBlockedFlags, combineErrors, hasUnreadableOrphanType } from "./cleanupHelpers";
+import { combineErrors } from "./cleanupHelpers";
 import { deleteOrphans, readOrphanNames, scanOrphans } from "./cleanupOrphans";
 import { deleteTrashEntries, scanTrash } from "./cleanupTrash";
 
@@ -95,69 +100,44 @@ export const useCleanupStore = defineStore("cleanup", {
         s.trashError,
       ]);
     },
-    /** Alle Bereichssperren kommen aus `cleanupBlockedFlags`; sonst widersprechen
-     *  sich Coverage und Löschdialog. Die Basis wird dort mit
-     *  `_orphanScanError` statt mit `orphanError` ausgewertet: `orphanError`
-     *  trägt auch den Lösch-/Guard-Text des letzten Versuchs („nicht lesbar,
-     *  Anzeige unvollständig: …", Claim-Titel), ein solcher Text ist kein Beleg
-     *  für einen unvollständigen Scan und darf die typ-genaue Anzeige nicht
-     *  verfälschen. Dasselbe gilt für den Papierkorb: die Scan-Fakten sind
-     *  `_orphanScanError` und `_trashScanError`; `trashError` trägt zusätzlich
-     *  den Text eines Löschversuchs (P2-3, FR-4). */
-    shaderUnavailable: (s) =>
+    /** Alle Bereichssperren kommen einmal aus `cleanupBlockedFlags`; sonst
+     *  widersprechen sich Coverage und Löschdialog (P2-3, FR-4). */
+    blockedFlags: (s): CleanupBlockedFlags =>
       cleanupBlockedFlags({
-        ...s,
         orphanScanError: s._orphanScanError,
+        blockedBySkipped: s.blockedBySkipped,
+        pathMissingLibs: s.pathMissingLibs,
+        incompleteDeletionsUnreadable: s.incompleteDeletionsUnreadable,
+        shortcutUnreadable: s.shortcutUnreadable,
+        orphanUnreadable: s.orphanUnreadable,
+        incompleteDeletions: s.incompleteDeletions,
         trashScanError: s._trashScanError,
-      }).shader,
-    prefixUnavailable: (s) =>
-      cleanupBlockedFlags({
-        ...s,
-        orphanScanError: s._orphanScanError,
-        trashScanError: s._trashScanError,
-      }).prefix,
-    /** Anzeige-Sperre des Papierkorbs: hängt am Scan-Fakt `_trashScanError`,
-     *  nicht am Löschfehler in `trashError` — ein reiner Löschfehler belegt
-     *  keinen unvollständigen Scan. */
-    trashUnavailable: (s) =>
-      cleanupBlockedFlags({
-        ...s,
-        orphanScanError: s._orphanScanError,
-        trashScanError: s._trashScanError,
-      }).trash,
-    /** Sprachunabhängiger Sperrfakt des Papierkorbs (dieselben Terme wie
-     *  `cleanupBlockedFlags(...).trashDelete`). Den sichtbaren Text übersetzt
-     *  `trashDeleteBlockedText` erst beim render, damit ein Sprachwechsel den
-     *  stehenden Sperrgrund mitnimmt statt den Text der Schreibsprache zu
-     *  zeigen (FR-1). */
-    trashDeleteBlocked: (s): boolean =>
-      cleanupBlockedFlags({
-        ...s,
-        orphanScanError: s._orphanScanError,
-        trashScanError: s._trashScanError,
-      }).trashDelete,
-    /** Anzeige-Sperre der Coverage: der Scan kann vollständig sein, die
-     *  Löschvorschau ist es dann trotzdem nicht (INV-2). */
-    coverageBlocked: (s) =>
-      cleanupBlockedFlags({
-        ...s,
-        orphanScanError: s._orphanScanError,
-        trashScanError: s._trashScanError,
-      }).any,
-    /** Löschsperre je Orphan-Bereich: die gemeinsame Basis plus der typ-genaue
-     *  Beleg. Bewusst nicht über `shader`/`prefix`: `prefix` trägt zusätzlich den
-     *  shortcut-Lesefehler, der die Anzeige sperrt, das Löschen aber nicht. */
-    orphanDeleteBlocked: (s) => (type: OrphanEntry["type"]) => {
-      const flags = cleanupBlockedFlags({
-        ...s,
-        orphanScanError: s._orphanScanError,
-        trashScanError: s._trashScanError,
-      });
-      return (
-        flags.base ||
+        trashUnknown: s.trashUnknown,
+        trashLibraries: s.trashLibraries,
+      }),
+    shaderUnavailable(): boolean {
+      return this.blockedFlags.shader;
+    },
+    prefixUnavailable(): boolean {
+      return this.blockedFlags.prefix;
+    },
+    trashUnavailable(): boolean {
+      return this.blockedFlags.trash;
+    },
+    /** Sprachunabhängiger Sperrfakt des Papierkorbs (FR-1). */
+    trashDeleteBlocked(): boolean {
+      return this.blockedFlags.trashDelete;
+    },
+    /** Anzeige-Sperre der Coverage (INV-2). */
+    coverageBlocked(): boolean {
+      return this.blockedFlags.any;
+    },
+    /** Löschsperre je Orphan-Bereich: gemeinsame Basis plus typ-genauer Beleg. */
+    orphanDeleteBlocked(s): (type: OrphanEntry["type"]) => boolean {
+      return (type: OrphanEntry["type"]) =>
+        this.blockedFlags.base ||
         hasUnreadableOrphanType(s, type) ||
-        s.incompleteDeletions.some((deletion) => deletion.type === type)
-      );
+        s.incompleteDeletions.some((deletion) => deletion.type === type);
     },
   },
   actions: {

@@ -2,13 +2,12 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { parseManifest } from "../../src/core/manifest.js";
-import { getPath, parseVdf } from "../../src/core/vdf.js";
 import { getVdfValue } from "../../src/core/vdfRead.js";
 import { tokenizeVdf } from "../../src/core/vdfTokenizer.js";
 
-// K-02: vdfRead, manifest und vdf teilen sich einen tokenizer. diese tests
+// K-02: vdfRead und manifest teilen sich einen tokenizer. diese tests
 // belegen die token-grenzen für die zuvor drift-anfälligen randfälle und dass
-// die drei fassaden dieselbe eingabe über dieselben grenzen lesen.
+// beide leser dieselbe eingabe über dieselben grenzen lesen.
 const kinds = (text: string): string[] => tokenizeVdf(text).tokens.map((token) => token.kind);
 const spans = (text: string): string[] =>
   tokenizeVdf(text).tokens.map((token) => text.slice(token.start, token.end));
@@ -97,12 +96,6 @@ describe("die drei leser teilen die token-grenzen (K-02)", () => {
   it("vdfRead liefert den unescapten wert", () => {
     expect(getVdfValue(TEXT, ["AppState", "LaunchOptions"])).toBe(
       String.raw`MANGOHUD_CONFIG="fps" C:\logs`,
-    );
-  });
-
-  it("vdf erhält die rohform (die lib unescaped nicht)", () => {
-    expect(getPath(parseVdf(TEXT), "AppState", "LaunchOptions")).toBe(
-      String.raw`MANGOHUD_CONFIG=\"fps\" C:\\logs`,
     );
   });
 

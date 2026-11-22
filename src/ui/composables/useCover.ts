@@ -1,5 +1,6 @@
 import { onBeforeUnmount, type Ref, ref, watch } from "vue";
 import type { Game } from "../../core/types";
+import { latest } from "../latest";
 import { ports } from "../ports";
 
 // lokale Steam-Cover kommen als Backend-Bytes. Blob-URLs bleiben deshalb
@@ -9,7 +10,7 @@ export function useCover(getGame: () => Game | null, rootEl?: Ref<HTMLElement | 
   const src = ref<string | null>(null);
   const visible = ref(rootEl === undefined || typeof IntersectionObserver === "undefined");
   let blobUrl: string | null = null;
-  let request = 0;
+  const guard = latest();
   let observer: IntersectionObserver | null = null;
 
   function stopObserver(): void {
@@ -25,7 +26,7 @@ export function useCover(getGame: () => Game | null, rootEl?: Ref<HTMLElement | 
 
   async function load(): Promise<void> {
     if (!visible.value) return;
-    const currentRequest = ++request;
+    const isCurrent = guard.begin();
     revokeBlob();
     src.value = null;
     const game = getGame();
@@ -34,7 +35,7 @@ export function useCover(getGame: () => Game | null, rootEl?: Ref<HTMLElement | 
     if (game.localHeader) {
       try {
         const bytes = await ports.fs.readFile(game.localHeader);
-        if (currentRequest !== request || getGame()?.appId !== game.appId) return;
+        if (!isCurrent() || getGame()?.appId !== game.appId) return;
         const blobBytes = new ArrayBuffer(bytes.byteLength);
         new Uint8Array(blobBytes).set(bytes);
         blobUrl = URL.createObjectURL(new Blob([blobBytes], { type: "image/jpeg" }));
@@ -45,7 +46,7 @@ export function useCover(getGame: () => Game | null, rootEl?: Ref<HTMLElement | 
       }
     }
 
-    if (currentRequest === request) src.value = game.headerImage;
+    if (isCurrent()) src.value = game.headerImage;
   }
 
   function onError(): void {
@@ -91,7 +92,7 @@ export function useCover(getGame: () => Game | null, rootEl?: Ref<HTMLElement | 
 
   onBeforeUnmount(() => {
     stopObserver();
-    request += 1;
+    guard.cancel();
     revokeBlob();
     src.value = null;
   });

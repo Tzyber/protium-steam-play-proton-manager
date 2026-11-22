@@ -12,9 +12,10 @@ import { localizeConsequences } from "../consequences";
 import { logError, logEvent } from "../diagnostics";
 import { formatError } from "../formatError";
 import { getLocale, t } from "../i18n";
+import { type LatestGuard, latest } from "../latest";
 import { ports } from "../ports";
-import { useConfirmStore } from "./confirmStore";
-import { disposeListeners, initListeners } from "./protonListeners";
+import { runDeleteFlow } from "./deleteFlow";
+import { initListeners } from "./protonListeners";
 import { useScanStore } from "./scanStore";
 
 export type { Phase };
@@ -48,7 +49,16 @@ function createDownloadId(): string {
  *  können parallel laden, und eine langsame ältere Antwort darf weder die
  *  frischeren Releases überschreiben noch den Ladezustand des jüngeren
  *  Auftrags beenden (U-05). */
-const releasesRequestSequence = new WeakMap<object, number>();
+const releasesGuard = new WeakMap<object, LatestGuard>();
+
+function getReleasesGuard(store: object): LatestGuard {
+  let guard = releasesGuard.get(store);
+  if (!guard) {
+    guard = latest();
+    releasesGuard.set(store, guard);
+  }
+  return guard;
+}
 
 /** backend-ablehnungen beim löschen lokalisieren; das write-gate (steam läuft)
  *  bekommt einen eigenen text statt des rohen backend-strings. */
@@ -124,16 +134,10 @@ export const useProtonStore = defineStore("proton", {
       return initListeners(this);
     },
 
-    disposeListeners() {
-      return disposeListeners(this);
-    },
-
     async loadReleases(force = false) {
-      const requestId = (releasesRequestSequence.get(this) ?? 0) + 1;
-      releasesRequestSequence.set(this, requestId);
       // nur der jüngste Auftrag schreibt Ergebnis, Fehler und Ladezustand;
       // ältere Antworten verpuffen.
-      const isCurrent = (): boolean => releasesRequestSequence.get(this) === requestId;
+      const isCurrent = getReleasesGuard(this).begin();
       this.loading = true;
       this.loadError = null;
       try {
@@ -278,61 +282,38 @@ export const useProtonStore = defineStore("proton", {
       message: (pending: PendingDeleteInfo) => string;
       afterExecute: () => Promise<void>;
     }) {
-      const confirm = useConfirmStore();
-      const reservation = confirm.reserve();
-      if (reservation === null) return;
-      // ein neuer versuch ersetzt die meldung des vorigen; sie bleibt sonst
-      // stehen, bis der nutzer erneut löscht (A-05).
-      this.removeError = null;
-      this.busyRemove = options.name;
-      try {
-        const targetDir = paths.compatToolDir(options.steamRoot, options.name);
-        const pending = await ports.system.prepareDelete({
-          targetType: options.targetType,
-          path: targetDir,
-          steamRoot: options.steamRoot,
-        });
-        let cancelled = false;
-        const cancelPending = () => {
-          if (cancelled) return;
-          cancelled = true;
-          void ports.system.cancelDelete(pending.token).catch(() => {});
-        };
-        const accepted = confirm.ask(
-          {
-            title: options.title,
-            message: options.message(pending),
-          },
-          {
-            onSuccess: async () => {
-              try {
-                await ports.system.executeDelete(pending.token);
-                await options.afterExecute();
-              } finally {
-                this.busyRemove = null;
-              }
-            },
-            onCancel: () => {
-              cancelPending();
-              this.busyRemove = null;
-            },
-            onError: (e) => {
-              this.removeError = removeErrorText(e);
-              this.busyRemove = null;
-            },
-          },
-          reservation,
-        );
-        if (!accepted) {
-          cancelPending();
-          confirm.release(reservation);
+      await runDeleteFlow({
+        items: [options.name],
+        onReserve: () => {
+          // ein neuer versuch ersetzt die meldung des vorigen; sie bleibt sonst
+          // stehen, bis der nutzer erneut löscht (A-05).
+          this.removeError = null;
+          this.busyRemove = options.name;
+        },
+        prepareItem: async (name) => {
+          const targetDir = paths.compatToolDir(options.steamRoot, name);
+          const pending = await ports.system.prepareDelete({
+            targetType: options.targetType,
+            path: targetDir,
+            steamRoot: options.steamRoot,
+          });
+          return { token: pending.token, pending };
+        },
+        onPrepareError: (_name, e) => {
+          this.removeError = removeErrorText(e);
+        },
+        buildDialog: ([prepared]) => ({
+          title: options.title,
+          message: prepared ? options.message(prepared.pending) : "",
+        }),
+        afterExecute: options.afterExecute,
+        onUnexpectedError: (e) => {
+          this.removeError = removeErrorText(e);
+        },
+        onCleanup: () => {
           this.busyRemove = null;
-        }
-      } catch (e) {
-        confirm.release(reservation);
-        this.removeError = removeErrorText(e);
-        this.busyRemove = null;
-      }
+        },
+      });
     },
 
     async remove(tool: CompatTool) {

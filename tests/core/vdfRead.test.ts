@@ -2,7 +2,13 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ProtiumError } from "../../src/core/errors.js";
-import { getVdfChildFieldValues, getVdfValue, VdfPatchError } from "../../src/core/vdfRead.js";
+import {
+  childKeys,
+  getVdfChildFieldValues,
+  getVdfValue,
+  isBlock,
+  VdfPatchError,
+} from "../../src/core/vdfRead.js";
 
 const LOCALCONFIG = `"UserLocalConfigStore"
 {
@@ -283,5 +289,159 @@ describe("text-vdf-golden-fixture", () => {
     expect(getVdfValue(GOLDEN, ["UserLocalConfigStore", "BareKey"])).toBe("bare-value");
     expect(getVdfValue(GOLDEN, ["UserLocalConfigStore", "BareTokenKey"])).toBe("token-value");
     expect(getVdfValue(GOLDEN, ["UserLocalConfigStore", "Missing"])).toBeUndefined();
+  });
+});
+
+describe("childKeys und isBlock", () => {
+  it("liefert direkte kind-keys in quellreihenfolge (blöcke und skalare) und dedupliziert case-insensitiv", () => {
+    const text = `"Root"
+{
+\t"First"\t\t"1"
+\t"Sub"
+\t{
+\t\t"inner"\t\t"x"
+\t}
+\t"first"\t\t"2"
+\t"SUB"
+\t{
+\t\t"inner"\t\t"y"
+\t}
+\t"Last"\t\t"3"
+}`;
+    expect(childKeys(text, ["root"])).toEqual(["First", "Sub", "Last"]);
+    expect(childKeys(text, [])).toEqual(["Root"]);
+  });
+
+  it("liefert [] bei fehlendem oder skalarem pfad", () => {
+    const text = `"Root"\n{\n\t"Scalar"\t\t"v"\n}\n`;
+    expect(childKeys(text, ["Missing"])).toEqual([]);
+    expect(childKeys(text, ["Root", "Scalar"])).toEqual([]);
+    expect(childKeys("", ["Root"])).toEqual([]);
+  });
+
+  it("nimmt bei doppeltem elternblock den ersten block für childKeys und isBlock", () => {
+    const text = `"Apps"
+{
+\t"onlyFirst"\t\t"1"
+}
+"apps"
+{
+\t"onlySecond"\t\t"2"
+\t"Block"
+\t{
+\t}
+}`;
+    expect(childKeys(text, ["Apps"])).toEqual(["onlyFirst"]);
+    expect(isBlock(text, ["Apps", "Block"])).toBe(false);
+    expect(getVdfValue(text, ["Apps", "onlyFirst"])).toBe("1");
+    expect(getVdfValue(text, ["Apps", "onlySecond"])).toBeUndefined();
+  });
+
+  it("prüft mit isBlock blöcke vs. skalare/fehlende pfade und validiert den blockinhalt", () => {
+    const text = `"AppState"\n{\n\t"appid"\t\t"620"\n\t"Nested"\n\t{\n\t\t"a"\t\t"1"\n\t}\n}`;
+    expect(isBlock(text, ["appstate"])).toBe(true);
+    expect(isBlock(text, ["AppState", "nested"])).toBe(true);
+    expect(isBlock(text, ["AppState", "appid"])).toBe(false);
+    expect(isBlock(text, ["Missing"])).toBe(false);
+    expect(isBlock(text, [])).toBe(false);
+
+    expect(() => isBlock('"AppState"\n{\n\t"Dangling"\n}', ["AppState"])).toThrow(VdfPatchError);
+  });
+
+  it("meldet token-/tiefen-cap auch in childKeys und isBlock als vdf-limit", () => {
+    const overTokens = `"Root"\n{\n\t"Key"\t\t"value"\n}\n${"{}".repeat(128)}`;
+    expect(() => childKeys(overTokens, ["Root"])).toThrow(ProtiumError);
+    expect(() => isBlock(overTokens, ["Root"])).toThrow(ProtiumError);
+    expect(() => childKeys('"k"\n{\n'.repeat(257), ["k"])).toThrow("vdf-limit");
+  });
+});
+
+describe("first-wins, rohstrings und prototyp-sicherheit", () => {
+  it("resolviert doppelte keys mit first-wins und lässt zahlen-/bool-strings unverändert", () => {
+    const text = `"Root"
+{
+\t"num"\t\t"007"
+\t"flag"\t\t"true"
+\t"dup"\t\t"first"
+\t"DUP"\t\t"second"
+\t"literal"
+\t{
+\t\t"proto"\t\t"__proto__"
+\t\t"ctor"\t\t"constructor"
+\t\t"prototype"\t\t"prototype"
+\t}
+}`;
+    expect(getVdfValue(text, ["Root", "num"])).toBe("007");
+    expect(getVdfValue(text, ["Root", "flag"])).toBe("true");
+    expect(getVdfValue(text, ["Root", "dup"])).toBe("first");
+    expect(getVdfValue(text, ["Root", "literal", "proto"])).toBe("__proto__");
+    expect(getVdfValue(text, ["Root", "literal", "ctor"])).toBe("constructor");
+    expect(getVdfValue(text, ["Root", "literal", "prototype"])).toBe("prototype");
+  });
+
+  it.each([
+    [
+      "__proto__",
+      '"root"\n{\n\t"__proto__"\n\t{\n\t\t"polluted"\t\t"yes"\n\t}\n\t"normal"\t\t"ok"\n}',
+    ],
+    ["constructor", '"constructor"\n{\n\t"polluted"\t\t"yes"\n}\n"normal"\t\t"ok"'],
+    ["prototype", 'prototype\n{\n\t"polluted"\t\t"yes"\n}\n"normal"\t\t"ok"'],
+    [
+      "toString",
+      'root\n{\n\t"toString" [$WIN32]\n\t{\n\t\t"leak"\t\t"yes"\n\t}\n\t"normal"\t\t"ok"\n}',
+    ],
+    [
+      "verschachtelte kette",
+      '"toString" "X"\n{\n\t"constructor"\n\t{\n\t\t"prototype"\n\t\t{\n\t\t\t"apply"\t\t"yes"\n\t\t}\n\t}\n}\n"normal"\t\t"ok"',
+    ],
+    ["__proto__ null", '"a"\n{\n\t"__proto__"\t\t"null"\n\t"normal"\t\t"ok"\n}'],
+  ])("lässt bei gefährlichem key '%s' keine globale mutation zu", (_name, text) => {
+    const before = Object.getOwnPropertyNames(Object.prototype).join(",");
+    const protoSnapshot = Object.getPrototypeOf(Object.prototype);
+    const fnApply = Function.prototype.apply;
+
+    try {
+      childKeys(text, []);
+      getVdfValue(text, ["normal"]);
+      isBlock(text, ["__proto__"]);
+    } catch {
+      // struktureller fehler je nach eingabe zulässig, globale objekte bleiben unberührt
+    }
+
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect((Object as unknown as Record<string, unknown>).polluted).toBeUndefined();
+    expect((Object.prototype.toString as unknown as Record<string, unknown>).leak).toBeUndefined();
+    expect(Function.prototype.apply).toBe(fnApply);
+    expect(Object.getPrototypeOf(Object.prototype)).toBe(protoSnapshot);
+    expect(Object.getOwnPropertyNames(Object.prototype).join(",")).toBe(before);
+  });
+
+  it("bricht bei großen offenen werten linear ab (S-01)", () => {
+    const text = `"AppState"\n{\n\t"name"\t"${"x\n".repeat(200_000)}}\n`;
+    const start = performance.now();
+    expect(() => getVdfValue(text, ["AppState", "name"])).toThrow("unterminierter string");
+    expect(() => isBlock(text, ["AppState"])).toThrow("unterminierter string");
+    expect(performance.now() - start).toBeLessThan(1000);
+  });
+});
+
+describe("cross-parser-vertrag Rust -> vdfRead", () => {
+  const RUST_OUTPUT = readFileSync(
+    resolve(import.meta.dirname, "../fixtures/cross-parser-expected.vdf"),
+    "utf8",
+  );
+  const APPS = ["UserLocalConfigStore", "Software", "Valve", "Steam", "Apps"];
+
+  it("parst den rust-output über childKeys, isBlock und getVdfValue verlustfrei", () => {
+    expect(isBlock(RUST_OUTPUT, APPS)).toBe(true);
+    expect(childKeys(RUST_OUTPUT, APPS)).toEqual(["620", "730", "1091500"]);
+    expect(getVdfValue(RUST_OUTPUT, [...APPS, "620", "LastPlayed"])).toBeUndefined();
+    expect(getVdfValue(RUST_OUTPUT, [...APPS, "620", "LaunchOptions"])).toBe(
+      'PROTON_LOG=1 MANGOHUD_CONFIG="fps,gpu,ram" %command% --skip-launcher',
+    );
+    expect(getVdfValue(RUST_OUTPUT, [...APPS, "1091500", "LaunchOptions"])).toBe(
+      'WINEDLLOVERRIDES="dinput8=n,b" PROTON_LOG_DIR=Z:\\home\\logs gamemoderun %command%',
+    );
+    expect(getVdfValue(RUST_OUTPUT, [...APPS, "730", "LaunchOptions"])).toBe("-novid -high");
   });
 });

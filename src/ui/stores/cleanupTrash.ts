@@ -4,6 +4,7 @@
 // erstem Parameter und rufen einander über `store.` auf, damit die
 // `vi.spyOn`-Spies der Tests weiter greifen.
 
+import { cleanupTurn } from "../../core/cleanupGate";
 import { parseError } from "../../core/errtext.js";
 import { findTrashEntries, type TrashEntry, type TrashLibraryStatus } from "../../core/trash";
 import { localizeConsequences } from "../consequences";
@@ -17,14 +18,13 @@ import {
   attachSizes,
   batchInfoLines,
   batchTooLargeText,
-  cleanupTurn,
   combineErrors,
   confirmTitle,
   formatTrashErrors,
   trashDeleteBlockedText,
 } from "./cleanupHelpers";
 import { MAX_PENDING_DELETES } from "./cleanupStore";
-import { useConfirmStore } from "./confirmStore";
+import { runDeleteFlow } from "./deleteFlow";
 import { useScanStore } from "./scanStore";
 
 /** genau die Store-teile, die diese beiden Actions über `store.` nutzen.
@@ -140,172 +140,107 @@ export async function deleteTrashEntries(
     return;
   }
   const steamRoot = result.steamRoot;
-  const confirm = useConfirmStore();
-  const reservation = confirm.reserve();
-  if (reservation === null) return;
-  if (isCurrent()) store.setTrashError(store._trashScanError);
   const prepareErrors: string[] = [];
   const executeErrors: string[] = [];
-  const prepared: {
-    token: string;
-    path: string;
-    name: string;
-    descriptions: string[];
-  }[] = [];
+  let deleted = false;
+  let mayHaveClaimRest = false;
 
-  for (const entry of entries) {
-    if (!isCurrent()) break;
-    try {
+  await runDeleteFlow({
+    items: entries,
+    isCurrent,
+    onReserve: () => {
+      if (isCurrent()) store.setTrashError(store._trashScanError);
+    },
+    prepareItem: async (entry) => {
       const pending = await ports.system.prepareDelete({
         targetType: "trash",
         path: entry.path,
         steamRoot,
       });
-      prepared.push({
+      return {
         token: pending.token,
         path: entry.path,
         name: entry.name,
         descriptions: localizeConsequences(pending),
-      });
-    } catch (e) {
-      prepareErrors.push(`${entry.name}: ${formatError(e)}`);
-    }
-  }
-
-  let tokensCancelled = false;
-  const cancelPrepared = () => {
-    if (tokensCancelled) return;
-    tokensCancelled = true;
-    for (const p of prepared) void ports.system.cancelDelete(p.token).catch(() => {});
-  };
-  if (!isCurrent()) {
-    cancelPrepared();
-    confirm.release(reservation);
-    return;
-  }
-  store.setTrashError(
-    combineErrors([store._trashScanError, formatTrashErrors(prepareErrors, executeErrors)]),
-  );
-  if (!prepared.length) {
-    confirm.release(reservation);
-    return;
-  }
-
-  const partialPrepareMessage =
-    prepareErrors.length > 0 ? t("cleanup.trashPrepareWarning", { n: prepareErrors.length }) : null;
-  // bei mehr als MAX_PENDING_DELETES einträgen wird bewusst in batches
-  // gearbeitet (ein backend-token je batch, eine bestätigung je batch aus
-  // INV-6): der dialog nennt grenze und rest statt eines stillen rests.
-  const batchInfo = batchInfoLines("cleanup.trashBatchInfo", MAX_PENDING_DELETES, remainder);
-  // Die Summe beschreibt genau die bestätigten Ziele: nur die tatsächlich
-  // vorbereiteten Einträge zählen, und unbekannte Größen werden nicht als
-  // 0 mitgezählt (Q3/INV-6), sondern als "nicht gemessen"/"teilweise"
-  // ausgewiesen.
-  const preparedPaths = new Set(prepared.map((p) => p.path));
-  const preparedEntries = entries.filter((entry) => preparedPaths.has(entry.path));
-  // formatKnownBytes: eine gemessene 0 ist "0 B", nicht "nicht gemessen".
-  // der name ist bewusst nicht `sizeText`: so heißt die format-hilfe in
-  // format.ts, hier steht ein fertiger summentext.
-  const summaryText = formatSizeSummary(preparedEntries, formatKnownBytes);
-  const accepted = confirm.ask(
-    {
-      title: confirmTitle(
-        "cleanup.trashDeleteConfirmSingle",
-        "cleanup.trashDeleteConfirmTitle",
-        prepared.length,
-      ),
-      message: [
-        t("cleanup.trashDeleteWarning", { size: summaryText }),
-        partialPrepareMessage,
-        ...batchInfo,
-        ...prepared.flatMap((p) => p.descriptions),
-      ]
-        .filter((line): line is string => line !== null)
-        .join("\n"),
+      };
     },
-    {
-      onSuccess: async () => {
-        // wie in deleteOrphans; an prepare gescheiterte standen nicht im dialog.
-        onConfirmed?.(prepared.map((p) => p.path));
-        let deleted = false;
-        let mayHaveClaimRest = false;
-        for (const p of prepared) {
-          try {
-            await ports.system.executeDelete(p.token);
-            if (isCurrent()) {
-              store.trash = store.trash.filter((e) => e.path !== p.path);
-              deleted = true;
-            }
-          } catch (e) {
-            // Das Protokoll ist der rohe, lokale Diagnosestand; die Oberfläche
-            // zeigt nur die Fehlerklasse (FR-5, Audit 5.1).
-            logError(`Papierkorb-Eintrag löschen fehlgeschlagen (${p.name})`, e);
-            if (parseError(e).code === "write-may-have-applied") mayHaveClaimRest = true;
-            if (isCurrent()) executeErrors.push(`${p.name}: ${formatError(e)}`);
-          }
+    onPrepareError: (entry, e) => {
+      prepareErrors.push(`${entry.name}: ${formatError(e)}`);
+    },
+    beforeConfirm: () => {
+      store.setTrashError(
+        combineErrors([store._trashScanError, formatTrashErrors(prepareErrors, executeErrors)]),
+      );
+    },
+    buildDialog: (prepared) => {
+      const partialPrepareMessage =
+        prepareErrors.length > 0
+          ? t("cleanup.trashPrepareWarning", { n: prepareErrors.length })
+          : null;
+      const batchInfo = batchInfoLines("cleanup.trashBatchInfo", MAX_PENDING_DELETES, remainder);
+      const preparedPaths = new Set(prepared.map((p) => p.path));
+      const preparedEntries = entries.filter((entry) => preparedPaths.has(entry.path));
+      const summaryText = formatSizeSummary(preparedEntries, formatKnownBytes);
+      return {
+        title: confirmTitle(
+          "cleanup.trashDeleteConfirmSingle",
+          "cleanup.trashDeleteConfirmTitle",
+          prepared.length,
+        ),
+        message: [
+          t("cleanup.trashDeleteWarning", { size: summaryText }),
+          partialPrepareMessage,
+          ...batchInfo,
+          ...prepared.flatMap((p) => p.descriptions),
+        ]
+          .filter((line): line is string => line !== null)
+          .join("\n"),
+      };
+    },
+    onConfirmed: (prepared) => {
+      onConfirmed?.(prepared.map((p) => p.path));
+    },
+    onExecuted: (p) => {
+      store.trash = store.trash.filter((e) => e.path !== p.path);
+      deleted = true;
+    },
+    onExecuteError: (p, e) => {
+      logError(`Papierkorb-Eintrag löschen fehlgeschlagen (${p.name})`, e);
+      if (parseError(e).code === "write-may-have-applied") mayHaveClaimRest = true;
+      if (isCurrent()) executeErrors.push(`${p.name}: ${formatError(e)}`);
+    },
+    afterExecute: async () => {
+      if (mayHaveClaimRest) {
+        let steamRunning = true;
+        try {
+          steamRunning = await ports.system.isSteamRunning();
+        } catch (e) {
+          logError("Steam-Status nach Papierkorb-Löschung nicht prüfbar", e);
         }
         if (!isCurrent()) return;
-        // Nur eine unsichere Mutation kann einen Claim-Rest hinterlassen. Ohne
-        // Refresh bliebe er unsichtbar; bei laufendem Steam würde der
-        // Orphan-Scan dagegen fälschlich den Steam-Fehler in die Orphan-Panels
-        // schreiben, deshalb bleibt er dann aus (TRASH darf ohne Steam laufen).
-        if (mayHaveClaimRest) {
-          // P8: der check ist hier nur die vorstufe des refresh, kein lösch-gate
-          // (der papierkorb ist von der sperre ausgenommen). Ein reject
-          // (`steam-check-unavailable`) darf deshalb weder den trash-rescan
-          // darunter überspringen noch als löschfehler erscheinen. Der startwert
-          // ist die fail-closed-antwort: ohne belegbaren status bleibt nur der
-          // orphan-refresh aus.
-          let steamRunning = true;
-          try {
-            steamRunning = await ports.system.isSteamRunning();
-          } catch (e) {
-            logError("Steam-Status nach Papierkorb-Löschung nicht prüfbar", e);
-          }
+        if (!steamRunning) {
+          await store.scanOrphans();
           if (!isCurrent()) return;
-          if (!steamRunning) {
-            await store.scanOrphans();
-            if (!isCurrent()) return;
-          }
         }
-        // A-06: der stand je library (einträge im papierkorb) wird nach der
-        // mutation neu gelesen; sonst bleibt der zähler von vor dem löschen
-        // stehen. scanTrash setzt trashError zurück; ein anschließendes
-        // null darf das neue ergebnis nicht löschen. ein löschfehler wird
-        // mit dem rescan-fehler zusammengeführt, sonst verdrängt der
-        // löschtext die meldung (INV-2).
-        if (deleted) {
-          const refresh = store._trashScanGeneration + 1;
-          await store.scanTrash();
-          // ein neuerer lauf hat übernommen: dessen ergebnis stehen lassen.
-          if (store._trashScanGeneration !== refresh) return;
-        }
-        const deleteMessage = formatTrashErrors(prepareErrors, executeErrors);
-        if (deleteMessage !== null) {
-          // ohne rescan steht der prepare-text schon in trashError,
-          // anhängen würde ihn verdoppeln; die basis ist der alte
-          // scan-fehler. nach dem rescan ist trashError nur noch der neue
-          // lesefehler, der löschtext kommt dazu.
-          store.setTrashError(
-            combineErrors([deleted ? store.trashError : store._trashScanError, deleteMessage]),
-          );
-        }
-      },
-      onCancel: cancelPrepared,
-      onError: (e) => {
-        logError("Papierkorb leeren fehlgeschlagen", e);
-        if (isCurrent()) {
-          executeErrors.push(formatError(e));
-          store.setTrashError(
-            combineErrors([store._trashScanError, formatTrashErrors(prepareErrors, executeErrors)]),
-          );
-        }
-      },
+      }
+      if (deleted) {
+        const refresh = store._trashScanGeneration + 1;
+        await store.scanTrash();
+        if (store._trashScanGeneration !== refresh) return;
+      }
+      const deleteMessage = formatTrashErrors(prepareErrors, executeErrors);
+      if (deleteMessage !== null) {
+        store.setTrashError(
+          combineErrors([deleted ? store.trashError : store._trashScanError, deleteMessage]),
+        );
+      }
     },
-    reservation,
-  );
-  if (!accepted) {
-    cancelPrepared();
-    confirm.release(reservation);
-  }
+    onUnexpectedError: (e) => {
+      logError("Papierkorb leeren fehlgeschlagen", e);
+      executeErrors.push(formatError(e));
+      store.setTrashError(
+        combineErrors([store._trashScanError, formatTrashErrors(prepareErrors, executeErrors)]),
+      );
+    },
+  });
 }

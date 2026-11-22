@@ -12,8 +12,14 @@ import {
   type OrphanUnreadable,
   type SteamOwnedPrefix,
 } from "../../core/cleanup";
-import { blockedReport } from "../../core/cleanupBlocked";
-import { isString, isValidAppId, requireArrayOf } from "../../core/guards";
+import {
+  cleanupTurn,
+  collectInstalledAppIds,
+  mergeOrphanUnreadable,
+  resolveOrphanBlockReason,
+  scanBlockers,
+  unansweredPathMissingLibs,
+} from "../../core/cleanupGate";
 import { readAppNames } from "../../core/localconfig";
 import { paths } from "../../core/paths";
 import { readAllShortcutAppIds, type ShortcutResult } from "../../core/shortcuts";
@@ -27,14 +33,11 @@ import {
   attachSizes,
   batchInfoLines,
   batchTooLargeText,
-  cleanupTurn,
-  collectInstalledAppIds,
   combineErrors,
   confirmTitle,
-  mergeOrphanUnreadable,
 } from "./cleanupHelpers";
 import { MAX_PENDING_DELETES } from "./cleanupStore";
-import { useConfirmStore } from "./confirmStore";
+import { runDeleteFlow } from "./deleteFlow";
 import { useScanStore } from "./scanStore";
 
 /** genau die Store-teile, die diese Actions über `store.` nutzen (kein
@@ -96,20 +99,6 @@ export async function readOrphanNames(
   }
 }
 
-/** fail-closed-prüfung des scan-vertrags und die Blockier-Pfade des Snapshots
- *  in einer regel (N5a/5.14): scan- und löschpfad dürfen nicht zwei fassungen
- *  derselben bedingung führen. `null` = vertrag verletzt (etwa ein fehlendes
- *  oder fremdes feld), sonst die pfade, die einen lauf sperren. */
-function scanBlockers(result: ScanResult): string[] | null {
-  if (
-    requireArrayOf(result.cleanupUnsafeLibraries, isString) === null ||
-    requireArrayOf(result.blockedAppIds, isValidAppId) === null
-  ) {
-    return null;
-  }
-  return blockedReport(result).map((item) => item.path);
-}
-
 export async function scanOrphans(store: OrphanStore): Promise<void> {
   const generation = store._orphanScanGeneration + 1;
   store._orphanScanGeneration = generation;
@@ -162,8 +151,7 @@ export async function scanOrphans(store: OrphanStore): Promise<void> {
 
     await store.loadIgnoredMissing(isCurrent);
     if (!isCurrent()) return;
-    const missing = skipped.filter((s) => s.reason === "path-missing").map((s) => s.path);
-    const unanswered = missing.filter((p) => !store.ignoredMissingLibs.includes(p));
+    const unanswered = unansweredPathMissingLibs(skipped, store.ignoredMissingLibs);
     if (unanswered.length > 0) {
       store.pathMissingLibs = unanswered;
       return;
@@ -265,30 +253,25 @@ export async function deleteOrphans(
   );
   if (store.blockedBySkipped || blockedTypes.length > 0) {
     if (store.orphanError === null) {
-      // Reihenfolge vom konkretesten zum allgemeinsten Beleg: der unlesbare Ort
-      // des gesperrten Typs nennt den Pfad, ein unlesbarer Claim-Parent die
-      // Claim-Pfade, ein liegender Claim-Rest den Titel; erst danach der Fehler
-      // des letzten Scans. Kein Zweig setzt null — sonst bliebe die Sperre bei
-      // Claim-Resten und unlesbaren Claim-Parents stumm (M1).
-      const unreadablePaths = store.orphanUnreadable
-        .filter((entry) => blockedTypes.includes(entry.type))
-        .map((entry) => entry.path);
-      if (unreadablePaths.length > 0) {
-        store.setOrphanError(t("cleanup.unreadableDirs", { paths: unreadablePaths.join(", ") }));
-      } else if (store.incompleteDeletionsUnreadable.length > 0) {
+      const reason = resolveOrphanBlockReason(
+        {
+          orphanUnreadable: store.orphanUnreadable,
+          incompleteDeletionsUnreadable: store.incompleteDeletionsUnreadable,
+          incompleteDeletions: store.incompleteDeletions,
+          orphanScanError: store._orphanScanError,
+        },
+        blockedTypes,
+      );
+      if (reason?.kind === "unreadable-dirs") {
+        store.setOrphanError(t("cleanup.unreadableDirs", { paths: reason.paths.join(", ") }));
+      } else if (reason?.kind === "claims-unreadable") {
         store.setOrphanError(
-          t("errors.incompleteDeletionsUnreadable", {
-            paths: store.incompleteDeletionsUnreadable.join(", "),
-          }),
+          t("errors.incompleteDeletionsUnreadable", { paths: reason.paths.join(", ") }),
         );
-      } else if (
-        // `IncompleteDeletionType` ist breiter als `OrphanType` (trash,
-        // compat-tool); der Vergleich läuft deshalb über die gesperrten typen.
-        store.incompleteDeletions.some((entry) => blockedTypes.some((type) => type === entry.type))
-      ) {
+      } else if (reason?.kind === "incomplete-deletions") {
         store.setOrphanError(t("cleanup.incompleteDeletionsTitle"));
-      } else if (store._orphanScanError !== null) {
-        store.setOrphanError(store._orphanScanError);
+      } else if (reason?.kind === "scan-error") {
+        store.setOrphanError(reason.message);
       }
     }
     return;
@@ -329,152 +312,104 @@ export async function deleteOrphans(
     return;
   }
   const installedAppIds = collectInstalledAppIds(result, shortcutResult);
-  const confirm = useConfirmStore();
-  const reservation = confirm.reserve();
-  if (reservation === null) return;
-
   const errors: string[] = [];
-  // phase 1: alle einträge vorbereiten; der dialog zeigt die folgen und
-  // erst der bestätigungs-klick führt executeDelete aus.
-  const prepared: {
-    token: string;
-    path: string;
-    type: string;
-    descriptions: string[];
-    permanentDelete: boolean;
-  }[] = [];
-  for (const entry of entries) {
-    if (!isCurrent()) break;
-    if (shortcutResult.status === "unreadable" && entry.type === "compatdata") {
-      errors.push(t("errors.errorShortcutUnreadable", { type: entry.type, appId: entry.appId }));
-      continue;
-    }
-    if (installedAppIds.has(entry.appId)) {
-      errors.push(t("errors.errorNowInstalled", { type: entry.type, appId: entry.appId }));
-      continue;
-    }
+  // compatdata wird nicht gelöscht, sondern in den papierkorb VERSCHOBEN; ohne
+  // refresh danach bliebe die papierkorb-sektion auf dem stand vom öffnen der ansicht.
+  let trashedCompatdata = false;
 
-    store.deleting.add(entry.path);
-    try {
-      const pending = await ports.system.prepareDelete({
-        targetType: "orphan",
-        path: entry.path,
-        steamRoot: result.steamRoot,
-      });
-      prepared.push({
-        token: pending.token,
-        path: entry.path,
-        type: entry.type,
-        descriptions: localizeConsequences(pending, store.orphanNames[entry.path] ?? null),
-        permanentDelete: pending.consequences.some((c) => c.action === "permanentDelete"),
-      });
-    } catch (e) {
-      // deleting hier räumen: sonst bleibt die view nach einem
-      // prepare-fehler dauerhaft busy (kein cleanup in onSuccess/onError,
-      // die nur pfade aus prepared kennen).
-      store.deleting.delete(entry.path);
+  await runDeleteFlow({
+    items: entries,
+    isCurrent,
+    prepareItem: async (entry) => {
+      if (shortcutResult.status === "unreadable" && entry.type === "compatdata") {
+        errors.push(t("errors.errorShortcutUnreadable", { type: entry.type, appId: entry.appId }));
+        return null;
+      }
+      if (installedAppIds.has(entry.appId)) {
+        errors.push(t("errors.errorNowInstalled", { type: entry.type, appId: entry.appId }));
+        return null;
+      }
+      store.deleting.add(entry.path);
+      try {
+        const pending = await ports.system.prepareDelete({
+          targetType: "orphan",
+          path: entry.path,
+          steamRoot: result.steamRoot,
+        });
+        return {
+          token: pending.token,
+          path: entry.path,
+          type: entry.type,
+          descriptions: localizeConsequences(pending, store.orphanNames[entry.path] ?? null),
+          permanentDelete: pending.consequences.some((c) => c.action === "permanentDelete"),
+        };
+      } catch (e) {
+        // deleting hier räumen: sonst bleibt die view nach einem
+        // prepare-fehler dauerhaft busy (kein cleanup für fehlgeschlagene einträge).
+        store.deleting.delete(entry.path);
+        throw e;
+      }
+    },
+    onPrepareError: (entry, e) => {
       logEvent("error", `Loeschen vorbereiten fehlgeschlagen (${entry.type}/${entry.appId})`);
       errors.push(`${entry.type}/${entry.appId}: ${formatError(e)}`);
-    }
-  }
-  let tokensCancelled = false;
-  const cancelPrepared = () => {
-    if (tokensCancelled) return;
-    tokensCancelled = true;
-    for (const p of prepared) void ports.system.cancelDelete(p.token).catch(() => {});
-  };
-  if (!isCurrent()) {
-    cancelPrepared();
-    for (const p of prepared) store.deleting.delete(p.path);
-    confirm.release(reservation);
-    return;
-  }
-  // immer setzen: ein neuer versuch ersetzt die fehler des letzten, statt
-  // sie aufzustauen. ein scan-fehler kann hier nicht stehen, er sperrt oben.
-  store.setOrphanError(errors.join("; ") || null);
-  if (!prepared.length) {
-    confirm.release(reservation);
-    return;
-  }
-
-  // bei mehr als MAX_PENDING_DELETES einträgen wird bewusst in batches
-  // gearbeitet (ein backend-token je batch, eine bestätigung je batch aus
-  // INV-6): der dialog nennt grenze und rest statt eines stillen rests.
-  const batchInfo = batchInfoLines("cleanup.orphanBatchInfo", MAX_PENDING_DELETES, remainder);
-  const accepted = confirm.ask(
-    {
+    },
+    beforeConfirm: () => {
+      // immer setzen: ein neuer versuch ersetzt die fehler des letzten.
+      store.setOrphanError(errors.join("; ") || null);
+    },
+    buildDialog: (prepared) => ({
       title: confirmTitle(
         "cleanup.deleteConfirmSingle",
         "cleanup.deleteConfirmTitle",
         prepared.length,
       ),
-      message: [...batchInfo, ...prepared.flatMap((p) => p.descriptions)].join("\n"),
+      message: [
+        ...batchInfoLines("cleanup.orphanBatchInfo", MAX_PENDING_DELETES, remainder),
+        ...prepared.flatMap((p) => p.descriptions),
+      ].join("\n"),
       // shadercache wird hart gelöscht, compatdata nur verschoben: der
       // knopf benennt die jeweils schwerere wirkung.
       confirmLabel: prepared.some((p) => p.permanentDelete)
         ? t("common.delete")
         : t("cleanup.moveToTrash"),
+    }),
+    onConfirmed: (prepared) => {
+      onConfirmed?.(prepared.map((p) => p.path));
     },
-    {
-      onSuccess: async () => {
-        // die aufrufende view räumt ihre auswahl erst hier: ask resolved
-        // schon beim öffnen, abbrechen muss die auswahl behalten. nur die
-        // bestätigten pfade gehen zurück; übersprungene standen nicht im dialog.
-        onConfirmed?.(prepared.map((p) => p.path));
-        // compatdata wird nicht gelöscht, sondern in den papierkorb
-        // VERSCHOBEN; ohne refresh danach bliebe die papierkorb-sektion
-        // auf dem stand vom öffnen der ansicht.
-        let trashedCompatdata = false;
-        for (const p of prepared) {
-          try {
-            await ports.system.executeDelete(p.token);
-            if (isCurrent()) {
-              store.orphans = store.orphans.filter((o) => o.path !== p.path);
-              // shadercache wird hart gelöscht, landet nie im papierkorb
-              if (p.type === "compatdata") trashedCompatdata = true;
-            }
-          } catch (e) {
-            // Das Protokoll ist der rohe, lokale Diagnosestand; die Oberfläche
-            // zeigt nur die Fehlerklasse (FR-5, Audit 5.1).
-            logError(`Löschen fehlgeschlagen (${p.type}/${p.path})`, e);
-            if (isCurrent()) errors.push(`${p.type}/${p.path}: ${formatError(e)}`);
-          } finally {
-            store.deleting.delete(p.path);
-          }
-        }
-        // reihenfolge: erst refreshes, dann fehler setzen. scanTrash() und
-        // scanOrphans() leeren trashError bzw. orphanError und würden die
-        // löschfehler sonst verschlucken. der rescan gehört hierher, nicht in die view.
+    onExecuted: (p) => {
+      store.orphans = store.orphans.filter((o) => o.path !== p.path);
+      if (p.type === "compatdata") trashedCompatdata = true;
+    },
+    onExecuteError: (p, e) => {
+      logError(`Löschen fehlgeschlagen (${p.type}/${p.path})`, e);
+      if (isCurrent()) errors.push(`${p.type}/${p.path}: ${formatError(e)}`);
+    },
+    onItemSettled: (p) => {
+      store.deleting.delete(p.path);
+    },
+    afterExecute: async () => {
+      // reihenfolge: erst refreshes, dann fehler setzen. scanTrash() und
+      // scanOrphans() leeren trashError bzw. orphanError und würden die
+      // löschfehler sonst verschlucken.
+      if (trashedCompatdata) {
+        await store.scanTrash();
         if (!isCurrent()) return;
-        if (trashedCompatdata) {
-          await store.scanTrash();
-          if (!isCurrent()) return;
-        }
-        const refreshGeneration = store._orphanScanGeneration + 1;
-        await store.scanOrphans();
-        if (store._orphanScanGeneration === refreshGeneration && errors.length) {
-          // der rescan-fehler bleibt sichtbar (INV-2), der löschtext kommt dazu.
-          store.setOrphanError(combineErrors([store.orphanError, errors.join("; ")]));
-        }
-      },
-      onCancel: () => {
-        cancelPrepared();
-        for (const p of prepared) store.deleting.delete(p.path);
-      },
-      onError: (e) => {
-        logError("Loeschen fehlgeschlagen", e);
-        for (const p of prepared) store.deleting.delete(p.path);
-        if (isCurrent()) {
-          errors.push(formatError(e));
-          store.setOrphanError(errors.join("; "));
-        }
-      },
+      }
+      const refreshGeneration = store._orphanScanGeneration + 1;
+      await store.scanOrphans();
+      if (store._orphanScanGeneration === refreshGeneration && errors.length) {
+        // der rescan-fehler bleibt sichtbar (INV-2), der löschtext kommt dazu.
+        store.setOrphanError(combineErrors([store.orphanError, errors.join("; ")]));
+      }
     },
-    reservation,
-  );
-  if (!accepted) {
-    cancelPrepared();
-    for (const p of prepared) store.deleting.delete(p.path);
-    confirm.release(reservation);
-  }
+    onUnexpectedError: (e) => {
+      logError("Loeschen fehlgeschlagen", e);
+      errors.push(formatError(e));
+      store.setOrphanError(errors.join("; "));
+    },
+    onCleanup: (prepared) => {
+      for (const p of prepared) store.deleting.delete(p.path);
+    },
+  });
 }

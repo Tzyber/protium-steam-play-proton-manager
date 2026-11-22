@@ -6,29 +6,29 @@
 // Bestandteile selbst vergleicht.
 
 import type { Game } from "../../core/types";
+import { latest } from "../latest";
 
 interface RequestToken {
-  readonly requestId: number;
+  readonly isCurrent: () => boolean;
   readonly appId: number | undefined;
 }
 
 export function useLatestRequest(getGame: () => Game | null) {
-  let requestId = 0;
+  const guard = latest();
 
   /** Startet einen neuen Auftrag und macht alle älteren ungültig. */
   function begin(): RequestToken {
-    requestId += 1;
-    return { requestId, appId: getGame()?.appId };
+    return { isCurrent: guard.begin(), appId: getGame()?.appId };
   }
 
   /** Macht laufende Aufträge ungültig (z. B. beim Wechsel des Spiels). */
   function invalidate(): void {
-    requestId += 1;
+    guard.cancel();
   }
 
   /** true, wenn der Auftrag noch der aktuelle für dasselbe Spiel ist. */
   function matches(token: RequestToken): boolean {
-    return token.requestId === requestId && getGame()?.appId === token.appId;
+    return token.isCurrent() && getGame()?.appId === token.appId;
   }
 
   /** Wie `matches`, zusätzlich muss der gesendete Wert noch dem aktuellen

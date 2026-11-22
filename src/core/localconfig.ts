@@ -3,8 +3,7 @@ import { errText } from "./errtext.js";
 import { NUMERIC_RE, parseSafeAppId } from "./guards.js";
 import { paths } from "./paths.js";
 import type { FileSystem } from "./ports.js";
-import { asInt, asNode, getPath, parseVdf } from "./vdf.js";
-import { getVdfChildFieldValues, getVdfValue } from "./vdfRead.js";
+import { childKeys, getVdfChildFieldValues, getVdfValue } from "./vdfRead.js";
 
 const APPS_PATH = ["UserLocalConfigStore", "Software", "Valve", "Steam", "Apps"];
 
@@ -94,10 +93,11 @@ async function mostRecentUser(fs: FileSystem, steamRoot: string): Promise<string
   try {
     const p = paths.loginusersVdf(steamRoot);
     if (!(await fs.exists(p))) return null;
-    const users = asNode(getPath(parseVdf(await fs.readTextFile(p)), "users"));
-    if (!users) return null;
-    for (const key of Object.keys(users)) {
-      if (asInt(getPath(users, key, "MostRecent")) === 1) return accountIdOf(key);
+    const text = await fs.readTextFile(p);
+    for (const key of childKeys(text, ["users"])) {
+      if (getVdfValue(text, ["users", key, "MostRecent"])?.trim() === "1") {
+        return accountIdOf(key);
+      }
     }
   } catch {
     // Defekte Daten lassen den Aufrufer auf den Fallback zurückfallen.

@@ -1,10 +1,18 @@
 import { ProtiumError, type ProtiumErrorKind } from "./errors.js";
+import { isRecord } from "./guards.js";
+
+function isCodedError(e: unknown): e is { code: string; detail?: unknown } {
+  return !(e instanceof Error) && isRecord(e) && typeof e.code === "string";
+}
 
 /** rust-commands rejecten mit einem rohen string (kein Error-objekt).
  *  `(e as Error).message` wäre dann `undefined` und die echte ursache weg. */
 export function errText(e: unknown): string {
   if (typeof e === "string") return e;
   if (e instanceof Error) return e.message;
+  if (isCodedError(e)) {
+    return typeof e.detail === "string" && e.detail.length > 0 ? `${e.code}: ${e.detail}` : e.code;
+  }
   return String(e);
 }
 
@@ -79,6 +87,13 @@ interface ParsedError {
   detail?: string;
 }
 
+function classifyCode(code: string, message: string, detail?: string): ParsedError | null {
+  // hasOwn, sonst liefert "constructor" den Object-konstruktor aus dem prototyp
+  const kind = Object.hasOwn(CODE_KINDS, code) ? CODE_KINDS[code] : undefined;
+  if (!kind) return null;
+  return detail === undefined ? { kind, code, message } : { kind, code, message, detail };
+}
+
 export function parseError(e: unknown): ParsedError {
   if (e instanceof ProtiumError) {
     return {
@@ -90,17 +105,15 @@ export function parseError(e: unknown): ParsedError {
   }
 
   const raw = errText(e);
+  if (isCodedError(e)) {
+    const detail = typeof e.detail === "string" && e.detail.length > 0 ? e.detail : undefined;
+    return classifyCode(e.code, raw, detail) ?? { kind: "unknown", code: "unknown", message: raw };
+  }
+
   const match = CODE_PATTERN.exec(raw.trim());
   if (match) {
-    const code = match[1] ?? "";
-    // hasOwn, sonst liefert "constructor" den Object-konstruktor aus dem prototyp
-    const kind = Object.hasOwn(CODE_KINDS, code) ? CODE_KINDS[code] : undefined;
-    if (kind) {
-      const detail = match[2];
-      return detail === undefined
-        ? { kind, code, message: raw }
-        : { kind, code, message: raw, detail };
-    }
+    const classified = classifyCode(match[1] ?? "", raw, match[2]);
+    if (classified) return classified;
   }
 
   return { kind: "unknown", code: "unknown", message: raw };

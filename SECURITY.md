@@ -125,25 +125,19 @@ Daten verändern. „Dateimanager gestartet“ bestätigt nur den Prozessstart.
 ### VDF-Lesepfad (Textdateien)
 
 Von Protium gelesene Text-VDF-Dateien (Manifeste, `config.vdf`,
-`localconfig.vdf`, Tool-VDFs) werden mit `@node-steam/vdf` geparst. Die
-Bibliothek weist Keys ungefiltert zu und kann dabei den globalen JavaScript-
-Zustand mutieren. Zwei Schichten verhindern das: Ein Pre-Pass neutralisiert
-Block-Keys, die auf `__proto__`, `constructor`, `prototype` oder auf ein
-geerbtes Mitglied von `Object.prototype` zeigen (auch hinter
-Steam-Conditionals und in unquotierter Form); zusätzlich liegt um den Parse
-ein Containment, das `Object.prototype`, `Object` und die darin hängenden
-Objekte und Funktionen vorher festhält und nach dem Parse exakt zurücksetzt.
-Der Pre-Pass bildet die zeilenweise Grammatik der Bibliothek nicht
-vollständig ab; das Containment ist davon unabhängig und deckt die
-gemessenen Umgehungsformen ab (elf Eingabeformen sind als Regressionstest
-festgehalten). Der Nutzen des Containments hängt nicht daran, dass der
-Pre-Pass jede Form kennt.
+`localconfig.vdf`, Tool-VDFs) laufen ausschließlich über den internen
+Tokenizer (`src/core/vdfTokenizer.ts`) und den direkten Token-Leser
+(`src/core/vdfRead.ts`). Ein fremder Parser wird nicht verwendet und es
+entsteht kein JavaScript-Objektbaum aus VDF-Schlüsseln; damit ist
+Prototype-Pollution auf `Object.prototype`, `Object`, `Function` und
+`Function.prototype` durch gefährliche Keys (`__proto__`, `constructor`,
+`prototype`, `toString`) strukturell ausgeschlossen.
 
-Bei einem Wert ohne schließendes Quote hängt die Bibliothek Folgezeilen ohne
-Ende-Prüfung an und prüft jedes Mal die ganze Sammlung: hinter dem Dateiende
-endlos, sonst quadratisch. Ein linearer Vorlauf bildet ihre Zeilenschleife
-nach und lehnt jeden Wert ab, der nicht auf seiner Zeile schließt. Steam
-schreibt Zeilenumbrüche in Werten escaped.
+Doppelte Schlüssel lösen konsistent zum Rust-Writer nach *first-wins*
+(case-insensitiv) auf, Zahlen-/Boolean-ähnliche Werte bleiben Rohstrings.
+Token- und Tiefen-Caps (`MAX_DEPTH = 256`, `maxTokens = length/2 + 16`)
+sowie der lineare Abbruch bei ungeschlossenen Strings/Kommentaren
+verhindern quadratische oder endlose Laufzeiten bei defekten Eingaben.
 
 ### Löschautorisierung
 

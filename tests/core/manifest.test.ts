@@ -150,16 +150,16 @@ describe("parseManifest", () => {
     expect(m.sizeBytes).toBeUndefined();
   });
 
-  it("verwendet bei doppeltem SizeOnDisk den letzten gültigen Wert", () => {
+  it("verwendet bei doppeltem SizeOnDisk den ersten gültigen Wert", () => {
     const m = parseManifest(
       '"AppState"\n{\n\t"appid"\t\t"620"\n\t"SizeOnDisk"\t\t"10"\n\t"SizeOnDisk"\t\t"20"\n}',
     );
-    expect(m.sizeBytes).toBe(20);
+    expect(m.sizeBytes).toBe(10);
   });
 
-  it("macht einen gültigen SizeOnDisk durch einen ungültigen letzten Wert unbekannt", () => {
+  it("macht einen ungültigen ersten SizeOnDisk trotz späterem gültigem Wert unbekannt", () => {
     const m = parseManifest(
-      '"AppState"\n{\n\t"appid"\t\t"620"\n\t"SizeOnDisk"\t\t"10"\n\t"SizeOnDisk"\t\t"1e3"\n}',
+      '"AppState"\n{\n\t"appid"\t\t"620"\n\t"SizeOnDisk"\t\t"1e3"\n\t"SizeOnDisk"\t\t"10"\n}',
     );
     expect(m.sizeBytes).toBeUndefined();
   });

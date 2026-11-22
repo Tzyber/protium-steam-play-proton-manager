@@ -61,8 +61,7 @@ function scanEntries(tokens: VdfToken[], from: number, to: number): Entry[] {
     if (t.kind !== "string") {
       throw new VdfPatchError(`unerwartetes "${t.value}" (offset ${t.start})`);
     }
-    // marker zwischen key und wert werden wie in `rawVdfField` (vdf.ts) ausgelassen
-    // (dort `token.kind === "conditional" continue`): der marker zählt nie als
+    // marker zwischen key und wert werden ausgelassen: der marker zählt nie als
     // wert. `key [cond] value` paart damit key→value, `key [cond]` ohne echten
     // wert bleibt strukturbruch wie `key` allein (N-01). steam schreibt marker
     // nach dem wert, die fälle sind degeneriert.
@@ -96,22 +95,57 @@ function findEntry(tokens: VdfToken[], from: number, to: number, key: string): E
   return scanEntries(tokens, from, to).find((e) => e.key.value.toLowerCase() === lower);
 }
 
-/** wert am pfad lesen (unescaped, case-insensitive navigation). undefined wenn nicht da. */
-export function getVdfValue(text: string, path: readonly string[]): string | undefined {
-  const tokens = tokenize(text);
+function resolveBlockRange(
+  tokens: VdfToken[],
+  path: readonly string[],
+): { from: number; to: number } | undefined {
   let from = 0;
   let to = tokens.length;
-  for (let depth = 0; depth < path.length; depth++) {
-    const key = path[depth];
-    if (key === undefined) return undefined;
+  for (const key of path) {
     const entry = findEntry(tokens, from, to, key);
-    if (!entry) return undefined;
-    if (depth === path.length - 1) return entry.block ? undefined : entry.value.value;
-    if (!entry.block) return undefined;
+    if (!entry?.block) return undefined;
     from = entry.block.from;
     to = entry.block.to;
   }
-  return undefined;
+  return { from, to };
+}
+
+/** wert am pfad lesen (unescaped, case-insensitive navigation). undefined wenn nicht da. */
+export function getVdfValue(text: string, path: readonly string[]): string | undefined {
+  if (path.length === 0) return undefined;
+  const tokens = tokenize(text);
+  const parent = resolveBlockRange(tokens, path.slice(0, -1));
+  if (!parent) return undefined;
+  const leaf = path[path.length - 1];
+  if (leaf === undefined) return undefined;
+  const entry = findEntry(tokens, parent.from, parent.to, leaf);
+  return entry && !entry.block ? entry.value.value : undefined;
+}
+
+/** direkte kind-keys am pfad in quellreihenfolge (case-insensitive first-wins deduplikation). */
+export function childKeys(text: string, path: readonly string[]): string[] {
+  const tokens = tokenize(text);
+  const range = resolveBlockRange(tokens, path);
+  if (!range) return [];
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of scanEntries(tokens, range.from, range.to)) {
+    const lower = entry.key.value.toLowerCase();
+    if (seen.has(lower)) continue;
+    seen.add(lower);
+    keys.push(entry.key.value);
+  }
+  return keys;
+}
+
+/** true, wenn der pfad auf einen strukturell gültigen VDF-block zeigt (first-wins). */
+export function isBlock(text: string, path: readonly string[]): boolean {
+  if (path.length === 0) return false;
+  const tokens = tokenize(text);
+  const range = resolveBlockRange(tokens, path);
+  if (!range) return false;
+  scanEntries(tokens, range.from, range.to);
+  return true;
 }
 
 /** alle direkten kind-blöcke am pfad in EINEM tokenize-lauf lesen:
@@ -128,24 +162,15 @@ export function getVdfChildFieldValues(
 ): { values: Map<string, Map<string, string>>; firstError: string | null } {
   const tokens = tokenize(text);
   const values = new Map<string, Map<string, string>>();
-  let from = 0;
-  let to = tokens.length;
-  for (let depth = 0; depth < path.length; depth++) {
-    const key = path[depth];
-    if (key === undefined) return { values, firstError: null };
-    const entry = findEntry(tokens, from, to, key);
-    const block = entry?.block;
-    if (!block) return { values, firstError: null };
-    from = block.from;
-    to = block.to;
-  }
+  const range = resolveBlockRange(tokens, path);
+  if (!range) return { values, firstError: null };
   let firstError: string | null = null;
   // gesehene app-keys werden unabhängig vom treffer gemerkt: die
   // first-match-semantik von `getVdfValue` und des rust-writers gilt auch,
   // wenn der erste block keines der angefragten felder enthält. der
   // schlüsselvergleich läuft wie `findEntry` case-insensitiv.
   const seen = new Set<string>();
-  for (const child of scanEntries(tokens, from, to)) {
+  for (const child of scanEntries(tokens, range.from, range.to)) {
     if (!child.block) continue;
     const key = child.key.value.toLowerCase();
     // vor dem parse gemerkt: auch ein defekter erster block belegt den key,

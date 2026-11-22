@@ -1,6 +1,6 @@
 // Listener-Lebenszyklus des proton-Stores (R-02): aus `protonStore.ts`
-// herausgelöst. Die WeakMaps bleiben nach der Store-Instanz geschlüsselt,
-// deshalb bekommen die Funktionen immer `store` und nie eine Kopie.
+// herausgelöst. `inflightInit` bleibt nach der Store-Instanz geschlüsselt,
+// damit parallele `init()`-Aufrufe pro Instanz eine Registrierung teilen.
 
 import type { GeRelease } from "../../core/geprotonReleases";
 import type { DownloadProgressEvent, InstallPhaseEvent } from "../../core/ports";
@@ -16,21 +16,7 @@ import { useUiStore } from "./uiStore";
 const SPEED_SMOOTHING_KEEP = 0.6;
 const SPEED_SMOOTHING_NEW = 0.4;
 
-interface ListenerOwnership {
-  unlisteners: Array<() => void>;
-  token: object;
-}
-
-interface ListenerLifecycle {
-  initPromise: Promise<void> | null;
-  generation: number;
-  disposed: boolean;
-  pending: Map<number, Set<() => void>>;
-}
-
-const listenerLifecycle = new WeakMap<object, ListenerLifecycle>();
-const listenerOwnership = new WeakMap<object, ListenerOwnership>();
-const disposeHooks = new WeakSet<object>();
+const inflightInit = new WeakMap<object, Promise<void>>();
 
 /** genau die Store-teile, die der Listener-Lebenszyklus über `store.` nutzt
  *  (kein `ReturnType<typeof useProtonStore>`: das erzeugt einen zirkulären Typ). */
@@ -39,8 +25,6 @@ interface ProtonListenerStore {
   jobs: Record<string, Job>;
   activeTag: string | null;
   listenerReady: boolean;
-  $dispose: () => void;
-  disposeListeners(): Promise<void>;
   loadReleases(): Promise<void>;
 }
 
@@ -66,112 +50,45 @@ function applyProgress(job: Job, payload: DownloadProgressEvent, now: number): v
   job.total = payload.total;
 }
 
+function activeJob(store: ProtonListenerStore, downloadId: string): Job | undefined {
+  const activeTag = store.activeTag;
+  const job = activeTag !== null ? store.jobs[activeTag] : undefined;
+  return job?.downloadId === downloadId ? job : undefined;
+}
+
 export function initListeners(store: ProtonListenerStore): Promise<void> {
-  const lifecycle =
-    listenerLifecycle.get(store) ??
-    ({
-      initPromise: null,
-      generation: 0,
-      disposed: false,
-      pending: new Map<number, Set<() => void>>(),
-    } satisfies ListenerLifecycle);
-  listenerLifecycle.set(store, lifecycle);
   if (store.listenerReady) return Promise.resolve();
-  if (lifecycle.initPromise) return lifecycle.initPromise;
-  if (!disposeHooks.has(store)) {
-    const originalDispose = store.$dispose.bind(store);
-    store.$dispose = () => {
-      void store.disposeListeners();
-      originalDispose();
-    };
-    disposeHooks.add(store);
-  }
-  lifecycle.disposed = false;
-  const generation = lifecycle.generation + 1;
-  lifecycle.generation = generation;
-  const pending = new Set<() => void>();
-  lifecycle.pending.set(generation, pending);
-  const token = {};
+  const active = inflightInit.get(store);
+  if (active) return active;
+
   const promise = (async () => {
     try {
       const progressUnlisten = await ports.system.onDownloadProgress(
         (payload: DownloadProgressEvent) => {
-          if (listenerOwnership.get(store)?.token !== token) return;
-          const activeTag = store.activeTag;
-          const job = activeTag !== null ? store.jobs[activeTag] : undefined;
-          if (job?.downloadId === payload.id) {
-            applyProgress(job, payload, performance.now());
-          }
+          const job = activeJob(store, payload.id);
+          if (job) applyProgress(job, payload, performance.now());
         },
       );
-      pending.add(progressUnlisten);
-      if (lifecycle.disposed || lifecycle.generation !== generation) {
-        progressUnlisten();
-        pending.delete(progressUnlisten);
-        return;
-      }
-      const phaseUnlisten = await ports.system.onInstallPhase((payload: InstallPhaseEvent) => {
-        if (listenerOwnership.get(store)?.token !== token) return;
-        const activeTag = store.activeTag;
-        const job = activeTag !== null ? store.jobs[activeTag] : undefined;
-        if (job?.downloadId === payload.id) {
+      try {
+        await ports.system.onInstallPhase((payload: InstallPhaseEvent) => {
+          const job = activeJob(store, payload.id);
+          if (!job) return;
           job.phase = payload.phase;
-          if (payload.verified) {
-            job.verified = true;
-          }
-        }
-      });
-      pending.add(phaseUnlisten);
-      if (lifecycle.disposed || lifecycle.generation !== generation) {
-        phaseUnlisten();
-        pending.delete(phaseUnlisten);
-        for (const unlisten of pending) unlisten();
-        pending.clear();
-        return;
+          if (payload.verified) job.verified = true;
+        });
+      } catch (e) {
+        progressUnlisten();
+        throw e;
       }
-      listenerOwnership.set(store, {
-        unlisteners: [...pending],
-        token,
-      });
-      lifecycle.pending.delete(generation);
       store.listenerReady = true;
-      if (!store.releases.length) void store.loadReleases();
     } catch (e) {
-      listenerOwnership.delete(store);
-      for (const unlisten of pending) unlisten();
-      pending.clear();
-      lifecycle.pending.delete(generation);
-      if (!lifecycle.disposed && lifecycle.generation === generation) {
-        logError("Proton-Listener fehlgeschlagen", e);
-        useUiStore().showNotification(t("proton.listenerUnavailable", { error: formatError(e) }));
-        if (!store.releases.length) void store.loadReleases();
-      }
+      logError("Proton-Listener fehlgeschlagen", e);
+      useUiStore().showNotification(t("proton.listenerUnavailable", { error: formatError(e) }));
     } finally {
-      if (lifecycle.generation === generation) lifecycle.initPromise = null;
+      if (!store.releases.length) void store.loadReleases();
+      inflightInit.delete(store);
     }
   })();
-  lifecycle.initPromise = promise;
+  inflightInit.set(store, promise);
   return promise;
-}
-
-export async function disposeListeners(store: ProtonListenerStore): Promise<void> {
-  const lifecycle = listenerLifecycle.get(store);
-  if (!lifecycle) {
-    store.listenerReady = false;
-    return;
-  }
-  lifecycle.disposed = true;
-  lifecycle.generation += 1;
-  lifecycle.initPromise = null;
-  const ownership = listenerOwnership.get(store);
-  listenerOwnership.delete(store);
-  store.listenerReady = false;
-  if (ownership) {
-    for (const unlisten of ownership.unlisteners) unlisten();
-  }
-  for (const pending of lifecycle.pending.values()) {
-    for (const unlisten of pending) unlisten();
-    pending.clear();
-  }
-  lifecycle.pending.clear();
 }

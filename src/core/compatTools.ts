@@ -4,8 +4,7 @@
 // Größenmessung.
 
 import { parseSafeAppId } from "./guards.js";
-import { asNode, asString, getPath, parseVdf, rawVdfField } from "./vdf.js";
-import { unescapeVdfRaw } from "./vdfTokenizer.js";
+import { childKeys, getVdfValue } from "./vdfRead.js";
 
 /** appId → compat-tool-name (interner name, wie in config.vdf). */
 export type CompatToolMapping = Map<number, string>;
@@ -21,7 +20,6 @@ const MAPPING_ROOTS = [
 
 // Ein fehlender teilbaum ergibt eine leere Map; ungültiges VDF wirft.
 export function parseCompatToolMapping(configVdfText: string): CompatToolMapping {
-  const root = parseVdf(configVdfText);
   const out: CompatToolMapping = new Map();
   // Beide layout-pfade werden gelesen, in der reihenfolge von MAPPING_ROOTS.
   // Lesepfad ist first-wins: `out.has(appId)` hält die erste zuordnung je
@@ -38,18 +36,15 @@ export function parseCompatToolMapping(configVdfText: string): CompatToolMapping
   // unverändert. Auch diese divergence ist bewusst und hier nur dokumentiert,
   // nicht repariert (P2/5.4).
   for (const path of MAPPING_ROOTS) {
-    const mappingNode = asNode(getPath(root, ...path));
-    if (!mappingNode) continue;
-
-    for (const key of Object.keys(mappingNode)) {
+    for (const key of childKeys(configVdfText, path)) {
       // "0" ist die globale standard-zuordnung in Steam (scan/tools.ts liest
       // mapping.get(0)). Alle übrigen keys müssen sichere steam-app-ids sein:
       // eine reine ziffernprüfung hat keine obergrenze (400 ziffern ergeben in
       // Number() Infinity), parseSafeAppId prüft 1 <= id <= u32::MAX.
       const appId = key === "0" ? 0 : parseSafeAppId(key);
-      if (appId === null) continue;
-      const name = asString(getPath(mappingNode, key, "name"));
-      if (name && name.trim() !== "" && !out.has(appId)) out.set(appId, name);
+      if (appId === null || out.has(appId)) continue;
+      const name = getVdfValue(configVdfText, [...path, key, "name"]);
+      if (name && name.trim() !== "") out.set(appId, name);
     }
   }
   return out;
@@ -62,24 +57,19 @@ export function readToolVdf(
 ): { internalName: string; displayName: string } {
   let internalName = fallbackName;
   let displayName = fallbackName;
-  const compatTools = asNode(getPath(parseVdf(text), "compatibilitytools", "compat_tools"));
-  if (compatTools) {
-    const keys = Object.keys(compatTools);
-    // mehrere einträge machen die identität mehrdeutig; rust lehnt sie ebenso ab
-    if (keys.length > 1) throw new Error("compat_tools must contain exactly one tool");
-    const internal = keys[0];
-    if (internal) {
-      internalName = internal;
-      // derselbe Rohwert wie beim Manifest-Namen: die Bibliothek macht aus
-      // `"007"` eine Zahl und aus `"true"` einen Boolean (A-15).
-      const dnRaw = rawVdfField(text, [
-        "compatibilitytools",
-        "compat_tools",
-        internal,
-        "display_name",
-      ]);
-      if (dnRaw) displayName = unescapeVdfRaw(dnRaw);
-    }
+  const keys = childKeys(text, ["compatibilitytools", "compat_tools"]);
+  // mehrere einträge machen die identität mehrdeutig; rust lehnt sie ebenso ab
+  if (keys.length > 1) throw new Error("compat_tools must contain exactly one tool");
+  const internal = keys[0];
+  if (internal) {
+    internalName = internal;
+    const displayNameValue = getVdfValue(text, [
+      "compatibilitytools",
+      "compat_tools",
+      internal,
+      "display_name",
+    ]);
+    if (displayNameValue) displayName = displayNameValue;
   }
   return { internalName, displayName };
 }

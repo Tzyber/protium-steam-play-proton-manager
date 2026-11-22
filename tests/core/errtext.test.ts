@@ -6,6 +6,9 @@ describe("errtext und parseError (B1)", () => {
   it("errText extrahiert Fehlermeldungen konsistent", () => {
     expect(errText("roher fehler")).toBe("roher fehler");
     expect(errText(new Error("fehler im objekt"))).toBe("fehler im objekt");
+    expect(errText({ code: "steam-running" })).toBe("steam-running");
+    expect(errText({ code: "unreadable", detail: "EACCES" })).toBe("unreadable: EACCES");
+    expect(errText({ code: "incomplete", detail: "" })).toBe("incomplete");
     expect(errText(123)).toBe("123");
   });
 
@@ -81,6 +84,55 @@ describe("errtext und parseError (B1)", () => {
     expect(parsed.kind).toBe("blocked");
     expect(parsed.code).toBe("steam-running");
     expect(parsed.detail).toBe("write");
+  });
+
+  it("parseError akzeptiert strukturierte { code, detail? }-Objekte", () => {
+    expect(parseError({ code: "steam-running" })).toEqual({
+      kind: "blocked",
+      code: "steam-running",
+      message: "steam-running",
+    });
+
+    expect(parseError({ code: "unreadable", detail: "EACCES" })).toEqual({
+      kind: "unreadable",
+      code: "unreadable",
+      message: "unreadable: EACCES",
+      detail: "EACCES",
+    });
+
+    expect(
+      parseError({ code: "incomplete", detail: "2 directories could not be removed" }),
+    ).toEqual({
+      kind: "incomplete",
+      code: "incomplete",
+      message: "incomplete: 2 directories could not be removed",
+      detail: "2 directories could not be removed",
+    });
+
+    expect(parseError({ code: "constructor" })).toEqual({
+      kind: "unknown",
+      code: "unknown",
+      message: "constructor",
+    });
+
+    expect(parseError({ code: "unknown-future-code", detail: "foo" })).toEqual({
+      kind: "unknown",
+      code: "unknown",
+      message: "unknown-future-code: foo",
+    });
+
+    expect(parseError({ code: "incomplete", detail: "" })).toEqual({
+      kind: "incomplete",
+      code: "incomplete",
+      message: "incomplete",
+    });
+
+    const errorWithCode = Object.assign(new Error("boom"), { code: "steam-running" });
+    expect(parseError(errorWithCode)).toEqual({
+      kind: "unknown",
+      code: "unknown",
+      message: "boom",
+    });
   });
 });
 

@@ -1,6 +1,5 @@
 // gemeinsamer text-vdf-tokenizer (K-02) für `vdfRead.ts` (bytegenauer leser
-// im string-patch-pfad), `vdf.ts` (pre-pass) und `rawVdfField`. das patchen
-// selbst lebt in rust, vdf_patch.rs.
+// im string-patch-pfad). das patchen selbst lebt in rust, vdf_patch.rs.
 
 /** Signifikante VDF-tokens; trivia (whitespace, zeilen- und blockkommentar)
  *  liegt in den lücken zwischen zwei tokens und wird bei bedarf mit
@@ -37,12 +36,10 @@ interface VdfTokenizeResult {
 /** P12a: tiefen-cap. Steam-Dateien liegen bei wenigen Ebenen. */
 const MAX_DEPTH = 256;
 
-/** Gemeinsamer Text-VDF-Tokenizer (K-02): ersetzt die drei zuvor unabhängigen
- *  lexer im früheren `vdfpatch.ts`, in `manifest.ts` und `vdf.ts`. bewusst nicht-werfend,
- *  weil die aufrufer sich beim abbruch unterscheiden: `vdfRead.ts` wirft bei
- *  einem unterminierten token, `vdf.ts` bricht ab und übernimmt den rest roh.
- *  die entscheidungen bei den zuvor abweichenden fällen stehen jeweils an der
- *  stelle. */
+/** Gemeinsamer Text-VDF-Tokenizer (K-02): ersetzt die zuvor unabhängigen
+ *  Lexer (`vdfpatch.ts`/`manifest.ts`). Bewusst nicht-werfend, weil `vdfRead.ts`
+ *  unter anderem kaputte Teilblöcke separat klassifiziert und Fehler erst dort
+ *  ausgelöst werden. */
 export function tokenizeVdf(text: string): VdfTokenizeResult {
   // P12a: ein token braucht mindestens ein zeichen, deshalb liegt der cap bei
   // der halben textlänge plus kopfraum. er deckelt die arbeit eines

@@ -164,4 +164,20 @@ describe("formatError (B1)", () => {
       t("errors.noSteamAccount"),
     );
   });
+
+  it("formatiert strukturierte { code, detail? }-Fehlerobjekte analog zu Strings", () => {
+    setLocale("de");
+    expect(formatError({ code: "steam-running" })).toContain("Steam läuft gerade");
+    expect(formatError({ code: "unreadable", detail: "/etc/passwd" })).toBe(
+      t("errors.kinds.unreadable"),
+    );
+    expect(formatError({ code: "incomplete", detail: "2 directories could not be removed" })).toBe(
+      `${t("errors.kinds.incomplete")} (2 directories could not be removed)`,
+    );
+    expect(formatError({ code: "size-limit-exceeded", detail: "/secret" })).toBe(
+      t("errors.codes.sizeLimitExceeded"),
+    );
+    expect(formatError({ code: "constructor" })).toBe("unbekannt");
+    expect(formatError({ code: "unknown-future-code", detail: "foo" })).toBe("unbekannt");
+  });
 });

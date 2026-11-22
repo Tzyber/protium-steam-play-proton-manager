@@ -1,29 +1,21 @@
-// Reine Helfer des Cleanup-Stores: Installationsstand, Größenübernahme,
-// Fehlerzusammenfassung und die Basisfrage "gibt es einen Grund, der das
-// Cleanup sperrt". Kein Store-Zustand, kein Pinia, damit einzeln prüfbar.
+// Reine UI-Helfer des Cleanup-Stores (Größenübernahme, Fehler- und Dialogtexte).
+// Alle UI-freien Gate-/Sperrregeln liegen in `src/core/cleanupGate.ts` (INV-5)
+// und werden hier für Store- und Test-Aufrufer weitergereicht.
 
-import type { IncompleteDeletion, OrphanUnreadable } from "../../core/cleanup";
 import { ProtiumError } from "../../core/errors";
 import { validNonNegativeInteger } from "../../core/guards";
 import type { DirectorySize } from "../../core/ports";
-import type { ShortcutResult } from "../../core/shortcuts";
-import type { TrashLibraryStatus } from "../../core/trash";
-import type { OrphanEntry, ScanResult } from "../../core/types";
 import type { Key } from "../i18n";
 import { t } from "../i18n";
 
-/** Baut den aktuellen Installationsstatus aus Spielen und Shortcuts statt auf
- *  einen veralteten scan-stand zu vertrauen; der cleanup-race-schutz lebt hier. */
-export function collectInstalledAppIds(
-  result: ScanResult,
-  shortcutResult: ShortcutResult,
-): Set<number> {
-  const installedAppIds = new Set(result.games.map((g) => g.appId));
-  if (shortcutResult.status === "ok") {
-    for (const id of shortcutResult.ids) installedAppIds.add(id);
-  }
-  return installedAppIds;
-}
+export {
+  cleanupBlockedFlags,
+  collectInstalledAppIds,
+  hasOrphanUnavailableBase,
+  hasUnreadableOrphanType,
+  isCurrentForScan,
+  mergeOrphanUnreadable,
+} from "../../core/cleanupGate";
 
 /** übernimmt ausschließlich bestätigte messwerte. Jeder fehlende, unbekannte
  *  oder ungültige wert ist ein harter fehler, still 0 zu setzen würde einen
@@ -116,90 +108,6 @@ export function confirmTitle(singleKey: Key, multiKey: Key, n: number): string {
   return n === 1 ? t(singleKey, { n }) : t(multiKey, { n });
 }
 
-/** Sperrt das Cleanup aus einem der belegten Gründe? `blockedBySkipped` und
- *  `pathMissingLibs` sind die fail-closed-Fälle aus der Discovery (INV-2).
- *  Die unlesbaren Orphan-Basisverzeichnisse stehen absichtlich NICHT hier,
- *  sondern in `hasUnreadableOrphanType`: ein unlesbares compatdata ist von
- *  einem unlesbaren shadercache sicher zu trennen, sonst sperrt ein Bereich den
- *  anderen ohne Beleg. */
-export function hasOrphanUnavailableBase(state: {
-  orphanError: string | null;
-  blockedBySkipped: boolean;
-  pathMissingLibs: readonly string[];
-  incompleteDeletionsUnreadable: readonly string[];
-}): boolean {
-  return (
-    state.orphanError !== null ||
-    state.blockedBySkipped ||
-    state.pathMissingLibs.length > 0 ||
-    state.incompleteDeletionsUnreadable.length > 0
-  );
-}
-
-/** Sperrt genau dieser Orphan-Bereich wegen eines unlesbaren Basisverzeichnisses?
- *  Typ-genau: `shadercache` prüft shadercache-Pfade, `compatdata` compatdata. */
-export function hasUnreadableOrphanType(
-  state: { orphanUnreadable: readonly OrphanUnreadable[] },
-  type: OrphanEntry["type"],
-): boolean {
-  return state.orphanUnreadable.some((entry) => entry.type === type);
-}
-
-/** Die eine Sperrquelle für Coverage und Löschdialog: getrennte Antworten
- *  widersprechen sich bei „unvollständig". `base` gilt bereichsübergreifend,
- *  `shader`/`prefix` sind typ-genau, `trash` hängt am Papierkorb-Scan, `any`
- *  ist die Sperre der Anzeige. `trashDelete` ist die Löschsperre des
- *  Papierkorbs: gleiche Terme wie `trash`, aber ohne `trashUnknown`. Ein
- *  unbekannter Eintrag ist nur nicht angeboten; er belegt keinen
- *  unvollständigen Scan und darf das Löschen der erkannten Einträge nicht
- *  verhindern (FR-4). */
-export function cleanupBlockedFlags(facts: {
-  orphanScanError: string | null;
-  blockedBySkipped: boolean;
-  pathMissingLibs: readonly string[];
-  incompleteDeletionsUnreadable: readonly string[];
-  shortcutUnreadable: boolean;
-  orphanUnreadable: readonly OrphanUnreadable[];
-  incompleteDeletions: readonly { type: IncompleteDeletion["type"] }[];
-  trashScanError: string | null;
-  trashUnknown: readonly string[];
-  trashLibraries: readonly TrashLibraryStatus[];
-}): {
-  base: boolean;
-  shader: boolean;
-  prefix: boolean;
-  trash: boolean;
-  trashDelete: boolean;
-  any: boolean;
-} {
-  const base = hasOrphanUnavailableBase({
-    orphanError: facts.orphanScanError,
-    blockedBySkipped: facts.blockedBySkipped,
-    pathMissingLibs: facts.pathMissingLibs,
-    incompleteDeletionsUnreadable: facts.incompleteDeletionsUnreadable,
-  });
-  const shader =
-    base ||
-    hasUnreadableOrphanType(facts, "shadercache") ||
-    facts.incompleteDeletions.some((deletion) => deletion.type === "shadercache");
-  const prefix =
-    base ||
-    facts.shortcutUnreadable ||
-    hasUnreadableOrphanType(facts, "compatdata") ||
-    facts.incompleteDeletions.some((deletion) => deletion.type === "compatdata");
-  const hasDeletionRest =
-    facts.incompleteDeletionsUnreadable.length > 0 ||
-    facts.incompleteDeletions.some((deletion) => deletion.type === "trash");
-  const trashLibraryError = facts.trashLibraries.some((library) => library.error !== undefined);
-  const trash =
-    facts.trashScanError !== null ||
-    facts.trashUnknown.length > 0 ||
-    trashLibraryError ||
-    hasDeletionRest;
-  const trashDelete = facts.trashScanError !== null || trashLibraryError || hasDeletionRest;
-  return { base, shader, prefix, trash, trashDelete, any: shader || prefix || trash };
-}
-
 /** Der EINZIGE Übersetzungsort des Papierkorb-Sperrtextes. Die Aufrufer halten
  *  nur den sprachunabhängigen Fakt `trashDeleteBlocked` und übersetzen beim
  *  render; ein Sprachwechsel nimmt den stehenden Sperrgrund damit mit. Der
@@ -209,66 +117,8 @@ export function trashDeleteBlockedText(blocked: boolean): string | null {
   return blocked ? t("cleanup.trashDeleteBlocked") : null;
 }
 
-/** Führt die typ-genauen Unlesbar-Listen zweier Scans zusammen und dedupliziert
- *  nach `path+type` (beide Scans sehen dieselben compatdata-Verzeichnisse, ein
- *  Ort darf nur einmal gemeldet werden). Die Reihenfolge des ersten Vorkommens
- *  bleibt erhalten. */
-export function mergeOrphanUnreadable(
-  ...lists: readonly (readonly OrphanUnreadable[])[]
-): OrphanUnreadable[] {
-  const merged: OrphanUnreadable[] = [];
-  const seen = new Set<string>();
-  for (const list of lists) {
-    for (const entry of list) {
-      const key = `${entry.type}:${entry.path}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      merged.push(entry);
-    }
-  }
-  return merged;
-}
-
 /** Auswahl umschalten: dieselbe Regel für Shader-, Prefix- und Papierkorb-Listen. */
 export function toggleInSet(set: Set<string>, key: string): void {
   if (set.has(key)) set.delete(key);
   else set.add(key);
-}
-
-/** Generations-guard eines cleanup-Laufs: eigene Generation, Generation des
- *  Library-Scans und ein Scan-Stand, in dem ein Ergebnis gilt. Eine neue eigene
- *  Generation oder ein Library-Rescan macht den Lauf ungültig, seine Antwort
- *  darf nichts mehr eintragen (INV-2); genau deshalb bleibt der Vergleich streng
- *  und wird nicht gelockert. */
-export function isCurrentForScan(guard: {
-  generation: number;
-  currentGeneration: number;
-  sourceScanGeneration: number;
-  scan: { scanGeneration: number; status: string };
-}): boolean {
-  return (
-    guard.generation === guard.currentGeneration &&
-    guard.scan.scanGeneration === guard.sourceScanGeneration &&
-    (guard.scan.status === "done" || guard.scan.status === "idle")
-  );
-}
-
-/** Quell-Generation sofort festhalten, eigene Generation erst in `isCurrent`
- *  lesen. Ein Library-Rescan oder ein neuer eigener Lauf dazwischen macht die
- *  Antwort ungültig (INV-2). Ein laufender Scan liefert kein Ergebnis. */
-export function cleanupTurn<T>(
-  scan: { status: string; result: T | null; scanGeneration: number },
-  generation: number,
-  currentGeneration: () => number,
-): { result: T | null; isCurrent: () => boolean } {
-  const sourceScanGeneration = scan.scanGeneration;
-  const result = scan.status === "done" || scan.status === "idle" ? scan.result : null;
-  const isCurrent = () =>
-    isCurrentForScan({
-      generation,
-      currentGeneration: currentGeneration(),
-      sourceScanGeneration,
-      scan,
-    });
-  return { result, isCurrent };
 }
